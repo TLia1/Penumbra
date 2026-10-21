@@ -1,0 +1,130 @@
+{
+  "logo": {
+    "type": "kitty-direct",
+    "source": "~/.config/fastfetch/nocturne-arch.png",
+    "width": 26,
+    "height": 13,
+    "padding": {
+      "top": 1,
+      "left": 0,
+      "right": 4
+    }
+  },
+  "display": {
+    "separator": " : ",
+    "color": {
+      "keys": "#b69af7",
+      "title": "#ceb4ff",
+      "output": "#e4dced",
+      "separator": "#71637f"
+    },
+    "key": {
+      "width": 16
+    }
+  },
+  "modules": [
+    "break",
+    {
+      "type": "custom",
+      "format": "  ◈  N O C T U R N E  ·  a quieter orbit."
+    },
+    {
+      "type": "custom",
+      "format": "╭────────────────────────────────────────────────╮"
+    },
+    {
+      "type": "host",
+      "key": "  󰌢 Host",
+      "keyColor": "#9ccbd2",
+      "format": "{name}"
+    },
+    {
+      "type": "os",
+      "key": "  󰣇 OS",
+      "keyColor": "#b69af7"
+    },
+    {
+      "type": "kernel",
+      "key": "   Kernel",
+      "keyColor": "#ceb4ff"
+    },
+    {
+      "type": "packages",
+      "key": "  󰏖 Packages",
+      "keyColor": "#a5ccb3"
+    },
+    {
+      "type": "display",
+      "key": "  󰍹 Display",
+      "keyColor": "#9ccbd2",
+      "format": "{width}×{height} @ {refresh-rate} Hz"
+    },
+    {
+      "type": "terminal",
+      "key": "   Terminal",
+      "keyColor": "#e5c89a"
+    },
+    {
+      "type": "wm",
+      "key": "   WM",
+      "keyColor": "#b69af7"
+    },
+    {
+      "type": "custom",
+      "format": "╰────────────────────────────────────────────────╯"
+    },
+    "break",
+    {
+      "type": "title",
+      "key": "  ",
+      "keyColor": "#9ccbd2",
+      "format": "{user-name} @ {host-name}"
+    },
+    {
+      "type": "custom",
+      "format": "╭────────────────────────────────────────────────╮"
+    },
+    {
+      "type": "cpu",
+      "key": "   CPU",
+      "keyColor": "#a1a5e9"
+    },
+    {
+      "type": "gpu",
+      "key": "  󰢮 GPU",
+      "keyColor": "#a1a5e9"
+    },
+    {
+      "type": "gpu",
+      "key": "   Driver",
+      "keyColor": "#b69af7",
+      "format": "{driver}"
+    },
+    {
+      "type": "memory",
+      "key": "   Memory",
+      "keyColor": "#ceb4ff"
+    },
+    {
+      "type": "disk",
+      "key": "  󰋊 Disk",
+      "keyColor": "#a5ccb3",
+      "folders": "/"
+    },
+    {
+      "type": "uptime",
+      "key": "  󰔟 Uptime",
+      "keyColor": "#ef8fa4"
+    },
+    {
+      "type": "custom",
+      "format": "╰────────────────────────────────────────────────╯"
+    },
+    {
+      "type": "colors",
+      "symbol": "circle",
+      "paddingLeft": 2
+    },
+    "break"
+  ]
+}

@@ -1,0 +1,12 @@
+@define-color theme_selected_bg_color #916dcf;
+@define-color theme_selected_fg_color #ffffff;
+@define-color theme_bg_color #100d18;
+@define-color theme_fg_color #e4dced;
+@define-color theme_base_color #0d0a12;
+@define-color theme_text_color #e4dced;
+@define-color accent_color #b69af7;
+@define-color accent_bg_color #916dcf;
+@define-color accent_fg_color #ffffff;
+window, dialog { background-color: #100d18; color: #e4dced; }
+headerbar { background: #16111f; color: #e4dced; }
+selection { background-color: #916dcf; color: #ffffff; }

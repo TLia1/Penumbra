@@ -1,0 +1,105 @@
+MESA-EGL: warning: egl: failed to create dri2 screen
+MESA-EGL: warning: egl: failed to create dri2 screen
+Hyprlock version v0.9.6
+DEBUG ]:   | got iface: wl_seat v9
+DEBUG ]:    > Bound to wl_seat v9
+DEBUG ]:   | got iface: wl_data_device_manager v3
+DEBUG ]:   | got iface: wl_compositor v6
+DEBUG ]:    > Bound to wl_compositor v6
+DEBUG ]:   | got iface: wl_subcompositor v1
+DEBUG ]:   | got iface: wl_shm v2
+DEBUG ]:    > Bound to wl_shm v2
+DEBUG ]:   | got iface: wp_viewporter v1
+DEBUG ]:    > Bound to wp_viewporter v1
+DEBUG ]:   | got iface: wp_tearing_control_manager_v1 v1
+DEBUG ]:   | got iface: wp_fractional_scale_manager_v1 v1
+DEBUG ]:    > Bound to wp_fractional_scale_manager_v1 v1
+DEBUG ]:   | got iface: zxdg_output_manager_v1 v3
+DEBUG ]:   | got iface: wp_cursor_shape_manager_v1 v2
+DEBUG ]:    > Bound to wp_cursor_shape_manager_v1 v2
+DEBUG ]:   | got iface: zwp_idle_inhibit_manager_v1 v1
+DEBUG ]:   | got iface: zwp_relative_pointer_manager_v1 v1
+DEBUG ]:   | got iface: zxdg_decoration_manager_v1 v2
+DEBUG ]:   | got iface: wp_alpha_modifier_v1 v1
+DEBUG ]:   | got iface: zwlr_gamma_control_manager_v1 v1
+DEBUG ]:   | got iface: ext_foreign_toplevel_list_v1 v1
+DEBUG ]:   | got iface: zwp_pointer_gestures_v1 v3
+DEBUG ]:   | got iface: zwlr_foreign_toplevel_manager_v1 v3
+DEBUG ]:   | got iface: zwp_keyboard_shortcuts_inhibit_manager_v1 v1
+DEBUG ]:   | got iface: zwp_text_input_manager_v1 v1
+DEBUG ]:   | got iface: zwp_text_input_manager_v3 v1
+DEBUG ]:   | got iface: zwp_pointer_constraints_v1 v1
+DEBUG ]:   | got iface: zwlr_output_power_manager_v1 v1
+DEBUG ]:   | got iface: xdg_activation_v1 v1
+DEBUG ]:   | got iface: ext_idle_notifier_v1 v2
+DEBUG ]:   | got iface: hyprland_lock_notifier_v1 v1
+DEBUG ]:   | got iface: ext_session_lock_manager_v1 v1
+DEBUG ]:    > Bound to ext_session_lock_manager_v1 v1
+DEBUG ]:   | got iface: zwp_input_method_manager_v2 v1
+DEBUG ]:   | got iface: zwp_virtual_keyboard_manager_v1 v1
+DEBUG ]:   | got iface: zwlr_virtual_pointer_manager_v1 v2
+DEBUG ]:   | got iface: zwlr_output_manager_v1 v4
+DEBUG ]:   | got iface: org_kde_kwin_server_decoration_manager v1
+DEBUG ]:   | got iface: hyprland_focus_grab_manager_v1 v1
+DEBUG ]:   | got iface: zwp_tablet_manager_v2 v1
+DEBUG ]:   | got iface: zwlr_layer_shell_v1 v5
+DEBUG ]:   | got iface: wp_presentation v2
+DEBUG ]:   | got iface: xdg_wm_base v7
+DEBUG ]:   | got iface: zwlr_data_control_manager_v1 v2
+DEBUG ]:   | got iface: zwp_primary_selection_device_manager_v1 v1
+DEBUG ]:   | got iface: xwayland_shell_v1 v1
+DEBUG ]:   | got iface: hyprland_toplevel_mapping_manager_v1 v1
+DEBUG ]:   | got iface: hyprland_global_shortcuts_manager_v1 v1
+DEBUG ]:   | got iface: xdg_wm_dialog_v1 v1
+DEBUG ]:   | got iface: wp_single_pixel_buffer_manager_v1 v1
+DEBUG ]:   | got iface: wp_security_context_manager_v1 v1
+DEBUG ]:   | got iface: hyprland_ctm_control_manager_v1 v2
+DEBUG ]:   | got iface: hyprland_input_capture_manager_v1 v1
+DEBUG ]:   | got iface: hyprland_surface_manager_v1 v2
+DEBUG ]:   | got iface: wp_content_type_manager_v1 v1
+DEBUG ]:   | got iface: xdg_toplevel_tag_manager_v1 v1
+DEBUG ]:   | got iface: xdg_system_bell_v1 v1
+DEBUG ]:   | got iface: vicinae_hotkey_manager_v1 v1
+DEBUG ]:   | got iface: ext_workspace_manager_v1 v1
+DEBUG ]:   | got iface: ext_data_control_manager_v1 v1
+DEBUG ]:   | got iface: wp_pointer_warp_v1 v1
+DEBUG ]:   | got iface: wp_fifo_manager_v1 v1
+DEBUG ]:   | got iface: zxdg_exporter_v2 v1
+DEBUG ]:   | got iface: zxdg_importer_v2 v1
+DEBUG ]:   | got iface: ext_background_effect_manager_v1 v1
+DEBUG ]:   | got iface: wp_commit_timing_manager_v1 v1
+DEBUG ]:   | got iface: zwlr_screencopy_manager_v1 v3
+DEBUG ]:    > Bound to zwlr_screencopy_manager_v1 v3
+DEBUG ]:   | got iface: hyprland_toplevel_export_manager_v1 v2
+DEBUG ]:   | got iface: ext_output_image_capture_source_manager_v1 v1
+DEBUG ]:   | got iface: ext_foreign_toplevel_image_capture_source_manager_v1 v1
+DEBUG ]:   | got iface: ext_image_copy_capture_manager_v1 v1
+DEBUG ]:   | got iface: wp_color_manager_v1 v3
+DEBUG ]:   | got iface: wp_drm_lease_device_v1 v1
+DEBUG ]:   | got iface: wp_linux_drm_syncobj_manager_v1 v1
+DEBUG ]:   | got iface: wl_drm v2
+DEBUG ]:   | got iface: zwp_linux_dmabuf_v1 v5
+DEBUG ]:   | got iface: wl_output v4
+DEBUG ]:    > Bound to wl_output v4
+DEBUG ]: Exposed seat name: Hyprland
+DEBUG ]: output Virtual-1 name Virtual-1
+DEBUG ]: output 71 description Red Hat Inc. QEMU Monitor  (Virtual-1)
+DEBUG ]: output 71 make Red Hat, Inc. model QEMU Monitor
+DEBUG ]: output 71 done
+DEBUG ]: Running on Hyprland
+DEBUG ]: Locking session
+DEBUG ]: Starting fade in
+DEBUG ]: Got fractional scale: 100.0%
+DEBUG ]: configure with serial 4825
+DEBUG ]: Configuring surface for logical [Vector2D: x: 1280, y: 800] and pixel [Vector2D: x: 1280, y: 800]
+DEBUG ]: Updating placeholder text: Enter password
+DEBUG ]: PAMPROMPT: Password: 
+DEBUG ]: [sc] [shm] Converting ARGB to RGBA
+DEBUG ]: [sc] [shm] Got screenshot with size [Vector2D: x: 1280, y: 800]
+DEBUG ]: Gathered all screencopy frames - removing dmabuf listeners
+DEBUG ]: onLockLocked called
+DEBUG ]: Unlocking with a SIGUSR1
+DEBUG ]: Unlocking session
+DEBUG ]: Unlocked, exiting!
+ERR ]: auth: pam_authenticate failed for hyprlock
+DEBUG ]: Reached the end, exiting

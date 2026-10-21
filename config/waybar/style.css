@@ -1,0 +1,42 @@
+/* NOCTURNE — individual floating capsules */
+* { font-family: "JetBrainsMono Nerd Font", "Inter"; font-size: 12px; min-height: 0; border: none; }
+window#waybar { background: transparent; color: #ded8ed; }
+.modules-left, .modules-center, .modules-right { background: transparent; }
+#custom-launcher, #clock, #window, #cpu, #memory, #tray,
+#network, #custom-bluetooth, #pulseaudio, #custom-power {
+    background: rgba(16, 13, 24, 0.96);
+    border: 1px solid #352842;
+    border-radius: 999px;
+    padding: 0 13px;
+    margin: 1px 0;
+}
+#custom-launcher { color: #c4a5ff; font-size: 22px; padding: 0 14px; }
+#clock { font-family: "Inter"; font-weight: 700; font-size: 14px; color: #eee8ff; padding: 0 18px; }
+#workspaces { background: transparent; padding: 0; margin: 0; }
+#workspaces button {
+    background: rgba(16, 13, 24, 0.96);
+    border: 1px solid #352842;
+    border-radius: 999px;
+    margin: 1px 4px;
+    padding: 0 12px;
+    min-width: 12px;
+    color: #aa97bf;
+    transition: background-color 160ms ease, color 160ms ease;
+}
+#workspaces button.active { background: #b69af7; color: #100b1b; border-color: #c6aaff; font-weight: bold; }
+#workspaces button:hover { background: #38264f; color: #eee8ff; box-shadow: none; }
+#workspaces button.urgent { background: #ef8fa4; color: #100b1b; }
+/* Empty desktops have zero visible/clickable width, even when focused. */
+#workspaces button.empty, #workspaces button.empty * {
+    min-width: 0; min-height: 0; padding: 0; margin: 0;
+    border-width: 0; font-size: 0; opacity: 0; background: transparent;
+}
+#window { font-family: "Inter"; font-size: 12px; color: #c8b8dc; padding: 0 16px; }
+window#waybar.empty #window { background: transparent; border: none; padding: 0; margin: 0; }
+#cpu, #memory { color: #aaa0bb; font-size: 11px; padding: 0 12px; }
+#tray { padding: 0 12px; }
+#network, #custom-bluetooth, #pulseaudio { color: #c8bbde; }
+#custom-bluetooth.unavailable, #network.disconnected, #pulseaudio.muted { color: #6c627b; }
+#custom-power { color: #c4a5ff; font-size: 17px; padding: 0 14px; }
+tooltip { background: #16111f; border: 1px solid #503a6d; border-radius: 16px; }
+tooltip label { color: #e8e1f3; padding: 8px; }

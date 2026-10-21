@@ -1,0 +1,20 @@
+[General]
+ShowFullPath=true
+RememberOpenedTabs=false
+
+[MainWindow]
+MenuBar=Disabled
+
+[DetailsMode]
+PreviewSize=48
+
+[IconsMode]
+IconSize=64
+PreviewSize=80
+
+[KFileDialog Settings]
+Places Icons Auto-resize=false
+Places Icons Static Size=22
+
+[UiSettings]
+ColorScheme=Nocturne

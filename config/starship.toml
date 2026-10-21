@@ -1,0 +1,22 @@
+add_newline = true
+format = "[󰣇 ](bold #b69af7)$directory$git_branch$git_status$cmd_duration$character"
+right_format = "$time"
+[directory]
+style = "bold #b69af7"
+truncation_length = 3
+truncation_symbol = "…/"
+[character]
+success_symbol = "[❯](bold #b69af7)"
+error_symbol = "[❯](bold #ef8fa4)"
+[git_branch]
+symbol = " "
+style = "#9ccbd2"
+[git_status]
+style = "#e5c89a"
+[cmd_duration]
+min_time = 2000
+format = "[ · $duration](#8f809f)"
+[time]
+disabled = false
+time_format = "%H:%M"
+format = "[󰥔 $time](#71637f)"

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+choice=$(printf '󰌾  Lock\n󰤄  Suspend\n󰍃  Log out\n󰜉  Restart\n󰐥  Shut down\n' | rofi -dmenu -i -p 'SESSION' -theme-str 'listview { lines: 5; } mainbox { children: [ inputbar, listview ]; }') || exit 0
+case "$choice" in
+ *Lock) loginctl lock-session; exit;;
+ *Suspend) systemctl suspend; exit;;
+ *'Log out') action=logout;;
+ *Restart) action=reboot;;
+ *'Shut down') action=poweroff;;
+ *) exit;;
+esac
+answer=$(printf 'Cancel\nConfirm\n' | rofi -dmenu -i -p "$choice" -theme-str 'listview { lines: 2; } mainbox { children: [ inputbar, listview ]; }') || exit 0
+[[ "$answer" = Confirm ]] || exit 0
+case "$action" in
+ logout) hyprctl dispatch 'hl.dsp.exit()';;
+ reboot) systemctl reboot;;
+ poweroff) systemctl poweroff;;
+esac

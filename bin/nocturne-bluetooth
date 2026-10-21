@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Always expose the control, including VMs with no passed-through adapter.
+if [[ ${1:-} = open ]]; then
+ if compgen -G '/sys/class/bluetooth/hci*' >/dev/null; then exec blueman-manager; else notify-send 'Bluetooth unavailable' 'No Bluetooth adapter is attached to this computer. Pass a USB adapter through to the VM to pair devices.'; fi
+else
+ if compgen -G '/sys/class/bluetooth/hci*' >/dev/null; then
+  printf '{"text":"󰂯","tooltip":"Bluetooth · click to manage devices","class":"available"}\n'
+ else
+  printf '{"text":"󰂲","tooltip":"Bluetooth · no adapter attached","class":"unavailable"}\n'
+ fi
+fi

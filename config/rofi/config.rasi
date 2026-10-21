@@ -1,0 +1,12 @@
+configuration {
+ modi: "drun,run,window";
+ show-icons: true;
+ display-drun: "APPS";
+ display-run: "RUN";
+ display-window: "WINDOWS";
+ drun-display-format: "{name}";
+ font: "Inter 12";
+ icon-theme: "Nocturne";
+ terminal: "kitty";
+}
+@theme "nocturne"

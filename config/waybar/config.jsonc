@@ -1,0 +1,100 @@
+{
+  "layer": "top",
+  "position": "top",
+  "height": 40,
+  "margin-top": 10,
+  "margin-left": 14,
+  "margin-right": 14,
+  "spacing": 8,
+  "modules-left": [
+    "custom/launcher",
+    "clock"
+  ],
+  "modules-center": [
+    "hyprland/workspaces",
+    "hyprland/window"
+  ],
+  "modules-right": [
+    "cpu",
+    "memory",
+    "tray",
+    "network",
+    "custom/bluetooth",
+    "pulseaudio",
+    "custom/power"
+  ],
+  "custom/launcher": {
+    "format": "󰣇",
+    "tooltip-format": "Nocturne · Applications",
+    "on-click": "rofi -show drun"
+  },
+  "hyprland/workspaces": {
+    "format": "{name}",
+    "on-click": "activate",
+    "all-outputs": false,
+    "sort-by": "number"
+  },
+  "clock": {
+    "format": "{:%H:%M}",
+    "format-alt": "{:%a, %d %b}",
+    "tooltip-format": "<big>{:%A %d %B %Y}</big>\n<tt><small>{calendar}</small></tt>"
+  },
+  "cpu": {
+    "format": "󰻠 {usage:2}%",
+    "interval": 3,
+    "on-click": "kitty --class nocturne-monitor htop",
+    "tooltip": true
+  },
+  "memory": {
+    "format": "󰍛 {percentage}%",
+    "interval": 3,
+    "tooltip-format": "{used:.1f} / {total:.1f} GiB",
+    "on-click": "kitty --class nocturne-monitor htop"
+  },
+  "tray": {
+    "icon-size": 16,
+    "spacing": 8
+  },
+  "network": {
+    "format-wifi": "󰤨",
+    "format-ethernet": "󰈀",
+    "format-disconnected": "󰤭",
+    "tooltip-format-wifi": "{essid} · {signalStrength}%\n{ipaddr}",
+    "tooltip-format-ethernet": "Wired · {ipaddr}",
+    "tooltip-format-disconnected": "Network disconnected",
+    "on-click": "~/.local/bin/nocturne-network",
+    "on-click-right": "nm-connection-editor"
+  },
+  "pulseaudio": {
+    "format": "{icon} {volume}%",
+    "format-muted": "󰝟",
+    "format-icons": {
+      "default": [
+        "󰕿",
+        "󰖀",
+        "󰕾"
+      ]
+    },
+    "on-click": "pavucontrol",
+    "on-click-right": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+    "scroll-step": 5,
+    "tooltip-format": "{desc}"
+  },
+  "custom/power": {
+    "format": "󰐥",
+    "on-click": "~/.local/bin/nocturne-power",
+    "tooltip-format": "Session & power"
+  },
+  "custom/bluetooth": {
+    "exec": "~/.local/bin/nocturne-bluetooth",
+    "return-type": "json",
+    "interval": 10,
+    "on-click": "~/.local/bin/nocturne-bluetooth open"
+  },
+  "hyprland/window": {
+    "format": "{title}",
+    "max-length": 22,
+    "separate-outputs": true,
+    "tooltip": true
+  }
+}

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p "$HOME/Pictures/Screenshots"
+region=$(slurp -b 100d18aa -c b69af7) || exit 0
+file="$HOME/Pictures/Screenshots/$(date +%Y-%m-%d_%H-%M-%S).png"
+grim -g "$region" "$file"
+notify-send 'Screenshot saved' "$file"
