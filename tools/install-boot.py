@@ -99,17 +99,29 @@ def preset_jobs(directory):
             raise ValueError(f'No supported presets: {path}')
         allowed = {'PRESETS', 'ALL_kver', 'ALL_config'}
         for p in presets:
-            allowed.update({p + '_image', p + '_kver', p + '_config', p + '_options'})
+            allowed.update({p + '_image', p + '_kver', p + '_config', p + '_options', p + '_uki'})
+        # Presets may retain assignments for disabled fallback entries.
+        allowed.update(k for k in values if re.fullmatch(r'\w+_(image|uki|kver|config|options)', k))
         if set(values) - allowed:
             raise ValueError(f'UKI/custom preset keys require manual setup: {path}')
         for p in presets:
             config = values.get(p + '_config', values.get('ALL_config', '/etc/mkinitcpio.conf'))
-            image = Path(values.get(p + '_image', ''))
+            if p + '_image' in values and p + '_uki' in values:
+                raise ValueError('Combined initramfs/UKI outputs require manual setup.')
+            uki = p + '_uki' in values
+            image = Path(values.get(p + ('_uki' if uki else '_image'), ''))
             kernel = Path(values.get(p + '_kver', values.get('ALL_kver', '')))
             options = shlex.split(values.get(p + '_options', ''))
-            if config != '/etc/mkinitcpio.conf' or options not in ([], ['-S', 'autodetect']):
+            checked_options = options[:]
+            if uki and '--splash' in checked_options:
+                index = checked_options.index('--splash')
+                if index + 1 >= len(checked_options) or not Path(checked_options[index + 1]).is_file():
+                    raise ValueError('UKI splash bitmap is missing.')
+                del checked_options[index:index + 2]
+            if config != '/etc/mkinitcpio.conf' or checked_options not in ([], ['-S', 'autodetect']):
                 raise ValueError(f'Custom config/options require manual setup: {path}')
-            if image.parent != Path('/boot') or not image.name.startswith('initramfs-') or image.suffix != '.img':
+            valid_image = (image.parent == Path('/boot/EFI/Linux') and image.suffix == '.efi') if uki else (image.parent == Path('/boot') and image.name.startswith('initramfs-') and image.suffix == '.img')
+            if not valid_image:
                 raise ValueError(f'Nonstandard initramfs destination: {path}')
             if kernel.parent != Path('/boot') or not kernel.name.startswith('vmlinuz-') or not kernel.is_file():
                 raise ValueError(f'Unsupported kernel location: {path}')
@@ -122,7 +134,7 @@ def preset_jobs(directory):
 
 
 def grub_detected():
-    required = ('grub-mkconfig', 'grub-script-check', 'grub-probe', 'findmnt')
+    required = ('grub-mkconfig', 'grub-script-check', 'grub-probe', 'grub-mkrelpath', 'findmnt')
     if not all(shutil.which(c) for c in required):
         return False
     mounts = subprocess.check_output(['findmnt', '--fstab', '--noheadings', '--output', 'TARGET'], text=True).splitlines()
@@ -144,8 +156,19 @@ def grub_detected():
             return False
         entry = re.search(r'^Boot' + current[1] + r'\*?\s+(.+)$', result.stdout, re.M)
         if not entry or not re.search(r'grub[^\\/\s]*\.efi', entry[1], re.I):
-            print('Active EFI entry is not clearly GRUB (shim/custom chains need manual setup).')
-            return False
+            # Firmware fallback entries often name only the physical disk.
+            # LoaderInfo identifies the loader that ran, independently of its filename.
+            info = Path('/sys/firmware/efi/efivars/LoaderInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f')
+            try:
+                loader = info.read_bytes()[4:].decode('utf-16-le').rstrip('\0')
+            except (OSError, UnicodeError):
+                loader = ''
+            if not loader.startswith('GRUB '):
+                print('Active EFI entry is not clearly GRUB and firmware LoaderInfo does not identify GRUB.')
+                return False
+            print(f'Firmware reports {loader}; EFI entry uses a fallback/custom path.')
+            if not ask('Confirm this boot uses /boot/grub/grub.cfg (fallback/custom EFI path)'):
+                return False
     else:
         if not Path('/boot/grub/i386-pc/core.img').is_file():
             return False
@@ -227,15 +250,63 @@ def generate_grub(tx):
         subprocess.run(['grub-mkconfig'], stdout=output, check=True)
     run('grub-script-check', str(staged))
     text = staged.read_text()
-    if not re.search(r'^\s*menuentry\s', text, re.M) or not re.search(r'^\s*linux(?:efi)?\s', text, re.M):
+    if not re.search(r'^\s*menuentry\s', text, re.M) or not re.search(r'^\s*(?:linux(?:efi)?|chainloader)\s', text, re.M):
         raise ValueError('Generated GRUB config has no Linux boot entry.')
     # Theming must not alter the generated kernel/initrd boot commands.
-    pattern = r'^\s*(?:linux(?:efi)?|initrd(?:efi)?)\s+.*$'
+    pattern = r'^\s*(?:linux(?:efi)?|initrd(?:efi)?|chainloader)\s+.*$'
     old = re.findall(pattern, destination.read_text(), re.M)
     new = re.findall(pattern, text, re.M)
     normalize = lambda lines: [' '.join(w for w in line.split() if w != 'splash') for line in lines]
     if normalize(old) != normalize(new):
         raise ValueError('Generated kernel/initrd commands changed beyond splash; review manually.')
+    os.chmod(staged, destination.stat().st_mode & 0o777)
+    os.replace(staged, destination)
+
+
+def theme_existing_grub(tx):
+    """Append graphics setup while retaining the working boot menu verbatim."""
+    destination = Path('/boot/grub/grub.cfg')
+    original = destination.read_text()
+    begin = '# BEGIN NOCTURNE GRAPHICS'
+    end = '# END NOCTURNE GRAPHICS'
+    if begin in original or end in original:
+        # Only replace our own final block; never remove intervening user edits.
+        pattern = r'\n' + begin + r'\n.*?\n' + end + r'\n\Z'
+        if original.count(begin) != 1 or original.count(end) != 1 or not re.search(pattern, original, re.S):
+            raise ValueError('Nocturne graphics block was edited/moved; review manually.')
+        original = re.sub(pattern, '', original, flags=re.S)
+    uuid = subprocess.check_output(['grub-probe', '--target=fs_uuid', '/boot/grub'], text=True).strip()
+    if not re.fullmatch(r'[A-Za-z0-9-]+', uuid):
+        raise ValueError('Cannot determine a safe GRUB filesystem UUID.')
+    paths = []
+    for name in ('/boot/grub/fonts/unicode.pf2', '/boot/grub/themes/nocturne/theme.txt'):
+        value = subprocess.check_output(['grub-mkrelpath', name], text=True).strip()
+        if not re.fullmatch(r'/[A-Za-z0-9_./-]+', value):
+            raise ValueError('Unsupported GRUB filesystem-relative theme path.')
+        paths.append(value)
+    font, theme = paths
+    block = f"""
+{begin}
+# Keep root, boot entries, default selection and timeout unchanged.
+search --no-floppy --fs-uuid --set=nocturne_root {uuid}
+if loadfont ($nocturne_root){font}; then
+    insmod all_video
+    insmod gfxterm
+    insmod gfxmenu
+    insmod png
+    if [ -z "$gfxmode" ]; then
+        set gfxmode=auto
+    fi
+    terminal_output gfxterm
+    set theme=($nocturne_root){theme}
+    export theme
+fi
+{end}
+"""
+    tx.save(destination)
+    staged = tx.stage(destination)
+    staged.write_text(original + block)
+    run('grub-script-check', str(staged))
     os.chmod(staged, destination.stat().st_mode & 0o777)
     os.replace(staged, destination)
 
@@ -254,10 +325,50 @@ def apply_grub():
         text = re.sub(r'\n# BEGIN NOCTURNE GRUB\n.*?# END NOCTURNE GRUB\n', '', text, flags=re.S)
         text += '\n# BEGIN NOCTURNE GRUB\nGRUB_THEME="/boot/grub/themes/nocturne/theme.txt"\nGRUB_TERMINAL_OUTPUT="gfxterm"\n# END NOCTURNE GRUB\n'
         defaults.write_text(text)
-        generate_grub(tx)
+        theme_existing_grub(tx)
         if 'themes/nocturne/theme.txt' not in Path('/boot/grub/grub.cfg').read_text():
             raise ValueError('Generated GRUB configuration did not activate the theme.')
     print('Nocturne GRUB theme applied. Boot installation and timeout were preserved.')
+
+
+def uki_section(image, section):
+    with tempfile.TemporaryDirectory() as directory:
+        output = Path(directory) / 'section'
+        # Supply an output copy: objcopy must never rewrite the source EFI image.
+        run('objcopy', '--dump-section', f'{section}={output}', str(image), str(Path(directory) / 'copy.efi'))
+        return output.read_bytes()
+
+
+def check_uki(image):
+    if not shutil.which('objcopy'):
+        raise ValueError('UKI validation requires objcopy (binutils).')
+    # Signing and custom ukify settings need a separate integration path.
+    for name in ('/etc/kernel/uki.conf', '/usr/lib/kernel/uki.conf'):
+        path = Path(name)
+        if path.exists() and any(line.strip() and not line.lstrip().startswith(('#', ';')) for line in path.read_text().splitlines()):
+            raise ValueError('Custom UKI/signing configuration requires manual setup.')
+    for directory in ('/etc/kernel/uki.conf.d', '/usr/lib/kernel/uki.conf.d', '/etc/cmdline.d'):
+        if list(Path(directory).glob('*.conf')):
+            raise ValueError('UKI/cmdline drop-ins require manual setup.')
+    secure = Path('/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c')
+    if not secure.is_file() or secure.read_bytes()[4:] != b'\x00':
+        raise ValueError('Automatic UKI rebuild requires verified disabled Secure Boot.')
+    # The PE certificate table must be empty; do not silently remove an existing signature.
+    data = image.read_bytes()
+    offset = int.from_bytes(data[60:64], 'little')
+    optional = offset + 24
+    if data[:2] != b'MZ' or data[offset:offset + 4] != b'PE\0\0' or data[optional:optional + 2] != b'\x0b\x02':
+        raise ValueError('Expected a PE32+ UKI.')
+    certificate = optional + 112 + 4 * 8
+    if len(data) < certificate + 8 or any(data[certificate:certificate + 8]):
+        raise ValueError('Signed or malformed UKI requires manual setup.')
+    embedded = uki_section(image, '.cmdline').rstrip(b'\0').decode().strip()
+    source = Path('/etc/kernel/cmdline')
+    if not source.is_file() or source.read_text().strip() != embedded:
+        raise ValueError('/etc/kernel/cmdline must match the existing UKI before rebuilding.')
+    words = embedded.split()
+    if 'splash' not in words or any(w in words for w in ('nosplash', 'plymouth.enable=0', 'rd.plymouth=0')):
+        raise ValueError('UKI must already enable splash in its embedded command line.')
 
 
 def apply_plymouth():
@@ -274,6 +385,11 @@ def apply_plymouth():
     hooks = plymouth_hooks(config.read_text())
     cmdline = splash_defaults(defaults.read_text())
     jobs = preset_jobs(Path('/etc/mkinitcpio.d'))
+    uki_jobs = [job for job in jobs if job[1].suffix == '.efi']
+    if uki_jobs and len(uki_jobs) != len(jobs):
+        raise ValueError('Mixed UKI/initramfs presets require manual setup.')
+    for _, image, _ in uki_jobs:
+        check_uki(image)
     # Keep originals plus new staged images; allow ample room for Plymouth/fonts.
     needed = sum(image.stat().st_size for _, image, _ in jobs) + 256 * 1024 * 1024
     if shutil.disk_usage('/boot').free < needed:
@@ -289,18 +405,31 @@ def apply_plymouth():
             tx.save(image)
         deploy(tx, ROOT / 'boot/plymouth', Path('/usr/share/plymouth/themes/nocturne'))
         config.write_text(hooks)
-        defaults.write_text(cmdline)
+        if not uki_jobs:
+            defaults.write_text(cmdline)
         run('plymouth-set-default-theme', 'nocturne')
         staged_images = []
         for kernel, image, options in jobs:
             stage = tx.stage(image)
-            run('mkinitcpio', '-c', str(config), '-k', str(kernel), '-g', str(stage), *options)
-            listing = subprocess.check_output(['lsinitcpio', str(stage)], text=True)
+            uki = image.suffix == '.efi'
+            uki_options = ['--cmdline', '/etc/kernel/cmdline'] if uki else []
+            run('mkinitcpio', '-c', str(config), '-k', str(kernel), '-U' if uki else '-g', str(stage), *options, *uki_options)
+            if uki:
+                if uki_section(stage, '.cmdline') != uki_section(image, '.cmdline'):
+                    raise ValueError('Rebuilt UKI changed the embedded kernel command line.')
+                with tempfile.TemporaryDirectory() as directory:
+                    initrd = Path(directory) / 'initrd'
+                    initrd.write_bytes(uki_section(stage, '.initrd'))
+                    listing = subprocess.check_output(['lsinitcpio', str(initrd)], text=True)
+            else:
+                listing = subprocess.check_output(['lsinitcpio', str(stage)], text=True)
             if 'usr/bin/plymouth' not in listing or 'nocturne.plymouth' not in listing:
                 raise ValueError('Generated initramfs does not contain Plymouth and Nocturne.')
             os.chmod(stage, image.stat().st_mode & 0o777)
             staged_images.append((stage, image))
-        generate_grub(tx)
+        # UKIs carry their command line and initrd; keep their existing GRUB chainload entries.
+        if not uki_jobs:
+            generate_grub(tx)
         for stage, image in staged_images:
             os.replace(stage, image)
     print('Nocturne Plymouth theme applied and initramfs rebuilt. Reboot when convenient.')
@@ -322,7 +451,7 @@ def main():
             return
         available = grub_detected()
         print('GRUB: ' + ('verified/confirmed.' if available else 'not verified; boot configuration will be skipped.'))
-        if available and ask('Apply the Nocturne GRUB theme (back up and regenerate menu)'):
+        if available and ask('Apply the Nocturne GRUB theme (back up and preserve existing menu)'):
             apply_grub()
         installed = subprocess.run(['pacman', '-Qq', 'plymouth'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
         print('Plymouth: ' + ('installed.' if installed else 'not installed.'))

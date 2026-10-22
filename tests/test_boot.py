@@ -52,7 +52,7 @@ class IntegrationTests(unittest.TestCase):
         original_path = Path
         def mapped(value):
             value = str(value)
-            if value.startswith(('/etc/', '/boot/', '/usr/')) or value in ('/boot', '/etc'):
+            if value.startswith(('/etc/', '/boot/', '/usr/', '/sys/')) or value in ('/boot', '/etc'):
                 return self.root / value.lstrip('/')
             return original_path(value)
         self.mapping = patch.object(boot, 'Path', side_effect=mapped)
@@ -85,7 +85,7 @@ class IntegrationTests(unittest.TestCase):
 
     def fake_run(self, *args):
         if args[0] == 'mkinitcpio':
-            Path(args[args.index('-g') + 1]).write_text('new image')
+            Path(args[args.index('-U' if '-U' in args else '-g') + 1]).write_text('new image')
         elif args[0] == 'plymouth-set-default-theme':
             self.write('/etc/plymouth/plymouthd.conf', '[Daemon]\nTheme=nocturne\n')
 
@@ -114,19 +114,29 @@ class IntegrationTests(unittest.TestCase):
                 boot.apply_plymouth()
         self.assertEqual(self.snapshot(), self.original)
 
-    def test_changed_kernel_command_rejected_and_rolled_back(self):
-        def generate(args, **kwargs):
-            kwargs['stdout'].write("menuentry 'Arch' {\n linux /WRONG root=UUID=example\n initrd /initramfs-linux.img\n}\n")
-        with patch.object(boot, 'run'), patch.object(boot.subprocess, 'run', side_effect=generate):
-            with self.assertRaises(ValueError):
-                boot.apply_grub()
-        self.assertEqual(self.snapshot(), self.original)
+    def grub_path(self, args, **kwargs):
+        if args[0] == 'grub-probe':
+            return 'ABCD-1234\n'
+        return args[1].removeprefix('/boot') + '\n'
+
+    def test_grub_preserves_dynamic_uki_menu_and_is_idempotent(self):
+        text = '# Custom UKI discovery\nset timeout=7\nset default=saved\ninsmod bls\nblscfg\n'
+        self.write('/boot/grub/grub.cfg', text)
+        before = self.snapshot()
+        with patch.object(boot, 'run'), patch.object(boot.subprocess, 'run') as generate, patch.object(boot.subprocess, 'check_output', side_effect=self.grub_path):
+            boot.apply_grub()
+            first = (self.root / 'boot/grub/grub.cfg').read_text()
+            self.assertTrue(first.startswith(text))
+            self.assertIn('set theme=($nocturne_root)/grub/themes/nocturne/theme.txt', first)
+            boot.apply_grub()
+            self.assertEqual((self.root / 'boot/grub/grub.cfg').read_text(), first)
+            generate.assert_not_called()
+        for backup in sorted((self.root / 'backups').iterdir(), key=lambda p: p.stat().st_mtime_ns, reverse=True):
+            boot.restore(backup)
+        self.assertEqual(self.snapshot(), before)
 
     def test_grub_success_and_restore(self):
-        def generate(args, **kwargs):
-            old = (self.root / 'boot/grub/grub.cfg').read_text()
-            kwargs['stdout'].write('set theme=/boot/grub/themes/nocturne/theme.txt\n' + old)
-        with patch.object(boot, 'run'), patch.object(boot.subprocess, 'run', side_effect=generate):
+        with patch.object(boot, 'run'), patch.object(boot.subprocess, 'check_output', side_effect=self.grub_path):
             boot.apply_grub()
         self.assertIn('GRUB_THEME=', (self.root / 'etc/default/grub').read_text())
         boot.restore(next((self.root / 'backups').iterdir()))
@@ -136,12 +146,91 @@ class IntegrationTests(unittest.TestCase):
         def fail(*args):
             if args[0] == 'grub-script-check':
                 raise subprocess.CalledProcessError(1, args)
-        with patch.object(boot, 'run', side_effect=fail), patch.object(boot.subprocess, 'run', side_effect=self.fake_subprocess):
+        with patch.object(boot, 'run', side_effect=fail), patch.object(boot.subprocess, 'check_output', side_effect=self.grub_path):
             with self.assertRaises(subprocess.CalledProcessError):
                 boot.apply_grub()
         self.assertEqual(self.snapshot(), self.original)
 
-    def test_uki_preset_is_rejected_before_changes(self):
+    def uki_fixture(self):
+        self.write('/etc/mkinitcpio.d/linux.preset', "ALL_kver='/boot/vmlinuz-linux'\nPRESETS=('default')\ndefault_uki='/boot/EFI/Linux/arch-linux.efi'\ndefault_options='--splash /usr/share/systemd/bootctl/splash-arch.bmp'\nfallback_uki='/boot/EFI/Linux/arch-linux-fallback.efi'\n")
+        self.write('/usr/share/systemd/bootctl/splash-arch.bmp', 'bitmap')
+        self.write('/boot/EFI/Linux/arch-linux.efi', 'old uki')
+
+    def test_uki_preset_accepts_disabled_fallback_and_splash(self):
+        self.uki_fixture()
+        jobs = boot.preset_jobs(self.root / 'etc/mkinitcpio.d')
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0][1].name, 'arch-linux.efi')
+        self.assertEqual(jobs[0][2], ['--splash', '/usr/share/systemd/bootctl/splash-arch.bmp'])
+
+    def test_uki_preflight_rejects_signature_and_changed_arguments(self):
+        self.uki_fixture()
+        image = self.root / 'boot/EFI/Linux/arch-linux.efi'
+        data = bytearray(512)
+        data[:2] = b'MZ'
+        data[60:64] = (128).to_bytes(4, 'little')
+        data[128:132] = b'PE\0\0'
+        data[152:154] = b'\x0b\x02'
+        image.write_bytes(data)
+        secure = self.root / 'sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c'
+        secure.parent.mkdir(parents=True)
+        secure.write_bytes(b'\x07\0\0\0\0')
+        self.write('/etc/kernel/cmdline', 'quiet splash\n')
+        self.write('/usr/lib/kernel/uki.conf', '# Stock commented template\n#SecureBootPrivateKey=example\n')
+        with patch.object(boot.shutil, 'which', return_value='/bin/mock'), patch.object(boot, 'uki_section', return_value=b'quiet splash\0'):
+            boot.check_uki(image)
+            data[296] = 1
+            image.write_bytes(data)
+            with self.assertRaisesRegex(ValueError, 'Signed or malformed'):
+                boot.check_uki(image)
+            data[296] = 0
+            image.write_bytes(data)
+            self.write('/etc/kernel/cmdline', 'different splash')
+            with self.assertRaisesRegex(ValueError, 'must match'):
+                boot.check_uki(image)
+
+    def test_uki_success_preserves_grub_and_restores(self):
+        self.uki_fixture()
+        before = self.snapshot()
+        def build(*args):
+            if args[0] == 'mkinitcpio':
+                self.assertIn('-U', args)
+                Path(args[args.index('-U') + 1]).write_text('new uki')
+            else:
+                self.fake_run(*args)
+        def section(image, name):
+            return b'quiet splash' if name == '.cmdline' else b'initrd'
+        with patch.object(boot.shutil, 'which', return_value='/bin/mock'), patch.object(boot, 'check_uki'), patch.object(boot, 'uki_section', side_effect=section), patch.object(boot, 'run', side_effect=build), patch.object(boot, 'generate_grub') as generate, patch.object(boot.subprocess, 'check_output', return_value='usr/bin/plymouth\nnocturne.plymouth'):
+            boot.apply_plymouth()
+            generate.assert_not_called()
+        self.assertEqual((self.root / 'boot/EFI/Linux/arch-linux.efi').read_text(), 'new uki')
+        self.assertEqual((self.root / 'etc/default/grub').read_bytes(), before['etc/default/grub'])
+        boot.restore(next((self.root / 'backups').iterdir()))
+        self.assertEqual(self.snapshot(), before)
+
+    def test_uki_commandline_change_rolls_back(self):
+        self.uki_fixture()
+        before = self.snapshot()
+        with patch.object(boot.shutil, 'which', return_value='/bin/mock'), patch.object(boot, 'check_uki'), patch.object(boot, 'uki_section', side_effect=[b'wrong', b'quiet splash']), patch.object(boot, 'run', side_effect=self.fake_run):
+            with self.assertRaisesRegex(ValueError, 'embedded kernel command line'):
+                boot.apply_plymouth()
+        self.assertEqual(self.snapshot(), before)
+
+    def test_fallback_grub_requires_loader_evidence_and_confirmation(self):
+        self.write('/sys/firmware/efi/efivars/LoaderInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f', '')
+        info = self.root / 'sys/firmware/efi/efivars/LoaderInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f'
+        info.write_bytes(b'\x07\0\0\0' + 'GRUB 2.16\0'.encode('utf-16-le'))
+        result = subprocess.CompletedProcess([], 0, stdout='BootCurrent: 0008\nBoot0008* Solid State Disk\n')
+        with patch.object(boot.shutil, 'which', return_value='/bin/mock'), patch.object(boot.subprocess, 'check_output', return_value=''), patch.object(boot.subprocess, 'run', return_value=result), patch.object(boot, 'run'), patch.object(boot, 'ask', return_value=True) as ask:
+            self.assertTrue(boot.grub_detected())
+            ask.assert_called_once()
+            ask.return_value = False
+            self.assertFalse(boot.grub_detected())
+            info.write_bytes(b'\x07\0\0\0' + 'systemd-boot\0'.encode('utf-16-le'))
+            ask.return_value = True
+            self.assertFalse(boot.grub_detected())
+
+    def test_combined_uki_and_initramfs_preset_is_rejected(self):
         with (self.root / 'etc/mkinitcpio.d/linux.preset').open('a') as f:
             f.write("default_uki='/efi/EFI/Linux/arch.efi'\n")
         with self.assertRaises(ValueError):

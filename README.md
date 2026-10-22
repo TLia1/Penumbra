@@ -203,16 +203,16 @@ Run the boot prompts alone, without reinstalling the desktop:
 
 The normal installer and `--system-only` also offer these prompts. `--user-only` never touches boot files. All boot questions default to **No**, and noninteractive runs skip them.
 
-1. Check GRUB tools and existing configuration. On UEFI, verify that the current firmware entry explicitly names a GRUB EFI executable. On legacy BIOS, check installed GRUB core/configuration and ask you to confirm GRUB is actually used; files alone cannot prove which bootloader ran.
-2. Ask whether to apply the GRUB theme.
+1. Check GRUB tools and existing configuration. On UEFI, verify that the current firmware entry names GRUB. For a generic disk/fallback entry, accept firmware `LoaderInfo` identifying GRUB and ask you to confirm that it uses `/boot/grub/grub.cfg`. On legacy BIOS, check installed GRUB core/configuration and ask you to confirm GRUB is actually used; files alone cannot prove which bootloader ran.
+2. Ask whether to apply the GRUB theme. Preserve the existing `grub.cfg` byte-for-byte and append a managed graphics block, using filesystem-relative asset paths. Reapplying replaces only that final block. This avoids losing UKI entries that `grub-mkconfig` cannot rediscover.
 3. Check whether the Plymouth package is installed. If missing, ask whether to install it with normal interactive `pacman -S --needed plymouth` prompts.
-4. Ask separately whether to apply the Plymouth theme. This adds `splash` to existing GRUB arguments, inserts `plymouth` after `udev` or `systemd` while retaining keyboard/encryption hooks, and rebuilds supported initramfs images.
+4. Ask separately whether to apply the Plymouth theme. This adds `splash` to existing GRUB arguments, inserts `plymouth` after `udev` or `systemd` while retaining keyboard/encryption hooks, and rebuilds supported initramfs images. For supported UKIs, rebuild the EFI image instead, preserving its existing embedded command line and GRUB chainload entries; `splash` must already be enabled in `/etc/kernel/cmdline` and the existing UKI.
 
 No GRUB installation, partition changes, EFI entry writes, boot-sector writes or automatic reboot are performed. Menu timeout, default entry and recovery settings remain yours. A hidden menu remains hidden. Plymouth uses its built-in `two-step` renderer, including native disk-unlock/password dialogs; Escape can show boot details. The assets are original Nocturne artwork, built with `python tools/build-boot-assets.py` (Pillow and the desktop's JetBrains Mono font required only for rebuilding artwork).
 
-Automatic integration supports conventional Arch GRUB + mkinitcpio presets with existing `/boot/initramfs-*.img` and `/boot/vmlinuz-*` files. It deliberately stops for unverified bootloaders, shim/custom EFI chains, UKIs, dracut, custom preset options/config paths, mkinitcpio configuration drop-ins/post hooks, legacy Plymouth hooks, dynamic shell values and symlinked managed files. These layouts need manual integration using the included `boot/grub/` and `boot/plymouth/` assets. Installing the Plymouth package alone does not enable its splash. Existing package-manager hooks remain under pacman's control.
+Automatic integration supports conventional Arch GRUB + mkinitcpio presets with existing `/boot/initramfs-*.img` and `/boot/vmlinuz-*` files. It also supports existing unsigned PE32+ UKIs in `/boot/EFI/Linux/*.efi` with Secure Boot disabled, a matching `/etc/kernel/cmdline`, and optional `--splash` bitmap / `-S autodetect` preset arguments. Disabled fallback preset assignments are allowed. UKI validation requires `objcopy` (binutils). It deliberately stops for unverified bootloaders, unconfirmed custom EFI chains, signed UKIs, custom UKI/signing settings, mixed UKI/initramfs outputs, dracut, custom preset options/config paths, mkinitcpio configuration drop-ins/post hooks, legacy Plymouth hooks, dynamic shell values and symlinked managed files. These layouts need manual integration using the included `boot/grub/` and `boot/plymouth/` assets. Installing the Plymouth package alone does not enable its splash. Existing package-manager hooks remain under pacman's control.
 
-Boot changes have separate backups in `/var/lib/nocturne/boot-backups/`. Before replacement, new GRUB configuration must pass `grub-script-check`, contain a Linux entry, and preserve the current kernel/initrd command lines apart from `splash`. Kernel updates not yet reflected in the current GRUB menu will therefore cause a safe refusal; reconcile those independently first. Initramfs images are built to temporary files and checked for Plymouth/theme contents before replacing existing images. Errors or handled interruptions restore the transaction's saved files; power loss cannot be made transactional across multiple boot files.
+Boot changes have separate backups in `/var/lib/nocturne/boot-backups/`. Before replacement, the themed GRUB configuration must pass `grub-script-check`; its existing menu and discovery commands are retained. For conventional initramfs Plymouth integration only, menu regeneration must also contain a Linux or chainloader entry and preserve kernel/initrd/chainloader command lines apart from `splash`. Kernel updates not yet reflected in the current GRUB menu will therefore cause a safe refusal; reconcile those independently first. Initramfs images and UKIs are built to temporary files and checked for Plymouth/theme contents before replacing existing images. UKIs also have their embedded command line checked against the original. Errors or handled interruptions restore the transaction's saved files; power loss cannot be made transactional across multiple boot files.
 
 To undo a boot transaction, use the exact directory printed by the installer:
 
@@ -225,3 +225,21 @@ Restore newest first if undoing both Plymouth and GRUB. This restores saved conf
 Validation: `python -m unittest discover -s tests -v` exercises configuration preservation, opt-in behavior, unsupported layouts, staged builds and rollback using isolated temporary files. These tests do not modify the running machine's boot files. Live firmware/boot appearance still needs a reboot test on the target machine.
 
 Format references: [GNU GRUB theme manual](https://www.gnu.org/software/grub/manual/grub/html_node/Theme-file-format.html), [Arch Plymouth guidance](https://wiki.archlinux.org/title/Plymouth), and the installed Arch Plymouth package's `two-step` theme and mkinitcpio hook.
+
+### Generic EFI disk entries and UKIs
+
+If `--boot-only` previously printed `Active EFI entry is not clearly GRUB`, the
+installer skipped both themes. This can happen when firmware boots GRUB through
+its fallback path and labels the entry “Solid State Disk”. It does not indicate
+an artwork or graphics-driver failure. The updated detection uses GRUB's
+firmware identity as additional evidence and still asks you to confirm its
+configuration path before applying anything.
+
+A machine booting `/EFI/Linux/arch-linux.efi` also needs the Plymouth theme in
+that UKI's embedded initramfs. Rebuilding a separate `initramfs-linux.img` will
+not update that splash. The installer now handles the supported unsigned UKI
+layout described above. These changes are tested with isolated fixtures; a
+successful real installation and reboot are still needed to verify appearance.
+
+References: [GRUB theme selection](https://www.gnu.org/software/grub/manual/grub/html_node/Simple-configuration.html)
+and [systemd UKI resources](https://www.freedesktop.org/software/systemd/man/devel/systemd-stub.html).
