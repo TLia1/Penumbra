@@ -371,6 +371,34 @@ def check_uki(image):
         raise ValueError('UKI must already enable splash in its embedded command line.')
 
 
+def without_stock_splash(options):
+    """Remove Arch's pre-kernel logo; retain custom bitmaps and other options."""
+    result = options[:]
+    for index in range(len(result) - 1):
+        if result[index:index + 2] == ['--splash', '/usr/share/systemd/bootctl/splash-arch.bmp']:
+            del result[index:index + 2]
+            break
+    return result
+
+
+def stock_splash_preset_updates(directory):
+    updates = {}
+    for path in sorted(directory.glob('*.preset')):
+        original = path.read_text()
+        def replace(match):
+            options = shlex.split(literal(match[2]))
+            updated = without_stock_splash(options)
+            if updated == options:
+                return match[0]
+            return match[1] + shlex.quote(shlex.join(updated))
+        updated = re.sub(r'^(\s*\w+_options=)([^\n]*)', replace, original, flags=re.M)
+        if updated != original:
+            if path.is_symlink():
+                raise ValueError('Symlinked mkinitcpio preset requires manual setup.')
+            updates[path] = updated
+    return updates
+
+
 def apply_plymouth():
     if not shutil.which('mkinitcpio') or not Path('/usr/lib/initcpio/install/plymouth').is_file():
         raise ValueError('Supported mkinitcpio Plymouth hook is missing.')
@@ -390,6 +418,9 @@ def apply_plymouth():
         raise ValueError('Mixed UKI/initramfs presets require manual setup.')
     for _, image, _ in uki_jobs:
         check_uki(image)
+    preset_updates = stock_splash_preset_updates(Path('/etc/mkinitcpio.d')) if uki_jobs else {}
+    if uki_jobs:
+        jobs = [(kernel, image, without_stock_splash(options)) for kernel, image, options in jobs]
     # Keep originals plus new staged images; allow ample room for Plymouth/fonts.
     needed = sum(image.stat().st_size for _, image, _ in jobs) + 256 * 1024 * 1024
     if shutil.disk_usage('/boot').free < needed:
@@ -403,6 +434,9 @@ def apply_plymouth():
             tx.save(path)
         for _, image, _ in jobs:
             tx.save(image)
+        for path, updated in preset_updates.items():
+            tx.save(path)
+            path.write_text(updated)
         deploy(tx, ROOT / 'boot/plymouth', Path('/usr/share/plymouth/themes/nocturne'))
         config.write_text(hooks)
         if not uki_jobs:

@@ -243,3 +243,17 @@ successful real installation and reboot are still needed to verify appearance.
 
 References: [GRUB theme selection](https://www.gnu.org/software/grub/manual/grub/html_node/Simple-configuration.html)
 and [systemd UKI resources](https://www.freedesktop.org/software/systemd/man/devel/systemd-stub.html).
+
+### A logo appears around the Plymouth animation
+
+The mkinitcpio preset option `--splash /usr/share/systemd/bootctl/splash-arch.bmp`
+adds a separate static Arch logo to the UKI, displayed by systemd-stub before
+Plymouth runs. It is independent of the selected Plymouth theme. Applying
+Nocturne now removes this stock bitmap option from the UKI build and backs up
+and updates its preset so kernel updates do not reintroduce it. Custom bitmap
+paths are preserved. Rollback restores the preset alongside the original UKI.
+Nocturne also explicitly disables Plymouth's firmware-background mode.
+
+The machine's initial manufacturer/firmware logo can still appear before the
+OS boots. These changes do not control that firmware screen. A logo that
+reappears after Nocturne may need separate graphics-handoff investigation.

@@ -39,6 +39,13 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 boot.plymouth_hooks(text)
 
+    def test_remove_only_stock_uki_splash(self):
+        stock = ['-S', 'autodetect', '--splash', '/usr/share/systemd/bootctl/splash-arch.bmp']
+        self.assertEqual(boot.without_stock_splash(stock), ['-S', 'autodetect'])
+        custom = ['--splash', '/custom/logo.bmp']
+        self.assertEqual(boot.without_stock_splash(custom), custom)
+        self.assertEqual(len(stock), 4)
+
     def test_noninteractive_defaults_no(self):
         with patch.object(boot.os, 'isatty', return_value=False), patch('builtins.input') as read:
             self.assertFalse(boot.ask('Apply?'))
@@ -195,6 +202,7 @@ class IntegrationTests(unittest.TestCase):
         def build(*args):
             if args[0] == 'mkinitcpio':
                 self.assertIn('-U', args)
+                self.assertNotIn('--splash', args)
                 Path(args[args.index('-U') + 1]).write_text('new uki')
             else:
                 self.fake_run(*args)
@@ -204,6 +212,7 @@ class IntegrationTests(unittest.TestCase):
             boot.apply_plymouth()
             generate.assert_not_called()
         self.assertEqual((self.root / 'boot/EFI/Linux/arch-linux.efi').read_text(), 'new uki')
+        self.assertNotIn('--splash', (self.root / 'etc/mkinitcpio.d/linux.preset').read_text())
         self.assertEqual((self.root / 'etc/default/grub').read_bytes(), before['etc/default/grub'])
         boot.restore(next((self.root / 'backups').iterdir()))
         self.assertEqual(self.snapshot(), before)
