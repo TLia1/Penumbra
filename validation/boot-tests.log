@@ -1,0 +1,33 @@
+test_ambiguous_hooks_rejected (test_boot.ConfigTests.test_ambiguous_hooks_rejected) ... ok
+test_dynamic_or_disabled_cmdline_rejected (test_boot.ConfigTests.test_dynamic_or_disabled_cmdline_rejected) ... ok
+test_hook_order_and_idempotence (test_boot.ConfigTests.test_hook_order_and_idempotence) ... ok
+test_noninteractive_defaults_no (test_boot.ConfigTests.test_noninteractive_defaults_no) ... ok
+test_splash_preserves_arguments_and_is_idempotent (test_boot.ConfigTests.test_splash_preserves_arguments_and_is_idempotent) ... ok
+test_build_failure_rolls_back_everything (test_boot.IntegrationTests.test_build_failure_rolls_back_everything) ... Apply? [y/N] — skipped (noninteractive)
+Boot backup: /tmp/tmp8p2jvh87/backups/20261022-175209-plymouth-rsimy3bb
+Boot theme failed; restoring previous files.
+ok
+test_changed_kernel_command_rejected_and_rolled_back (test_boot.IntegrationTests.test_changed_kernel_command_rejected_and_rolled_back) ... Restored files from /tmp/tmp8p2jvh87/backups/20261022-175209-plymouth-rsimy3bb. Installed packages were retained.
+Boot backup: /tmp/tmpojbc036u/backups/20261022-175209-grub-wc1t77p9
+Boot theme failed; restoring previous files.
+ok
+test_dropin_is_rejected_before_changes (test_boot.IntegrationTests.test_dropin_is_rejected_before_changes) ... ok
+test_grub_success_and_restore (test_boot.IntegrationTests.test_grub_success_and_restore) ... Restored files from /tmp/tmpojbc036u/backups/20261022-175209-grub-wc1t77p9. Installed packages were retained.
+Boot backup: /tmp/tmptjeyvhc9/backups/20261022-175209-grub-lpreqx55
+ok
+test_grub_syntax_failure_restores_original (test_boot.IntegrationTests.test_grub_syntax_failure_restores_original) ... Nocturne GRUB theme applied. Boot installation and timeout were preserved.
+Restored files from /tmp/tmptjeyvhc9/backups/20261022-175209-grub-lpreqx55. Installed packages were retained.
+Boot backup: /tmp/tmp6w3xjboy/backups/20261022-175209-grub-r5jcyq5p
+Boot theme failed; restoring previous files.
+ok
+test_success_stages_images_and_keeps_backup (test_boot.IntegrationTests.test_success_stages_images_and_keeps_backup) ... Restored files from /tmp/tmp6w3xjboy/backups/20261022-175209-grub-r5jcyq5p. Installed packages were retained.
+Boot backup: /tmp/tmp_u9x06ge/backups/20261022-175209-plymouth-gbdufgca
+ok
+test_uki_preset_is_rejected_before_changes (test_boot.IntegrationTests.test_uki_preset_is_rejected_before_changes) ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 0.030s
+
+OK
+Nocturne Plymouth theme applied and initramfs rebuilt. Reboot when convenient.
+Restored files from /tmp/tmp_u9x06ge/backups/20261022-175209-plymouth-gbdufgca. Installed packages were retained.

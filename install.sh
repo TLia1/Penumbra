@@ -3,7 +3,14 @@
 set -euo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 MODE=${1:-all}
-case "$MODE" in all|--system-only|--user-only) ;; *) echo "Usage: $0 [--system-only|--user-only]" >&2; exit 2;; esac
+case "$MODE" in all|--system-only|--user-only|--boot-only) ;; *) echo "Usage: $0 [--system-only|--user-only|--boot-only]" >&2; exit 2;; esac
+if [[ "$MODE" == --boot-only ]]; then
+    if [[ $EUID == 0 ]]; then
+        exec python3 "$ROOT/tools/install-boot.py"
+    else
+        exec sudo python3 "$ROOT/tools/install-boot.py"
+    fi
+fi
 STAMP=$(date +%Y%m%d-%H%M%S)
 packages=(pacman-contrib flatpak hyprland kitty fastfetch dolphin sddm waybar rofi fish starship swaybg mako hyprlock hypridle breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme qt6ct qt5ct qt5-wayland qt5-quickcontrols2 blueman network-manager-applet networkmanager pavucontrol pipewire-pulse wireplumber ttf-jetbrains-mono-nerd inter-font grim slurp python-pillow polkit-kde-agent bluez bluez-utils brightnessctl playerctl xdg-desktop-portal-hyprland xdg-desktop-portal-gtk htop libnotify librsvg xorg-xcursorgen)
 if [[ "$MODE" == --system-only ]]; then
@@ -28,6 +35,8 @@ if [[ "$MODE" == --system-only ]]; then
     usermod -s /usr/bin/fish "$target"
     systemctl enable --now bluetooth NetworkManager
     systemctl enable sddm
+    # Boot assets are deliberately outside system/: deploy only after opt-in.
+    python3 "$ROOT/tools/install-boot.py" || echo 'Optional boot theming did not complete; see diagnostics above.' >&2
     echo "System backup: $backup"
     exit 0
 fi

@@ -1,0 +1,51 @@
+# Nocturne — original orbital artwork, using GRUB's bundled Unicode font.
+desktop-image: "background.png"
+desktop-image-scale-method: "crop"
+desktop-color: "#0d0a12"
+title-text: ""
+message-color: "#e4dced"
+message-bg-color: "#100d18"
+terminal-font: "Unifont Regular 16"
++ label {
+    left = 8%
+    top = 18%
+    width = 60%
+    height = 32
+    text = "N O C T U R N E"
+    font = "Unifont Regular 16"
+    color = "#b69af7"
+}
++ boot_menu {
+    left = 8%
+    top = 28%
+    width = 58%
+    height = 45%
+    item_font = "Unifont Regular 16"
+    item_color = "#b6a8c7"
+    selected_item_color = "#f3eaff"
+    item_height = 36
+    item_padding = 10
+    item_spacing = 8
+    icon_width = 0
+    icon_height = 0
+    selected_item_pixmap_style = "select_*.png"
+}
++ label {
+    left = 8%
+    top = 78%
+    width = 84%
+    height = 24
+    text = "Arrow keys: select   Enter: boot   e: edit   c: console"
+    color = "#8f809f"
+    font = "Unifont Regular 16"
+}
++ label {
+    id = "__timeout__"
+    left = 8%
+    top = 83%
+    width = 84%
+    height = 24
+    text = "Booting selected entry in %d seconds"
+    color = "#b69af7"
+    font = "Unifont Regular 16"
+}

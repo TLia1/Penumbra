@@ -11,7 +11,7 @@ chmod +x install.sh
 ./install.sh
 ```
 
-Run as your regular desktop user. Sudo prompts normally; no password is stored in the bundle. The installer uses the current pacman databases, official Arch packages, timestamped backups, and user-scoped configuration. It does not install anything from the AUR. On a substantially older Arch installation, perform a normal full system upgrade yourself first. Never use `pacman -Sy` alone. This installer does not update repositories or configure the bootloader.
+Run as your regular desktop user. Sudo prompts normally; no password is stored in the bundle. The installer uses the current pacman databases, official Arch packages, timestamped backups, and user-scoped configuration. It does not install anything from the AUR. On a substantially older Arch installation, perform a normal full system upgrade yourself first. Never use `pacman -Sy` alone. This installer does not update repositories. Optional GRUB and Plymouth theming asks separately before changing boot configuration; see Boot themes below.
 
 Log out through **Super+M → Log out → Confirm**, then sign in again when convenient. The running desktop has already been configured; a fresh login applies the environment to every application and displays the new greeter. Existing applications may need reopening to pick up fonts, colors, and icons. Applications that enforce their own theme still use their own appearance setting.
 
@@ -25,6 +25,8 @@ Log out through **Super+M → Log out → Confirm**, then sign in again when con
 | Kitty + Fish | Violet ANSI palette, animated cursor trail, Starship prompt, custom Arch logo and grouped Fastfetch greeting |
 | Dolphin / Qt | Nocturne KDE and Qt palettes, Breeze widgets, Papirus violet folder overlay |
 | GTK | Breeze Dark, near-black surfaces, violet selection/accent overrides |
+| GRUB | Optional orbital wallpaper, violet menu selection, keyboard hints and countdown |
+| Plymouth | Optional animated violet orbit, native password dialogs and update progress |
 | SDDM | Original animated QML greeter, orbital wallpaper, editable username, password, session selector, restart/shutdown confirmation |
 | Hyprlock | Matching wallpaper, clock and password field; locks after ten idle minutes and before suspend |
 | Notifications | Mako with violet borders and critical-notification persistence |
@@ -190,3 +192,36 @@ The installer includes `pacman-contrib` for its safe `checkupdates` command and 
 Hardware brightness and volume keys (including Fn+F2/F3/F6/F7 when those keys emit the corresponding media events) now show a violet popup at the bottom center with the current percentage and a progress bar. It disappears after 1.5 seconds; holding a key updates the same popup. Mute and microphone mute show their status too. Brightness stays above zero.
 
 The bar shows an automatically detected battery immediately before the power button, with its percentage, charging state, and low-battery colors. Machines without a battery omit this module. Scrolling the audio capsule also shows the volume popup. No new packages are required.
+
+## Boot themes
+
+Run the boot prompts alone, without reinstalling the desktop:
+
+```bash
+./install.sh --boot-only
+```
+
+The normal installer and `--system-only` also offer these prompts. `--user-only` never touches boot files. All boot questions default to **No**, and noninteractive runs skip them.
+
+1. Check GRUB tools and existing configuration. On UEFI, verify that the current firmware entry explicitly names a GRUB EFI executable. On legacy BIOS, check installed GRUB core/configuration and ask you to confirm GRUB is actually used; files alone cannot prove which bootloader ran.
+2. Ask whether to apply the GRUB theme.
+3. Check whether the Plymouth package is installed. If missing, ask whether to install it with normal interactive `pacman -S --needed plymouth` prompts.
+4. Ask separately whether to apply the Plymouth theme. This adds `splash` to existing GRUB arguments, inserts `plymouth` after `udev` or `systemd` while retaining keyboard/encryption hooks, and rebuilds supported initramfs images.
+
+No GRUB installation, partition changes, EFI entry writes, boot-sector writes or automatic reboot are performed. Menu timeout, default entry and recovery settings remain yours. A hidden menu remains hidden. Plymouth uses its built-in `two-step` renderer, including native disk-unlock/password dialogs; Escape can show boot details. The assets are original Nocturne artwork, built with `python tools/build-boot-assets.py` (Pillow and the desktop's JetBrains Mono font required only for rebuilding artwork).
+
+Automatic integration supports conventional Arch GRUB + mkinitcpio presets with existing `/boot/initramfs-*.img` and `/boot/vmlinuz-*` files. It deliberately stops for unverified bootloaders, shim/custom EFI chains, UKIs, dracut, custom preset options/config paths, mkinitcpio configuration drop-ins/post hooks, legacy Plymouth hooks, dynamic shell values and symlinked managed files. These layouts need manual integration using the included `boot/grub/` and `boot/plymouth/` assets. Installing the Plymouth package alone does not enable its splash. Existing package-manager hooks remain under pacman's control.
+
+Boot changes have separate backups in `/var/lib/nocturne/boot-backups/`. Before replacement, new GRUB configuration must pass `grub-script-check`, contain a Linux entry, and preserve the current kernel/initrd command lines apart from `splash`. Kernel updates not yet reflected in the current GRUB menu will therefore cause a safe refusal; reconcile those independently first. Initramfs images are built to temporary files and checked for Plymouth/theme contents before replacing existing images. Errors or handled interruptions restore the transaction's saved files; power loss cannot be made transactional across multiple boot files.
+
+To undo a boot transaction, use the exact directory printed by the installer:
+
+```bash
+sudo python3 tools/install-boot.py --restore /var/lib/nocturne/boot-backups/EXACT-DIRECTORY
+```
+
+Restore newest first if undoing both Plymouth and GRUB. This restores saved configuration, theme files and initramfs images without regeneration; newly installed packages stay installed. Only restore backups matching your current kernels—do not restore an old initramfs after upgrading its kernel. Backups can also be recovered from Arch installation media after mounting the installed system. Keep the backups until you have verified a reboot.
+
+Validation: `python -m unittest discover -s tests -v` exercises configuration preservation, opt-in behavior, unsupported layouts, staged builds and rollback using isolated temporary files. These tests do not modify the running machine's boot files. Live firmware/boot appearance still needs a reboot test on the target machine.
+
+Format references: [GNU GRUB theme manual](https://www.gnu.org/software/grub/manual/grub/html_node/Theme-file-format.html), [Arch Plymouth guidance](https://wiki.archlinux.org/title/Plymouth), and the installed Arch Plymouth package's `two-step` theme and mkinitcpio hook.
