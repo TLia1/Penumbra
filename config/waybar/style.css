@@ -3,7 +3,7 @@
 window#waybar { background: transparent; color: #ded8ed; }
 .modules-left, .modules-center, .modules-right { background: transparent; }
 #custom-launcher, #clock, #window, #cpu, #memory, #tray,
-#network, #custom-bluetooth, #pulseaudio, #custom-power, #custom-updates {
+#network, #custom-bluetooth, #pulseaudio, #battery, #custom-power, #custom-updates {
     background: rgba(16, 13, 24, 0.96);
     border: 1px solid #352842;
     border-radius: 999px;
@@ -43,3 +43,8 @@ tooltip label { color: #e8e1f3; padding: 8px; }
 
 #custom-updates { color: #c4a5ff; padding: 0 12px; }
 #custom-updates:hover { background: #38264f; color: #eee8ff; }
+
+#battery { color: #c8bbde; }
+#battery.charging, #battery.plugged { color: #a5ccb3; }
+#battery.warning:not(.charging):not(.plugged) { color: #e5c89a; }
+#battery.critical:not(.charging):not(.plugged) { color: #ef8fa4; }

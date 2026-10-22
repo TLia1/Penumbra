@@ -22,6 +22,7 @@
     "network",
     "custom/bluetooth",
     "pulseaudio",
+    "battery",
     "custom/power"
   ],
   "custom/launcher": {
@@ -77,14 +78,16 @@
       ]
     },
     "on-click": "pavucontrol",
-    "on-click-right": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+    "on-click-right": "~/.local/bin/nocturne-osd volume mute",
     "scroll-step": 5,
-    "tooltip-format": "{desc}"
+    "tooltip-format": "{desc}",
+    "on-scroll-up": "~/.local/bin/nocturne-osd volume up",
+    "on-scroll-down": "~/.local/bin/nocturne-osd volume down"
   },
   "custom/power": {
     "format": "󰐥",
     "on-click": "~/.local/bin/nocturne-power",
-    "tooltip-format": "Session & power"
+    "tooltip-format": "Session &amp; power"
   },
   "custom/bluetooth": {
     "exec": "~/.local/bin/nocturne-bluetooth",
@@ -107,5 +110,23 @@
     "signal": 8,
     "on-click": "~/.local/bin/nocturne-updates open",
     "exec-on-event": false
+  },
+  "battery": {
+    "interval": 30,
+    "states": {
+      "warning": 25,
+      "critical": 10
+    },
+    "format": "{icon} {capacity}%",
+    "format-charging": "󰂄 {capacity}%",
+    "format-plugged": "󰚥 {capacity}%",
+    "format-icons": [
+      "󰁺",
+      "󰁼",
+      "󰁾",
+      "󰂀",
+      "󰁹"
+    ],
+    "tooltip-format": "Battery · {capacity}%\n{time}"
   }
 }

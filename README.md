@@ -184,3 +184,9 @@ Before-change backup: `~/.local/state/nocturne/backups/terminal-20261021-213128/
 A violet update capsule appears on the right only when pending updates are found. It checks official Arch packages, AUR packages through Paru or Yay (whichever is installed), and user/system Flatpak apps and runtimes every 15 minutes. Hover for counts; click to open Kitty and update. Normal password, package review and confirmation prompts remain interactive. The terminal closes on success, or waits for Enter after a failure. Repeated clicks do not start parallel update sessions. The bar refreshes after the update exits.
 
 The installer includes `pacman-contrib` for its safe `checkupdates` command and Flatpak. Install Yay or Paru separately for AUR support. Repository checks use a separate database; they never refresh the live pacman database on their own. Failed checks are logged to the Waybar log and do not count as available updates. The helper is `bin/nocturne-updates`.
+
+## Brightness, volume and battery
+
+Hardware brightness and volume keys (including Fn+F2/F3/F6/F7 when those keys emit the corresponding media events) now show a violet popup at the bottom center with the current percentage and a progress bar. It disappears after 1.5 seconds; holding a key updates the same popup. Mute and microphone mute show their status too. Brightness stays above zero.
+
+The bar shows an automatically detected battery immediately before the power button, with its percentage, charging state, and low-battery colors. Machines without a battery omit this module. Scrolling the audio capsule also shows the volume popup. No new packages are required.

@@ -55,11 +55,11 @@ hl.bind("SUPER + mouse:273", hl.dsp.window.resize(), {mouse=true})
 hl.bind("SUPER + mouse_down", hl.dsp.focus({workspace="e+1"}))
 hl.bind("SUPER + mouse_up", hl.dsp.focus({workspace="e-1"}))
 for key,cmd in pairs({
- XF86AudioRaiseVolume="wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+",
- XF86AudioLowerVolume="wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-",
- XF86AudioMute="wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
- XF86AudioMicMute="wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle",
- XF86MonBrightnessUp="brightnessctl set +5%", XF86MonBrightnessDown="brightnessctl set 5%-",
+ XF86AudioRaiseVolume="~/.local/bin/nocturne-osd volume up",
+ XF86AudioLowerVolume="~/.local/bin/nocturne-osd volume down",
+ XF86AudioMute="~/.local/bin/nocturne-osd volume mute",
+ XF86AudioMicMute="~/.local/bin/nocturne-osd microphone mute",
+ XF86MonBrightnessUp="~/.local/bin/nocturne-osd brightness up", XF86MonBrightnessDown="~/.local/bin/nocturne-osd brightness down",
  XF86AudioPlay="playerctl play-pause", XF86AudioNext="playerctl next", XF86AudioPrev="playerctl previous"
 }) do hl.bind(key, hl.dsp.exec_cmd(cmd), {locked=true, repeating=true}) end
 hl.window_rule({name="settings", match={class="^(org.pulseaudio.pavucontrol|pavucontrol|blueman-manager|nm-connection-editor|qt6ct)$"}, float=true, size="820 540", center=true})

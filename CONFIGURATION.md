@@ -438,13 +438,16 @@ listener {
 
 ```lua
 -- NOCTURNE / Hyprland 0.56 Lua configuration
-hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "auto" })
+hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "1.2" })
 hl.env("XCURSOR_THEME", "Nocturne-Cursors")
 hl.env("XCURSOR_SIZE", "28")
 hl.env("HYPRCURSOR_SIZE", "28")
 hl.env("QT_QPA_PLATFORMTHEME", "qt6ct")
 hl.env("GTK_THEME", "Breeze-Dark")
 hl.config({
+ xwayland = {
+    force_zero_scaling = true
+ },
  cursor = { no_hardware_cursors = 1, enable_hyprcursor = false },
  general = { gaps_in = 6, gaps_out = 14, border_size = 2, resize_on_border = true, layout = "dwindle",
   col = { active_border = {colors = {"rgba(a78bfaee)", "rgba(6d28d9bb)"}, angle = 45}, inactive_border = "rgba(282333ff)" } },
@@ -470,6 +473,7 @@ exec("SUPER + Q", "kitty")
 exec("SUPER + E", "dolphin")
 exec("SUPER + R", "rofi -show drun")
 exec("SUPER + space", "rofi -show drun")
+exec("SUPER + B", "firefox")
 exec("SUPER + M", "~/.local/bin/nocturne-power")
 exec("SUPER + L", "loginctl lock-session")
 exec("SUPER + N", "makoctl dismiss -a")
@@ -490,11 +494,11 @@ hl.bind("SUPER + mouse:273", hl.dsp.window.resize(), {mouse=true})
 hl.bind("SUPER + mouse_down", hl.dsp.focus({workspace="e+1"}))
 hl.bind("SUPER + mouse_up", hl.dsp.focus({workspace="e-1"}))
 for key,cmd in pairs({
- XF86AudioRaiseVolume="wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+",
- XF86AudioLowerVolume="wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-",
- XF86AudioMute="wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
- XF86AudioMicMute="wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle",
- XF86MonBrightnessUp="brightnessctl set +5%", XF86MonBrightnessDown="brightnessctl set 5%-",
+ XF86AudioRaiseVolume="~/.local/bin/nocturne-osd volume up",
+ XF86AudioLowerVolume="~/.local/bin/nocturne-osd volume down",
+ XF86AudioMute="~/.local/bin/nocturne-osd volume mute",
+ XF86AudioMicMute="~/.local/bin/nocturne-osd microphone mute",
+ XF86MonBrightnessUp="~/.local/bin/nocturne-osd brightness up", XF86MonBrightnessDown="~/.local/bin/nocturne-osd brightness down",
  XF86AudioPlay="playerctl play-pause", XF86AudioNext="playerctl next", XF86AudioPrev="playerctl previous"
 }) do hl.bind(key, hl.dsp.exec_cmd(cmd), {locked=true, repeating=true}) end
 hl.window_rule({name="settings", match={class="^(org.pulseaudio.pavucontrol|pavucontrol|blueman-manager|nm-connection-editor|qt6ct)$"}, float=true, size="820 540", center=true})
@@ -769,6 +773,21 @@ icons=1
 [urgency=critical]
 border-color=#ef8fa4
 default-timeout=0
+
+[app-name="Nocturne OSD"]
+anchor=bottom-center
+outer-margin=0,0,80
+width=260
+height=60
+padding=18
+format=%s
+text-alignment=center
+icons=0
+history=0
+default-timeout=1500
+ignore-timeout=1
+progress-color=over #b69af733
+layer=overlay
 ```
 
 ## `config/qt5ct/qt5ct.conf`
@@ -916,6 +935,7 @@ format = "[󰥔 $time](#71637f)"
     "network",
     "custom/bluetooth",
     "pulseaudio",
+    "battery",
     "custom/power"
   ],
   "custom/launcher": {
@@ -971,14 +991,16 @@ format = "[󰥔 $time](#71637f)"
       ]
     },
     "on-click": "pavucontrol",
-    "on-click-right": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+    "on-click-right": "~/.local/bin/nocturne-osd volume mute",
     "scroll-step": 5,
-    "tooltip-format": "{desc}"
+    "tooltip-format": "{desc}",
+    "on-scroll-up": "~/.local/bin/nocturne-osd volume up",
+    "on-scroll-down": "~/.local/bin/nocturne-osd volume down"
   },
   "custom/power": {
     "format": "󰐥",
     "on-click": "~/.local/bin/nocturne-power",
-    "tooltip-format": "Session & power"
+    "tooltip-format": "Session &amp; power"
   },
   "custom/bluetooth": {
     "exec": "~/.local/bin/nocturne-bluetooth",
@@ -1001,6 +1023,24 @@ format = "[󰥔 $time](#71637f)"
     "signal": 8,
     "on-click": "~/.local/bin/nocturne-updates open",
     "exec-on-event": false
+  },
+  "battery": {
+    "interval": 30,
+    "states": {
+      "warning": 25,
+      "critical": 10
+    },
+    "format": "{icon} {capacity}%",
+    "format-charging": "󰂄 {capacity}%",
+    "format-plugged": "󰚥 {capacity}%",
+    "format-icons": [
+      "󰁺",
+      "󰁼",
+      "󰁾",
+      "󰂀",
+      "󰁹"
+    ],
+    "tooltip-format": "Battery · {capacity}%\n{time}"
   }
 }
 ```
@@ -1013,7 +1053,7 @@ format = "[󰥔 $time](#71637f)"
 window#waybar { background: transparent; color: #ded8ed; }
 .modules-left, .modules-center, .modules-right { background: transparent; }
 #custom-launcher, #clock, #window, #cpu, #memory, #tray,
-#network, #custom-bluetooth, #pulseaudio, #custom-power, #custom-updates {
+#network, #custom-bluetooth, #pulseaudio, #battery, #custom-power, #custom-updates {
     background: rgba(16, 13, 24, 0.96);
     border: 1px solid #352842;
     border-radius: 999px;
@@ -1053,6 +1093,11 @@ tooltip label { color: #e8e1f3; padding: 8px; }
 
 #custom-updates { color: #c4a5ff; padding: 0 12px; }
 #custom-updates:hover { background: #38264f; color: #eee8ff; }
+
+#battery { color: #c8bbde; }
+#battery.charging, #battery.plugged { color: #a5ccb3; }
+#battery.warning:not(.charging):not(.plugged) { color: #e5c89a; }
+#battery.critical:not(.charging):not(.plugged) { color: #ef8fa4; }
 ```
 
 ## `config/xdg-desktop-portal/portals.conf`
@@ -1669,4 +1714,64 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+```
+
+## `bin/nocturne-osd`
+
+```python
+#!/usr/bin/env python3
+"""Adjust desktop controls and show a single, replacing Nocturne popup."""
+import fcntl
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+
+def run(*args):
+    return subprocess.check_output(args, text=True, env={**os.environ, 'LC_ALL': 'C'}).strip()
+
+
+def main():
+    if len(sys.argv) != 3 or sys.argv[1] not in ('volume', 'microphone', 'brightness') or sys.argv[2] not in ('up', 'down', 'mute', 'show'):
+        sys.exit('Usage: nocturne-osd volume|microphone|brightness up|down|mute|show')
+    control, action = sys.argv[1:]
+    if control == 'brightness' and action == 'mute':
+        sys.exit('Brightness cannot be muted')
+    directory = Path(os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')) / 'nocturne'
+    directory.mkdir(parents=True, exist_ok=True)
+    # Serialize repeat events so the last popup always reflects the latest value.
+    with (directory / 'osd.lock').open('w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if control == 'brightness':
+            if action != 'show':
+                run('brightnessctl', '--class=backlight', '--min-value=1', 'set', '+5%' if action == 'up' else '5%-')
+            current = int(run('brightnessctl', '--class=backlight', 'get'))
+            maximum = int(run('brightnessctl', '--class=backlight', 'max'))
+            value = round(current * 100 / maximum)
+            title = f'Brightness · {value}%'
+        else:
+            device = '@DEFAULT_AUDIO_SOURCE@' if control == 'microphone' else '@DEFAULT_AUDIO_SINK@'
+            if action == 'mute':
+                run('wpctl', 'set-mute', device, 'toggle')
+            elif action != 'show':
+                run('wpctl', 'set-volume', '-l', '1', device, '5%+' if action == 'up' else '5%-')
+            status = run('wpctl', 'get-volume', device)
+            value = round(float(status.split()[1]) * 100)
+            label = 'Microphone' if control == 'microphone' else 'Volume'
+            title = f'{label} · Muted' if '[MUTED]' in status else f'{label} · {value}%'
+            if '[MUTED]' in status:
+                value = 0
+        # Use only the stack tag: combining it with --replace-id makes Mako
+        # replace a notification with itself and can crash the daemon.
+        run('notify-send', '--app-name=Nocturne OSD', '--urgency=low',
+            '--expire-time=1500', '--hint=int:value:' + str(min(100, max(0, value))),
+            '--hint=string:x-canonical-private-synchronous:nocturne-osd', title)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        sys.exit(f'nocturne-osd: {error}')
 ```
