@@ -5,7 +5,7 @@ ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 MODE=${1:-all}
 case "$MODE" in all|--system-only|--user-only) ;; *) echo "Usage: $0 [--system-only|--user-only]" >&2; exit 2;; esac
 STAMP=$(date +%Y%m%d-%H%M%S)
-packages=(hyprland kitty fastfetch dolphin sddm waybar rofi fish starship swaybg mako hyprlock hypridle breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme qt6ct qt5ct qt5-wayland qt5-quickcontrols2 blueman network-manager-applet networkmanager pavucontrol pipewire-pulse wireplumber ttf-jetbrains-mono-nerd inter-font grim slurp python-pillow polkit-kde-agent bluez bluez-utils brightnessctl playerctl xdg-desktop-portal-hyprland xdg-desktop-portal-gtk htop libnotify librsvg xorg-xcursorgen)
+packages=(pacman-contrib flatpak hyprland kitty fastfetch dolphin sddm waybar rofi fish starship swaybg mako hyprlock hypridle breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme qt6ct qt5ct qt5-wayland qt5-quickcontrols2 blueman network-manager-applet networkmanager pavucontrol pipewire-pulse wireplumber ttf-jetbrains-mono-nerd inter-font grim slurp python-pillow polkit-kde-agent bluez bluez-utils brightnessctl playerctl xdg-desktop-portal-hyprland xdg-desktop-portal-gtk htop libnotify librsvg xorg-xcursorgen)
 if [[ "$MODE" == --system-only ]]; then
     [[ $EUID == 0 ]] || { echo 'System phase needs sudo.' >&2; exit 1; }
     target=${SUDO_USER:-${2:-}}

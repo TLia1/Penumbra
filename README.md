@@ -178,3 +178,9 @@ Kitty now uses 0.8 background opacity with the existing Nocturne palette and com
 Fastfetch configuration and editable logo: `config/fastfetch/`. Render logo changes with `rsvg-convert config/fastfetch/nocturne-arch.svg -o config/fastfetch/nocturne-arch.png`. Fastfetch is included in installer dependencies. The installed settings and bundle were both updated; the terminal preview is on workspace 3. Screenshot: `previews/terminal.png`.
 
 Before-change backup: `~/.local/state/nocturne/backups/terminal-20261021-213128/` (installed files under `.config/`, source files under `bundle/`).
+
+## Package updates
+
+A violet update capsule appears on the right only when pending updates are found. It checks official Arch packages, AUR packages through Paru or Yay (whichever is installed), and user/system Flatpak apps and runtimes every 15 minutes. Hover for counts; click to open Kitty and update. Normal password, package review and confirmation prompts remain interactive. The terminal closes on success, or waits for Enter after a failure. Repeated clicks do not start parallel update sessions. The bar refreshes after the update exits.
+
+The installer includes `pacman-contrib` for its safe `checkupdates` command and Flatpak. Install Yay or Paru separately for AUR support. Repository checks use a separate database; they never refresh the live pacman database on their own. Failed checks are logged to the Waybar log and do not count as available updates. The helper is `bin/nocturne-updates`.

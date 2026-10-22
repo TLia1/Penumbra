@@ -6,6 +6,9 @@ hl.env("HYPRCURSOR_SIZE", "28")
 hl.env("QT_QPA_PLATFORMTHEME", "qt6ct")
 hl.env("GTK_THEME", "Breeze-Dark")
 hl.config({
+ xwayland = {
+    force_zero_scaling = true
+ },
  cursor = { no_hardware_cursors = 1, enable_hyprcursor = false },
  general = { gaps_in = 6, gaps_out = 14, border_size = 2, resize_on_border = true, layout = "dwindle",
   col = { active_border = {colors = {"rgba(a78bfaee)", "rgba(6d28d9bb)"}, angle = 45}, inactive_border = "rgba(282333ff)" } },

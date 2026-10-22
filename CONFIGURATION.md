@@ -12,7 +12,7 @@ ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 MODE=${1:-all}
 case "$MODE" in all|--system-only|--user-only) ;; *) echo "Usage: $0 [--system-only|--user-only]" >&2; exit 2;; esac
 STAMP=$(date +%Y%m%d-%H%M%S)
-packages=(hyprland kitty fastfetch dolphin sddm waybar rofi fish starship swaybg mako hyprlock hypridle breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme qt6ct qt5ct qt5-wayland qt5-quickcontrols2 blueman network-manager-applet networkmanager pavucontrol pipewire-pulse wireplumber ttf-jetbrains-mono-nerd inter-font grim slurp python-pillow polkit-kde-agent bluez bluez-utils brightnessctl playerctl xdg-desktop-portal-hyprland xdg-desktop-portal-gtk htop libnotify librsvg xorg-xcursorgen)
+packages=(pacman-contrib flatpak hyprland kitty fastfetch dolphin sddm waybar rofi fish starship swaybg mako hyprlock hypridle breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme qt6ct qt5ct qt5-wayland qt5-quickcontrols2 blueman network-manager-applet networkmanager pavucontrol pipewire-pulse wireplumber ttf-jetbrains-mono-nerd inter-font grim slurp python-pillow polkit-kde-agent bluez bluez-utils brightnessctl playerctl xdg-desktop-portal-hyprland xdg-desktop-portal-gtk htop libnotify librsvg xorg-xcursorgen)
 if [[ "$MODE" == --system-only ]]; then
     [[ $EUID == 0 ]] || { echo 'System phase needs sudo.' >&2; exit 1; }
     target=${SUDO_USER:-${2:-}}
@@ -909,6 +909,7 @@ format = "[󰥔 $time](#71637f)"
     "hyprland/window"
   ],
   "modules-right": [
+    "custom/updates",
     "cpu",
     "memory",
     "tray",
@@ -990,6 +991,16 @@ format = "[󰥔 $time](#71637f)"
     "max-length": 22,
     "separate-outputs": true,
     "tooltip": true
+  },
+  "custom/updates": {
+    "exec": "~/.local/bin/nocturne-updates",
+    "return-type": "json",
+    "format": "{text}",
+    "hide-empty-text": true,
+    "interval": 900,
+    "signal": 8,
+    "on-click": "~/.local/bin/nocturne-updates open",
+    "exec-on-event": false
   }
 }
 ```
@@ -1002,7 +1013,7 @@ format = "[󰥔 $time](#71637f)"
 window#waybar { background: transparent; color: #ded8ed; }
 .modules-left, .modules-center, .modules-right { background: transparent; }
 #custom-launcher, #clock, #window, #cpu, #memory, #tray,
-#network, #custom-bluetooth, #pulseaudio, #custom-power {
+#network, #custom-bluetooth, #pulseaudio, #custom-power, #custom-updates {
     background: rgba(16, 13, 24, 0.96);
     border: 1px solid #352842;
     border-radius: 999px;
@@ -1039,6 +1050,9 @@ window#waybar.empty #window { background: transparent; border: none; padding: 0;
 #custom-power { color: #c4a5ff; font-size: 17px; padding: 0 14px; }
 tooltip { background: #16111f; border: 1px solid #503a6d; border-radius: 16px; }
 tooltip label { color: #e8e1f3; padding: 8px; }
+
+#custom-updates { color: #c4a5ff; padding: 0 12px; }
+#custom-updates:hover { background: #38264f; color: #eee8ff; }
 ```
 
 ## `config/xdg-desktop-portal/portals.conf`
@@ -1527,3 +1541,132 @@ Inherits=Nocturne-Cursors
 <defs><mask id="arch"><path fill="white" d="M200 20 372 365 Q286 314 241 308 C246 249 232 222 204 222 C174 222 158 251 162 308 Q107 320 28 365 L146 130 181 153 151 119Z"/></mask></defs>
 <g mask="url(#arch)"><path fill="#b69af7" d="M0 0H400V400H0z"/><path fill="#ceb4ff" d="M200 20 246 126 180 330 115 273Z"/><path fill="#71637f" d="M246 126 400 400 202 316Z"/><path fill="#a1a5e9" d="M28 365 115 273 159 314Z"/><path fill="#e4dced" d="M200 20 210 43 153 121 146 130Z"/><path fill="#231d2e" d="M286 269 339 290 318 258 400 400 231 313Z"/></g>
 </svg>```
+
+## `bin/nocturne-updates`
+
+```python
+#!/usr/bin/env python3
+"""Waybar update checks and an interactive Kitty update session."""
+import fcntl
+import html
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+
+def helper():
+    return shutil.which("paru") or shutil.which("yay")
+
+
+def check(command, empty_codes=()):
+    try:
+        result = subprocess.run(command, capture_output=True, text=True,
+                                timeout=180, env={**os.environ, "LC_ALL": "C"})
+        if result.returncode in empty_codes:
+            return 0
+        # Yay returns 1 with no output when no AUR upgrades are available.
+        if ("-Qua" in command and result.returncode == 1
+                and not result.stdout.strip() and not result.stderr.strip()):
+            return 0
+        if result.returncode:
+            raise RuntimeError(result.stderr.strip() or "check failed")
+        return len({line.strip() for line in result.stdout.splitlines() if line.strip()})
+    except (OSError, subprocess.TimeoutExpired, RuntimeError) as error:
+        print(f"{command[0]}: {error}", file=sys.stderr)
+        return None
+
+
+def status():
+    sources = [("Arch", ["checkupdates", "--nocolor"], (2,))]
+    aur = helper()
+    if aur:
+        sources.append(("AUR", [aur, "-Qua", "--color", "never"], ()))
+    if shutil.which("flatpak"):
+        sources.extend((f"Flatpak ({scope})",
+                        ["flatpak", "remote-ls", f"--{scope}", "--updates",
+                         "--all", "--arch=*", "--columns=ref"], ())
+                       for scope in ("user", "system"))
+    counts = [(name, check(command, codes)) for name, command, codes in sources]
+    total = sum(count for _, count in counts if count is not None)
+    tooltip = [f"{name}: {count if count is not None else 'check unavailable'}"
+               for name, count in counts]
+    if not aur:
+        tooltip.append("AUR: install yay or paru to enable")
+    tooltip.append("Click to update · checked every 15 minutes")
+    print(json.dumps({"text": f"󰚰 {total}" if total else "",
+                      "tooltip": html.escape("\n".join(tooltip)),
+                      "class": "available"}))
+
+
+def lock(name):
+    directory = Path(os.environ.get("XDG_RUNTIME_DIR",
+                     os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))) / "nocturne"
+    directory.mkdir(parents=True, exist_ok=True)
+    handle = (directory / name).open("w")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    return handle
+
+
+def update():
+    handle = lock("update.lock")
+    if handle is None:
+        return 0
+    failed = False
+    try:
+        aur = helper()
+        commands = [("Arch + AUR" if aur else "Arch",
+                     [aur, "-Syu"] if aur else ["sudo", "pacman", "-Syu"])]
+        if shutil.which("flatpak"):
+            commands.extend((f"Flatpak ({scope})", ["flatpak", "update", f"--{scope}"])
+                            for scope in ("user", "system"))
+        for name, command in commands:
+            print(f"\n── {name} ──\n", flush=True)
+            if subprocess.run(command).returncode:
+                failed = True
+                break
+    except (OSError, KeyboardInterrupt) as error:
+        print(f"\nUpdate interrupted: {error}", flush=True)
+        failed = True
+    finally:
+        # Refresh only the update module, including after a partial upgrade.
+        subprocess.run(["pkill", "-RTMIN+8", "-u", str(os.getuid()), "-x", "waybar"],
+                       check=False)
+        handle.close()
+    if failed:
+        try:
+            input("\nUpdates did not finish. Press Enter to close…")
+        except (EOFError, KeyboardInterrupt):
+            pass
+    return int(failed)
+
+
+def main():
+    mode = sys.argv[1] if len(sys.argv) > 1 else "status"
+    if mode == "status":
+        status()
+    elif mode == "open":
+        handle = lock("terminal.lock")
+        if handle is not None:
+            try:
+                return subprocess.call(["kitty", "--class", "nocturne-updates",
+                                        "--title", "Nocturne · Updates",
+                                        str(Path(__file__).resolve()), "run"])
+            finally:
+                handle.close()
+    elif mode == "run":
+        return update()
+    else:
+        sys.exit("Usage: nocturne-updates [status|open|run]")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```

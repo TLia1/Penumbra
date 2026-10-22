@@ -3,7 +3,7 @@
 window#waybar { background: transparent; color: #ded8ed; }
 .modules-left, .modules-center, .modules-right { background: transparent; }
 #custom-launcher, #clock, #window, #cpu, #memory, #tray,
-#network, #custom-bluetooth, #pulseaudio, #custom-power {
+#network, #custom-bluetooth, #pulseaudio, #custom-power, #custom-updates {
     background: rgba(16, 13, 24, 0.96);
     border: 1px solid #352842;
     border-radius: 999px;
@@ -40,3 +40,6 @@ window#waybar.empty #window { background: transparent; border: none; padding: 0;
 #custom-power { color: #c4a5ff; font-size: 17px; padding: 0 14px; }
 tooltip { background: #16111f; border: 1px solid #503a6d; border-radius: 16px; }
 tooltip label { color: #e8e1f3; padding: 8px; }
+
+#custom-updates { color: #c4a5ff; padding: 0 12px; }
+#custom-updates:hover { background: #38264f; color: #eee8ff; }

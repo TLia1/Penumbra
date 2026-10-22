@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""Waybar update checks and an interactive Kitty update session."""
+import fcntl
+import html
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+
+def helper():
+    return shutil.which("paru") or shutil.which("yay")
+
+
+def check(command, empty_codes=()):
+    try:
+        result = subprocess.run(command, capture_output=True, text=True,
+                                timeout=180, env={**os.environ, "LC_ALL": "C"})
+        if result.returncode in empty_codes:
+            return 0
+        # Yay returns 1 with no output when no AUR upgrades are available.
+        if ("-Qua" in command and result.returncode == 1
+                and not result.stdout.strip() and not result.stderr.strip()):
+            return 0
+        if result.returncode:
+            raise RuntimeError(result.stderr.strip() or "check failed")
+        return len({line.strip() for line in result.stdout.splitlines() if line.strip()})
+    except (OSError, subprocess.TimeoutExpired, RuntimeError) as error:
+        print(f"{command[0]}: {error}", file=sys.stderr)
+        return None
+
+
+def status():
+    sources = [("Arch", ["checkupdates", "--nocolor"], (2,))]
+    aur = helper()
+    if aur:
+        sources.append(("AUR", [aur, "-Qua", "--color", "never"], ()))
+    if shutil.which("flatpak"):
+        sources.extend((f"Flatpak ({scope})",
+                        ["flatpak", "remote-ls", f"--{scope}", "--updates",
+                         "--all", "--arch=*", "--columns=ref"], ())
+                       for scope in ("user", "system"))
+    counts = [(name, check(command, codes)) for name, command, codes in sources]
+    total = sum(count for _, count in counts if count is not None)
+    tooltip = [f"{name}: {count if count is not None else 'check unavailable'}"
+               for name, count in counts]
+    if not aur:
+        tooltip.append("AUR: install yay or paru to enable")
+    tooltip.append("Click to update · checked every 15 minutes")
+    print(json.dumps({"text": f"󰚰 {total}" if total else "",
+                      "tooltip": html.escape("\n".join(tooltip)),
+                      "class": "available"}))
+
+
+def lock(name):
+    directory = Path(os.environ.get("XDG_RUNTIME_DIR",
+                     os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))) / "nocturne"
+    directory.mkdir(parents=True, exist_ok=True)
+    handle = (directory / name).open("w")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    return handle
+
+
+def update():
+    handle = lock("update.lock")
+    if handle is None:
+        return 0
+    failed = False
+    try:
+        aur = helper()
+        commands = [("Arch + AUR" if aur else "Arch",
+                     [aur, "-Syu"] if aur else ["sudo", "pacman", "-Syu"])]
+        if shutil.which("flatpak"):
+            commands.extend((f"Flatpak ({scope})", ["flatpak", "update", f"--{scope}"])
+                            for scope in ("user", "system"))
+        for name, command in commands:
+            print(f"\n── {name} ──\n", flush=True)
+            if subprocess.run(command).returncode:
+                failed = True
+                break
+    except (OSError, KeyboardInterrupt) as error:
+        print(f"\nUpdate interrupted: {error}", flush=True)
+        failed = True
+    finally:
+        # Refresh only the update module, including after a partial upgrade.
+        subprocess.run(["pkill", "-RTMIN+8", "-u", str(os.getuid()), "-x", "waybar"],
+                       check=False)
+        handle.close()
+    if failed:
+        try:
+            input("\nUpdates did not finish. Press Enter to close…")
+        except (EOFError, KeyboardInterrupt):
+            pass
+    return int(failed)
+
+
+def main():
+    mode = sys.argv[1] if len(sys.argv) > 1 else "status"
+    if mode == "status":
+        status()
+    elif mode == "open":
+        handle = lock("terminal.lock")
+        if handle is not None:
+            try:
+                return subprocess.call(["kitty", "--class", "nocturne-updates",
+                                        "--title", "Nocturne · Updates",
+                                        str(Path(__file__).resolve()), "run"])
+            finally:
+                handle.close()
+    elif mode == "run":
+        return update()
+    else:
+        sys.exit("Usage: nocturne-updates [status|open|run]")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
