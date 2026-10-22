@@ -8,39 +8,85 @@ import math, shutil, subprocess, tempfile
 ROOT=Path(__file__).resolve().parents[1]
 ASSETS=ROOT/'assets/cursors'
 THEME=ROOT/'system/usr/share/icons/Nocturne-Cursors'
+for stale in ASSETS.glob('*.svg'):stale.unlink()
+shutil.rmtree(THEME/'cursors',ignore_errors=True)
 ASSETS.mkdir(parents=True,exist_ok=True)
 (THEME/'cursors').mkdir(parents=True,exist_ok=True)
-V='#b69af7'; D='#100b1b'; L='#eee3ff'
-HEAD=f'<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><g stroke="{D}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" fill="{V}">'
-END='</g></svg>'
-def svg(body):return HEAD+body+END
-pointer='<path d="M5 3 L5 25 L11 20 L16 29 L20 27 L15 18 L24 17 Z"/><path d="M7 7 L7 19" fill="none" stroke="#eee3ff" stroke-width="1" opacity=".65"/>'
-hand='<path d="M10 17 V6 Q10 2 13 2 Q16 2 16 6 V13 Q20 10 22 14 Q26 12 27 17 V22 Q27 29 21 30 H14 Q11 30 9 26 L4 19 Q2 15 5 14 Q7 13 10 17 Z"/><path d="M16 14 V19 M21 15 V19" fill="none" stroke="#7653a7" stroke-width="1"/>'
-text='<path d="M11 4 H21 M16 4 V28 M11 28 H21" fill="none" stroke="#100b1b" stroke-width="5"/><path d="M11 4 H21 M16 4 V28 M11 28 H21" fill="none" stroke="#d5bdff" stroke-width="2"/>'
-ns='<path d="M16 2 L9 10 H13 V22 H9 L16 30 L23 22 H19 V10 H23 Z"/>'
-ew='<g transform="rotate(90 16 16)">'+ns+'</g>'
-move='<path d="M16 2 L10 8 H14 V14 H8 V10 L2 16 L8 22 V18 H14 V24 H10 L16 30 L22 24 H18 V18 H24 V22 L30 16 L24 10 V14 H18 V8 H22 Z"/>'
-cross='<path d="M16 3 V29 M3 16 H29" fill="none" stroke="#100b1b" stroke-width="5"/><path d="M16 3 V29 M3 16 H29" fill="none" stroke="#c8a9ff" stroke-width="2"/><circle cx="16" cy="16" r="3" fill="#eee3ff" stroke-width="1"/>'
-grab='<path d="M7 16 V10 Q7 7 10 9 V6 Q12 2 15 6 Q19 2 21 7 Q25 5 26 10 V21 Q26 29 20 30 H13 Q10 30 8 26 L4 20 Q3 15 7 16 Z"/><path d="M11 9 V16 M16 8 V15 M21 10 V16" fill="none" stroke="#7653a7" stroke-width="1"/>'
-fist='<path d="M6 14 Q6 9 10 11 Q12 7 16 10 Q19 7 22 11 Q27 10 27 15 V23 Q26 29 21 29 H12 Q8 28 6 23 L3 19 Q2 15 6 14 Z"/><path d="M10 13 V17 M16 12 V16 M22 13 V17" fill="none" stroke="#7653a7" stroke-width="1"/>'
-no='<circle cx="16" cy="16" r="12" fill="#100b1b" stroke="#b69af7" stroke-width="3"/><path d="M8 8 L24 24" stroke="#b69af7" stroke-width="3"/>'
-def badge(kind):
- base='<g transform="translate(0 0) scale(.82)">'+pointer+'</g><rect x="16" y="17" width="15" height="14" rx="4" fill="#241731"/>'
- marks={'copy':'M20 24 H27 M23.5 20.5 V27.5','alias':'M20 26 L27 20 M21 20 H27 V26','help':'M21 21 Q24 18 27 21 Q28 23 24 24 M24 27 V27.1','context-menu':'M20 21 H27 M20 24 H27 M20 27 H27'}
- return base+f'<path d="{marks[kind]}" fill="none" stroke="{L}" stroke-width="1.5"/>'
-shapes={'left_ptr':(pointer,5,3),'hand2':(hand,13,3),'xterm':(text,16,16),'ns-resize':(ns,16,16),'ew-resize':(ew,16,16),'nwse-resize':('<g transform="rotate(-45 16 16)">'+ns+'</g>',16,16),'nesw-resize':('<g transform="rotate(45 16 16)">'+ns+'</g>',16,16),'fleur':(move,16,16),'crosshair':(cross,16,16),'openhand':(grab,16,16),'closedhand':(fist,16,16),'forbidden':(no,16,16),'copy':(badge('copy'),5,3),'alias':(badge('alias'),5,3),'help':(badge('help'),5,3),'context-menu':(badge('context-menu'),5,3),'vertical-text':('<g transform="rotate(90 16 16)">'+text+'</g>',16,16),'cell':('<rect x="7" y="7" width="18" height="18" rx="2" fill="none" stroke="#100b1b" stroke-width="5"/><rect x="7" y="7" width="18" height="18" rx="2" fill="none" stroke="#c8a9ff" stroke-width="2"/>',16,16)}
-for name,symbol in [('zoom-in','M17 7 V17 M12 12 H22'),('zoom-out','M12 12 H22')]:
- shapes[name]=('<path d="M22 22 L29 29" stroke-width="6"/><path d="M22 22 L29 29" stroke="#b69af7" stroke-width="3"/><circle cx="15" cy="12" r="10" fill="#1c1328"/><path d="'+symbol+'" fill="none" stroke="#d5bdff" stroke-width="2"/>',15,12)
-def orbit(frame,cx=16,cy=16,r=10):
- result=f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="#38264f" stroke-width="3"/>'
- for j in range(8):
-  angle=(frame*30-j*17)*math.pi/180
-  x=cx+r*math.cos(angle);y=cy+r*math.sin(angle)
-  result+=f'<circle cx="{x:.3f}" cy="{y:.3f}" r="{1.1+j*.02 if j else 2.8}" fill="{L if j==0 else V}" stroke="none" opacity="{1-j*.105:.3f}"/>'
- return result
-frames={name:([svg(body)],x,y) for name,(body,x,y) in shapes.items()}
-frames['watch']=([svg(orbit(i)) for i in range(12)],16,16)
-frames['left_ptr_watch']=([svg('<g transform="scale(.75)">'+pointer+'</g>'+orbit(i,23,23,6)) for i in range(12)],4,2)
+# Palette: midnight outline, moonlit lavender body, Nocturne violet accents.
+D='#100b1b'; F='url(#body)'; V='#b69af7'; A='#8a63e8'; C='#9a82c9'; R='#ef8fa4'; O=1.6
+DEFS=('<defs><linearGradient id="body" gradientUnits="userSpaceOnUse" x1="0" y1="2" x2="0" y2="30">'
+ '<stop offset="0" stop-color="#faf6ff"/><stop offset="1" stop-color="#d4c2ff"/></linearGradient>'
+ '<filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation=".9"/></filter></defs>')
+def svg(*layers):
+ # Every part gets a midnight rim; each layer's rims sit under its fills so overlapping parts merge into one silhouette.
+ rims=''.join(r for layer in layers for r,_ in layer)
+ body=''.join(''.join(r for r,_ in layer)+''.join(f for _,f in layer) for layer in layers)
+ return (f'<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">{DEFS}'
+  f'<g filter="url(#shadow)" opacity=".42" transform="translate(.4 1.1)">{rims}</g>'
+  f'<g stroke-linejoin="round" stroke-linecap="round">{body}</g></svg>')
+def shape(d,fill=F):return (f'<path d="{d}" fill="{D}" stroke="{D}" stroke-width="{2*O}"/>',f'<path d="{d}" fill="{fill}"/>')
+def cap(x1,y1,x2,y2,w,fill=F):
+ line=f'<path d="M{x1:.2f} {y1:.2f} L{x2:.2f} {y2:.2f}" fill="none" stroke="{{}}" stroke-width="{{}}"/>'
+ return (line.format(D,w+2*O),line.format(fill,w))
+def disc(cx,cy,r,fill=F):return shape(f'M{cx-r} {cy} a{r} {r} 0 1 0 {2*r} 0 a{r} {r} 0 1 0 {-2*r} 0 Z',fill)
+def ring(cx,cy,r,w,fill=F):
+ circle=f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{{}}" stroke-width="{{}}"/>'
+ return (circle.format(D,w+2*O),circle.format(fill,w))
+def mark(d,color=D,w=1.7):return ('',f'<path d="{d}" fill="none" stroke="{color}" stroke-width="{w}"/>')
+def rounded(points,r):
+ """Closed polygon with every corner softened by a quadratic of radius r."""
+ d='';n=len(points)
+ for i,(x,y) in enumerate(points):
+  ends=[]
+  for px,py in (points[i-1],points[(i+1)%n]):
+   k=r/math.hypot(px-x,py-y);ends.append((x+(px-x)*k,y+(py-y)*k))
+  d+=('M' if not i else 'L')+f'{ends[0][0]:.2f} {ends[0][1]:.2f} Q{x} {y} {ends[1][0]:.2f} {ends[1][1]:.2f} '
+ return d+'Z'
+def turn(points,deg,cx=16,cy=16):
+ a=math.radians(deg);c,s=math.cos(a),math.sin(a)
+ return [(round(cx+(x-cx)*c-(y-cy)*s,3),round(cy+(x-cx)*s+(y-cy)*c,3)) for x,y in points]
+# Soft sail-shaped arrow: straight left edge, gently scooped underside.
+POINTER='M5 4.3 Q5 2.6 6.3 3.7 L19.2 14.9 Q20.6 16.3 18.6 16.6 Q12 17 8.1 22.6 Q5 26 5 22 Z'
+pointer=[shape(POINTER)]
+def hand(fingers,thumb,palm_top):
+ parts=[cap(*f) for f in fingers]+[cap(*thumb),shape(f'M9.8 {palm_top} H27 V21.8 Q27 29.6 19.8 29.6 H15.2 Q12.2 29.6 10.2 26.6 Z')]
+ # Creases run from the valley between two fingers down into the palm.
+ for a,b in zip(fingers,fingers[1:]):
+  top=max(a[1],b[1])+1.2
+  parts.append(mark(f'M{(a[0]+b[0])/2:.2f} {top:.2f} V{max(top+1.6,palm_top+2.4):.2f}',C,.9))
+ return parts
+point=hand([(12.6,4.6,12.6,18,5.2),(17.4,12.6,17.4,18,4.8),(21.6,14,21.6,18,4.4),(25.1,15.8,25.1,18,3.8)],(6,19.4,10.6,24.6,5),16.4)
+grab=hand([(12,7.4,12,17,4.6),(16.6,5,16.6,17,4.6),(21,6.4,21,17,4.4),(25,9.4,25,17.6,3.8)],(6.2,15.6,10.4,21.4,4.6),15)
+fist=hand([(12,12.8,12,17,4.6),(16.6,11.8,16.6,17,4.6),(21,12.4,21,17,4.4),(25,13.8,25,17.6,3.8)],(8.6,19.2,13.4,21.4,4.4),15)
+UP=[(16,3.6),(22.2,11.6),(9.8,11.6)]
+def arrows(*angles,points=UP):return [shape(rounded(turn(points,a),1.9)) for a in angles]+[disc(16,16,1.7,V)]
+SMALL=[(16,2.6),(21,8.6),(11,8.6)]
+text=[cap(16,5.5,16,26.5,2.8)]
+target=[ring(16,16,7.4,1.8)]+[cap(*(c for xy in turn([(16,2.6),(16,7.6)],a) for c in xy),1.8) for a in (0,90,180,270)]+[disc(16,16,2,V)]
+def badge(symbol,fill=V):return [disc(23.2,23.2,6.2,fill),mark(symbol)]
+marks={'copy':'M20 23.2 H26.4 M23.2 20 V26.4','alias':'M20.6 25.8 L25.4 21 M21.8 20.8 H25.6 V24.6',
+ 'help':'M21.1 21.8 Q21.4 19.4 23.4 19.4 Q25.6 19.5 25.5 21.4 Q25.3 22.8 23.4 23.6 V24.2 M23.4 26.6 V26.7','context-menu':'M20.4 21 H26 M20.4 23.2 H26 M20.4 25.4 H26'}
+def lens(symbol):return [cap(19.6,18.6,27.2,26.2,4.2),disc(14,12.6,8.4),ring(14,12.6,8.4,0.01,A),mark(symbol,D,2)]
+shapes={'left_ptr':([pointer],5,3),'hand2':([point],12.6,2.4),'xterm':([text],16,16),
+ 'ns-resize':([arrows(0,180)],16,16),'ew-resize':([arrows(90,270)],16,16),
+ 'nwse-resize':([arrows(-45,135)],16,16),'nesw-resize':([arrows(45,225)],16,16),
+ 'fleur':([arrows(0,90,180,270,points=SMALL)],16,16),'crosshair':([target],16,16),
+ 'openhand':([grab],16,16),'closedhand':([fist],16,16),'forbidden':([pointer,badge('M20.9 20.9 L25.5 25.5 M26.4 23.2 a3.2 3.2 0 1 0 -6.4 0 a3.2 3.2 0 1 0 6.4 0',R)],5,3),
+ 'vertical-text':([[cap(5.5,16,26.5,16,2.8)]],16,16),'cell':([[cap(16,5,16,27,5),cap(5,16,27,16,5)]],16,16),
+ 'zoom-in':([lens('M14 8.6 V16.6 M10 12.6 H18')],14,12.6),'zoom-out':([lens('M10 12.6 H18')],14,12.6)}
+for kind,symbol in marks.items():shapes[kind]=([pointer,badge(symbol)],5,3)
+def spinner(t,cx=16,cy=16,r=8.6,w=4.4):
+ """Violet arc chasing round a lavender track; it stretches and shrinks once per turn and loops seamlessly."""
+ length=24+232*math.sin(math.pi*t)**2;mid=720*t
+ head,tail=[math.radians(mid+s*length/2) for s in (1,-1)]
+ x1,y1,x2,y2=cx+r*math.sin(tail),cy-r*math.cos(tail),cx+r*math.sin(head),cy-r*math.cos(head)
+ arc=f'<path d="M{x1:.3f} {y1:.3f} A{r} {r} 0 {int(length>180)} 1 {x2:.3f} {y2:.3f}" fill="none" stroke="{A}" stroke-width="{w-.6}"/>'
+ track=ring(cx,cy,r,w)
+ return [(track[0],track[1]+arc)]
+FRAMES=24
+frames={name:([svg(*layers)],x,y) for name,(layers,x,y) in shapes.items()}
+frames['watch']=([svg(spinner(i/FRAMES)) for i in range(FRAMES)],16,16)
+frames['left_ptr_watch']=([svg(pointer,spinner(i/FRAMES,23.4,23,5,3.2)) for i in range(FRAMES)],5,3)
 aliases={
  'left_ptr':'default arrow top_left_arrow center_ptr draft right_ptr',
  'hand2':'pointer pointing_hand hand hand1 link 9d800788f1b08800ae810202380a0822 e29285e634086352946a0e7090d73106',
@@ -66,17 +112,17 @@ with tempfile.TemporaryDirectory(prefix='nocturne-cursors-') as tmp:
    for size in [24,28,32,48,64]:
     png=tmp/f'{name}-{i}-{size}.png'
     subprocess.run(['rsvg-convert','-w',str(size),'-h',str(size),str(src),'-o',str(png)],check=True)
-    lines.append(f'{size} {round(hx*size/32)} {round(hy*size/32)} {png} {75 if len(images)>1 else 0}')
+    lines.append(f'{size} {round(hx*size/32)} {round(hy*size/32)} {png} {40 if len(images)>1 else 0}')
   cfg=tmp/(name+'.conf');cfg.write_text('\n'.join(lines)+'\n')
   subprocess.run(['xcursorgen',str(cfg),str(THEME/'cursors'/name)],check=True)
  for canonical,names in aliases.items():
   for alias in names.split():shutil.copyfile(THEME/'cursors'/canonical,THEME/'cursors'/alias)
-(THEME/'index.theme').write_text('[Icon Theme]\nName=Nocturne Cursors\nComment=Original violet cursors with orbital busy animation\nInherits=breeze_cursors\n')
+(THEME/'index.theme').write_text('[Icon Theme]\nName=Nocturne Cursors\nComment=Soft lavender cursors with midnight outlines and a violet ring spinner\nInherits=breeze_cursors\n')
 # SVG contact sheet, keeping the artwork editable and inspectable.
-parts=['<svg xmlns="http://www.w3.org/2000/svg" width="960" height="570" viewBox="0 0 960 570"><rect width="960" height="570" rx="24" fill="#100d18"/><text x="40" y="50" fill="#e4dced" font-family="Inter" font-size="24">NOCTURNE / CURSORS</text><text x="40" y="79" fill="#8f809f" font-family="Inter" font-size="13">Violet silhouettes · midnight outlines · orbital motion</text>']
+parts=['<svg xmlns="http://www.w3.org/2000/svg" width="960" height="570" viewBox="0 0 960 570"><rect width="960" height="570" rx="24" fill="#100d18"/><text x="40" y="50" fill="#e4dced" font-family="Inter" font-size="24">NOCTURNE / CURSORS</text><text x="40" y="79" fill="#8f809f" font-family="Inter" font-size="13">Soft lavender silhouettes · midnight outlines · violet ring spinner</text>']
 for n,(name,(images,_,_)) in enumerate(frames.items()):
  x=40+(n%6)*150;y=110+(n//6)*110
- inner=images[0].split('>',1)[1].rsplit('</svg>',1)[0]
+ inner=images[len(images)//3].split('>',1)[1].rsplit('</svg>',1)[0]
  parts.append(f'<rect x="{x}" y="{y}" width="132" height="82" rx="12" fill="#1a1324"/><g transform="translate({x+42} {y+7}) scale(1.5)">{inner}</g><text x="{x+66}" y="{y+99}" fill="#a99abb" font-family="Inter" font-size="11" text-anchor="middle">{name}</text>')
 parts.append('</svg>')
 p=ROOT/'previews/cursors.svg';p.write_text(''.join(parts))

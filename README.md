@@ -143,7 +143,7 @@ On physical hardware, the software-rendering override can be removed from the `c
 
 ## Original Nocturne cursor set
 
-Custom artwork drawn for this theme: lavender fill, dark outlines, pale highlights, matching text/resize/drag/action cursors, and a twelve-frame orbital busy animation. There are **22 original cursor designs**, **109 standard/legacy cursor names**, and sizes **24, 28, 32, 48, and 64 px**. The desktop, GTK applications, fallback theme, and SDDM select `Nocturne-Cursors`. Apps already open may retain their old cursor until reopened.
+Custom artwork drawn for this theme in a soft, rounded style: a sail-shaped arrow, chunky hands and split-arrowhead resize cursors with a moonlit lavender fill, midnight outlines and a light drop shadow. Violet badges mark copy/link/help/menu actions, a rose badge marks forbidden, and the busy cursor is a 24-frame violet arc that stretches as it circles a lavender ring. There are **22 original cursor designs**, **109 standard/legacy cursor names**, and sizes **24, 28, 32, 48, and 64 px**. The desktop, GTK applications, fallback theme, and SDDM select `Nocturne-Cursors`. Apps already open may retain their old cursor until reopened.
 
 - Editable SVGs: `assets/cursors/`.
 - Rebuild script: `tools/build-cursors.py`.
