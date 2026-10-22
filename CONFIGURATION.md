@@ -10,9 +10,16 @@ Full installer, cursor generator, scripts and authored text configuration. Compi
 set -euo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 MODE=${1:-all}
-case "$MODE" in all|--system-only|--user-only) ;; *) echo "Usage: $0 [--system-only|--user-only]" >&2; exit 2;; esac
+case "$MODE" in all|--system-only|--user-only|--boot-only) ;; *) echo "Usage: $0 [--system-only|--user-only|--boot-only]" >&2; exit 2;; esac
+if [[ "$MODE" == --boot-only ]]; then
+    if [[ $EUID == 0 ]]; then
+        exec python3 "$ROOT/tools/install-boot.py"
+    else
+        exec sudo python3 "$ROOT/tools/install-boot.py"
+    fi
+fi
 STAMP=$(date +%Y%m%d-%H%M%S)
-packages=(pacman-contrib flatpak hyprland kitty fastfetch dolphin sddm waybar rofi fish starship swaybg mako hyprlock hypridle breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme qt6ct qt5ct qt5-wayland qt5-quickcontrols2 blueman network-manager-applet networkmanager pavucontrol pipewire-pulse wireplumber ttf-jetbrains-mono-nerd inter-font grim slurp python-pillow polkit-kde-agent bluez bluez-utils brightnessctl playerctl xdg-desktop-portal-hyprland xdg-desktop-portal-gtk htop libnotify librsvg xorg-xcursorgen)
+packages=(neovim git ripgrep wl-clipboard unzip nodejs npm pacman-contrib flatpak hyprland kitty fastfetch dolphin sddm waybar rofi fish starship swaybg mako hyprlock hypridle breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme qt6ct qt5ct qt5-wayland qt5-quickcontrols2 blueman network-manager-applet networkmanager pavucontrol pipewire-pulse wireplumber ttf-jetbrains-mono-nerd inter-font grim slurp python-pillow polkit-kde-agent bluez bluez-utils brightnessctl playerctl xdg-desktop-portal-hyprland xdg-desktop-portal-gtk htop libnotify librsvg xorg-xcursorgen)
 if [[ "$MODE" == --system-only ]]; then
     [[ $EUID == 0 ]] || { echo 'System phase needs sudo.' >&2; exit 1; }
     target=${SUDO_USER:-${2:-}}
@@ -35,6 +42,8 @@ if [[ "$MODE" == --system-only ]]; then
     usermod -s /usr/bin/fish "$target"
     systemctl enable --now bluetooth NetworkManager
     systemctl enable sddm
+    # Boot assets are deliberately outside system/: deploy only after opt-in.
+    python3 "$ROOT/tools/install-boot.py" || echo 'Optional boot theming did not complete; see diagnostics above.' >&2
     echo "System backup: $backup"
     exit 0
 fi
@@ -1820,4 +1829,282 @@ if __name__ == '__main__':
         main()
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         sys.exit(f'nocturne-osd: {error}')
+```
+
+
+## Neovim workspace
+
+The editor-only installer backs up an existing configuration and restores the locked plugin versions. See README.md for usage and language-server setup.
+
+### `tools/install-neovim.sh`
+
+```bash
+#!/usr/bin/env bash
+# Install only the Neovim configuration; no desktop or system changes.
+set -euo pipefail
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+command -v nvim >/dev/null
+command -v git >/dev/null
+config_root=${XDG_CONFIG_HOME:-$HOME/.config}
+state_root=${XDG_STATE_HOME:-$HOME/.local/state}
+destination="$config_root/nvim"
+backup=$(mktemp -d "$state_root/nocturne/backups/neovim-XXXXXXXX" 2>/dev/null) || {
+    mkdir -p "$state_root/nocturne/backups"
+    backup=$(mktemp -d "$state_root/nocturne/backups/neovim-XXXXXXXX")
+}
+if [[ -e "$destination" || -L "$destination" ]]; then
+    mv -- "$destination" "$backup/nvim"
+else
+    printf '%s\n' "$destination" > "$backup/new-files.txt"
+fi
+mkdir -p "$config_root"
+cp -a "$ROOT/config/nvim" "$destination"
+printf 'Neovim configuration installed. Backup record: %s\n' "$backup"
+nvim --headless '+Lazy! restore' +qa
+printf 'Open a project with: nvim /path/to/project\n'
+```
+
+### `config/nvim/colors/nocturne.lua`
+
+```lua
+-- Original Nocturne palette, shared with the desktop.
+vim.cmd('highlight clear')
+if vim.g.syntax_on then vim.cmd('syntax reset') end
+vim.o.background = 'dark'
+vim.g.colors_name = 'nocturne'
+local c = { bg = '#0d0a12', panel = '#100d18', raised = '#1b1526', border = '#352a46',
+  violet = '#b69af7', fg = '#e4dced', muted = '#8f809f', green = '#a6d4bc',
+  rose = '#ed9cad', gold = '#e5c49a', blue = '#a3c5e9', pink = '#d5a4dc' }
+local groups = {
+  Normal = { fg = c.fg, bg = c.bg }, NormalNC = { fg = c.fg, bg = c.bg },
+  NormalFloat = { fg = c.fg, bg = c.panel }, FloatBorder = { fg = c.violet, bg = c.panel },
+  FloatTitle = { fg = c.violet, bg = c.panel, bold = true },
+  CursorLine = { bg = c.raised }, CursorLineNr = { fg = c.violet, bold = true },
+  LineNr = { fg = c.muted }, SignColumn = { bg = c.bg }, EndOfBuffer = { fg = c.border },
+  WinSeparator = { fg = c.border }, Visual = { bg = '#3d2d54' },
+  Search = { fg = c.bg, bg = c.gold }, IncSearch = { fg = c.bg, bg = c.violet },
+  Pmenu = { fg = c.fg, bg = c.panel }, PmenuSel = { fg = c.bg, bg = c.violet },
+  PmenuSbar = { bg = c.raised }, PmenuThumb = { bg = c.muted },
+  StatusLine = { fg = c.fg, bg = c.panel }, StatusLineNC = { fg = c.muted, bg = c.panel },
+  TabLine = { fg = c.muted, bg = c.panel }, TabLineSel = { fg = c.violet, bg = c.raised, bold = true },
+  TabLineFill = { bg = c.panel }, Directory = { fg = c.violet },
+  Title = { fg = c.violet, bold = true }, Comment = { fg = c.muted, italic = true },
+  Constant = { fg = c.gold }, String = { fg = c.green }, Character = { fg = c.green },
+  Number = { fg = c.gold }, Boolean = { fg = c.gold }, Float = { fg = c.gold },
+  Identifier = { fg = c.fg }, Function = { fg = c.blue }, Statement = { fg = c.violet },
+  Keyword = { fg = c.violet }, Operator = { fg = c.pink }, PreProc = { fg = c.pink },
+  Type = { fg = c.gold }, Special = { fg = c.pink }, Delimiter = { fg = c.muted },
+  Underlined = { fg = c.blue, underline = true }, Todo = { fg = c.gold, bold = true },
+  Error = { fg = c.rose }, ErrorMsg = { fg = c.rose }, WarningMsg = { fg = c.gold },
+  MatchParen = { fg = c.violet, bg = c.border, bold = true }, NonText = { fg = c.border },
+  Folded = { fg = c.muted, bg = c.panel }, FoldColumn = { fg = c.muted },
+  DiffAdd = { bg = '#1c3029' }, DiffDelete = { bg = '#38202d' },
+  DiffChange = { bg = '#27243f' }, DiffText = { bg = '#403457' },
+  GitSignsAdd = { fg = c.green }, GitSignsChange = { fg = c.violet }, GitSignsDelete = { fg = c.rose },
+  DiagnosticError = { fg = c.rose }, DiagnosticWarn = { fg = c.gold },
+  DiagnosticInfo = { fg = c.blue }, DiagnosticHint = { fg = c.violet },
+  NvimTreeNormal = { fg = c.fg, bg = c.panel }, NvimTreeNormalNC = { fg = c.fg, bg = c.panel },
+  NvimTreeEndOfBuffer = { fg = c.panel, bg = c.panel },
+  NvimTreeRootFolder = { fg = c.violet, bold = true }, NvimTreeFolderName = { fg = c.violet },
+  NvimTreeOpenedFolderName = { fg = c.pink, bold = true }, NvimTreeFolderIcon = { fg = c.violet },
+  TelescopeBorder = { fg = c.border }, TelescopeSelection = { bg = c.raised },
+  TelescopeMatching = { fg = c.violet, bold = true },
+  WhichKey = { fg = c.violet }, WhichKeyGroup = { fg = c.blue }, WhichKeyDesc = { fg = c.fg },
+}
+for name, value in pairs(groups) do vim.api.nvim_set_hl(0, name, value) end
+for _, severity in ipairs({ 'Error', 'Warn', 'Info', 'Hint' }) do
+  vim.api.nvim_set_hl(0, 'DiagnosticUnderline' .. severity, { sp = groups['Diagnostic' .. severity].fg, undercurl = true })
+end
+local terminal = { c.panel, c.rose, c.green, c.gold, c.violet, c.pink, c.blue, c.fg,
+  c.muted, '#f5b4c1', '#bce6ce', '#f2d7b3', '#cbb4ff', '#e6bce9', '#bddbf5', '#f7f0ff' }
+for i, color in ipairs(terminal) do vim.g['terminal_color_' .. (i - 1)] = color end
+```
+
+### `config/nvim/init.lua`
+
+```lua
+vim.g.mapleader = ' '
+vim.g.maplocalleader = ' '
+vim.g.loaded_netrw = 1
+vim.g.loaded_netrwPlugin = 1
+local o = vim.opt
+o.termguicolors = true
+o.number = true
+o.relativenumber = true
+o.mouse = 'a'
+o.clipboard = 'unnamedplus'
+o.expandtab = true
+o.shiftwidth = 2
+o.tabstop = 2
+o.smartindent = true
+o.ignorecase = true
+o.smartcase = true
+o.signcolumn = 'yes'
+o.cursorline = true
+o.wrap = false
+o.scrolloff = 6
+o.splitright = true
+o.splitbelow = true
+o.undofile = true
+o.updatetime = 250
+o.timeoutlen = 400
+o.completeopt = { 'menu', 'menuone', 'noselect' }
+o.laststatus = 3
+vim.cmd.colorscheme('nocturne')
+local path = vim.fn.stdpath('data') .. '/lazy/lazy.nvim'
+if not vim.uv.fs_stat(path) then
+  local result = vim.fn.system({ 'git', 'clone', '--filter=blob:none', '--branch=stable',
+    'https://github.com/folke/lazy.nvim.git', path })
+  if vim.v.shell_error ~= 0 then
+    vim.notify('Plugin download failed. Check your connection and restart Neovim.\n' .. result, vim.log.levels.ERROR)
+    return
+  end
+end
+vim.opt.rtp:prepend(path)
+require('lazy').setup('nocturne.plugins', {
+  change_detection = { notify = false },
+  checker = { enabled = false },
+  local_spec = false,
+  ui = { border = 'rounded' },
+})
+require('nocturne.keys')
+vim.diagnostic.config({ virtual_text = false, float = { border = 'rounded' }, severity_sort = true })
+vim.api.nvim_create_autocmd('VimEnter', {
+  callback = function()
+    if #vim.api.nvim_list_uis() == 0 or vim.fn.argc() > 1 then return end
+    local arg = vim.fn.argv(0)
+    if vim.fn.argc() == 0 or vim.fn.isdirectory(arg) == 1 then
+      if vim.fn.isdirectory(arg) == 1 then vim.cmd.cd(vim.fn.fnameescape(arg)) end
+      require('nvim-tree.api').tree.open()
+    end
+  end,
+})
+```
+
+### `config/nvim/lazy-lock.json`
+
+```json
+{
+  "bufferline.nvim": { "branch": "main", "commit": "655133c3b4c3e5e05ec549b9f8cc2894ac6f51b3" },
+  "gitsigns.nvim": { "branch": "main", "commit": "683137003522aebd6948358334164a6ba2ca7cd5" },
+  "lazy.nvim": { "branch": "main", "commit": "85c7ff3711b730b4030d03144f6db6375044ae82" },
+  "lualine.nvim": { "branch": "master", "commit": "221ce6b2d999187044529f49da6554a92f740a96" },
+  "mason.nvim": { "branch": "main", "commit": "2a6940af80375532e5e9e7c1f2fc6319a1b7a69d" },
+  "nvim-autopairs": { "branch": "master", "commit": "3172f40c16563db871a58f20d205c710ad782311" },
+  "nvim-lspconfig": { "branch": "master", "commit": "77b7432d4770d23b277d37923e5a08a442d8bb07" },
+  "nvim-tree.lua": { "branch": "master", "commit": "9a2e0006d42f292eb3ade7dfdff201a7429a780c" },
+  "nvim-web-devicons": { "branch": "master", "commit": "ec309a0eaff6ea967e58c275996155ab5c16938d" },
+  "plenary.nvim": { "branch": "master", "commit": "74b06c6c75e4eeb3108ec01852001636d85a932b" },
+  "telescope.nvim": { "branch": "master", "commit": "40aedd8a68c78a656a10a8d62d80c54af59420fb" },
+  "which-key.nvim": { "branch": "main", "commit": "3aab2147e74890957785941f0c1ad87d0a44c15a" }
+}
+```
+
+### `config/nvim/lua/nocturne/keys.lua`
+
+```lua
+local function map(key, action, desc, mode)
+  vim.keymap.set(mode or 'n', key, action, { silent = true, desc = desc })
+end
+local function find(name)
+  return function() require('telescope.builtin')[name]() end
+end
+map('<leader>e', '<cmd>NvimTreeToggle<cr>', 'Toggle file tree')
+map('<leader>o', '<cmd>NvimTreeFindFile<cr>', 'Reveal current file')
+map('<leader><space>', find('find_files'), 'Find project file')
+map('<C-p>', find('find_files'), 'Find project file')
+map('<leader>ff', find('find_files'), 'Find files')
+map('<leader>fg', find('live_grep'), 'Search project text')
+map('<leader>fr', find('oldfiles'), 'Recent files')
+map('<leader>fb', find('buffers'), 'Open buffers')
+map('<leader>fh', find('help_tags'), 'Search help')
+map('<S-l>', '<cmd>bnext<cr>', 'Next file')
+map('<S-h>', '<cmd>bprevious<cr>', 'Previous file')
+map('<leader>bn', '<cmd>bnext<cr>', 'Next file')
+map('<leader>bp', '<cmd>bprevious<cr>', 'Previous file')
+map('<leader>bd', '<cmd>bdelete<cr>', 'Close file (protect unsaved changes)')
+map('<leader>s', '<cmd>write<cr>', 'Save file')
+map('<C-s>', '<cmd>write<cr>', 'Save file', { 'n', 'i' })
+map('<leader>q', '<cmd>confirm qall<cr>', 'Quit (ask about unsaved files)')
+map('<Esc>', '<cmd>nohlsearch<cr>', 'Clear search highlight')
+map('<leader>?', function() require('which-key').show({ global = true }) end, 'Show shortcuts')
+map('<leader>wl', '<C-w>l', 'Focus right window')
+map('<leader>wh', '<C-w>h', 'Focus left window')
+map('<leader>wj', '<C-w>j', 'Focus lower window')
+map('<leader>wk', '<C-w>k', 'Focus upper window')
+map('<leader>wv', '<cmd>vsplit<cr>', 'Split vertically')
+map('<leader>ws', '<cmd>split<cr>', 'Split horizontally')
+map('<leader>gg', find('git_status'), 'Git changed files')
+map('<leader>gp', function() require('gitsigns').preview_hunk() end, 'Preview Git change')
+map('<leader>cm', '<cmd>Mason<cr>', 'Install language tools')
+map('<leader>cd', vim.diagnostic.open_float, 'Line diagnostics')
+map('<leader>cl', find('diagnostics'), 'Project diagnostics')
+map('<leader>cr', vim.lsp.buf.rename, 'Rename symbol')
+map('<leader>ca', vim.lsp.buf.code_action, 'Code action')
+map('<leader>cf', function() vim.lsp.buf.format({ async = true }) end, 'Format with language server')
+map('gd', vim.lsp.buf.definition, 'Go to definition')
+map('grr', vim.lsp.buf.references, 'Find references')
+map('K', vim.lsp.buf.hover, 'Documentation')
+map('<leader>t', '<cmd>botright 12split | terminal<cr>', 'Open terminal')
+map('<Esc><Esc>', '<C-\\><C-n>', 'Leave terminal mode', 't')
+map('<leader>p', '<cmd>Lazy<cr>', 'Manage plugins')
+```
+
+### `config/nvim/lua/nocturne/plugins.lua`
+
+```lua
+return {
+  { 'nvim-tree/nvim-web-devicons', opts = {} },
+  { 'nvim-tree/nvim-tree.lua', dependencies = { 'nvim-tree/nvim-web-devicons' }, opts = {
+    view = { width = 32, side = 'left' },
+    renderer = { group_empty = true, highlight_git = 'name' },
+    update_focused_file = { enable = true },
+    filters = { dotfiles = false, custom = { '^.git$' } },
+    actions = { open_file = { quit_on_open = false } },
+  } },
+  { 'folke/which-key.nvim', opts = { preset = 'modern', delay = 350, spec = {
+    { '<leader>f', group = 'Find' }, { '<leader>b', group = 'Buffers' },
+    { '<leader>c', group = 'Code' }, { '<leader>g', group = 'Git' },
+    { '<leader>w', group = 'Windows' },
+  } } },
+  { 'nvim-telescope/telescope.nvim', dependencies = { 'nvim-lua/plenary.nvim' }, opts = {
+    defaults = { sorting_strategy = 'ascending', layout_config = { prompt_position = 'top' },
+      file_ignore_patterns = { 'node_modules/', '%.git/' } },
+    pickers = { find_files = { hidden = true } },
+  } },
+  { 'akinsho/bufferline.nvim', dependencies = { 'nvim-tree/nvim-web-devicons' }, opts = {
+    options = { diagnostics = 'nvim_lsp', separator_style = 'thin',
+      offsets = { { filetype = 'NvimTree', text = 'NOCTURNE · Files', text_align = 'center' } } },
+  } },
+  { 'nvim-lualine/lualine.nvim', opts = {
+    options = { theme = {
+      normal = { a = { fg = '#0d0a12', bg = '#b69af7', gui = 'bold' }, b = { fg = '#e4dced', bg = '#292035' }, c = { fg = '#8f809f', bg = '#100d18' } },
+      insert = { a = { fg = '#0d0a12', bg = '#a6d4bc' } },
+      visual = { a = { fg = '#0d0a12', bg = '#d5a4dc' } },
+      replace = { a = { fg = '#0d0a12', bg = '#ed9cad' } },
+      inactive = { a = { fg = '#8f809f', bg = '#100d18' }, b = { fg = '#8f809f', bg = '#100d18' }, c = { fg = '#8f809f', bg = '#100d18' } },
+    }, globalstatus = true },
+  } },
+  { 'lewis6991/gitsigns.nvim', opts = {} },
+  { 'windwp/nvim-autopairs', opts = {} },
+  { 'mason-org/mason.nvim', opts = { ui = { border = 'rounded' } } },
+  { 'neovim/nvim-lspconfig', dependencies = { 'mason-org/mason.nvim' }, config = function()
+    -- Enable only installed servers; Mason adds its executables to PATH.
+    local servers = {
+      lua_ls = 'lua-language-server', pyright = 'pyright-langserver',
+      ts_ls = 'typescript-language-server', bashls = 'bash-language-server',
+      clangd = 'clangd', rust_analyzer = 'rust-analyzer', gopls = 'gopls',
+    }
+    vim.lsp.config('lua_ls', { settings = { Lua = { diagnostics = { globals = { 'vim' } } } } })
+    for server, executable in pairs(servers) do
+      if vim.fn.executable(executable) == 1 then vim.lsp.enable(server) end
+    end
+    vim.api.nvim_create_autocmd('LspAttach', { callback = function(ev)
+      local client = vim.lsp.get_client_by_id(ev.data.client_id)
+      if client and client:supports_method('textDocument/completion') then
+        vim.lsp.completion.enable(true, client.id, ev.buf, { autotrigger = true })
+      end
+    end })
+  end },
+}
 ```

@@ -257,3 +257,71 @@ Nocturne also explicitly disables Plymouth's firmware-background mode.
 The machine's initial manufacturer/firmware logo can still appear before the
 OS boots. These changes do not control that firmware screen. A logo that
 reappears after Nocturne may need separate graphics-handoff investigation.
+
+## Neovim coding workspace
+
+Neovim now has an original Nocturne colorscheme, a left file explorer, clickable
+open-file tabs, fuzzy file/text search, Git change markers, a status bar and
+shortcut hints. Requires Neovim 0.11.3 or newer. Plugin versions are recorded in
+`config/nvim/lazy-lock.json`. Initial plugin installation needs GitHub access.
+
+Install only the editor setup (backs up any existing Neovim configuration):
+
+```bash
+./tools/install-neovim.sh
+nvim /path/to/project
+```
+
+The full desktop installer also includes this configuration and the packages
+`neovim git ripgrep wl-clipboard unzip nodejs npm`. For an editor-only installation,
+install missing dependencies with `sudo pacman -S --needed` followed by those
+package names. Open Neovim from your project's root, or pass its directory.
+The file tree opens automatically for a directory or an empty launch.
+
+Press `i` to type, then `Esc` to return to normal mode. In normal mode, press
+**Space and wait** for shortcut hints. Press `Space ?` for the full menu.
+
+| Shortcut (normal mode) | Action |
+|---|---|
+| Space e | Toggle the left file tree |
+| Space o | Reveal current file in the tree |
+| Ctrl+p / Space Space | Find a project file |
+| Space f g | Search text across the project |
+| Space f b | Choose an open file |
+| Shift+h / Shift+l | Previous / next open file |
+| Space b d | Close current file, protecting unsaved changes |
+| Ctrl+s / Space s | Save |
+| Space w h/j/k/l | Move between editor panes and the tree |
+| Space w v / Space w s | Vertical / horizontal split |
+| Space g p | Preview the Git change under the cursor |
+| Space c m | Install language tools with Mason |
+| gd / K | Definition / documentation (requires a language server) |
+| Space c r / Space c a | Rename symbol / code action |
+| Space c f | Format using an attached server that supports formatting |
+| Space t | Open a terminal; double-Esc returns to normal mode |
+| Space p | Plugin manager |
+| Space q | Quit, asking about unsaved files |
+
+In the tree, Enter opens files or expands folders; `a` creates, `r` renames,
+and `g?` shows tree-specific help. Dotfiles are shown; `.git` is hidden.
+
+Language tools are chosen per project: open Mason with `Space c m`, select a
+server and press `i`, then restart Neovim. This setup automatically enables
+installed `lua-language-server`, `pyright`, `typescript-language-server`,
+`bash-language-server`, `clangd`, `rust-analyzer` and `gopls`. Servers can also be
+installed with your system package manager. Node-based servers require Node/npm;
+other servers may require their language runtime. No language servers are bundled.
+With a server attached, completion appears as you type; Ctrl+n / Ctrl+p select
+suggestions and Ctrl+y accepts. Without one, Ctrl+n still offers buffer words.
+Neovim's bundled syntax highlighting and commenting (`gcc`) are available without
+extra language tooling. No automatic formatting on save is enabled.
+
+Use `:Lazy restore` to return plugins to the recorded versions; `:Lazy update`
+intentionally updates them. The standalone installer prints a backup directory;
+to undo, move the installed `~/.config/nvim` aside and restore its saved `nvim`
+directory, if one existed. Plugin downloads live separately in
+`~/.local/share/nvim/lazy`.
+
+Plugin references: [lazy.nvim installation](https://lazy.folke.io/installation),
+[nvim-tree](https://github.com/nvim-tree/nvim-tree.lua), and
+[which-key](https://github.com/folke/which-key.nvim).

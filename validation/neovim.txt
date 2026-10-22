@@ -1,0 +1,5 @@
+Validated with Neovim 0.12.6.
+PASS: installed Nocturne palette, file tree open/close, buffer switching, Telescope file finder.
+PASS: which-key shortcut popup rendered.
+PASS: installer shell syntax and git diff whitespace checks.
+Language servers are optional and were not installed or tested.
