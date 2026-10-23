@@ -367,8 +367,18 @@ def check_uki(image):
     if not source.is_file() or source.read_text().strip() != embedded:
         raise ValueError('/etc/kernel/cmdline must match the existing UKI before rebuilding.')
     words = embedded.split()
-    if 'splash' not in words or any(w in words for w in ('nosplash', 'plymouth.enable=0', 'rd.plymouth=0')):
-        raise ValueError('UKI must already enable splash in its embedded command line.')
+    if any(w in words for w in ('nosplash', 'plymouth.enable=0', 'rd.plymouth=0')):
+        raise ValueError('Plymouth is explicitly disabled in the UKI kernel command line.')
+
+
+def uki_splash_cmdline(text):
+    """Append only splash; retain quoting and spacing of existing arguments."""
+    value = text.strip()
+    if '\n' in value or '\r' in value or '#' in value or '--' in value.split():
+        raise ValueError('Custom UKI kernel command line requires manual setup.')
+    if any(w in value.split() for w in ('nosplash', 'plymouth.enable=0', 'rd.plymouth=0')):
+        raise ValueError('Plymouth is explicitly disabled in the UKI kernel command line.')
+    return value if 'splash' in value.split() else value + (' ' if value else '') + 'splash'
 
 
 def without_stock_splash(options):
@@ -411,13 +421,14 @@ def apply_plymouth():
     config = Path('/etc/mkinitcpio.conf')
     defaults = Path('/etc/default/grub')
     hooks = plymouth_hooks(config.read_text())
-    cmdline = splash_defaults(defaults.read_text())
     jobs = preset_jobs(Path('/etc/mkinitcpio.d'))
     uki_jobs = [job for job in jobs if job[1].suffix == '.efi']
     if uki_jobs and len(uki_jobs) != len(jobs):
         raise ValueError('Mixed UKI/initramfs presets require manual setup.')
     for _, image, _ in uki_jobs:
         check_uki(image)
+    source = Path('/etc/kernel/cmdline')
+    cmdline = uki_splash_cmdline(source.read_text()) if uki_jobs else splash_defaults(defaults.read_text())
     preset_updates = stock_splash_preset_updates(Path('/etc/mkinitcpio.d')) if uki_jobs else {}
     if uki_jobs:
         jobs = [(kernel, image, without_stock_splash(options)) for kernel, image, options in jobs]
@@ -434,6 +445,9 @@ def apply_plymouth():
             tx.save(path)
         for _, image, _ in jobs:
             tx.save(image)
+        if uki_jobs:
+            tx.save(source)
+            source.write_text(cmdline + '\n')
         for path, updated in preset_updates.items():
             tx.save(path)
             path.write_text(updated)
@@ -449,7 +463,7 @@ def apply_plymouth():
             uki_options = ['--cmdline', '/etc/kernel/cmdline'] if uki else []
             run('mkinitcpio', '-c', str(config), '-k', str(kernel), '-U' if uki else '-g', str(stage), *options, *uki_options)
             if uki:
-                if uki_section(stage, '.cmdline') != uki_section(image, '.cmdline'):
+                if uki_section(stage, '.cmdline').rstrip(b'\0').decode().strip() != cmdline:
                     raise ValueError('Rebuilt UKI changed the embedded kernel command line.')
                 with tempfile.TemporaryDirectory() as directory:
                     initrd = Path(directory) / 'initrd'

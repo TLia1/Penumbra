@@ -33,6 +33,16 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(updated, boot.plymouth_hooks(updated))
             self.assertIn(f'keyboard keymap {crypt} filesystems fsck', updated)
 
+    def test_uki_splash_preserves_quoted_arguments(self):
+        original = 'quiet  root=UUID=example param="two words"'
+        updated = boot.uki_splash_cmdline(original + '\n')
+        self.assertEqual(updated, original + ' splash')
+        self.assertEqual(boot.uki_splash_cmdline(updated), updated)
+        for value in ('quiet nosplash', 'plymouth.enable=0', 'rd.plymouth=0',
+                      'quiet -- initarg', 'quiet\nroot=example', '# comment'):
+            with self.assertRaises(ValueError):
+                boot.uki_splash_cmdline(value)
+
     def test_ambiguous_hooks_rejected(self):
         for text in ('HOOKS=($MYHOOKS)', 'HOOKS=(base)', 'HOOKS=(base udev)\nHOOKS+=(encrypt)',
                      'HOOKS=(base udev plymouth-encrypt)', 'HOOKS=(base udev systemd)'):
@@ -159,6 +169,7 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(self.snapshot(), self.original)
 
     def uki_fixture(self):
+        self.write('/etc/kernel/cmdline', 'quiet\n')
         self.write('/etc/mkinitcpio.d/linux.preset', "ALL_kver='/boot/vmlinuz-linux'\nPRESETS=('default')\ndefault_uki='/boot/EFI/Linux/arch-linux.efi'\ndefault_options='--splash /usr/share/systemd/bootctl/splash-arch.bmp'\nfallback_uki='/boot/EFI/Linux/arch-linux-fallback.efi'\n")
         self.write('/usr/share/systemd/bootctl/splash-arch.bmp', 'bitmap')
         self.write('/boot/EFI/Linux/arch-linux.efi', 'old uki')
@@ -192,6 +203,13 @@ class IntegrationTests(unittest.TestCase):
                 boot.check_uki(image)
             data[296] = 0
             image.write_bytes(data)
+            self.write('/etc/kernel/cmdline', 'quiet\n')
+            with patch.object(boot, 'uki_section', return_value=b'quiet\0'):
+                boot.check_uki(image)
+            self.write('/etc/kernel/cmdline', 'quiet nosplash\n')
+            with patch.object(boot, 'uki_section', return_value=b'quiet nosplash\0'):
+                with self.assertRaisesRegex(ValueError, 'explicitly disabled'):
+                    boot.check_uki(image)
             self.write('/etc/kernel/cmdline', 'different splash')
             with self.assertRaisesRegex(ValueError, 'must match'):
                 boot.check_uki(image)
@@ -203,6 +221,7 @@ class IntegrationTests(unittest.TestCase):
             if args[0] == 'mkinitcpio':
                 self.assertIn('-U', args)
                 self.assertNotIn('--splash', args)
+                self.assertEqual((self.root / 'etc/kernel/cmdline').read_text(), 'quiet splash\n')
                 Path(args[args.index('-U') + 1]).write_text('new uki')
             else:
                 self.fake_run(*args)
