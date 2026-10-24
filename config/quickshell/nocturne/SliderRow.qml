@@ -37,6 +37,8 @@ RowLayout {
     Slider {
         id: slider
         Layout.fillWidth: true
+        // The custom background and handle give no implicit height, which would leave a 0 px hit area.
+        implicitHeight: 36
         from: 0
         to: 100
         value: root.value
