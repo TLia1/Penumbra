@@ -1,0 +1,83 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+// Glyph button (mute) plus a soft violet slider, 0–100.
+RowLayout {
+    id: root
+
+    property string glyph
+    property real value: 0
+    property bool muted: false
+    signal moved(real value)
+    signal glyphClicked()
+
+    spacing: 10
+
+    Rectangle {
+        implicitWidth: 36
+        implicitHeight: 36
+        radius: 18
+        color: button.containsMouse ? Theme.hover : Theme.raised
+        Glyph {
+            anchors.centerIn: parent
+            text: root.glyph
+            size: 16
+            color: root.muted ? Theme.dim : Theme.violetBright
+        }
+        MouseArea {
+            id: button
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.glyphClicked()
+        }
+    }
+
+    Slider {
+        id: slider
+        Layout.fillWidth: true
+        from: 0
+        to: 100
+        value: root.value
+        onMoved: root.moved(value)
+        background: Rectangle {
+            x: slider.leftPadding
+            y: slider.topPadding + slider.availableHeight / 2 - height / 2
+            width: slider.availableWidth
+            height: 8
+            radius: 4
+            color: Theme.raised
+            Rectangle {
+                width: slider.visualPosition * parent.width
+                height: parent.height
+                radius: 4
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0; color: Theme.violetDeep }
+                    GradientStop { position: 1; color: root.muted ? Theme.dim : Theme.violet }
+                }
+            }
+        }
+        handle: Rectangle {
+            x: slider.leftPadding + slider.visualPosition * (slider.availableWidth - width)
+            y: slider.topPadding + slider.availableHeight / 2 - height / 2
+            width: slider.pressed ? 18 : 16
+            height: width
+            radius: width / 2
+            color: "#f3edff"
+            border.color: Theme.violet
+            border.width: 2
+            Behavior on width { NumberAnimation { duration: Theme.fast } }
+        }
+    }
+
+    Label {
+        Layout.preferredWidth: 34
+        horizontalAlignment: Text.AlignRight
+        text: Math.round(root.value) + "%"
+        font.family: Theme.mono
+        font.pixelSize: 11
+        color: Theme.muted
+    }
+}

@@ -19,18 +19,18 @@ Log out through **Super+M → Log out → Confirm**, then sign in again when con
 
 | Component | Design / behavior |
 |---|---|
-| Hyprland | Lua, slowly rotating violet gradient borders, violet glow on the focused window, rounded windows, frosted-glass blur behind the bar, launcher and notifications, soft window/workspace animations |
-| Waybar | Separate rounded capsules: launcher and clock on the left; occupied workspaces and focused window title in the center; grouped CPU/RAM, tray, grouped network/Bluetooth/audio/battery, and power on the right |
-| Rofi | Translucent application launcher, run command, window switcher; session menu as a row of icon tiles with confirmation |
+| Hyprland | Lua, slowly rotating violet gradient borders, violet glow on the focused window, rounded windows, frosted-glass blur behind every shell surface and the launcher, soft window/workspace animations |
+| Nocturne shell | Quickshell (QML) bar of floating capsules, control center, notification popups and history, volume/brightness OSD, calendar and full-screen session overlay; see "Nocturne shell" below |
+| Rofi | Translucent application launcher, run command, window switcher and clipboard history; fallback session menu when the shell is not running |
 | Kitty + Fish | Violet ANSI palette, animated cursor trail, Starship prompt, custom Arch logo and grouped Fastfetch greeting |
 | Dolphin / Qt | Nocturne KDE and Qt palettes, Breeze widgets, Papirus violet folder overlay |
 | GTK | Breeze Dark, near-black surfaces, violet selection/accent overrides |
 | GRUB | Optional orbital wallpaper, violet menu selection, keyboard hints and countdown |
 | Plymouth | Optional animated violet orbit, native password dialogs and update progress |
 | SDDM | Original animated QML greeter, wordmark-free orbital wallpaper, editable username, password, session selector, restart/shutdown confirmation |
-| Hyprlock | Wordmark-free wallpaper, clock and password field; locks after ten idle minutes and before suspend |
-| Notifications | Mako with violet borders and critical-notification persistence |
-| Wallpaper | Original scalable SVG artwork plus pre-rendered PNG; a wordmark-free variant for the lock screen and greeter (`tools/build-wallpapers.py`), no external image downloads |
+| Hyprlock | Wordmark-free version of the current wallpaper, clock and password field; locks after ten idle minutes and before suspend |
+| Wallpaper | Two original SVG scenes, night and dawn, plus pre-rendered PNGs and wordmark-free variants for the lock screen and greeter (`tools/build-wallpapers.py`); awww switches them with a transition that grows out of the planet |
+| Tools | Clipboard history (cliphist), color picker (hyprpicker), screenshot annotation (Satty) |
 
 Near-black `#0d0a12`, surface `#100d18`, violet `#b69af7`, text `#e4dced`, muted `#8f809f`. Fonts: Inter and JetBrainsMono Nerd Font.
 
@@ -49,21 +49,27 @@ Near-black `#0d0a12`, surface `#100d18`, violet `#b69af7`, text `#e4dced`, muted
 | Super+Shift+physical number-row key | Move window to workspace |
 | Super+left/right mouse drag | Move / resize |
 | Super+J | Toggle split direction |
-| Super+M | Session / power menu |
+| Super+M | Session overlay |
+| Super+A | Control center |
 | Super+L | Lock |
 | Super+N | Clear notifications |
-| Super+Shift+R | Restart bar and wallpaper, reload notifications |
-| Print | Select screenshot region; save to `~/Pictures/Screenshots` |
+| Super+Shift+V | Clipboard history |
+| Super+Shift+C | Pick a color on screen; copies its hex value |
+| Super+W | Next wallpaper |
+| Super+Shift+R | Restart the shell |
+| Print | Select screenshot region; save to `~/Pictures/Screenshots` and copy it |
+| Shift+Print | Select a region and annotate it in Satty |
 | Audio / media / brightness keys | Volume, mute, playback, brightness where hardware supports it |
 
-Bar: click time to change date/time display; hover for calendar. CPU/RAM open htop. Click network for settings, right-click for the connection editor. Wi-Fi machines open nmtui for connecting to networks. Bluetooth opens Blueman when an adapter exists. Audio click opens pavucontrol; right-click mutes; scroll adjusts volume. Destructive session actions require confirmation.
+Bar: click the clock for a calendar. CPU/RAM open htop. Click the network/Bluetooth/audio/battery capsule (or press Super+A) for the control center; right-click it for pavucontrol, scroll it for volume. Tray icons are tinted violet until hovered; right-click for their menu. Hover any capsule for details. Destructive session actions require a second press to confirm.
 
 ## Files and destinations
 
 - `config/` → `~/.config/` (all authored user configuration files).
-- `bin/` → `~/.local/bin/` (session, power, network, Bluetooth, screenshot scripts).
+- `bin/` → `~/.local/bin/` (session, power, network, Bluetooth, screenshot, clipboard, color picker and wallpaper scripts).
+- `config/quickshell/nocturne/` → the Nocturne shell (QML), started by `nocturne-session`.
 - `share/` → `~/.local/share/` (KDE color scheme and violet icon overlay).
-- `assets/wallpaper.png` and `assets/wallpaper-clean.png` → `~/.local/share/nocturne/`. After editing `assets/wallpaper.svg`, run `tools/build-wallpapers.py` to re-render both and the SDDM copy.
+- `assets/wallpaper*.png` (night and dawn, each with a wordmark-free variant) → `~/.local/share/nocturne/`; `lock.png` there links to the clean variant of the current scene. After editing `assets/wallpaper.svg`, run `tools/build-wallpapers.py` to re-render both and the SDDM copy.
 - `system/` mirrors absolute system paths: SDDM configuration and complete theme.
 - `CONFIGURATION.md` contains the full installer, helper scripts, every authored configuration, and wallpaper SVG in Markdown.
 - `previews/` contains real screenshots of the installed desktop, launcher, power menu, lock screen, and greeter test mode.
@@ -80,7 +86,8 @@ Bar: click time to change date/time display; hover for calendar. CPU/RAM open ht
 5. Backs up managed user files under `~/.local/state/nocturne/backups/TIMESTAMP` and copies this configuration.
 6. Applies GTK dark preference, font, cursor, and icon settings through GSettings.
 7. Masks Dunst if installed, avoiding competing notification daemons.
-8. Enables PipeWire sockets and WirePlumber; reloads Hyprland and starts the desktop components.
+8. Retires the previous Waybar/Mako/swaybg setup: asks whether to remove those packages (`NOCTURNE_REMOVE_LEGACY=1` or `0` answers in advance; removed versions are listed in the system backup), stops them, and moves `~/.config/waybar` and `~/.config/mako` into the user backup.
+9. Enables PipeWire sockets and WirePlumber; reloads Hyprland and starts the desktop components.
 
 ## Backups and rollback
 
@@ -102,7 +109,7 @@ sudo rm /etc/sddm.conf.d/90-nocturne.conf
 hyprctl reload
 ```
 
-This leaves installed packages and other theme settings in place. To change the login shell back, read `/var/lib/nocturne/backups/20261021-200558/previous-shell.txt` and run `sudo usermod -s /path/from/that/file lia`. To use Dunst again: `systemctl --user unmask dunst.service`, stop Mako, then start Dunst. GSettings values before installation are in `before/gsettings-interface.txt`. Do not restart SDDM from a session with unsaved work: that ends the session.
+This leaves installed packages and other theme settings in place. To change the login shell back, read `/var/lib/nocturne/backups/20261021-200558/previous-shell.txt` and run `sudo usermod -s /path/from/that/file lia`. To use Dunst again: `systemctl --user unmask dunst.service`, then start Dunst with the Nocturne shell stopped (it is the notification daemon). GSettings values before installation are in `before/gsettings-interface.txt`. Do not restart SDDM from a session with unsaved work: that ends the session.
 
 ## Maintenance
 
@@ -120,7 +127,8 @@ python tools/build-wallpapers.py
 
 # Inspect session logs
 journalctl --user -b
-cat ~/.local/state/nocturne/waybar.log
+cat ~/.local/state/nocturne/quickshell.log
+quickshell -c nocturne ipc show   # list the shell's IPC commands
 
 # Preview SDDM without logging out; close preview when finished
 QT_QUICK_BACKEND=software sddm-greeter-qt6 --test-mode --theme /usr/share/sddm/themes/nocturne
@@ -166,11 +174,7 @@ Every bar module now has its own fully rounded capsule, with transparent space b
 
 Window titles are limited to 22 characters to preserve space for the system controls on this 1280-pixel display; the native window module retains its tooltip. The title capsule disappears on an empty desktop. The tray is one capsule containing the application tray icons. New screenshots: `previews/floating-bar.png` and `previews/floating-bar-empty.png`. Earlier preview images show the original layout.
 
-To reload the bar after editing its source files and copying them into `~/.config/waybar/`:
-
-```bash
-pkill -USR2 -x waybar
-```
+This Waybar layout has since been rebuilt in Quickshell; see "Nocturne shell".
 
 ## Terminal refinement
 
@@ -184,13 +188,25 @@ Before-change backup: `~/.local/state/nocturne/backups/terminal-20261021-213128/
 
 A violet update capsule appears on the right only when pending updates are found. It checks official Arch packages, AUR packages through Paru or Yay (whichever is installed), and user/system Flatpak apps and runtimes every 15 minutes. Hover for counts; click to open Kitty and update. Normal password, package review and confirmation prompts remain interactive. The terminal closes on success, or waits for Enter after a failure. Repeated clicks do not start parallel update sessions. The bar refreshes after the update exits.
 
-The installer includes `pacman-contrib` for its safe `checkupdates` command and Flatpak. Install Yay or Paru separately for AUR support. Repository checks use a separate database; they never refresh the live pacman database on their own. Failed checks are logged to the Waybar log and do not count as available updates. The helper is `bin/nocturne-updates`.
+The installer includes `pacman-contrib` for its safe `checkupdates` command and Flatpak. Install Yay or Paru separately for AUR support. Repository checks use a separate database; they never refresh the live pacman database on their own. Failed checks are logged to the shell log and do not count as available updates. The helper is `bin/nocturne-updates`.
 
 ## Brightness, volume and battery
 
 Hardware brightness and volume keys (including Fn+F2/F3/F6/F7 when those keys emit the corresponding media events) now show a violet popup at the bottom center with the current percentage and a progress bar. It disappears after 1.5 seconds; holding a key updates the same popup. Mute and microphone mute show their status too. Brightness stays above zero.
 
 The bar shows an automatically detected battery immediately before the power button, with its percentage, charging state, and low-battery colors. Machines without a battery omit this module. Scrolling the audio capsule also shows the volume popup. No new packages are required.
+
+## Nocturne shell
+
+The bar, notifications, volume/brightness popup, control center, calendar and session overlay are one Quickshell configuration in `config/quickshell/nocturne/`, replacing Waybar and Mako. Every surface is a translucent layer Hyprland blurs (namespaces `nocturne-*`).
+
+- **Bar** keeps the floating-capsule layout. The active workspace pill widens; the title capsule shows the focused window only on the current workspace.
+- **Control center** (Super+A, or click the status capsule): Wi-Fi and Bluetooth toggles (chevrons open nmtui/Blueman), Do not disturb, Stay awake (pauses idle locking), volume, microphone and brightness sliders, the current media player, and notification history with Clear all. Shortcuts for the next wallpaper, lock and the session overlay sit in its header. Escape or a click outside closes it.
+- **Notifications** pop in at the top right and move to the history when they time out (hovering pauses that). Critical notifications stay until dismissed and still show during Do not disturb. Clicking a notification runs its default action.
+- **Session overlay** (Super+M): arrow keys and Enter, or the mouse. Log out, Restart and Shut down ask for a second press.
+- **Scripts** reach it through IPC: `quickshell -c nocturne ipc call panel control|calendar|session|close`, `osd flash volume 40 false`, `notifications clear|dnd`, `updates refresh`. `nocturne-osd` and `nocturne-power` fall back to a plain notification and the rofi menu when the shell is not running.
+
+Edit the QML and Quickshell reloads it live. `Theme.qml` holds the palette, fonts, radii and animation timings.
 
 ## Boot themes
 

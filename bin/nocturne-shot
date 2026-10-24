@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
+# Region screenshot to ~/Pictures/Screenshots; "annotate" opens it in Satty first.
 set -euo pipefail
 mkdir -p "$HOME/Pictures/Screenshots"
-region=$(slurp -b 100d18aa -c b69af7) || exit 0
+region=$(slurp -b 100d18aa -c b69af7 -w 2) || exit 0
 file="$HOME/Pictures/Screenshots/$(date +%Y-%m-%d_%H-%M-%S).png"
+if [[ ${1:-} = annotate ]]; then
+ grim -g "$region" - | satty --filename - --output-filename "$file"
+ exit
+fi
 grim -g "$region" "$file"
-notify-send 'Screenshot saved' "$file"
+wl-copy < "$file"
+notify-send -a Nocturne -i "$file" 'Screenshot saved' "Copied to clipboard · ${file/#$HOME/\~}"

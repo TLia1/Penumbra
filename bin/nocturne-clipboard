@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Clipboard history from cliphist, picked in the Nocturne launcher style.
+set -euo pipefail
+if [[ ${1:-} = clear ]]; then
+ cliphist wipe
+ notify-send -a Nocturne 'Clipboard cleared' 'History has been wiped.'
+ exit
+fi
+choice=$(cliphist list | rofi -dmenu -i -p CLIPBOARD -display-columns 2 \
+ -theme-str 'entry { placeholder: "Search clipboard history…"; } listview { lines: 8; } element { padding: 9px 12px; }') || exit 0
+cliphist decode <<<"$choice" | wl-copy

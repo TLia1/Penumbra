@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Waybar update checks and an interactive Kitty update session."""
+"""Update checks for the Nocturne bar and an interactive Kitty update session."""
 import fcntl
 import html
 import json
@@ -88,9 +88,9 @@ def update():
         print(f"\nUpdate interrupted: {error}", flush=True)
         failed = True
     finally:
-        # Refresh only the update module, including after a partial upgrade.
-        subprocess.run(["pkill", "-RTMIN+8", "-u", str(os.getuid()), "-x", "waybar"],
-                       check=False)
+        # Refresh the bar's update count, including after a partial upgrade.
+        subprocess.run(["quickshell", "-c", "nocturne", "ipc", "call", "updates", "refresh"],
+                       capture_output=True, check=False)
         handle.close()
     if failed:
         try:

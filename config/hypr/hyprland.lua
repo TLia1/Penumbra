@@ -40,9 +40,14 @@ exec("SUPER + space", "rofi -show drun")
 exec("SUPER + B", "firefox")
 exec("SUPER + M", "~/.local/bin/nocturne-power")
 exec("SUPER + L", "loginctl lock-session")
-exec("SUPER + N", "makoctl dismiss -a")
+exec("SUPER + N", "quickshell -c nocturne ipc call notifications clear")
+exec("SUPER + A", "quickshell -c nocturne ipc call panel control")
+exec("SUPER + SHIFT + V", "~/.local/bin/nocturne-clipboard")
+exec("SUPER + SHIFT + C", "~/.local/bin/nocturne-picker")
+exec("SUPER + W", "~/.local/bin/nocturne-wallpaper next")
 exec("SUPER + SHIFT + R", "~/.local/bin/nocturne-session restart")
 exec("Print", "~/.local/bin/nocturne-shot")
+exec("SHIFT + Print", "~/.local/bin/nocturne-shot annotate")
 hl.bind("SUPER + C", hl.dsp.window.close())
 hl.bind("SUPER + V", hl.dsp.window.float({action="toggle"}))
 hl.bind("SUPER + F", hl.dsp.window.fullscreen())
@@ -66,7 +71,8 @@ for key,cmd in pairs({
  XF86AudioPlay="playerctl play-pause", XF86AudioNext="playerctl next", XF86AudioPrev="playerctl previous"
 }) do hl.bind(key, hl.dsp.exec_cmd(cmd), {locked=true, repeating=true}) end
 hl.window_rule({name="settings", match={class="^(org.pulseaudio.pavucontrol|pavucontrol|blueman-manager|nm-connection-editor|qt6ct)$"}, float=true, size="820 540", center=true})
--- Frosted glass: blur behind the translucent bar, launcher and notifications.
-hl.layer_rule({name="glass", match={namespace="^(waybar|rofi|notifications)$"}, blur=true, ignore_alpha=0.3})
+hl.window_rule({name="annotate", match={class="^(com.gabm.satty)$"}, float=true, center=true})
+-- Frosted glass behind every Nocturne shell surface and the launcher.
+hl.layer_rule({name="glass", match={namespace="^(nocturne-.*|rofi)$"}, blur=true, ignore_alpha=0.3})
 hl.window_rule({name="suppress-maximize", match={class=".*"}, suppress_event="maximize"})
 hl.on("hyprland.start", function() hl.exec_cmd("~/.local/bin/nocturne-session") end)

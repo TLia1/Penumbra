@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Switch Nocturne wallpapers with an awww transition; the lock screen follows the choice.
+set -euo pipefail
+dir="$HOME/.local/share/nocturne"
+state="$HOME/.local/state/nocturne/wallpaper"
+names=(wallpaper wallpaper-dawn)
+current=$(cat "$state" 2>/dev/null || echo wallpaper)
+[[ -e "$dir/$current.png" ]] || current=wallpaper
+transition=(--transition-type grow --transition-duration 1.4 --transition-fps 120)
+case "${1:-next}" in
+ next)
+  for i in "${!names[@]}"; do [[ ${names[i]} = "$current" ]] && break; done
+  current=${names[(i + 1) % ${#names[@]}]}
+  # Grow each scene out of its planet.
+  [[ $current = wallpaper-dawn ]] && transition+=(--transition-pos 0.32,0.37) || transition+=(--transition-pos 0.68,0.51);;
+ restore) transition=(--transition-type none);;
+ *) echo "Usage: nocturne-wallpaper [next|restore]" >&2; exit 2;;
+esac
+mkdir -p "${state%/*}"
+printf '%s\n' "$current" > "$state"
+ln -sfn "$dir/$current-clean.png" "$dir/lock.png"
+for _ in {1..50}; do awww query >/dev/null 2>&1 && break; sleep 0.1; done
+exec awww img "$dir/$current.png" --resize crop "${transition[@]}"

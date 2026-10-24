@@ -19,7 +19,9 @@
  <ellipse rx="626" ry="199" fill="none" stroke="url(#rim)" stroke-width="1" opacity=".4"/>
 </g>
 <g fill="#c8a2ef"><circle cx="2250" cy="430" r="3" opacity=".6"/><circle cx="1110" cy="1110" r="2" opacity=".5"/><circle cx="2080" cy="1260" r="2" opacity=".35"/></g>
+<g id="wordmark">
 <path d="M150 1330h56" stroke="#ad83e2" stroke-width="2"/>
 <text x="150" y="1380" font-family="Inter, sans-serif" font-size="20" letter-spacing="9" fill="#b8a4cf">NOCTURNE</text>
 <text x="150" y="1414" font-family="Inter, sans-serif" font-size="12" letter-spacing="3" fill="#635570">A QUIETER ORBIT.</text>
+</g>
 </svg>

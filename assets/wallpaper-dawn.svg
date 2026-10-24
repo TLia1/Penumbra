@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2560" height="1600" viewBox="0 0 2560 1600">
+<defs>
+ <radialGradient id="bg" cx="30%" cy="68%" r="78%"><stop stop-color="#2c1232"/><stop offset=".42" stop-color="#130b1c"/><stop offset="1" stop-color="#07070b"/></radialGradient>
+ <linearGradient id="ring" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#1d102a"/><stop offset=".25" stop-color="#8a3f9e"/><stop offset=".5" stop-color="#f3b4d6"/><stop offset=".72" stop-color="#9b6fe6"/><stop offset="1" stop-color="#1d102a"/></linearGradient>
+ <linearGradient id="dawn" x1=".73" y1=".95" x2=".5" y2=".5"><stop stop-color="#ffd0e4"/><stop offset=".3" stop-color="#e48ac0" stop-opacity=".9"/><stop offset=".62" stop-color="#7c3cc7" stop-opacity="0"/></linearGradient>
+ <radialGradient id="planet" cx="28%" cy="22%" r="80%"><stop stop-color="#3d1d4a"/><stop offset=".32" stop-color="#1a0f26"/><stop offset=".78" stop-color="#09080e"/><stop offset="1" stop-color="#08070c"/></radialGradient>
+ <radialGradient id="moon" cx="30%" cy="30%" r="80%"><stop stop-color="#5a3d74"/><stop offset=".6" stop-color="#1c1328"/><stop offset="1" stop-color="#0d0a12"/></radialGradient>
+ <clipPath id="front"><rect x="-900" y="0" width="1800" height="400"/></clipPath>
+ <filter id="glow"><feGaussianBlur stdDeviation="16"/></filter>
+ <filter id="soft"><feGaussianBlur stdDeviation="70"/></filter>
+</defs>
+<rect width="2560" height="1600" fill="url(#bg)"/>
+<ellipse cx="760" cy="900" rx="640" ry="520" fill="#b04a8f" opacity=".11" filter="url(#soft)"/>
+<ellipse cx="560" cy="700" rx="320" ry="260" fill="#f3a6cf" opacity=".07" filter="url(#soft)"/>
+<g fill="#e9c8f2"><circle cx="1620" cy="300" r="2.5" opacity=".55"/><circle cx="2140" cy="760" r="2" opacity=".4"/><circle cx="1880" cy="1180" r="1.5" opacity=".35"/><circle cx="1290" cy="520" r="1.5" opacity=".3"/><circle cx="2380" cy="380" r="2" opacity=".45"/><circle cx="1500" cy="1420" r="1.5" opacity=".25"/></g>
+<circle cx="1980" cy="430" r="28" fill="url(#moon)" stroke="#4a3260" stroke-width="1"/>
+<g transform="translate(820 1010) rotate(16)">
+ <ellipse rx="880" ry="230" fill="none" stroke="#8e5bc4" stroke-width="1" opacity=".12"/>
+ <ellipse rx="760" ry="172" fill="none" stroke="#e48ac0" stroke-width="10" filter="url(#glow)" opacity=".35"/>
+ <ellipse rx="760" ry="172" fill="none" stroke="url(#ring)" stroke-width="3"/>
+</g>
+<circle cx="820" cy="1010" r="430" fill="url(#planet)" stroke="#33203f" stroke-width="1"/>
+<circle cx="820" cy="1010" r="430" fill="none" stroke="url(#dawn)" stroke-width="16" stroke-dasharray="950 1752" transform="rotate(162 820 1010)" filter="url(#glow)" opacity=".45"/>
+<circle cx="820" cy="1010" r="429" fill="none" stroke="url(#dawn)" stroke-width="3" stroke-linecap="round" stroke-dasharray="950 1752" transform="rotate(162 820 1010)"/>
+<g transform="translate(820 1010) rotate(16)" clip-path="url(#front)">
+ <ellipse rx="760" ry="172" fill="none" stroke="#e48ac0" stroke-width="10" filter="url(#glow)" opacity=".35"/>
+ <ellipse rx="760" ry="172" fill="none" stroke="url(#ring)" stroke-width="3"/>
+ <ellipse rx="772" ry="182" fill="none" stroke="url(#ring)" stroke-width="1" opacity=".4"/>
+</g>
+<g id="wordmark">
+<path d="M2354 1330h56" stroke="#e48ac0" stroke-width="2"/>
+<text x="2410" y="1380" text-anchor="end" font-family="Inter, sans-serif" font-size="20" letter-spacing="9" fill="#d6b4d8">NOCTURNE</text>
+<text x="2410" y="1414" text-anchor="end" font-family="Inter, sans-serif" font-size="12" letter-spacing="3" fill="#6d5574">BEFORE THE LIGHT.</text>
+</g>
+</svg>

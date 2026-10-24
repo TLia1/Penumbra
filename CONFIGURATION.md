@@ -19,7 +19,15 @@ if [[ "$MODE" == --boot-only ]]; then
     fi
 fi
 STAMP=$(date +%Y%m%d-%H%M%S)
-packages=(neovim git ripgrep wl-clipboard unzip nodejs npm pacman-contrib flatpak hyprland kitty fastfetch dolphin sddm waybar rofi fish starship swaybg mako hyprlock hypridle breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme qt6ct qt5ct qt5-wayland qt5-quickcontrols2 blueman network-manager-applet networkmanager pavucontrol pipewire-pulse wireplumber ttf-jetbrains-mono-nerd inter-font grim slurp python-pillow polkit-kde-agent bluez bluez-utils brightnessctl playerctl xdg-desktop-portal-hyprland xdg-desktop-portal-gtk htop libnotify librsvg xorg-xcursorgen)
+# Replaced by the Quickshell shell (bar, notifications, OSD) and awww (wallpaper).
+legacy_packages=(waybar mako swaybg)
+legacy_configs=(waybar mako)
+ask() {
+    if [[ ! -t 0 ]]; then printf '%s [y/N] — skipped (noninteractive)\n' "$1"; return 1; fi
+    local answer; read -r -p "$1 [y/N] " answer
+    [[ ${answer,,} == y || ${answer,,} == yes ]]
+}
+packages=(neovim git ripgrep wl-clipboard unzip nodejs npm pacman-contrib flatpak hyprland kitty fastfetch dolphin sddm quickshell awww rofi fish starship hyprlock hypridle breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme qt6ct qt5ct qt5-wayland qt5-quickcontrols2 blueman network-manager-applet networkmanager pavucontrol pipewire-pulse wireplumber ttf-jetbrains-mono-nerd inter-font grim slurp satty hyprpicker cliphist python-pillow polkit-kde-agent bluez bluez-utils brightnessctl playerctl xdg-desktop-portal-hyprland xdg-desktop-portal-gtk htop libnotify librsvg xorg-xcursorgen)
 if [[ "$MODE" == --system-only ]]; then
     [[ $EUID == 0 ]] || { echo 'System phase needs sudo.' >&2; exit 1; }
     target=${SUDO_USER:-${2:-}}
@@ -30,6 +38,15 @@ if [[ "$MODE" == --system-only ]]; then
     fi
     backup="/var/lib/nocturne/backups/$STAMP"
     mkdir -p "$backup"
+    # Offer to remove components Nocturne no longer uses; set NOCTURNE_REMOVE_LEGACY=1 or 0 to skip the question.
+    mapfile -t installed < <(pacman -Qq "${legacy_packages[@]}" 2>/dev/null || true)
+    if (( ${#installed[@]} )); then
+        if [[ ${NOCTURNE_REMOVE_LEGACY:-ask} == 1 ]] || { [[ ${NOCTURNE_REMOVE_LEGACY:-ask} == ask ]] && ask "Remove packages Nocturne no longer uses (${installed[*]})?"; }; then
+            pacman -Q "${installed[@]}" > "$backup/removed-packages.txt"
+            # -s also drops their now-unneeded dependencies, never explicitly installed packages.
+            pacman -Rns --noconfirm "${installed[@]}" || echo "Could not remove ${installed[*]}; another package may still depend on them." >&2
+        fi
+    fi
     getent passwd "$target" | cut -d: -f7 > "$backup/previous-shell.txt"
     for unit in bluetooth NetworkManager sddm; do
         systemctl is-enabled "$unit" > "$backup/$unit.enabled" 2>&1 || true
@@ -48,7 +65,8 @@ if [[ "$MODE" == --system-only ]]; then
     exit 0
 fi
 [[ $EUID != 0 ]] || { echo 'Run this installer as your regular desktop user.' >&2; exit 1; }
-if [[ "$MODE" != --user-only ]]; then sudo "$ROOT/install.sh" --system-only; fi
+# sudo resets the environment, so hand the phase its options explicitly.
+if [[ "$MODE" != --user-only ]]; then sudo NOCTURNE_SKIP_PACKAGES="${NOCTURNE_SKIP_PACKAGES:-0}" NOCTURNE_REMOVE_LEGACY="${NOCTURNE_REMOVE_LEGACY:-ask}" "$ROOT/install.sh" --system-only; fi
 backup="$HOME/.local/state/nocturne/backups/$STAMP"
 mkdir -p "$backup"
 copy_tree() {
@@ -67,12 +85,23 @@ copy_tree "$ROOT/bin" "$HOME/.local/bin"
 copy_tree "$ROOT/share" "$HOME/.local/share"
 mkdir -p "$HOME/.local/share/nocturne"
 # Wallpapers are managed separately and backed up on subsequent installations.
-for wallpaper in wallpaper.png wallpaper-clean.png; do
+for wallpaper in wallpaper.png wallpaper-clean.png wallpaper-dawn.png wallpaper-dawn-clean.png; do
  if [[ -e "$HOME/.local/share/nocturne/$wallpaper" ]]; then
   mkdir -p "$backup/.local/share/nocturne"
   cp -a "$HOME/.local/share/nocturne/$wallpaper" "$backup/.local/share/nocturne/"
  else printf '%s\n' "$HOME/.local/share/nocturne/$wallpaper" >> "$backup/new-files.txt"; fi
  cp "$ROOT/assets/$wallpaper" "$HOME/.local/share/nocturne/$wallpaper"
+done
+# The lock screen follows the chosen wallpaper; nocturne-wallpaper repoints this link.
+[[ -e "$HOME/.local/share/nocturne/lock.png" ]] || ln -sfn "$HOME/.local/share/nocturne/wallpaper-clean.png" "$HOME/.local/share/nocturne/lock.png"
+# Retire the previous bar, notification daemon and wallpaper setter: stop them and move their configs into the backup.
+for process in "${legacy_packages[@]}"; do pkill -u "$UID" -x "$process" 2>/dev/null || true; done
+for name in "${legacy_configs[@]}"; do
+    if [[ -e "$HOME/.config/$name" ]]; then
+        mkdir -p "$backup/.config"
+        mv "$HOME/.config/$name" "$backup/.config/$name"
+        printf 'Moved ~/.config/%s to the backup; it is no longer used.\n' "$name"
+    fi
 done
 python - "$HOME" <<'PY'
 from pathlib import Path
@@ -249,7 +278,7 @@ print(f'Built {len(frames)} original shapes / {len(list((THEME/"cursors").iterdi
 
 ```python
 #!/usr/bin/env python3
-"""Render the desktop wallpaper and a wordmark-free variant for the lock screen and greeter."""
+"""Render each wallpaper and a wordmark-free variant for the lock screen and greeter."""
 from pathlib import Path
 import re
 import shutil
@@ -257,13 +286,14 @@ import subprocess
 
 root = Path(__file__).resolve().parents[1]
 assets = root / 'assets'
-source = (assets / 'wallpaper.svg').read_text()
-# The wordmark (rule + two text lines) blurs into a smudge on hyprlock and crowds the SDDM card.
-clean = re.sub(r'<path d="M150 1330h56"[^>]*/>\n|<text [^>]*>[^<]*</text>\n', '', source)
-assert clean.count('<text') == 0 and clean != source, 'wordmark not found in wallpaper.svg'
-(assets / 'wallpaper-clean.svg').write_text(clean)
-for name in ('wallpaper', 'wallpaper-clean'):
-    subprocess.run(['rsvg-convert', str(assets / f'{name}.svg'), '-o', str(assets / f'{name}.png')], check=True)
+for name in ('wallpaper', 'wallpaper-dawn'):
+    source = (assets / f'{name}.svg').read_text()
+    # The wordmark blurs into a smudge on hyprlock and crowds the SDDM card.
+    clean = re.sub(r'<g id="wordmark">.*?</g>\n', '', source, flags=re.S)
+    assert clean.count('<text') == 0 and clean != source, f'wordmark group not found in {name}.svg'
+    (assets / f'{name}-clean.svg').write_text(clean)
+    for variant in (name, f'{name}-clean'):
+        subprocess.run(['rsvg-convert', str(assets / f'{variant}.svg'), '-o', str(assets / f'{variant}.png')], check=True)
 shutil.copyfile(assets / 'wallpaper-clean.png', root / 'system/usr/share/sddm/themes/nocturne/wallpaper.png')
 ```
 
@@ -300,6 +330,8 @@ fi
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
+# The Nocturne shell draws the session overlay; this rofi menu is the fallback without it.
+quickshell -c nocturne ipc call panel session >/dev/null 2>&1 && exit
 # One row of large icon tiles; rofi returns the selected index, so labels can change freely.
 tiles='window { width: 620px; padding: 22px; } mainbox { children: [ listview ]; }
 listview { columns: 5; lines: 1; spacing: 10px; fixed-columns: true; fixed-height: true; }
@@ -344,13 +376,11 @@ mkdir -p "$HOME/.local/state/nocturne"
 exec 9>"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/nocturne-session.lock"
 flock -n 9 || exit 0
 if [[ ${1:-} = restart ]]; then
-    pkill -x waybar || true
-    pkill -x swaybg || true
+    pkill -x quickshell || true
     for attempt in {1..20}; do
-        if ! pgrep -u "$UID" -x waybar >/dev/null && ! pgrep -u "$UID" -x swaybg >/dev/null; then break; fi
+        pgrep -u "$UID" -x quickshell >/dev/null || break
         sleep 0.1
     done
-    makoctl reload 2>/dev/null || true
 fi
 start() {
  local process=$1; shift
@@ -360,13 +390,19 @@ start() {
 }
 dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP QT_QPA_PLATFORMTHEME GTK_THEME XCURSOR_THEME XCURSOR_SIZE
 hyprctl setcursor Nocturne-Cursors 28 >/dev/null
-start swaybg swaybg -i "$HOME/.local/share/nocturne/wallpaper.png" -m fill
-start waybar waybar
-start mako mako
+start awww-daemon awww-daemon
+# Bar, notifications, OSD, control center and session overlay.
+start quickshell quickshell -c nocturne
 start hypridle hypridle
+# Clipboard history for text and images.
+if ! pgrep -u "$UID" -f "^wl-paste --type text --watch cliphist store" >/dev/null; then
+ nohup wl-paste --type text --watch cliphist store >/dev/null 2>&1 9>&- &
+ nohup wl-paste --type image --watch cliphist store >/dev/null 2>&1 9>&- &
+fi
 if ! pgrep -u "$UID" -f "^/usr/lib/polkit-kde-authentication-agent-1" >/dev/null; then
  nohup /usr/lib/polkit-kde-authentication-agent-1 >"$HOME/.local/state/nocturne/polkit.log" 2>&1 9>&- &
 fi
+nohup "$HOME/.local/bin/nocturne-wallpaper" restore >"$HOME/.local/state/nocturne/wallpaper.log" 2>&1 9>&- &
 exec 9>&-
 ```
 
@@ -374,12 +410,73 @@ exec 9>&-
 
 ```bash
 #!/usr/bin/env bash
+# Region screenshot to ~/Pictures/Screenshots; "annotate" opens it in Satty first.
 set -euo pipefail
 mkdir -p "$HOME/Pictures/Screenshots"
-region=$(slurp -b 100d18aa -c b69af7) || exit 0
+region=$(slurp -b 100d18aa -c b69af7 -w 2) || exit 0
 file="$HOME/Pictures/Screenshots/$(date +%Y-%m-%d_%H-%M-%S).png"
+if [[ ${1:-} = annotate ]]; then
+ grim -g "$region" - | satty --filename - --output-filename "$file"
+ exit
+fi
 grim -g "$region" "$file"
-notify-send 'Screenshot saved' "$file"
+wl-copy < "$file"
+notify-send -a Nocturne -i "$file" 'Screenshot saved' "Copied to clipboard · ${file/#$HOME/\~}"
+```
+
+## `bin/nocturne-clipboard`
+
+```bash
+#!/usr/bin/env bash
+# Clipboard history from cliphist, picked in the Nocturne launcher style.
+set -euo pipefail
+if [[ ${1:-} = clear ]]; then
+ cliphist wipe
+ notify-send -a Nocturne 'Clipboard cleared' 'History has been wiped.'
+ exit
+fi
+choice=$(cliphist list | rofi -dmenu -i -p CLIPBOARD -display-columns 2 \
+ -theme-str 'entry { placeholder: "Search clipboard history…"; } listview { lines: 8; } element { padding: 9px 12px; }') || exit 0
+cliphist decode <<<"$choice" | wl-copy
+```
+
+## `bin/nocturne-picker`
+
+```bash
+#!/usr/bin/env bash
+# Pick any on-screen color; the hex value is copied to the clipboard.
+set -euo pipefail
+color=$(hyprpicker --autocopy --format=hex --no-fancy --quiet 2>/dev/null) || exit 0
+[[ -n "$color" ]] || exit 0
+notify-send -a Nocturne "Color copied · $color" "<span foreground='$color'>██████</span>  $color"
+```
+
+## `bin/nocturne-wallpaper`
+
+```bash
+#!/usr/bin/env bash
+# Switch Nocturne wallpapers with an awww transition; the lock screen follows the choice.
+set -euo pipefail
+dir="$HOME/.local/share/nocturne"
+state="$HOME/.local/state/nocturne/wallpaper"
+names=(wallpaper wallpaper-dawn)
+current=$(cat "$state" 2>/dev/null || echo wallpaper)
+[[ -e "$dir/$current.png" ]] || current=wallpaper
+transition=(--transition-type grow --transition-duration 1.4 --transition-fps 120)
+case "${1:-next}" in
+ next)
+  for i in "${!names[@]}"; do [[ ${names[i]} = "$current" ]] && break; done
+  current=${names[(i + 1) % ${#names[@]}]}
+  # Grow each scene out of its planet.
+  [[ $current = wallpaper-dawn ]] && transition+=(--transition-pos 0.32,0.37) || transition+=(--transition-pos 0.68,0.51);;
+ restore) transition=(--transition-type none);;
+ *) echo "Usage: nocturne-wallpaper [next|restore]" >&2; exit 2;;
+esac
+mkdir -p "${state%/*}"
+printf '%s\n' "$current" > "$state"
+ln -sfn "$dir/$current-clean.png" "$dir/lock.png"
+for _ in {1..50}; do awww query >/dev/null 2>&1 && break; sleep 0.1; done
+exec awww img "$dir/$current.png" --resize crop "${transition[@]}"
 ```
 
 ## `config/dolphinrc`
@@ -574,9 +671,14 @@ exec("SUPER + space", "rofi -show drun")
 exec("SUPER + B", "firefox")
 exec("SUPER + M", "~/.local/bin/nocturne-power")
 exec("SUPER + L", "loginctl lock-session")
-exec("SUPER + N", "makoctl dismiss -a")
+exec("SUPER + N", "quickshell -c nocturne ipc call notifications clear")
+exec("SUPER + A", "quickshell -c nocturne ipc call panel control")
+exec("SUPER + SHIFT + V", "~/.local/bin/nocturne-clipboard")
+exec("SUPER + SHIFT + C", "~/.local/bin/nocturne-picker")
+exec("SUPER + W", "~/.local/bin/nocturne-wallpaper next")
 exec("SUPER + SHIFT + R", "~/.local/bin/nocturne-session restart")
 exec("Print", "~/.local/bin/nocturne-shot")
+exec("SHIFT + Print", "~/.local/bin/nocturne-shot annotate")
 hl.bind("SUPER + C", hl.dsp.window.close())
 hl.bind("SUPER + V", hl.dsp.window.float({action="toggle"}))
 hl.bind("SUPER + F", hl.dsp.window.fullscreen())
@@ -600,8 +702,9 @@ for key,cmd in pairs({
  XF86AudioPlay="playerctl play-pause", XF86AudioNext="playerctl next", XF86AudioPrev="playerctl previous"
 }) do hl.bind(key, hl.dsp.exec_cmd(cmd), {locked=true, repeating=true}) end
 hl.window_rule({name="settings", match={class="^(org.pulseaudio.pavucontrol|pavucontrol|blueman-manager|nm-connection-editor|qt6ct)$"}, float=true, size="820 540", center=true})
--- Frosted glass: blur behind the translucent bar, launcher and notifications.
-hl.layer_rule({name="glass", match={namespace="^(waybar|rofi|notifications)$"}, blur=true, ignore_alpha=0.3})
+hl.window_rule({name="annotate", match={class="^(com.gabm.satty)$"}, float=true, center=true})
+-- Frosted glass behind every Nocturne shell surface and the launcher.
+hl.layer_rule({name="glass", match={namespace="^(nocturne-.*|rofi)$"}, blur=true, ignore_alpha=0.3})
 hl.window_rule({name="suppress-maximize", match={class=".*"}, suppress_event="maximize"})
 hl.on("hyprland.start", function() hl.exec_cmd("~/.local/bin/nocturne-session") end)
 ```
@@ -616,7 +719,7 @@ general {
 }
 background {
     monitor =
-    path = ~/.local/share/nocturne/wallpaper-clean.png
+    path = ~/.local/share/nocturne/lock.png
     blur_passes = 2
     blur_size = 3
     brightness = 0.7
@@ -852,44 +955,6 @@ map ctrl+shift+enter new_window_with_cwd
 map ctrl+shift+t new_tab_with_cwd
 ```
 
-## `config/mako/config`
-
-```text
-font=Inter 11
-background-color=#15101fc4
-text-color=#e9e1f5
-border-color=#8e6ac8
-border-size=1
-border-radius=14
-padding=18
-margin=14
-width=340
-height=160
-default-timeout=6000
-anchor=top-right
-outer-margin=68,14,14
-max-visible=4
-icons=1
-[urgency=critical]
-border-color=#ef8fa4
-default-timeout=0
-
-[app-name="Nocturne OSD"]
-anchor=bottom-center
-outer-margin=0,0,80
-width=260
-height=60
-padding=18
-format=%s
-text-alignment=center
-icons=0
-history=0
-default-timeout=1500
-ignore-timeout=1
-progress-color=over #b69af733
-layer=overlay
-```
-
 ## `config/qt5ct/qt5ct.conf`
 
 ```text
@@ -943,6 +1008,1851 @@ menus_have_icons=true
 toolbutton_style=4
 ```
 
+## `config/quickshell/nocturne/shell.qml`
+
+```qml
+//@ pragma UseQApplication
+//@ pragma IconTheme Nocturne
+// NOCTURNE shell: bar, control center, notifications, OSD, calendar and session overlay.
+// Run with `quickshell -c nocturne`; scripts talk to it with `quickshell -c nocturne ipc call …`.
+import QtQuick
+import Quickshell
+import Quickshell.Io
+
+ShellRoot {
+    Variants {
+        model: Quickshell.screens
+        delegate: Bar {}
+    }
+
+    ControlCenter {}
+    CalendarPanel {}
+    NotificationPopups {}
+    Osd {}
+    SessionMenu {}
+
+    IpcHandler {
+        target: "osd"
+        function flash(kind: string, value: int, muted: bool): void {
+            Ui.showOsd(kind, value, muted);
+        }
+    }
+
+    IpcHandler {
+        target: "panel"
+        function control(): void { Ui.toggleControl(); }
+        function calendar(): void { Ui.toggleCalendar(); }
+        function session(): void { Ui.openSession(); }
+        function close(): void { Ui.close(); Ui.sessionOpen = false; }
+    }
+
+    IpcHandler {
+        target: "notifications"
+        function clear(): void { Notifs.clear(); }
+        function dnd(): void { Notifs.dnd = !Notifs.dnd; }
+    }
+
+    IpcHandler {
+        target: "updates"
+        function refresh(): void { Sys.refreshUpdates(); }
+    }
+}
+```
+
+## `config/quickshell/nocturne/Bar.qml`
+
+```qml
+import QtQuick
+import QtQuick.Effects
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Hyprland
+import Quickshell.Services.SystemTray
+import Quickshell.Wayland
+import Quickshell.Widgets
+
+// Floating capsules: launcher and clock left; workspaces and title centered; status right.
+PanelWindow {
+    id: bar
+    required property var modelData
+    screen: modelData
+
+    anchors { top: true; left: true; right: true }
+    margins { top: 10; left: Theme.edge; right: Theme.edge }
+    implicitHeight: Theme.barHeight
+    exclusiveZone: Theme.barHeight + 4
+    color: "transparent"
+    WlrLayershell.namespace: "nocturne-bar"
+
+    IdleInhibitor {
+        window: bar
+        enabled: Ui.caffeine
+    }
+
+    Item {
+    id: content
+    anchors.fill: parent
+    HoverHandler {
+        onPointChanged: bar.updateTip(point.position)
+        onHoveredChanged: if (!hovered) bar.updateTip(null)
+    }
+
+    // ── Left ────────────────────────────────────────────────────────
+    RowLayout {
+        anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+        spacing: Theme.gap
+
+        Capsule {
+            padding: 14
+            tip: "Applications"
+            onClicked: Ui.run("rofi -show drun")
+            Glyph { text: "󰣇"; size: 20; color: Theme.violetBright }
+        }
+
+        Capsule {
+            id: clockCapsule
+            padding: 18
+            active: Ui.calendarOpen
+            tip: Qt.formatDateTime(clock.date, "dddd d MMMM yyyy")
+            onClicked: Ui.toggleCalendar()
+            SystemClock {
+                id: clock
+                precision: SystemClock.Minutes
+            }
+            Label {
+                text: Qt.formatDateTime(clock.date, "HH:mm")
+                font.pixelSize: 14
+                font.weight: Font.Bold
+                color: Ui.calendarOpen ? Theme.violetInk : "#eee8ff"
+            }
+        }
+    }
+
+    // ── Center ──────────────────────────────────────────────────────
+    RowLayout {
+        anchors.centerIn: parent
+        spacing: Theme.gap
+
+        Repeater {
+            model: Hyprland.workspaces.values
+                .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
+                .sort((a, b) => a.id - b.id)
+            delegate: Capsule {
+                required property var modelData
+                readonly property bool current: modelData.active && modelData.monitor?.name === bar.screen.name
+                implicitWidth: current ? 52 : Theme.barHeight
+                padding: 0
+                active: current
+                color: current ? Theme.violet : modelData.urgent ? Theme.rose : (hovered ? Theme.hover : Theme.glass)
+                onClicked: modelData.activate()
+                Label {
+                    text: modelData.name
+                    color: current || modelData.urgent ? Theme.violetInk : hovered ? "#eee8ff" : "#aa97bf"
+                    font.family: Theme.mono
+                    font.weight: current ? Font.Bold : Font.Normal
+                }
+            }
+        }
+
+        Capsule {
+            id: title
+            readonly property var client: Hyprland.activeToplevel
+            readonly property bool shown: !!client && client.workspace?.id === Hyprland.focusedWorkspace?.id && client.title !== ""
+            visible: shown
+            interactive: false
+            padding: 16
+            tip: shown ? client.title : ""
+            Label {
+                text: title.shown ? title.client.title : ""
+                Layout.maximumWidth: 260
+                font.family: Theme.mono
+                color: "#c8b8dc"
+            }
+        }
+    }
+
+    // ── Right ───────────────────────────────────────────────────────
+    RowLayout {
+        anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+        spacing: Theme.gap
+
+        Capsule {
+            visible: Sys.updates > 0
+            padding: 12
+            tip: Sys.updatesDetail
+            onClicked: Ui.run(Ui.bin + "nocturne-updates open")
+            Glyph { text: "󰚰"; color: Theme.violetBright }
+            Label { text: Sys.updates; color: Theme.violetBright }
+        }
+
+        Capsule {
+            padding: 12
+            spacing: 12
+            tip: `CPU ${Sys.cpu}% · Memory ${Sys.memoryDetail}`
+            onClicked: Ui.run("kitty --class nocturne-monitor htop")
+            RowLayout {
+                spacing: 5
+                Glyph { text: "󰻠"; size: 12; color: "#aaa0bb" }
+                Label { text: Sys.cpu + "%"; font.pixelSize: 11; color: "#aaa0bb"; font.family: Theme.mono }
+            }
+            RowLayout {
+                spacing: 5
+                Glyph { text: "󰍛"; size: 12; color: "#aaa0bb" }
+                Label { text: Sys.memory + "%"; font.pixelSize: 11; color: "#aaa0bb"; font.family: Theme.mono }
+            }
+        }
+
+        Capsule {
+            visible: SystemTray.items.values.length > 0
+            interactive: false
+            padding: 12
+            spacing: 10
+            Repeater {
+                model: SystemTray.items
+                delegate: Item {
+                    id: trayItem
+                    required property var modelData
+                    implicitWidth: 18
+                    implicitHeight: 18
+                    IconImage {
+                        id: trayIcon
+                        anchors.fill: parent
+                        source: trayItem.modelData.icon
+                        visible: false
+                    }
+                    // Tinted to match the bar; full color on hover.
+                    MultiEffect {
+                        anchors.fill: parent
+                        source: trayIcon
+                        saturation: trayMouse.containsMouse ? 0 : -1
+                        colorization: trayMouse.containsMouse ? 0 : 0.35
+                        colorizationColor: Theme.violet
+                        brightness: trayMouse.containsMouse ? 0 : 0.1
+                        Behavior on saturation { NumberAnimation { duration: Theme.fast } }
+                        Behavior on colorization { NumberAnimation { duration: Theme.fast } }
+                    }
+                    MouseArea {
+                        id: trayMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+                        onClicked: m => {
+                            const item = trayItem.modelData;
+                            if (m.button === Qt.MiddleButton)
+                                item.secondaryActivate();
+                            else if (m.button === Qt.RightButton || item.onlyMenu) {
+                                if (item.hasMenu) {
+                                    const p = trayItem.mapToItem(bar.contentItem, 0, trayItem.height + 14);
+                                    item.display(bar, p.x, p.y);
+                                }
+                            } else
+                                item.activate();
+                        }
+                        onWheel: w => trayItem.modelData.scroll(w.angleDelta.y, false)
+                    }
+                }
+            }
+        }
+
+        // Network, Bluetooth, audio, battery and notifications open the control center.
+        Capsule {
+            id: controls
+            padding: 14
+            spacing: 13
+            active: Ui.controlOpen
+            tip: `${Devices.networkName} · Bluetooth ${Devices.bluetoothName}` + (Devices.hasBattery ? `\n${Devices.batteryDetail}` : "")
+            onClicked: m => m.button === Qt.RightButton ? Ui.run("pavucontrol") : Ui.toggleControl()
+            onScrolled: delta => Ui.run(Ui.bin + "nocturne-osd volume " + (delta > 0 ? "up" : "down"))
+            readonly property color tint: Ui.controlOpen ? Theme.violetInk : Theme.textSoft
+
+            Glyph { text: Devices.networkGlyph; color: Devices.networkName === "Offline" && !Ui.controlOpen ? Theme.dim : controls.tint }
+            Glyph { text: Devices.bluetoothGlyph; color: !Devices.bluetoothOn && !Ui.controlOpen ? Theme.dim : controls.tint }
+            RowLayout {
+                spacing: 5
+                Glyph { text: Devices.volumeGlyph; color: Devices.muted && !Ui.controlOpen ? Theme.dim : controls.tint }
+                Label {
+                    visible: !Devices.muted
+                    text: Devices.volume + "%"
+                    font.family: Theme.mono
+                    color: controls.tint
+                }
+            }
+            RowLayout {
+                visible: Devices.hasBattery
+                spacing: 5
+                Glyph { text: Devices.batteryGlyph; color: Ui.controlOpen ? Theme.violetInk : Devices.batteryColor }
+                Label { text: Devices.batteryPercent + "%"; font.family: Theme.mono; color: Ui.controlOpen ? Theme.violetInk : Devices.batteryColor }
+            }
+            Item {
+                implicitWidth: bell.implicitWidth
+                implicitHeight: bell.implicitHeight
+                Glyph {
+                    id: bell
+                    text: Notifs.dnd ? "󰂛" : Notifs.count ? "󰂚" : "󰂜"
+                    color: Ui.controlOpen ? Theme.violetInk : Notifs.dnd ? Theme.dim : Theme.textSoft
+                }
+                Rectangle {
+                    visible: Notifs.count > 0 && !Notifs.dnd
+                    width: 6; height: 6; radius: 3
+                    color: Ui.controlOpen ? Theme.violetInk : Theme.violetBright
+                    anchors { right: bell.right; top: bell.top; rightMargin: -2; topMargin: 1 }
+                }
+            }
+        }
+
+        Capsule {
+            padding: 14
+            tip: "Session & power"
+            onClicked: Ui.openSession()
+            Glyph { text: "󰐥"; size: 16; color: Theme.violetBright }
+        }
+    }
+
+    }
+
+    // ── Tooltip ─────────────────────────────────────────────────────
+    property Item tipTarget: null
+    function updateTip(pos) {
+        const target = pos ? capsuleAt(pos) : null;
+        if (target !== tipTarget) {
+            tipTarget = target;
+            tipWindow.visible = false;
+            tipDelay.restart();
+        }
+    }
+    // Innermost item under the pointer that declares a tooltip.
+    function capsuleAt(pos) {
+        let found = null, item = content, p = pos;
+        for (let child = item.childAt(p.x, p.y); child; child = item.childAt(p.x, p.y)) {
+            p = item.mapToItem(child, p.x, p.y);
+            if (child.tip !== undefined)
+                found = child;
+            item = child;
+        }
+        return found;
+    }
+    Timer {
+        id: tipDelay
+        interval: 550
+        onTriggered: tipWindow.visible = !!bar.tipTarget && bar.tipTarget.tip !== ""
+    }
+    PopupWindow {
+        id: tipWindow
+        anchor.item: bar.tipTarget ?? bar.contentItem
+        anchor.edges: Edges.Bottom
+        anchor.gravity: Edges.Bottom
+        anchor.margins.top: 8
+        implicitWidth: tipText.implicitWidth + 24
+        implicitHeight: tipText.implicitHeight + 16
+        color: "transparent"
+        Rectangle {
+            anchors.fill: parent
+            radius: Theme.radiusSmall
+            color: Theme.glassStrong
+            border.color: Theme.lineStrong
+            Label {
+                id: tipText
+                anchors.centerIn: parent
+                text: bar.tipTarget?.tip ?? ""
+                color: "#e8e1f3"
+                elide: Text.ElideNone
+            }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/CalendarPanel.qml`
+
+```qml
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+// Month view under the clock.
+Panel {
+    id: root
+    anchors { top: true; left: true }
+    margins.left: Theme.edge
+    sheetWidth: 320
+    open: Ui.calendarOpen
+    onDismissed: Ui.dismiss()
+
+    property date today: new Date()
+    property int month: today.getMonth()
+    property int year: today.getFullYear()
+    onOpenChanged: if (open) { today = new Date(); month = today.getMonth(); year = today.getFullYear(); }
+    function shift(delta) {
+        const d = new Date(year, month + delta, 1);
+        month = d.getMonth();
+        year = d.getFullYear();
+    }
+
+    ColumnLayout {
+        x: 18
+        y: 18
+        width: root.sheetWidth - 36
+        spacing: 10
+
+        Label {
+            text: Qt.formatDate(root.today, "dddd")
+            font.pixelSize: 11
+            font.letterSpacing: 1.2
+            font.capitalization: Font.AllUppercase
+            color: Theme.violet
+        }
+        Label {
+            text: Qt.formatDate(root.today, "d MMMM yyyy")
+            font.pixelSize: 20
+            font.weight: Font.DemiBold
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: 4
+            Label {
+                Layout.fillWidth: true
+                text: Qt.formatDate(new Date(root.year, root.month, 1), "MMMM yyyy")
+                font.weight: Font.DemiBold
+                color: Theme.textSoft
+            }
+            Repeater {
+                model: [{ glyph: "󰅁", delta: -1 }, { glyph: "󰅂", delta: 1 }]
+                delegate: Rectangle {
+                    required property var modelData
+                    implicitWidth: 28
+                    implicitHeight: 28
+                    radius: 14
+                    color: navArea.containsMouse ? Theme.hover : "transparent"
+                    Glyph { anchors.centerIn: parent; text: modelData.glyph; color: Theme.textSoft }
+                    MouseArea {
+                        id: navArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.shift(modelData.delta)
+                    }
+                }
+            }
+        }
+
+        DayOfWeekRow {
+            Layout.fillWidth: true
+            locale: grid.locale
+            delegate: Label {
+                required property string shortName
+                text: shortName.slice(0, 2)
+                horizontalAlignment: Text.AlignHCenter
+                font.pixelSize: 10
+                color: Theme.dim
+            }
+        }
+
+        MonthGrid {
+            id: grid
+            Layout.fillWidth: true
+            Layout.preferredHeight: 6 * 34 + 5 * 2
+            month: root.month
+            year: root.year
+            locale: Qt.locale()
+            spacing: 2
+            delegate: Rectangle {
+                required property var model
+                readonly property bool isToday: model.today
+                implicitWidth: 34
+                implicitHeight: 34
+                radius: 17
+                color: isToday ? Theme.violet : "transparent"
+                Label {
+                    anchors.centerIn: parent
+                    text: model.day
+                    font.weight: parent.isToday ? Font.Bold : Font.Normal
+                    color: parent.isToday ? Theme.violetInk : model.month === root.month ? Theme.text : Theme.dim
+                }
+            }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/Capsule.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+
+// A floating glass pill; children are laid out in a row.
+Rectangle {
+    id: root
+
+    default property alias content: row.data
+    property alias spacing: row.spacing
+    property int padding: 13
+    property string tip: ""
+    property bool interactive: true
+    property bool active: false
+    readonly property bool hovered: mouse.containsMouse
+
+    signal clicked(var mouse)
+    signal scrolled(int delta)
+
+    implicitHeight: Theme.barHeight
+    implicitWidth: row.implicitWidth + padding * 2
+    radius: height / 2
+    color: active ? Theme.violet : (interactive && hovered ? Theme.hover : Theme.glass)
+    border.width: 1
+    border.color: active ? Theme.violetBright : Theme.line
+    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on implicitWidth { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+
+    RowLayout {
+        id: row
+        anchors.centerIn: parent
+        spacing: 6
+    }
+
+    MouseArea {
+        id: mouse
+        anchors.fill: parent
+        hoverEnabled: true
+        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+        cursorShape: root.interactive ? Qt.PointingHandCursor : Qt.ArrowCursor
+        onClicked: m => root.clicked(m)
+        onWheel: w => root.scrolled(w.angleDelta.y)
+    }
+}
+```
+
+## `config/quickshell/nocturne/ControlCenter.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Io
+import Quickshell.Networking
+import Quickshell.Services.Mpris
+import Quickshell.Widgets
+
+// Quick settings, sliders, media and notification history, under the status capsule.
+Panel {
+    id: root
+    anchors { top: true; right: true }
+    margins.right: Theme.edge
+    sheetWidth: 400
+    open: Ui.controlOpen
+    onDismissed: Ui.dismiss()
+
+    readonly property var player: Mpris.players.values.find(p => p.isPlaying) ?? Mpris.players.values[0] ?? null
+
+    property string uptime: ""
+    onOpenChanged: if (open) { uptimeFile.reload(); Sys.refreshBrightness(); }
+    FileView {
+        id: uptimeFile
+        path: "/proc/uptime"
+        onLoaded: {
+            const s = Number(text().split(" ")[0]), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+            root.uptime = h ? `up ${h} h ${m} min` : `up ${m} min`;
+        }
+    }
+
+    ColumnLayout {
+        x: 18
+        y: 18
+        width: root.sheetWidth - 36
+        spacing: 14
+
+        // Header: who, how long, and session shortcuts.
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 12
+            Rectangle {
+                implicitWidth: 42
+                implicitHeight: 42
+                radius: 21
+                gradient: Gradient {
+                    GradientStop { position: 0; color: Theme.violet }
+                    GradientStop { position: 1; color: Theme.violetDeep }
+                }
+                Label {
+                    anchors.centerIn: parent
+                    text: Quickshell.env("USER").charAt(0).toUpperCase()
+                    font.pixelSize: 17
+                    font.weight: Font.Bold
+                    color: Theme.violetInk
+                }
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 1
+                Label { text: Quickshell.env("USER"); font.pixelSize: 14; font.weight: Font.DemiBold }
+                Label { text: root.uptime; font.pixelSize: 11; color: Theme.muted }
+            }
+            Repeater {
+                model: [
+                    { glyph: "󰸉", tip: "Next wallpaper", run: () => Ui.run(Ui.bin + "nocturne-wallpaper next") },
+                    { glyph: "󰌾", tip: "Lock", run: () => { Ui.close(); Ui.run("loginctl lock-session"); } },
+                    { glyph: "󰐥", tip: "Session", run: () => Ui.openSession() }
+                ]
+                delegate: Rectangle {
+                    required property var modelData
+                    implicitWidth: 36
+                    implicitHeight: 36
+                    radius: 18
+                    color: headerArea.containsMouse ? Theme.hover : Theme.raised
+                    border.color: Theme.line
+                    Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 15; color: Theme.violetBright }
+                    MouseArea {
+                        id: headerArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: modelData.run()
+                    }
+                }
+            }
+        }
+
+        GridLayout {
+            Layout.fillWidth: true
+            columns: 2
+            rowSpacing: 8
+            columnSpacing: 8
+            Tile {
+                Layout.fillWidth: true
+                glyph: Devices.networkGlyph
+                title: Devices.wifiDevice ? "Wi-Fi" : "Network"
+                subtitle: Devices.networkName
+                on: Devices.wifiDevice ? Networking.wifiEnabled : Devices.wired
+                hasMore: true
+                onToggled: Devices.wifiDevice ? Networking.wifiEnabled = !Networking.wifiEnabled : Ui.run(Ui.bin + "nocturne-network")
+                onMore: { Ui.close(); Ui.run(Ui.bin + "nocturne-network"); }
+            }
+            Tile {
+                Layout.fillWidth: true
+                glyph: Devices.bluetoothGlyph
+                title: "Bluetooth"
+                subtitle: Devices.bluetoothName
+                on: Devices.bluetoothOn
+                available: !!Devices.adapter
+                hasMore: true
+                onToggled: Devices.adapter.enabled = !Devices.adapter.enabled
+                onMore: { Ui.close(); Ui.run("blueman-manager"); }
+            }
+            Tile {
+                Layout.fillWidth: true
+                glyph: Notifs.dnd ? "󰂛" : "󰂚"
+                title: "Do not disturb"
+                subtitle: Notifs.dnd ? "Only critical alerts" : "Off"
+                on: Notifs.dnd
+                onToggled: Notifs.dnd = !Notifs.dnd
+            }
+            Tile {
+                Layout.fillWidth: true
+                glyph: Ui.caffeine ? "󰅶" : "󰛊"
+                title: "Stay awake"
+                subtitle: Ui.caffeine ? "Idle lock paused" : "Off"
+                on: Ui.caffeine
+                onToggled: Ui.caffeine = !Ui.caffeine
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 4
+            SliderRow {
+                Layout.fillWidth: true
+                glyph: Devices.volumeGlyph
+                value: Devices.volume
+                muted: Devices.muted
+                onMoved: v => Devices.setVolume(v)
+                onGlyphClicked: if (Devices.sink) Devices.sink.muted = !Devices.sink.muted
+            }
+            SliderRow {
+                Layout.fillWidth: true
+                visible: !!Devices.source
+                glyph: Devices.micMuted ? "󰍭" : "󰍬"
+                value: Devices.source ? Math.round(Devices.source.volume * 100) : 0
+                muted: Devices.micMuted
+                onMoved: v => { Devices.source.muted = false; Devices.source.volume = v / 100; }
+                onGlyphClicked: Devices.source.muted = !Devices.source.muted
+            }
+            SliderRow {
+                Layout.fillWidth: true
+                visible: Sys.brightness >= 0
+                glyph: "󰃟"
+                value: Sys.brightness
+                onMoved: v => Sys.setBrightness(v)
+            }
+        }
+
+        // Media
+        Rectangle {
+            Layout.fillWidth: true
+            visible: !!root.player
+            implicitHeight: 76
+            radius: Theme.radius
+            color: Theme.raised
+            border.color: Theme.line
+            RowLayout {
+                anchors { fill: parent; margins: 10 }
+                spacing: 12
+                ClippingRectangle {
+                    implicitWidth: 56
+                    implicitHeight: 56
+                    radius: 12
+                    color: Theme.hover
+                    Image {
+                        anchors.fill: parent
+                        source: root.player?.trackArtUrl ?? ""
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                    }
+                    Glyph {
+                        anchors.centerIn: parent
+                        visible: !root.player?.trackArtUrl
+                        text: "󰎆"
+                        size: 22
+                        color: Theme.violetBright
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    Label { Layout.fillWidth: true; text: root.player?.trackTitle || root.player?.identity || ""; font.weight: Font.DemiBold }
+                    Label { Layout.fillWidth: true; text: root.player?.trackArtist || root.player?.identity || ""; font.pixelSize: 11; color: Theme.muted }
+                }
+                Repeater {
+                    model: [
+                        { glyph: "󰒮", run: () => root.player.previous(), ok: root.player?.canGoPrevious },
+                        { glyph: root.player?.isPlaying ? "󰏤" : "󰐊", run: () => root.player.togglePlaying(), ok: root.player?.canTogglePlaying, main: true },
+                        { glyph: "󰒭", run: () => root.player.next(), ok: root.player?.canGoNext }
+                    ]
+                    delegate: Rectangle {
+                        required property var modelData
+                        implicitWidth: modelData.main ? 38 : 30
+                        implicitHeight: implicitWidth
+                        radius: implicitWidth / 2
+                        opacity: modelData.ok ? 1 : 0.4
+                        color: modelData.main ? Theme.violet : mediaArea.containsMouse ? Theme.hover : "transparent"
+                        Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 16; color: modelData.main ? Theme.violetInk : Theme.text }
+                        MouseArea {
+                            id: mediaArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            enabled: !!modelData.ok
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: modelData.run()
+                        }
+                    }
+                }
+            }
+        }
+
+        // Notifications
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: 2
+            Label {
+                Layout.fillWidth: true
+                text: Notifs.count ? `Notifications · ${Notifs.count}` : "Notifications"
+                font.pixelSize: 11
+                font.letterSpacing: 1.2
+                font.capitalization: Font.AllUppercase
+                color: Theme.muted
+            }
+            Label {
+                visible: Notifs.count > 0
+                text: "Clear all"
+                font.pixelSize: 11
+                color: clearArea.containsMouse ? Theme.violetBright : Theme.violet
+                MouseArea {
+                    id: clearArea
+                    anchors.fill: parent
+                    anchors.margins: -6
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: Notifs.clear()
+                }
+            }
+        }
+
+        ListView {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Notifs.count ? Math.min(contentHeight, 340) : 0
+            visible: Notifs.count > 0
+            clip: true
+            spacing: 8
+            model: Notifs.history
+            boundsBehavior: Flickable.StopAtBounds
+            delegate: NotificationCard {
+                required property var modelData
+                width: ListView.view.width
+                notification: modelData
+                compact: true
+            }
+            add: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.normal } }
+            displaced: Transition { NumberAnimation { property: "y"; duration: Theme.normal; easing.type: Easing.OutCubic } }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.bottomMargin: 6
+            visible: Notifs.count === 0
+            spacing: 4
+            Glyph { Layout.fillWidth: true; text: "󰂜"; size: 26; color: Theme.dim }
+            Label { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: "All caught up"; color: Theme.muted }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/Devices.qml`
+
+```qml
+pragma Singleton
+import QtQuick
+import Quickshell
+import Quickshell.Bluetooth
+import Quickshell.Networking
+import Quickshell.Services.Pipewire
+import Quickshell.Services.UPower
+
+// Live device state, with the glyphs the bar and control center show for it.
+Singleton {
+    id: root
+
+    PwObjectTracker {
+        objects: [Pipewire.defaultAudioSink, Pipewire.defaultAudioSource]
+    }
+    readonly property var sink: Pipewire.defaultAudioSink?.audio ?? null
+    readonly property var source: Pipewire.defaultAudioSource?.audio ?? null
+    readonly property int volume: sink ? Math.round(sink.volume * 100) : 0
+    readonly property bool muted: sink?.muted ?? true
+    readonly property string volumeGlyph: muted ? "󰝟" : volume > 60 ? "󰕾" : volume > 25 ? "󰖀" : "󰕿"
+    readonly property bool micMuted: source?.muted ?? true
+    function setVolume(percent) {
+        if (!sink)
+            return;
+        sink.muted = false;
+        sink.volume = Math.max(0, Math.min(100, percent)) / 100;
+    }
+
+    readonly property var wifiDevice: Networking.devices.values.find(d => d.type === DeviceType.Wifi) ?? null
+    readonly property var wiredDevice: Networking.devices.values.find(d => d.type === DeviceType.Wired) ?? null
+    readonly property var wifiNetwork: wifiDevice?.networks.values.find(n => n.connected) ?? null
+    readonly property bool wired: wiredDevice?.connected ?? false
+    readonly property string networkName: wifiNetwork ? wifiNetwork.name : wired ? "Wired" : "Offline"
+    readonly property string networkGlyph: {
+        if (wifiNetwork) {
+            const s = wifiNetwork.signalStrength > 1 ? wifiNetwork.signalStrength / 100 : wifiNetwork.signalStrength;
+            return s > 0.75 ? "󰤨" : s > 0.5 ? "󰤥" : s > 0.25 ? "󰤢" : "󰤟";
+        }
+        return wired ? "󰈀" : Networking.wifiEnabled ? "󰤯" : "󰤭";
+    }
+
+    readonly property var adapter: Bluetooth.defaultAdapter
+    readonly property bool bluetoothOn: adapter?.enabled ?? false
+    readonly property var bluetoothConnected: Bluetooth.devices.values.filter(d => d.connected)
+    readonly property string bluetoothGlyph: !adapter ? "󰂲" : !bluetoothOn ? "󰂲" : bluetoothConnected.length ? "󰂱" : "󰂯"
+    readonly property string bluetoothName: !adapter ? "No adapter" : !bluetoothOn ? "Off" : bluetoothConnected.length ? bluetoothConnected[0].name : "On"
+
+    readonly property var battery: UPower.displayDevice
+    readonly property bool hasBattery: battery?.isPresent && battery.type === UPowerDeviceType.Battery
+    readonly property int batteryPercent: !hasBattery ? 0 : Math.round(battery.percentage > 1 ? battery.percentage : battery.percentage * 100)
+    readonly property bool charging: hasBattery && (battery.state === UPowerDeviceState.Charging || battery.state === UPowerDeviceState.FullyCharged || battery.state === UPowerDeviceState.PendingCharge)
+    readonly property string batteryGlyph: charging ? "󰂄" : ["󰁺", "󰁼", "󰁾", "󰂀", "󰁹"][Math.min(4, Math.floor(batteryPercent / 20))]
+    readonly property color batteryColor: charging ? Theme.green : batteryPercent <= 10 ? Theme.rose : batteryPercent <= 25 ? Theme.amber : Theme.textSoft
+    readonly property string batteryDetail: {
+        if (!hasBattery)
+            return "";
+        const seconds = charging ? battery.timeToFull : battery.timeToEmpty;
+        if (!seconds)
+            return charging ? "Charging" : "On battery";
+        const h = Math.floor(seconds / 3600), m = Math.round(seconds % 3600 / 60);
+        return `${h ? h + " h " : ""}${m} min ${charging ? "until full" : "left"}`;
+    }
+}
+```
+
+## `config/quickshell/nocturne/Glyph.qml`
+
+```qml
+import QtQuick
+
+// A Nerd Font icon.
+Text {
+    property real size: 14
+    color: Theme.textSoft
+    font.family: Theme.mono
+    font.pixelSize: size
+    verticalAlignment: Text.AlignVCenter
+    horizontalAlignment: Text.AlignHCenter
+    Behavior on color { ColorAnimation { duration: Theme.fast } }
+}
+```
+
+## `config/quickshell/nocturne/Label.qml`
+
+```qml
+import QtQuick
+
+Text {
+    color: Theme.text
+    font.family: Theme.sans
+    font.pixelSize: 12
+    font.features: { "tnum": 1 }
+    verticalAlignment: Text.AlignVCenter
+    elide: Text.ElideRight
+    Behavior on color { ColorAnimation { duration: Theme.fast } }
+}
+```
+
+## `config/quickshell/nocturne/NotificationCard.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Services.Notifications
+import Quickshell.Widgets
+
+// One notification: icon, app, summary, body and actions. Click runs the default action.
+Rectangle {
+    id: root
+
+    required property var notification
+    property bool compact: false
+    readonly property bool critical: notification?.urgency === NotificationUrgency.Critical
+    readonly property var actions: (notification?.actions ?? []).filter(a => a.identifier !== "default")
+    readonly property string iconSource: {
+        const n = notification;
+        if (!n)
+            return "";
+        if (n.image)
+            return n.image;
+        if (n.appIcon)
+            return n.appIcon.startsWith("/") || n.appIcon.includes("://") ? n.appIcon : Quickshell.iconPath(n.appIcon, true);
+        return "";
+    }
+
+    implicitHeight: layout.implicitHeight + 28
+    radius: Theme.radius
+    color: compact ? (area.containsMouse ? Theme.hover : Theme.raised) : Theme.glassStrong
+    border.color: critical ? Theme.rose : compact ? Theme.line : Theme.lineStrong
+    Behavior on color { ColorAnimation { duration: Theme.fast } }
+
+    MouseArea {
+        id: area
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: {
+            const n = root.notification;
+            const action = n.actions.find(a => a.identifier === "default");
+            if (action)
+                action.invoke();
+            n.dismiss();
+        }
+    }
+
+    RowLayout {
+        id: layout
+        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 14 }
+        spacing: 12
+
+        Item {
+            Layout.alignment: Qt.AlignTop
+            implicitWidth: 36
+            implicitHeight: 36
+            ClippingRectangle {
+                anchors.fill: parent
+                radius: 10
+                color: Theme.raised
+                visible: root.iconSource !== ""
+                IconImage {
+                    anchors.fill: parent
+                    source: root.iconSource
+                }
+            }
+            Rectangle {
+                anchors.fill: parent
+                radius: 10
+                color: Theme.raised
+                visible: root.iconSource === ""
+                Glyph {
+                    anchors.centerIn: parent
+                    text: root.critical ? "󰀦" : "󰂚"
+                    size: 17
+                    color: root.critical ? Theme.rose : Theme.violetBright
+                }
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 3
+
+            RowLayout {
+                Layout.fillWidth: true
+                Label {
+                    Layout.fillWidth: true
+                    text: root.notification?.appName || "Notification"
+                    font.pixelSize: 10
+                    font.letterSpacing: 1.2
+                    font.capitalization: Font.AllUppercase
+                    color: root.critical ? Theme.rose : Theme.violet
+                }
+                Glyph {
+                    text: "󰅖"
+                    size: 13
+                    color: close.containsMouse ? Theme.text : Theme.dim
+                    MouseArea {
+                        id: close
+                        anchors.fill: parent
+                        anchors.margins: -6
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.notification.dismiss()
+                    }
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                text: root.notification?.summary ?? ""
+                font.pixelSize: 13
+                font.weight: Font.DemiBold
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: text !== ""
+                text: root.notification?.body ?? ""
+                textFormat: Text.StyledText
+                wrapMode: Text.Wrap
+                maximumLineCount: root.compact ? 2 : 4
+                color: Theme.textSoft
+                linkColor: Theme.violetBright
+                onLinkActivated: link => Qt.openUrlExternally(link)
+            }
+            Flow {
+                Layout.fillWidth: true
+                Layout.topMargin: 6
+                visible: root.actions.length > 0
+                spacing: 6
+                Repeater {
+                    model: root.actions
+                    delegate: Rectangle {
+                        required property var modelData
+                        implicitWidth: actionLabel.implicitWidth + 24
+                        implicitHeight: 28
+                        radius: 14
+                        color: actionArea.containsMouse ? Theme.violet : Theme.raised
+                        border.color: Theme.line
+                        Label {
+                            id: actionLabel
+                            anchors.centerIn: parent
+                            text: modelData.text
+                            font.pixelSize: 11
+                            color: actionArea.containsMouse ? Theme.violetInk : Theme.text
+                        }
+                        MouseArea {
+                            id: actionArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                modelData.invoke();
+                                root.notification.dismiss();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/NotificationPopups.qml`
+
+```qml
+import QtQuick
+import Quickshell
+import Quickshell.Wayland
+
+// New notifications slide in at the top right, then retire to the control center.
+PanelWindow {
+    id: root
+    screen: Ui.screen
+    anchors { top: true; right: true }
+    margins { top: Theme.barHeight + 10 + Theme.gap; right: Theme.edge }
+    exclusionMode: ExclusionMode.Ignore
+    implicitWidth: 360
+    implicitHeight: Math.max(1, column.height)
+    visible: Notifs.popups.length > 0 && !Ui.controlOpen
+    color: "transparent"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.namespace: "nocturne-popups"
+    // Only the cards take input; the rest of the column passes clicks through.
+    mask: Region { item: column }
+
+    Column {
+        id: column
+        width: parent.width
+        spacing: 8
+        move: Transition { NumberAnimation { property: "y"; duration: Theme.normal; easing.type: Easing.OutCubic } }
+
+        Repeater {
+            model: Notifs.popups
+            delegate: NotificationCard {
+                id: card
+                required property var modelData
+                width: column.width
+                notification: modelData
+                opacity: 0
+                x: 40
+                Component.onCompleted: { opacity = 1; x = 0; }
+                Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+                Behavior on x { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
+
+                Timer {
+                    interval: Notifs.timeout(card.modelData)
+                    running: interval > 0 && !card.hoveredCard
+                    onTriggered: Notifs.hidePopup(card.modelData)
+                }
+                readonly property bool hoveredCard: hover.hovered
+                HoverHandler { id: hover }
+            }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/Notifs.qml`
+
+```qml
+pragma Singleton
+import QtQuick
+import Quickshell
+import Quickshell.Services.Notifications
+
+// Notification daemon: popups for new notifications, history for the control center.
+Singleton {
+    id: root
+
+    property bool dnd: false
+    property var popups: []
+    // Newest first.
+    readonly property var history: server.trackedNotifications.values.slice().reverse()
+    readonly property int count: history.length
+
+    function clear() {
+        for (const n of server.trackedNotifications.values.slice())
+            n.dismiss();
+        popups = [];
+    }
+    function hidePopup(n) {
+        popups = popups.filter(p => p !== n);
+    }
+    // Milliseconds a popup stays up (expireTimeout is already in ms); critical ones wait for the user.
+    function timeout(n) {
+        if (n.urgency === NotificationUrgency.Critical)
+            return 0;
+        return n.expireTimeout > 0 ? Math.min(n.expireTimeout, 20000) : 6000;
+    }
+
+    NotificationServer {
+        id: server
+        keepOnReload: true
+        actionsSupported: true
+        bodyMarkupSupported: true
+        bodyHyperlinksSupported: true
+        imageSupported: true
+        persistenceSupported: true
+
+        onNotification: n => {
+            n.tracked = true;
+            n.closed.connect(() => root.hidePopup(n));
+            if (!root.dnd || n.urgency === NotificationUrgency.Critical)
+                root.popups = [n, ...root.popups].slice(0, 4);
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/Osd.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Wayland
+
+// Volume / microphone / brightness feedback, floating above the bottom edge.
+PanelWindow {
+    id: root
+    screen: Ui.screen
+    anchors.bottom: true
+    margins.bottom: 80
+    exclusionMode: ExclusionMode.Ignore
+    implicitWidth: 300
+    implicitHeight: 58
+    visible: Ui.osdVisible || pill.opacity > 0
+    color: "transparent"
+    mask: Region {}
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.namespace: "nocturne-osd"
+
+    readonly property string glyph: {
+        if (Ui.osdKind === "brightness")
+            return Ui.osdValue > 66 ? "󰃠" : Ui.osdValue > 33 ? "󰃟" : "󰃞";
+        if (Ui.osdKind === "microphone")
+            return Ui.osdMuted ? "󰍭" : "󰍬";
+        return Ui.osdMuted ? "󰝟" : Ui.osdValue > 60 ? "󰕾" : Ui.osdValue > 25 ? "󰖀" : "󰕿";
+    }
+
+    Rectangle {
+        id: pill
+        anchors.fill: parent
+        radius: height / 2
+        color: Theme.glassStrong
+        border.color: Theme.line
+        opacity: Ui.osdVisible ? 1 : 0
+        scale: Ui.osdVisible ? 1 : 0.92
+        Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+        Behavior on scale { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutBack } }
+
+        RowLayout {
+            anchors { fill: parent; leftMargin: 20; rightMargin: 20 }
+            spacing: 14
+            Glyph {
+                text: root.glyph
+                size: 19
+                color: Ui.osdMuted ? Theme.dim : Theme.violetBright
+                Layout.preferredWidth: 22
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: 8
+                radius: 4
+                color: Theme.raised
+                Rectangle {
+                    width: parent.width * (Ui.osdMuted ? 0 : Ui.osdValue / 100)
+                    height: parent.height
+                    radius: 4
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0; color: Theme.violetDeep }
+                        GradientStop { position: 1; color: Theme.violet }
+                    }
+                    Behavior on width { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
+                }
+            }
+            Label {
+                Layout.preferredWidth: 38
+                horizontalAlignment: Text.AlignRight
+                text: Ui.osdMuted ? "Muted" : Ui.osdValue + "%"
+                font.family: Theme.mono
+                font.pixelSize: 11
+                color: Theme.textSoft
+            }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/Panel.qml`
+
+```qml
+import QtQuick
+import Quickshell
+import Quickshell.Hyprland
+import Quickshell.Wayland
+
+// A glass sheet that drops in under the bar and closes on Escape or a click outside.
+PanelWindow {
+    id: panel
+
+    property bool open: false
+    property int sheetWidth: 380
+    default property alias content: sheet.data
+    property alias sheet: sheet
+    signal dismissed()
+
+    screen: Ui.screen
+    visible: open || sheet.opacity > 0
+    color: "transparent"
+    exclusionMode: ExclusionMode.Ignore
+    implicitWidth: sheetWidth
+    implicitHeight: sheet.implicitHeight + 20
+    margins.top: Theme.barHeight + 10 + Theme.gap
+    WlrLayershell.layer: WlrLayer.Top
+    WlrLayershell.namespace: "nocturne-panel"
+    WlrLayershell.keyboardFocus: open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+
+    HyprlandFocusGrab {
+        windows: [panel]
+        active: panel.open
+        onCleared: panel.dismissed()
+    }
+
+    Rectangle {
+        id: sheet
+        width: parent.width
+        // Content sits at x/y = 18; keep the same padding below it.
+        implicitHeight: childrenRect.y + childrenRect.height + 18
+        radius: Theme.radiusLarge
+        color: Theme.glassStrong
+        border.color: Theme.line
+        opacity: panel.open ? 1 : 0
+        y: panel.open ? 0 : -14
+        focus: panel.open
+        Keys.onEscapePressed: panel.dismissed()
+        Behavior on opacity { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+        Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
+    }
+}
+```
+
+## `config/quickshell/nocturne/SessionMenu.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Wayland
+
+// Full-screen session overlay. Destructive choices need a second press to confirm.
+PanelWindow {
+    id: root
+    screen: Ui.screen
+    anchors { top: true; bottom: true; left: true; right: true }
+    exclusionMode: ExclusionMode.Ignore
+    visible: Ui.sessionOpen || backdrop.opacity > 0
+    color: "transparent"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.namespace: "nocturne-session"
+    WlrLayershell.keyboardFocus: Ui.sessionOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+
+    readonly property var entries: [
+        { glyph: "󰌾", label: "Lock", command: "loginctl lock-session" },
+        { glyph: "󰤄", label: "Suspend", command: "systemctl suspend" },
+        { glyph: "󰍃", label: "Log out", command: "hyprctl dispatch 'hl.dsp.exit()'", confirm: true },
+        { glyph: "󰜉", label: "Restart", command: "systemctl reboot", confirm: true },
+        { glyph: "󰐥", label: "Shut down", command: "systemctl poweroff", confirm: true }
+    ]
+    property int selected: 0
+    property int armed: -1
+
+    Connections {
+        target: Ui
+        function onSessionOpenChanged() {
+            root.selected = 0;
+            root.armed = -1;
+        }
+    }
+
+    function choose(index) {
+        const entry = entries[index];
+        if (entry.confirm && armed !== index) {
+            armed = index;
+            selected = index;
+            return;
+        }
+        Ui.sessionOpen = false;
+        Ui.run(entry.command);
+    }
+
+    Rectangle {
+        id: backdrop
+        anchors.fill: parent
+        color: Qt.rgba(7 / 255, 7 / 255, 11 / 255, 0.62)
+        opacity: Ui.sessionOpen ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+
+        focus: Ui.sessionOpen
+        Keys.onEscapePressed: Ui.sessionOpen = false
+        Keys.onLeftPressed: { root.selected = (root.selected + 4) % 5; root.armed = -1; }
+        Keys.onRightPressed: { root.selected = (root.selected + 1) % 5; root.armed = -1; }
+        Keys.onTabPressed: { root.selected = (root.selected + 1) % 5; root.armed = -1; }
+        Keys.onReturnPressed: root.choose(root.selected)
+        Keys.onEnterPressed: root.choose(root.selected)
+        Keys.onSpacePressed: root.choose(root.selected)
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: Ui.sessionOpen = false
+        }
+
+        ColumnLayout {
+            anchors.centerIn: parent
+            spacing: 26
+            scale: Ui.sessionOpen ? 1 : 0.94
+            Behavior on scale { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
+
+            Label {
+                Layout.alignment: Qt.AlignHCenter
+                text: "S E S S I O N"
+                font.pixelSize: 12
+                color: Theme.violet
+            }
+
+            RowLayout {
+                spacing: 14
+                Repeater {
+                    model: root.entries
+                    delegate: Rectangle {
+                        id: tile
+                        required property var modelData
+                        required property int index
+                        readonly property bool current: root.selected === index
+                        readonly property bool isArmed: root.armed === index
+                        implicitWidth: 132
+                        implicitHeight: 140
+                        radius: Theme.radiusLarge
+                        color: isArmed ? Qt.rgba(239 / 255, 143 / 255, 164 / 255, 0.22) : current ? Theme.raised : Theme.glassStrong
+                        border.width: current ? 2 : 1
+                        border.color: isArmed ? Theme.rose : current ? Theme.violet : Theme.line
+                        scale: current ? 1.04 : 1
+                        Behavior on scale { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
+                        Behavior on color { ColorAnimation { duration: Theme.fast } }
+
+                        ColumnLayout {
+                            anchors.centerIn: parent
+                            spacing: 12
+                            Glyph {
+                                Layout.alignment: Qt.AlignHCenter
+                                text: tile.modelData.glyph
+                                size: 34
+                                color: tile.isArmed ? Theme.rose : tile.current ? Theme.violetBright : Theme.textSoft
+                            }
+                            Label {
+                                Layout.alignment: Qt.AlignHCenter
+                                text: tile.isArmed ? "Confirm" : tile.modelData.label
+                                font.pixelSize: 13
+                                font.weight: tile.current ? Font.DemiBold : Font.Normal
+                                color: tile.isArmed ? Theme.rose : Theme.text
+                            }
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onEntered: if (root.armed !== tile.index) { root.selected = tile.index; root.armed = -1; }
+                            onClicked: root.choose(tile.index)
+                        }
+                    }
+                }
+            }
+
+            Label {
+                Layout.alignment: Qt.AlignHCenter
+                text: root.armed >= 0 ? `Press again to ${root.entries[root.armed].label.toLowerCase()} · Esc to cancel` : "← → to choose · Enter to select · Esc to close"
+                font.pixelSize: 11
+                color: root.armed >= 0 ? Theme.rose : Theme.muted
+            }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/SliderRow.qml`
+
+```qml
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+// Glyph button (mute) plus a soft violet slider, 0–100.
+RowLayout {
+    id: root
+
+    property string glyph
+    property real value: 0
+    property bool muted: false
+    signal moved(real value)
+    signal glyphClicked()
+
+    spacing: 10
+
+    Rectangle {
+        implicitWidth: 36
+        implicitHeight: 36
+        radius: 18
+        color: button.containsMouse ? Theme.hover : Theme.raised
+        Glyph {
+            anchors.centerIn: parent
+            text: root.glyph
+            size: 16
+            color: root.muted ? Theme.dim : Theme.violetBright
+        }
+        MouseArea {
+            id: button
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.glyphClicked()
+        }
+    }
+
+    Slider {
+        id: slider
+        Layout.fillWidth: true
+        from: 0
+        to: 100
+        value: root.value
+        onMoved: root.moved(value)
+        background: Rectangle {
+            x: slider.leftPadding
+            y: slider.topPadding + slider.availableHeight / 2 - height / 2
+            width: slider.availableWidth
+            height: 8
+            radius: 4
+            color: Theme.raised
+            Rectangle {
+                width: slider.visualPosition * parent.width
+                height: parent.height
+                radius: 4
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0; color: Theme.violetDeep }
+                    GradientStop { position: 1; color: root.muted ? Theme.dim : Theme.violet }
+                }
+            }
+        }
+        handle: Rectangle {
+            x: slider.leftPadding + slider.visualPosition * (slider.availableWidth - width)
+            y: slider.topPadding + slider.availableHeight / 2 - height / 2
+            width: slider.pressed ? 18 : 16
+            height: width
+            radius: width / 2
+            color: "#f3edff"
+            border.color: Theme.violet
+            border.width: 2
+            Behavior on width { NumberAnimation { duration: Theme.fast } }
+        }
+    }
+
+    Label {
+        Layout.preferredWidth: 34
+        horizontalAlignment: Text.AlignRight
+        text: Math.round(root.value) + "%"
+        font.family: Theme.mono
+        font.pixelSize: 11
+        color: Theme.muted
+    }
+}
+```
+
+## `config/quickshell/nocturne/Sys.qml`
+
+```qml
+pragma Singleton
+import QtQuick
+import Quickshell
+import Quickshell.Io
+
+// Polled system state: CPU, memory, backlight and pending updates.
+Singleton {
+    id: root
+
+    property int cpu: 0
+    property int memory: 0
+    property string memoryDetail: ""
+    property int brightness: -1 // -1 when the machine has no backlight
+    property int updates: 0
+    property string updatesDetail: ""
+
+    property var lastCpu: null
+
+    Timer {
+        interval: 3000
+        running: true
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: {
+            stat.reload();
+            meminfo.reload();
+        }
+    }
+
+    FileView {
+        id: stat
+        path: "/proc/stat"
+        onLoaded: {
+            const f = text().split("\n")[0].trim().split(/\s+/).slice(1).map(Number);
+            const idle = f[3] + f[4], total = f.reduce((a, b) => a + b, 0);
+            if (root.lastCpu) {
+                const dt = total - root.lastCpu.total;
+                root.cpu = dt > 0 ? Math.round(100 * (1 - (idle - root.lastCpu.idle) / dt)) : 0;
+            }
+            root.lastCpu = { idle, total };
+        }
+    }
+
+    FileView {
+        id: meminfo
+        path: "/proc/meminfo"
+        onLoaded: {
+            const kb = key => Number(text().match(new RegExp(key + ":\\s+(\\d+)"))[1]);
+            const total = kb("MemTotal"), used = total - kb("MemAvailable");
+            root.memory = Math.round(100 * used / total);
+            root.memoryDetail = `${(used / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} GiB`;
+        }
+    }
+
+    // brightnessctl -m prints: device,class,current,percent%,max
+    Process {
+        id: backlight
+        command: ["brightnessctl", "-m", "--class=backlight", "info"]
+        running: true
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const parts = text.trim().split(",");
+                root.brightness = parts.length >= 4 ? parseInt(parts[3]) : -1;
+            }
+        }
+    }
+    function refreshBrightness() {
+        backlight.running = true;
+    }
+    function setBrightness(percent) {
+        root.brightness = Math.max(1, Math.round(percent));
+        brightnessDebounce.restart();
+    }
+    Timer {
+        id: brightnessDebounce
+        interval: 60
+        onTriggered: Quickshell.execDetached(["brightnessctl", "--class=backlight", "--min-value=1", "set", root.brightness + "%"])
+    }
+
+    Process {
+        id: updateCheck
+        command: [Ui.bin + "nocturne-updates", "status"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const status = JSON.parse(text);
+                    root.updates = parseInt(status.text.replace(/\D/g, "")) || 0;
+                    root.updatesDetail = status.tooltip.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+                } catch (e) {
+                    root.updates = 0;
+                }
+            }
+        }
+    }
+    function refreshUpdates() {
+        updateCheck.running = true;
+    }
+    Timer {
+        interval: 15 * 60 * 1000
+        running: true
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: root.refreshUpdates()
+    }
+}
+```
+
+## `config/quickshell/nocturne/Theme.qml`
+
+```qml
+pragma Singleton
+import QtQuick
+import Quickshell
+
+// NOCTURNE palette, type and geometry, shared by every shell surface.
+Singleton {
+    readonly property color base: "#0d0a12"
+    readonly property color surface: "#100d18"
+    readonly property color glass: Qt.rgba(16 / 255, 13 / 255, 24 / 255, 0.72)
+    readonly property color glassStrong: Qt.rgba(16 / 255, 13 / 255, 24 / 255, 0.88)
+    readonly property color raised: Qt.rgba(40 / 255, 30 / 255, 58 / 255, 0.55)
+    readonly property color hover: "#38264f"
+    readonly property color line: Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.16)
+    readonly property color lineStrong: Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.34)
+    readonly property color violet: "#b69af7"
+    readonly property color violetBright: "#c4a5ff"
+    readonly property color violetDeep: "#6d28d9"
+    readonly property color violetInk: "#100b1b"
+    readonly property color text: "#e9e1f5"
+    readonly property color textSoft: "#c8bbde"
+    readonly property color muted: "#8f809f"
+    readonly property color dim: "#6c627b"
+    readonly property color rose: "#ef8fa4"
+    readonly property color green: "#a5ccb3"
+    readonly property color amber: "#e5c89a"
+
+    readonly property string sans: "Inter"
+    readonly property string mono: "JetBrainsMono Nerd Font"
+
+    readonly property int radiusLarge: 22
+    readonly property int radius: 16
+    readonly property int radiusSmall: 12
+    readonly property int barHeight: 40
+    readonly property int gap: 8
+    readonly property int edge: 14
+
+    readonly property int fast: 160
+    readonly property int normal: 260
+    readonly property int slow: 420
+}
+```
+
+## `config/quickshell/nocturne/Tile.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+
+// Quick-settings toggle: click the body to toggle, the chevron for more.
+Rectangle {
+    id: root
+
+    property string glyph
+    property string title
+    property string subtitle
+    property bool on: false
+    property bool available: true
+    property bool hasMore: false
+    signal toggled()
+    signal more()
+
+    implicitHeight: 62
+    radius: Theme.radius
+    color: on ? Theme.violet : body.containsMouse ? Theme.hover : Theme.raised
+    border.color: on ? Theme.violetBright : Theme.line
+    opacity: available ? 1 : 0.45
+    Behavior on color { ColorAnimation { duration: Theme.fast } }
+
+    MouseArea {
+        id: body
+        anchors.fill: parent
+        hoverEnabled: true
+        enabled: root.available
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.toggled()
+    }
+
+    RowLayout {
+        anchors { fill: parent; leftMargin: 14; rightMargin: root.hasMore ? 6 : 14 }
+        spacing: 11
+        Glyph {
+            text: root.glyph
+            size: 19
+            color: root.on ? Theme.violetInk : Theme.violetBright
+        }
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 1
+            Label {
+                Layout.fillWidth: true
+                text: root.title
+                font.weight: Font.DemiBold
+                color: root.on ? Theme.violetInk : Theme.text
+            }
+            Label {
+                Layout.fillWidth: true
+                text: root.subtitle
+                font.pixelSize: 11
+                color: root.on ? Qt.rgba(16 / 255, 11 / 255, 27 / 255, 0.7) : Theme.muted
+            }
+        }
+        Rectangle {
+            visible: root.hasMore
+            implicitWidth: 30
+            implicitHeight: 44
+            radius: Theme.radiusSmall
+            color: more.containsMouse ? Qt.rgba(1, 1, 1, 0.1) : "transparent"
+            Glyph {
+                anchors.centerIn: parent
+                text: "󰅂"
+                color: root.on ? Theme.violetInk : Theme.muted
+            }
+            MouseArea {
+                id: more
+                anchors.fill: parent
+                hoverEnabled: true
+                enabled: root.available
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.more()
+            }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/Ui.qml`
+
+```qml
+pragma Singleton
+import QtQuick
+import Quickshell
+import Quickshell.Hyprland
+
+// Which surfaces are open, and the screen they open on.
+Singleton {
+    id: root
+
+    property bool controlOpen: false
+    property bool calendarOpen: false
+    property bool sessionOpen: false
+    property bool caffeine: false
+
+    property string osdKind: "volume"
+    property int osdValue: 0
+    property bool osdMuted: false
+    property bool osdVisible: false
+
+    // Panels follow the monitor that has focus.
+    readonly property var screen: Quickshell.screens.find(s => s.name === Hyprland.focusedMonitor?.name) ?? Quickshell.screens[0]
+
+    function close() {
+        controlOpen = false;
+        calendarOpen = false;
+    }
+    // A click outside a panel closes it; ignore that same click reopening it from the bar.
+    property double closedAt: 0
+    function dismiss() {
+        closedAt = Date.now();
+        close();
+    }
+    function toggleControl() {
+        const reopen = !controlOpen && Date.now() - closedAt > 250;
+        close();
+        controlOpen = reopen;
+    }
+    function toggleCalendar() {
+        const reopen = !calendarOpen && Date.now() - closedAt > 250;
+        close();
+        calendarOpen = reopen;
+    }
+    function openSession() {
+        close();
+        sessionOpen = true;
+    }
+
+    function showOsd(kind, value, muted) {
+        osdKind = kind;
+        osdValue = Math.max(0, Math.min(100, value));
+        osdMuted = muted;
+        osdVisible = true;
+        osdTimer.restart();
+    }
+    Timer {
+        id: osdTimer
+        interval: 1500
+        onTriggered: root.osdVisible = false
+    }
+
+    function run(command) {
+        Quickshell.execDetached(["bash", "-c", command]);
+    }
+    readonly property string bin: Quickshell.env("HOME") + "/.local/bin/"
+}
+```
+
 ## `config/rofi/config.rasi`
 
 ```text
@@ -981,6 +2891,38 @@ button selected { text-color: @violet; background-color: #20172e99; }
 message { padding: 10px; }
 ```
 
+## `config/satty/config.toml`
+
+```toml
+# NOCTURNE — screenshot annotation (Shift+Print)
+[general]
+initial-tool = "arrow"
+copy-command = "wl-copy"
+annotation-size-factor = 1.5
+corner-roundness = 12
+early-exit = ["copy", "save"]
+actions-on-enter = ["save-to-clipboard", "save-to-file"]
+actions-on-escape = ["exit"]
+primary-highlighter = "block"
+default-round-caps = true
+no-window-decoration = true
+notification-thumbnail = "screenshot"
+
+[font]
+family = "Inter"
+style = "Bold"
+
+[color-palette]
+palette = [
+    "#b69af7ff",
+    "#ef8fa4ff",
+    "#a5ccb3ff",
+    "#e5c89aff",
+    "#9ccbd2ff",
+    "#faf5ffff",
+]
+```
+
 ## `config/starship.toml`
 
 ```toml
@@ -1006,205 +2948,6 @@ format = "[ · $duration](#8f809f)"
 disabled = false
 time_format = "%H:%M"
 format = "[󰥔 $time](#71637f)"
-```
-
-## `config/waybar/config.jsonc`
-
-```json
-{
-  "layer": "top",
-  "position": "top",
-  "height": 40,
-  "margin-top": 10,
-  "margin-left": 14,
-  "margin-right": 14,
-  "spacing": 8,
-  "modules-left": [
-    "custom/launcher",
-    "clock"
-  ],
-  "modules-center": [
-    "hyprland/workspaces",
-    "hyprland/window"
-  ],
-  "modules-right": [
-    "custom/updates",
-    "group/stats",
-    "tray",
-    "group/controls",
-    "custom/power"
-  ],
-  "group/stats": {
-    "orientation": "inherit",
-    "modules": ["cpu", "memory"]
-  },
-  "group/controls": {
-    "orientation": "inherit",
-    "modules": ["network", "custom/bluetooth", "pulseaudio", "battery"]
-  },
-  "custom/launcher": {
-    "format": "󰣇",
-    "tooltip-format": "Nocturne · Applications",
-    "on-click": "rofi -show drun"
-  },
-  "hyprland/workspaces": {
-    "format": "{name}",
-    "on-click": "activate",
-    "all-outputs": false,
-    "sort-by": "number"
-  },
-  "clock": {
-    "format": "{:%H:%M}",
-    "format-alt": "{:%a, %d %b}",
-    "tooltip-format": "<big>{:%A %d %B %Y}</big>\n<tt><small>{calendar}</small></tt>"
-  },
-  "cpu": {
-    "format": "󰻠 {usage:2}%",
-    "interval": 3,
-    "on-click": "kitty --class nocturne-monitor htop",
-    "tooltip": true
-  },
-  "memory": {
-    "format": "󰍛 {percentage}%",
-    "interval": 3,
-    "tooltip-format": "{used:.1f} / {total:.1f} GiB",
-    "on-click": "kitty --class nocturne-monitor htop"
-  },
-  "tray": {
-    "icon-size": 16,
-    "spacing": 8
-  },
-  "network": {
-    "format-wifi": "󰤨",
-    "format-ethernet": "󰈀",
-    "format-disconnected": "󰤭",
-    "tooltip-format-wifi": "{essid} · {signalStrength}%\n{ipaddr}",
-    "tooltip-format-ethernet": "Wired · {ipaddr}",
-    "tooltip-format-disconnected": "Network disconnected",
-    "on-click": "~/.local/bin/nocturne-network",
-    "on-click-right": "nm-connection-editor"
-  },
-  "pulseaudio": {
-    "format": "{icon} {volume}%",
-    "format-muted": "󰝟",
-    "format-icons": {
-      "default": [
-        "󰕿",
-        "󰖀",
-        "󰕾"
-      ]
-    },
-    "on-click": "pavucontrol",
-    "on-click-right": "~/.local/bin/nocturne-osd volume mute",
-    "scroll-step": 5,
-    "tooltip-format": "{desc}",
-    "on-scroll-up": "~/.local/bin/nocturne-osd volume up",
-    "on-scroll-down": "~/.local/bin/nocturne-osd volume down"
-  },
-  "custom/power": {
-    "format": "󰐥",
-    "on-click": "~/.local/bin/nocturne-power",
-    "tooltip-format": "Session &amp; power"
-  },
-  "custom/bluetooth": {
-    "exec": "~/.local/bin/nocturne-bluetooth",
-    "return-type": "json",
-    "interval": 10,
-    "on-click": "~/.local/bin/nocturne-bluetooth open"
-  },
-  "hyprland/window": {
-    "format": "{title}",
-    "max-length": 22,
-    "separate-outputs": true,
-    "tooltip": true
-  },
-  "custom/updates": {
-    "exec": "~/.local/bin/nocturne-updates",
-    "return-type": "json",
-    "format": "{text}",
-    "hide-empty-text": true,
-    "interval": 900,
-    "signal": 8,
-    "on-click": "~/.local/bin/nocturne-updates open",
-    "exec-on-event": false
-  },
-  "battery": {
-    "interval": 30,
-    "states": {
-      "warning": 25,
-      "critical": 10
-    },
-    "format": "{icon} {capacity}%",
-    "format-charging": "󰂄 {capacity}%",
-    "format-plugged": "󰚥 {capacity}%",
-    "format-icons": [
-      "󰁺",
-      "󰁼",
-      "󰁾",
-      "󰂀",
-      "󰁹"
-    ],
-    "tooltip-format": "Battery · {capacity}%\n{time}"
-  }
-}
-```
-
-## `config/waybar/style.css`
-
-```css
-/* NOCTURNE — individual floating capsules */
-* { font-family: "JetBrainsMono Nerd Font", "Inter"; font-size: 12px; min-height: 0; border: none; }
-window#waybar { background: transparent; color: #ded8ed; }
-.modules-left, .modules-center, .modules-right { background: transparent; }
-#custom-launcher, #clock, #window, #stats, #tray, #controls, #custom-power, #custom-updates {
-    background: rgba(16, 13, 24, 0.72);
-    border: 1px solid rgba(182, 154, 247, 0.16);
-    border-radius: 999px;
-    padding: 0 13px;
-    margin: 1px 0;
-}
-#custom-launcher { color: #c4a5ff; font-size: 22px; padding: 0 14px; }
-#clock { font-family: "Inter"; font-weight: 700; font-size: 14px; color: #eee8ff; padding: 0 18px; }
-#workspaces { background: transparent; padding: 0; margin: 0; }
-#workspaces button {
-    background: rgba(16, 13, 24, 0.72);
-    border: 1px solid rgba(182, 154, 247, 0.16);
-    border-radius: 999px;
-    margin: 1px 4px;
-    padding: 0 12px;
-    min-width: 12px;
-    color: #aa97bf;
-    transition: background-color 160ms ease, color 160ms ease;
-}
-#workspaces button.active { background: #b69af7; color: #100b1b; border-color: #c6aaff; font-weight: bold; }
-#workspaces button:hover { background: #38264f; color: #eee8ff; box-shadow: none; }
-#workspaces button.urgent { background: #ef8fa4; color: #100b1b; }
-/* Empty desktops have zero visible/clickable width, even when focused. */
-#workspaces button.empty, #workspaces button.empty * {
-    min-width: 0; min-height: 0; padding: 0; margin: 0;
-    border-width: 0; font-size: 0; opacity: 0; background: transparent;
-}
-#window { font-family: "Inter"; font-size: 12px; color: #c8b8dc; padding: 0 16px; }
-window#waybar.empty #window { background: transparent; border: none; padding: 0; margin: 0; }
-/* Grouped capsules: the group draws the pill, its modules sit inside it. */
-#stats { padding: 0 6px; }
-#controls { padding: 0 8px; }
-#cpu, #memory { color: #aaa0bb; font-size: 11px; padding: 0 6px; }
-#network, #custom-bluetooth, #pulseaudio, #battery { padding: 0 7px; }
-#tray { padding: 0 12px; }
-#network, #custom-bluetooth, #pulseaudio { color: #c8bbde; }
-#custom-bluetooth.unavailable, #network.disconnected, #pulseaudio.muted { color: #6c627b; }
-#custom-power { color: #c4a5ff; font-size: 17px; padding: 0 14px; }
-tooltip { background: #16111f; border: 1px solid #503a6d; border-radius: 16px; }
-tooltip label { color: #e8e1f3; padding: 8px; }
-
-#custom-updates { color: #c4a5ff; padding: 0 12px; }
-#custom-updates:hover { background: #38264f; color: #eee8ff; }
-
-#battery { color: #c8bbde; }
-#battery.charging, #battery.plugged { color: #a5ccb3; }
-#battery.warning:not(.charging):not(.plugged) { color: #e5c89a; }
-#battery.critical:not(.charging):not(.plugged) { color: #ef8fa4; }
 ```
 
 ## `config/xdg-desktop-portal/portals.conf`
@@ -1233,7 +2976,7 @@ GreeterEnvironment=QT_SCREEN_SCALE_FACTORS=1,QT_QUICK_CONTROLS_STYLE=Basic,QT_QU
 ```text
 [Icon Theme]
 Name=Nocturne Cursors
-Comment=Original violet cursors with orbital busy animation
+Comment=Soft lavender cursors with midnight outlines and a violet ring spinner
 Inherits=breeze_cursors
 ```
 
@@ -1545,9 +3288,51 @@ Inherits=Nocturne-Cursors
  <ellipse rx="626" ry="199" fill="none" stroke="url(#rim)" stroke-width="1" opacity=".4"/>
 </g>
 <g fill="#c8a2ef"><circle cx="2250" cy="430" r="3" opacity=".6"/><circle cx="1110" cy="1110" r="2" opacity=".5"/><circle cx="2080" cy="1260" r="2" opacity=".35"/></g>
+<g id="wordmark">
 <path d="M150 1330h56" stroke="#ad83e2" stroke-width="2"/>
 <text x="150" y="1380" font-family="Inter, sans-serif" font-size="20" letter-spacing="9" fill="#b8a4cf">NOCTURNE</text>
 <text x="150" y="1414" font-family="Inter, sans-serif" font-size="12" letter-spacing="3" fill="#635570">A QUIETER ORBIT.</text>
+</g>
+</svg>
+```
+
+## `assets/wallpaper-dawn.svg`
+
+```xml
+<svg xmlns="http://www.w3.org/2000/svg" width="2560" height="1600" viewBox="0 0 2560 1600">
+<defs>
+ <radialGradient id="bg" cx="30%" cy="68%" r="78%"><stop stop-color="#2c1232"/><stop offset=".42" stop-color="#130b1c"/><stop offset="1" stop-color="#07070b"/></radialGradient>
+ <linearGradient id="ring" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#1d102a"/><stop offset=".25" stop-color="#8a3f9e"/><stop offset=".5" stop-color="#f3b4d6"/><stop offset=".72" stop-color="#9b6fe6"/><stop offset="1" stop-color="#1d102a"/></linearGradient>
+ <linearGradient id="dawn" x1=".73" y1=".95" x2=".5" y2=".5"><stop stop-color="#ffd0e4"/><stop offset=".3" stop-color="#e48ac0" stop-opacity=".9"/><stop offset=".62" stop-color="#7c3cc7" stop-opacity="0"/></linearGradient>
+ <radialGradient id="planet" cx="28%" cy="22%" r="80%"><stop stop-color="#3d1d4a"/><stop offset=".32" stop-color="#1a0f26"/><stop offset=".78" stop-color="#09080e"/><stop offset="1" stop-color="#08070c"/></radialGradient>
+ <radialGradient id="moon" cx="30%" cy="30%" r="80%"><stop stop-color="#5a3d74"/><stop offset=".6" stop-color="#1c1328"/><stop offset="1" stop-color="#0d0a12"/></radialGradient>
+ <clipPath id="front"><rect x="-900" y="0" width="1800" height="400"/></clipPath>
+ <filter id="glow"><feGaussianBlur stdDeviation="16"/></filter>
+ <filter id="soft"><feGaussianBlur stdDeviation="70"/></filter>
+</defs>
+<rect width="2560" height="1600" fill="url(#bg)"/>
+<ellipse cx="760" cy="900" rx="640" ry="520" fill="#b04a8f" opacity=".11" filter="url(#soft)"/>
+<ellipse cx="560" cy="700" rx="320" ry="260" fill="#f3a6cf" opacity=".07" filter="url(#soft)"/>
+<g fill="#e9c8f2"><circle cx="1620" cy="300" r="2.5" opacity=".55"/><circle cx="2140" cy="760" r="2" opacity=".4"/><circle cx="1880" cy="1180" r="1.5" opacity=".35"/><circle cx="1290" cy="520" r="1.5" opacity=".3"/><circle cx="2380" cy="380" r="2" opacity=".45"/><circle cx="1500" cy="1420" r="1.5" opacity=".25"/></g>
+<circle cx="1980" cy="430" r="28" fill="url(#moon)" stroke="#4a3260" stroke-width="1"/>
+<g transform="translate(820 1010) rotate(16)">
+ <ellipse rx="880" ry="230" fill="none" stroke="#8e5bc4" stroke-width="1" opacity=".12"/>
+ <ellipse rx="760" ry="172" fill="none" stroke="#e48ac0" stroke-width="10" filter="url(#glow)" opacity=".35"/>
+ <ellipse rx="760" ry="172" fill="none" stroke="url(#ring)" stroke-width="3"/>
+</g>
+<circle cx="820" cy="1010" r="430" fill="url(#planet)" stroke="#33203f" stroke-width="1"/>
+<circle cx="820" cy="1010" r="430" fill="none" stroke="url(#dawn)" stroke-width="16" stroke-dasharray="950 1752" transform="rotate(162 820 1010)" filter="url(#glow)" opacity=".45"/>
+<circle cx="820" cy="1010" r="429" fill="none" stroke="url(#dawn)" stroke-width="3" stroke-linecap="round" stroke-dasharray="950 1752" transform="rotate(162 820 1010)"/>
+<g transform="translate(820 1010) rotate(16)" clip-path="url(#front)">
+ <ellipse rx="760" ry="172" fill="none" stroke="#e48ac0" stroke-width="10" filter="url(#glow)" opacity=".35"/>
+ <ellipse rx="760" ry="172" fill="none" stroke="url(#ring)" stroke-width="3"/>
+ <ellipse rx="772" ry="182" fill="none" stroke="url(#ring)" stroke-width="1" opacity=".4"/>
+</g>
+<g id="wordmark">
+<path d="M2354 1330h56" stroke="#e48ac0" stroke-width="2"/>
+<text x="2410" y="1380" text-anchor="end" font-family="Inter, sans-serif" font-size="20" letter-spacing="9" fill="#d6b4d8">NOCTURNE</text>
+<text x="2410" y="1414" text-anchor="end" font-family="Inter, sans-serif" font-size="12" letter-spacing="3" fill="#6d5574">BEFORE THE LIGHT.</text>
+</g>
 </svg>
 ```
 
@@ -1692,135 +3477,7 @@ Inherits=Nocturne-Cursors
 <svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 400 400">
 <defs><mask id="arch"><path fill="white" d="M200 20 372 365 Q286 314 241 308 C246 249 232 222 204 222 C174 222 158 251 162 308 Q107 320 28 365 L146 130 181 153 151 119Z"/></mask></defs>
 <g mask="url(#arch)"><path fill="#b69af7" d="M0 0H400V400H0z"/><path fill="#ceb4ff" d="M200 20 246 126 180 330 115 273Z"/><path fill="#71637f" d="M246 126 400 400 202 316Z"/><path fill="#a1a5e9" d="M28 365 115 273 159 314Z"/><path fill="#e4dced" d="M200 20 210 43 153 121 146 130Z"/><path fill="#231d2e" d="M286 269 339 290 318 258 400 400 231 313Z"/></g>
-</svg>```
-
-## `bin/nocturne-updates`
-
-```python
-#!/usr/bin/env python3
-"""Waybar update checks and an interactive Kitty update session."""
-import fcntl
-import html
-import json
-import os
-from pathlib import Path
-import shutil
-import subprocess
-import sys
-
-
-def helper():
-    return shutil.which("paru") or shutil.which("yay")
-
-
-def check(command, empty_codes=()):
-    try:
-        result = subprocess.run(command, capture_output=True, text=True,
-                                timeout=180, env={**os.environ, "LC_ALL": "C"})
-        if result.returncode in empty_codes:
-            return 0
-        # Yay returns 1 with no output when no AUR upgrades are available.
-        if ("-Qua" in command and result.returncode == 1
-                and not result.stdout.strip() and not result.stderr.strip()):
-            return 0
-        if result.returncode:
-            raise RuntimeError(result.stderr.strip() or "check failed")
-        return len({line.strip() for line in result.stdout.splitlines() if line.strip()})
-    except (OSError, subprocess.TimeoutExpired, RuntimeError) as error:
-        print(f"{command[0]}: {error}", file=sys.stderr)
-        return None
-
-
-def status():
-    sources = [("Arch", ["checkupdates", "--nocolor"], (2,))]
-    aur = helper()
-    if aur:
-        sources.append(("AUR", [aur, "-Qua", "--color", "never"], ()))
-    if shutil.which("flatpak"):
-        sources.extend((f"Flatpak ({scope})",
-                        ["flatpak", "remote-ls", f"--{scope}", "--updates",
-                         "--all", "--arch=*", "--columns=ref"], ())
-                       for scope in ("user", "system"))
-    counts = [(name, check(command, codes)) for name, command, codes in sources]
-    total = sum(count for _, count in counts if count is not None)
-    tooltip = [f"{name}: {count if count is not None else 'check unavailable'}"
-               for name, count in counts]
-    if not aur:
-        tooltip.append("AUR: install yay or paru to enable")
-    tooltip.append("Click to update · checked every 15 minutes")
-    print(json.dumps({"text": f"󰚰 {total}" if total else "",
-                      "tooltip": html.escape("\n".join(tooltip)),
-                      "class": "available"}))
-
-
-def lock(name):
-    directory = Path(os.environ.get("XDG_RUNTIME_DIR",
-                     os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))) / "nocturne"
-    directory.mkdir(parents=True, exist_ok=True)
-    handle = (directory / name).open("w")
-    try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        handle.close()
-        return None
-    return handle
-
-
-def update():
-    handle = lock("update.lock")
-    if handle is None:
-        return 0
-    failed = False
-    try:
-        aur = helper()
-        commands = [("Arch + AUR" if aur else "Arch",
-                     [aur, "-Syu"] if aur else ["sudo", "pacman", "-Syu"])]
-        if shutil.which("flatpak"):
-            commands.extend((f"Flatpak ({scope})", ["flatpak", "update", f"--{scope}"])
-                            for scope in ("user", "system"))
-        for name, command in commands:
-            print(f"\n── {name} ──\n", flush=True)
-            if subprocess.run(command).returncode:
-                failed = True
-                break
-    except (OSError, KeyboardInterrupt) as error:
-        print(f"\nUpdate interrupted: {error}", flush=True)
-        failed = True
-    finally:
-        # Refresh only the update module, including after a partial upgrade.
-        subprocess.run(["pkill", "-RTMIN+8", "-u", str(os.getuid()), "-x", "waybar"],
-                       check=False)
-        handle.close()
-    if failed:
-        try:
-            input("\nUpdates did not finish. Press Enter to close…")
-        except (EOFError, KeyboardInterrupt):
-            pass
-    return int(failed)
-
-
-def main():
-    mode = sys.argv[1] if len(sys.argv) > 1 else "status"
-    if mode == "status":
-        status()
-    elif mode == "open":
-        handle = lock("terminal.lock")
-        if handle is not None:
-            try:
-                return subprocess.call(["kitty", "--class", "nocturne-updates",
-                                        "--title", "Nocturne · Updates",
-                                        str(Path(__file__).resolve()), "run"])
-            finally:
-                handle.close()
-    elif mode == "run":
-        return update()
-    else:
-        sys.exit("Usage: nocturne-updates [status|open|run]")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+</svg>
 ```
 
 ## `bin/nocturne-osd`
@@ -1850,6 +3507,7 @@ def main():
     # Serialize repeat events so the last popup always reflects the latest value.
     with (directory / 'osd.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        muted = False
         if control == 'brightness':
             if action != 'show':
                 run('brightnessctl', '--class=backlight', '--min-value=1', 'set', '+5%' if action == 'up' else '5%-')
@@ -1866,14 +3524,20 @@ def main():
             status = run('wpctl', 'get-volume', device)
             value = round(float(status.split()[1]) * 100)
             label = 'Microphone' if control == 'microphone' else 'Volume'
-            title = f'{label} · Muted' if '[MUTED]' in status else f'{label} · {value}%'
-            if '[MUTED]' in status:
-                value = 0
-        # Use only the stack tag: combining it with --replace-id makes Mako
-        # replace a notification with itself and can crash the daemon.
-        run('notify-send', '--app-name=Nocturne OSD', '--urgency=low',
-            '--expire-time=1500', '--hint=int:value:' + str(min(100, max(0, value))),
-            '--hint=string:x-canonical-private-synchronous:nocturne-osd', title)
+            muted = '[MUTED]' in status
+            title = f'{label} · Muted' if muted else f'{label} · {value}%'
+        value = min(100, max(0, value))
+        # The Nocturne shell draws the popup; fall back to a plain notification without it.
+        try:
+            shown = subprocess.run(['quickshell', '-c', 'nocturne', 'ipc', 'call', 'osd', 'flash',
+                                    control, str(value), 'true' if muted else 'false'],
+                                   capture_output=True).returncode == 0
+        except OSError:
+            shown = False
+        if not shown:
+            run('notify-send', '--app-name=Nocturne OSD', '--urgency=low', '--expire-time=1500',
+                '--hint=int:value:' + str(0 if muted else value),
+                '--hint=string:x-canonical-private-synchronous:nocturne-osd', title)
 
 
 if __name__ == '__main__':
@@ -2160,3 +3824,4 @@ return {
   end },
 }
 ```
+

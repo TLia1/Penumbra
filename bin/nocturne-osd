@@ -22,6 +22,7 @@ def main():
     # Serialize repeat events so the last popup always reflects the latest value.
     with (directory / 'osd.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        muted = False
         if control == 'brightness':
             if action != 'show':
                 run('brightnessctl', '--class=backlight', '--min-value=1', 'set', '+5%' if action == 'up' else '5%-')
@@ -38,14 +39,20 @@ def main():
             status = run('wpctl', 'get-volume', device)
             value = round(float(status.split()[1]) * 100)
             label = 'Microphone' if control == 'microphone' else 'Volume'
-            title = f'{label} · Muted' if '[MUTED]' in status else f'{label} · {value}%'
-            if '[MUTED]' in status:
-                value = 0
-        # Use only the stack tag: combining it with --replace-id makes Mako
-        # replace a notification with itself and can crash the daemon.
-        run('notify-send', '--app-name=Nocturne OSD', '--urgency=low',
-            '--expire-time=1500', '--hint=int:value:' + str(min(100, max(0, value))),
-            '--hint=string:x-canonical-private-synchronous:nocturne-osd', title)
+            muted = '[MUTED]' in status
+            title = f'{label} · Muted' if muted else f'{label} · {value}%'
+        value = min(100, max(0, value))
+        # The Nocturne shell draws the popup; fall back to a plain notification without it.
+        try:
+            shown = subprocess.run(['quickshell', '-c', 'nocturne', 'ipc', 'call', 'osd', 'flash',
+                                    control, str(value), 'true' if muted else 'false'],
+                                   capture_output=True).returncode == 0
+        except OSError:
+            shown = False
+        if not shown:
+            run('notify-send', '--app-name=Nocturne OSD', '--urgency=low', '--expire-time=1500',
+                '--hint=int:value:' + str(0 if muted else value),
+                '--hint=string:x-canonical-private-synchronous:nocturne-osd', title)
 
 
 if __name__ == '__main__':

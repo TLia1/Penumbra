@@ -12,7 +12,15 @@ if [[ "$MODE" == --boot-only ]]; then
     fi
 fi
 STAMP=$(date +%Y%m%d-%H%M%S)
-packages=(neovim git ripgrep wl-clipboard unzip nodejs npm pacman-contrib flatpak hyprland kitty fastfetch dolphin sddm waybar rofi fish starship swaybg mako hyprlock hypridle breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme qt6ct qt5ct qt5-wayland qt5-quickcontrols2 blueman network-manager-applet networkmanager pavucontrol pipewire-pulse wireplumber ttf-jetbrains-mono-nerd inter-font grim slurp python-pillow polkit-kde-agent bluez bluez-utils brightnessctl playerctl xdg-desktop-portal-hyprland xdg-desktop-portal-gtk htop libnotify librsvg xorg-xcursorgen)
+# Replaced by the Quickshell shell (bar, notifications, OSD) and awww (wallpaper).
+legacy_packages=(waybar mako swaybg)
+legacy_configs=(waybar mako)
+ask() {
+    if [[ ! -t 0 ]]; then printf '%s [y/N] — skipped (noninteractive)\n' "$1"; return 1; fi
+    local answer; read -r -p "$1 [y/N] " answer
+    [[ ${answer,,} == y || ${answer,,} == yes ]]
+}
+packages=(neovim git ripgrep wl-clipboard unzip nodejs npm pacman-contrib flatpak hyprland kitty fastfetch dolphin sddm quickshell awww rofi fish starship hyprlock hypridle breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme qt6ct qt5ct qt5-wayland qt5-quickcontrols2 blueman network-manager-applet networkmanager pavucontrol pipewire-pulse wireplumber ttf-jetbrains-mono-nerd inter-font grim slurp satty hyprpicker cliphist python-pillow polkit-kde-agent bluez bluez-utils brightnessctl playerctl xdg-desktop-portal-hyprland xdg-desktop-portal-gtk htop libnotify librsvg xorg-xcursorgen)
 if [[ "$MODE" == --system-only ]]; then
     [[ $EUID == 0 ]] || { echo 'System phase needs sudo.' >&2; exit 1; }
     target=${SUDO_USER:-${2:-}}
@@ -23,6 +31,15 @@ if [[ "$MODE" == --system-only ]]; then
     fi
     backup="/var/lib/nocturne/backups/$STAMP"
     mkdir -p "$backup"
+    # Offer to remove components Nocturne no longer uses; set NOCTURNE_REMOVE_LEGACY=1 or 0 to skip the question.
+    mapfile -t installed < <(pacman -Qq "${legacy_packages[@]}" 2>/dev/null || true)
+    if (( ${#installed[@]} )); then
+        if [[ ${NOCTURNE_REMOVE_LEGACY:-ask} == 1 ]] || { [[ ${NOCTURNE_REMOVE_LEGACY:-ask} == ask ]] && ask "Remove packages Nocturne no longer uses (${installed[*]})?"; }; then
+            pacman -Q "${installed[@]}" > "$backup/removed-packages.txt"
+            # -s also drops their now-unneeded dependencies, never explicitly installed packages.
+            pacman -Rns --noconfirm "${installed[@]}" || echo "Could not remove ${installed[*]}; another package may still depend on them." >&2
+        fi
+    fi
     getent passwd "$target" | cut -d: -f7 > "$backup/previous-shell.txt"
     for unit in bluetooth NetworkManager sddm; do
         systemctl is-enabled "$unit" > "$backup/$unit.enabled" 2>&1 || true
@@ -41,7 +58,8 @@ if [[ "$MODE" == --system-only ]]; then
     exit 0
 fi
 [[ $EUID != 0 ]] || { echo 'Run this installer as your regular desktop user.' >&2; exit 1; }
-if [[ "$MODE" != --user-only ]]; then sudo "$ROOT/install.sh" --system-only; fi
+# sudo resets the environment, so hand the phase its options explicitly.
+if [[ "$MODE" != --user-only ]]; then sudo NOCTURNE_SKIP_PACKAGES="${NOCTURNE_SKIP_PACKAGES:-0}" NOCTURNE_REMOVE_LEGACY="${NOCTURNE_REMOVE_LEGACY:-ask}" "$ROOT/install.sh" --system-only; fi
 backup="$HOME/.local/state/nocturne/backups/$STAMP"
 mkdir -p "$backup"
 copy_tree() {
@@ -60,12 +78,23 @@ copy_tree "$ROOT/bin" "$HOME/.local/bin"
 copy_tree "$ROOT/share" "$HOME/.local/share"
 mkdir -p "$HOME/.local/share/nocturne"
 # Wallpapers are managed separately and backed up on subsequent installations.
-for wallpaper in wallpaper.png wallpaper-clean.png; do
+for wallpaper in wallpaper.png wallpaper-clean.png wallpaper-dawn.png wallpaper-dawn-clean.png; do
  if [[ -e "$HOME/.local/share/nocturne/$wallpaper" ]]; then
   mkdir -p "$backup/.local/share/nocturne"
   cp -a "$HOME/.local/share/nocturne/$wallpaper" "$backup/.local/share/nocturne/"
  else printf '%s\n' "$HOME/.local/share/nocturne/$wallpaper" >> "$backup/new-files.txt"; fi
  cp "$ROOT/assets/$wallpaper" "$HOME/.local/share/nocturne/$wallpaper"
+done
+# The lock screen follows the chosen wallpaper; nocturne-wallpaper repoints this link.
+[[ -e "$HOME/.local/share/nocturne/lock.png" ]] || ln -sfn "$HOME/.local/share/nocturne/wallpaper-clean.png" "$HOME/.local/share/nocturne/lock.png"
+# Retire the previous bar, notification daemon and wallpaper setter: stop them and move their configs into the backup.
+for process in "${legacy_packages[@]}"; do pkill -u "$UID" -x "$process" 2>/dev/null || true; done
+for name in "${legacy_configs[@]}"; do
+    if [[ -e "$HOME/.config/$name" ]]; then
+        mkdir -p "$backup/.config"
+        mv "$HOME/.config/$name" "$backup/.config/$name"
+        printf 'Moved ~/.config/%s to the backup; it is no longer used.\n' "$name"
+    fi
 done
 python - "$HOME" <<'PY'
 from pathlib import Path

@@ -1,0 +1,27 @@
+# NOCTURNE — screenshot annotation (Shift+Print)
+[general]
+initial-tool = "arrow"
+copy-command = "wl-copy"
+annotation-size-factor = 1.5
+corner-roundness = 12
+early-exit = ["copy", "save"]
+actions-on-enter = ["save-to-clipboard", "save-to-file"]
+actions-on-escape = ["exit"]
+primary-highlighter = "block"
+default-round-caps = true
+no-window-decoration = true
+notification-thumbnail = "screenshot"
+
+[font]
+family = "Inter"
+style = "Bold"
+
+[color-palette]
+palette = [
+    "#b69af7ff",
+    "#ef8fa4ff",
+    "#a5ccb3ff",
+    "#e5c89aff",
+    "#9ccbd2ff",
+    "#faf5ffff",
+]
