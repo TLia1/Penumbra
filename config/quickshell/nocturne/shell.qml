@@ -1,12 +1,16 @@
 //@ pragma UseQApplication
 //@ pragma IconTheme Nocturne
-// NOCTURNE shell: bar, control center, notifications, OSD, calendar and session overlay.
+// NOCTURNE shell: animated wallpapers, bar, control center, notifications, OSD, calendar and session overlay.
 // Run with `quickshell -c nocturne`; scripts talk to it with `quickshell -c nocturne ipc call …`.
 import QtQuick
 import Quickshell
 import Quickshell.Io
 
 ShellRoot {
+    Wallpaper {
+        id: wallpaper
+    }
+
     Variants {
         model: Quickshell.screens
         delegate: Bar {}
@@ -41,6 +45,12 @@ ShellRoot {
         target: "notifications"
         function clear(): void { Notifs.clear(); }
         function dnd(): void { Notifs.dnd = !Notifs.dnd; }
+    }
+
+    IpcHandler {
+        target: "wallpaper"
+        // `delay` is how long awww's transition takes, in milliseconds.
+        function set(name: string, delay: int): void { wallpaper.show(name, delay); }
     }
 
     IpcHandler {

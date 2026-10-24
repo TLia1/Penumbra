@@ -29,7 +29,7 @@ Log out through **Super+M → Log out → Confirm**, then sign in again when con
 | Plymouth | Optional animated violet orbit, native password dialogs and update progress |
 | SDDM | Original animated QML greeter, wordmark-free orbital wallpaper, editable username, password, session selector, restart/shutdown confirmation |
 | Hyprlock | Wordmark-free version of the current wallpaper, clock and password field; locks after ten idle minutes and before suspend |
-| Wallpaper | Two original SVG scenes, night and dawn, plus pre-rendered PNGs and wordmark-free variants for the lock screen and greeter (`tools/build-wallpapers.py`); awww switches them with a transition that grows out of the planet |
+| Wallpaper | Three original SVG scenes, night, dawn and eclipse, plus pre-rendered PNGs and wordmark-free variants for the lock screen and greeter (`tools/build-wallpapers.py`); awww switches them with a transition that grows out of the planet. The shell animates dawn (twinkling stars, a breathing glow and rim light, a moonlet riding the ring, the odd shooting star) and eclipse (a drifting nebula, glinting stars, a swaying corona and diamond-ring flare, two backlit moons that pass in front of and behind the eclipse, an aurora on the near world's horizon, a blinking satellite, shooting stars); both pause under fullscreen windows |
 | Tools | Clipboard history (cliphist), color picker (hyprpicker), screenshot annotation (Satty) |
 
 Near-black `#0d0a12`, surface `#100d18`, violet `#b69af7`, text `#e4dced`, muted `#8f809f`. Fonts: Inter and JetBrainsMono Nerd Font.
@@ -69,7 +69,7 @@ Bar: click the clock for a calendar. CPU/RAM open htop. Click the network/Blueto
 - `bin/` → `~/.local/bin/` (session, power, network, Bluetooth, screenshot, clipboard, color picker and wallpaper scripts).
 - `config/quickshell/nocturne/` → the Nocturne shell (QML), started by `nocturne-session`.
 - `share/` → `~/.local/share/` (KDE color scheme and violet icon overlay).
-- `assets/wallpaper*.png` (night and dawn, each with a wordmark-free variant) → `~/.local/share/nocturne/`; `lock.png` there links to the clean variant of the current scene. After editing `assets/wallpaper.svg`, run `tools/build-wallpapers.py` to re-render both and the SDDM copy.
+- `assets/wallpaper*.png` (night, dawn and eclipse, each with a wordmark-free variant) → `~/.local/share/nocturne/`; `lock.png` there links to the clean variant of the current scene. After editing a wallpaper SVG, run `tools/build-wallpapers.py` to re-render them and the SDDM copy; it also splits the dawn and eclipse scenes into the layers under `config/quickshell/nocturne/dawn/` and `eclipse/` that the animated wallpapers move, and compiles the aurora shader (needs `qt6-shadertools`).
 - `system/` mirrors absolute system paths: SDDM configuration and complete theme.
 - `CONFIGURATION.md` contains the full installer, helper scripts, every authored configuration, and wallpaper SVG in Markdown.
 - `previews/` contains real screenshots of the installed desktop, launcher, power menu, lock screen, and greeter test mode.
@@ -121,7 +121,7 @@ hyprctl configerrors
 # Reapply just the user files, without sudo or package installation
 ./install.sh --user-only
 
-# Regenerate both wallpaper PNGs and the SDDM copy after editing the SVG
+# Regenerate the wallpaper PNGs, the SDDM copy and the animated layers after editing an SVG
 python tools/build-wallpapers.py
 ./install.sh
 

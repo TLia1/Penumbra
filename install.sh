@@ -78,7 +78,7 @@ copy_tree "$ROOT/bin" "$HOME/.local/bin"
 copy_tree "$ROOT/share" "$HOME/.local/share"
 mkdir -p "$HOME/.local/share/nocturne"
 # Wallpapers are managed separately and backed up on subsequent installations.
-for wallpaper in wallpaper.png wallpaper-clean.png wallpaper-dawn.png wallpaper-dawn-clean.png; do
+for wallpaper in wallpaper.png wallpaper-clean.png wallpaper-dawn.png wallpaper-dawn-clean.png wallpaper-eclipse.png wallpaper-eclipse-clean.png; do
  if [[ -e "$HOME/.local/share/nocturne/$wallpaper" ]]; then
   mkdir -p "$backup/.local/share/nocturne"
   cp -a "$HOME/.local/share/nocturne/$wallpaper" "$backup/.local/share/nocturne/"

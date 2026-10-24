@@ -3,7 +3,7 @@
 set -euo pipefail
 dir="$HOME/.local/share/nocturne"
 state="$HOME/.local/state/nocturne/wallpaper"
-names=(wallpaper wallpaper-dawn)
+names=(wallpaper wallpaper-dawn wallpaper-eclipse)
 current=$(cat "$state" 2>/dev/null || echo wallpaper)
 [[ -e "$dir/$current.png" ]] || current=wallpaper
 transition=(--transition-type grow --transition-duration 1.4 --transition-fps 120)
@@ -11,13 +11,20 @@ case "${1:-next}" in
  next)
   for i in "${!names[@]}"; do [[ ${names[i]} = "$current" ]] && break; done
   current=${names[(i + 1) % ${#names[@]}]}
-  # Grow each scene out of its planet.
-  [[ $current = wallpaper-dawn ]] && transition+=(--transition-pos 0.32,0.37) || transition+=(--transition-pos 0.68,0.51);;
+  # Grow each scene out of its planet, or the eclipse.
+  case $current in
+   wallpaper-dawn) transition+=(--transition-pos 0.32,0.37);;
+   wallpaper-eclipse) transition+=(--transition-pos 0.65,0.63);;
+   *) transition+=(--transition-pos 0.68,0.51);;
+  esac;;
  restore) transition=(--transition-type none);;
  *) echo "Usage: nocturne-wallpaper [next|restore]" >&2; exit 2;;
 esac
 mkdir -p "${state%/*}"
 printf '%s\n' "$current" > "$state"
 ln -sfn "$dir/$current-clean.png" "$dir/lock.png"
+# The shell animates dawn and eclipse over awww's still image, once the transition has finished.
+[[ ${1:-next} = restore ]] && delay=0 || delay=1400
+quickshell -c nocturne ipc call wallpaper set "$current" "$delay" >/dev/null 2>&1 || true
 for _ in {1..50}; do awww query >/dev/null 2>&1 && break; sleep 0.1; done
 exec awww img "$dir/$current.png" --resize crop "${transition[@]}"

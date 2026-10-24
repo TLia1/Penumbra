@@ -10,19 +10,25 @@
  <filter id="soft"><feGaussianBlur stdDeviation="70"/></filter>
 </defs>
 <rect width="2560" height="1600" fill="url(#bg)"/>
+<g id="layer-glow">
 <ellipse cx="760" cy="900" rx="640" ry="520" fill="#b04a8f" opacity=".11" filter="url(#soft)"/>
 <ellipse cx="560" cy="700" rx="320" ry="260" fill="#f3a6cf" opacity=".07" filter="url(#soft)"/>
-<g fill="#e9c8f2"><circle cx="1620" cy="300" r="2.5" opacity=".55"/><circle cx="2140" cy="760" r="2" opacity=".4"/><circle cx="1880" cy="1180" r="1.5" opacity=".35"/><circle cx="1290" cy="520" r="1.5" opacity=".3"/><circle cx="2380" cy="380" r="2" opacity=".45"/><circle cx="1500" cy="1420" r="1.5" opacity=".25"/></g>
+</g>
+<g id="layer-stars" fill="#e9c8f2"><circle cx="1620" cy="300" r="2.5" opacity=".55"/><circle cx="2140" cy="760" r="2" opacity=".4"/><circle cx="1880" cy="1180" r="1.5" opacity=".35"/><circle cx="1290" cy="520" r="1.5" opacity=".3"/><circle cx="2380" cy="380" r="2" opacity=".45"/><circle cx="1500" cy="1420" r="1.5" opacity=".25"/><circle cx="1420" cy="180" r="1.2" opacity=".3"/><circle cx="2260" cy="220" r="1.5" opacity=".35"/><circle cx="1760" cy="560" r="1.2" opacity=".25"/><circle cx="2480" cy="620" r="1.2" opacity=".3"/><circle cx="2300" cy="1060" r="1.5" opacity=".3"/><circle cx="2040" cy="980" r="1.2" opacity=".25"/><circle cx="1150" cy="240" r="1.2" opacity=".25"/><circle cx="440" cy="190" r="1.2" opacity=".2"/></g>
+<g id="layer-back">
 <circle cx="1980" cy="430" r="28" fill="url(#moon)" stroke="#4a3260" stroke-width="1"/>
 <g transform="translate(820 1010) rotate(16)">
  <ellipse rx="880" ry="230" fill="none" stroke="#8e5bc4" stroke-width="1" opacity=".12"/>
  <ellipse rx="760" ry="172" fill="none" stroke="#e48ac0" stroke-width="10" filter="url(#glow)" opacity=".35"/>
  <ellipse rx="760" ry="172" fill="none" stroke="url(#ring)" stroke-width="3"/>
 </g>
-<circle cx="820" cy="1010" r="430" fill="url(#planet)" stroke="#33203f" stroke-width="1"/>
+</g>
+<circle id="layer-planet" cx="820" cy="1010" r="430" fill="url(#planet)" stroke="#33203f" stroke-width="1"/>
+<g id="layer-rim">
 <circle cx="820" cy="1010" r="430" fill="none" stroke="url(#dawn)" stroke-width="16" stroke-dasharray="950 1752" transform="rotate(162 820 1010)" filter="url(#glow)" opacity=".45"/>
 <circle cx="820" cy="1010" r="429" fill="none" stroke="url(#dawn)" stroke-width="3" stroke-linecap="round" stroke-dasharray="950 1752" transform="rotate(162 820 1010)"/>
-<g transform="translate(820 1010) rotate(16)" clip-path="url(#front)">
+</g>
+<g id="layer-front" transform="translate(820 1010) rotate(16)" clip-path="url(#front)">
  <ellipse rx="760" ry="172" fill="none" stroke="#e48ac0" stroke-width="10" filter="url(#glow)" opacity=".35"/>
  <ellipse rx="760" ry="172" fill="none" stroke="url(#ring)" stroke-width="3"/>
  <ellipse rx="772" ry="182" fill="none" stroke="url(#ring)" stroke-width="1" opacity=".4"/>
