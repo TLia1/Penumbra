@@ -1,7 +1,7 @@
 //@ pragma UseQApplication
 //@ pragma IconTheme Nocturne
 // NOCTURNE shell: animated wallpapers, bar, control center, notifications, OSD, calendar, session
-// overlay, launcher, window switcher, overview, lock screen, polkit agent and screenshot overlay.
+// overlay, launcher, lock screen, polkit agent and screenshot overlay.
 // Run with `quickshell -c nocturne`; scripts talk to it with `quickshell -c nocturne ipc call …`.
 import QtQuick
 import Quickshell
@@ -26,8 +26,6 @@ ShellRoot {
     Osd {}
     SessionMenu {}
     Launcher {}
-    Switcher {}
-    Overview {}
     HotCorners {}
     PolkitDialog {}
     ScreenshotOverlay {
@@ -55,7 +53,6 @@ ShellRoot {
         function session(): void { Ui.openSession(); }
         function updates(): void { Ui.toggleUpdates(); }
         function wallpapers(): void { Ui.toggleWallpapers(); }
-        function overview(): void { Ui.toggleOverview(); }
         function close(): void { Ui.closeOverlays(); }
     }
 

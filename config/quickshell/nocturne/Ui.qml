@@ -17,8 +17,6 @@ Singleton {
     property bool sessionOpen: false
     property bool launcherOpen: false
     property string launcherMode: "apps" // apps or clipboard
-    property bool switcherOpen: false
-    property bool overviewOpen: false
     property bool shotOpen: false
     property bool caffeine: false
     property bool nightLight: false
@@ -43,8 +41,6 @@ Singleton {
         close();
         sessionOpen = false;
         launcherOpen = false;
-        switcherOpen = false;
-        overviewOpen = false;
         shotOpen = false;
     }
     // A click outside a panel closes it; ignore that same click reopening it from the bar.
@@ -94,11 +90,6 @@ Singleton {
         closeOverlays();
         launcherMode = mode;
         launcherOpen = reopen;
-    }
-    function toggleOverview() {
-        const reopen = !overviewOpen;
-        closeOverlays();
-        overviewOpen = reopen;
     }
     function openShot() {
         closeOverlays();

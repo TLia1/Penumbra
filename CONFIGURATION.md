@@ -1115,11 +1115,6 @@ exec("SUPER + SHIFT + W", "quickshell -c nocturne ipc call panel wallpapers")
 exec("SUPER + SHIFT + R", "~/.local/bin/nocturne-session restart")
 exec("Print", "~/.local/bin/nocturne-shot")
 exec("SHIFT + Print", "~/.local/bin/nocturne-shot annotate")
--- The shell answers these directly (Quickshell global shortcuts), with no process per key press.
-hl.bind("ALT + Tab", hl.dsp.global("nocturne:switcher-next"))
-hl.bind("ALT + SHIFT + Tab", hl.dsp.global("nocturne:switcher-previous"))
-hl.bind("ALT + Alt_L", hl.dsp.global("nocturne:switcher-commit"), {release=true, non_consuming=true})
-hl.bind("SUPER + Tab", hl.dsp.global("nocturne:overview"))
 hl.bind("SUPER + C", hl.dsp.window.close())
 hl.bind("SUPER + V", hl.dsp.window.float({action="toggle"}))
 hl.bind("SUPER + F", hl.dsp.window.fullscreen())
@@ -1457,7 +1452,7 @@ toolbutton_style=4
 //@ pragma UseQApplication
 //@ pragma IconTheme Nocturne
 // NOCTURNE shell: animated wallpapers, bar, control center, notifications, OSD, calendar, session
-// overlay, launcher, window switcher, overview, lock screen, polkit agent and screenshot overlay.
+// overlay, launcher, lock screen, polkit agent and screenshot overlay.
 // Run with `quickshell -c nocturne`; scripts talk to it with `quickshell -c nocturne ipc call …`.
 import QtQuick
 import Quickshell
@@ -1482,8 +1477,6 @@ ShellRoot {
     Osd {}
     SessionMenu {}
     Launcher {}
-    Switcher {}
-    Overview {}
     HotCorners {}
     PolkitDialog {}
     ScreenshotOverlay {
@@ -1511,7 +1504,6 @@ ShellRoot {
         function session(): void { Ui.openSession(); }
         function updates(): void { Ui.toggleUpdates(); }
         function wallpapers(): void { Ui.toggleWallpapers(); }
-        function overview(): void { Ui.toggleOverview(); }
         function close(): void { Ui.closeOverlays(); }
     }
 
@@ -4347,8 +4339,6 @@ Singleton {
     property bool sessionOpen: false
     property bool launcherOpen: false
     property string launcherMode: "apps" // apps or clipboard
-    property bool switcherOpen: false
-    property bool overviewOpen: false
     property bool shotOpen: false
     property bool caffeine: false
     property bool nightLight: false
@@ -4373,8 +4363,6 @@ Singleton {
         close();
         sessionOpen = false;
         launcherOpen = false;
-        switcherOpen = false;
-        overviewOpen = false;
         shotOpen = false;
     }
     // A click outside a panel closes it; ignore that same click reopening it from the bar.
@@ -4424,11 +4412,6 @@ Singleton {
         closeOverlays();
         launcherMode = mode;
         launcherOpen = reopen;
-    }
-    function toggleOverview() {
-        const reopen = !overviewOpen;
-        closeOverlays();
-        overviewOpen = reopen;
     }
     function openShot() {
         closeOverlays();
@@ -6132,545 +6115,6 @@ PanelWindow {
 }
 ```
 
-## `config/quickshell/nocturne/Switcher.qml`
-
-```qml
-import QtQuick
-import QtQuick.Layouts
-import Quickshell
-import Quickshell.Hyprland
-import Quickshell.Wayland
-import Quickshell.Widgets
-
-// Alt+Tab: live previews of every window, most recently used first. Tab moves on, releasing Alt
-// switches; Escape or a click outside cancels.
-PanelWindow {
-    id: root
-    screen: Ui.screen
-    anchors { top: true; bottom: true; left: true; right: true }
-    exclusionMode: ExclusionMode.Ignore
-    visible: Ui.switcherOpen || card.opacity > 0
-    color: "transparent"
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.namespace: "nocturne-switcher"
-    WlrLayershell.keyboardFocus: Ui.switcherOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-
-    // The order is frozen while the switcher is up, so focus changes don't shuffle it.
-    property var windows: []
-    property int selected: 0
-
-    // Windows by last focus, most recent first, kept from Hyprland's focus changes; windows not
-    // focused since the shell started follow in Hyprland's own order.
-    property var history: []
-    Connections {
-        target: Hyprland
-        function onActiveToplevelChanged() {
-            const active = Hyprland.activeToplevel;
-            if (active)
-                root.history = [active, ...root.history.filter(t => t !== active && t)];
-        }
-    }
-    function recent() {
-        const rank = t => {
-            const i = history.indexOf(t);
-            return i >= 0 ? i : 1000 + (t.lastIpcObject.focusHistoryID ?? 0);
-        };
-        return Hyprland.toplevels.values
-            .filter(t => t.wayland && t.workspace && t.workspace.id > 0)
-            .sort((a, b) => rank(a) - rank(b));
-    }
-    function step(delta) {
-        if (!Ui.switcherOpen) {
-            windows = recent();
-            if (windows.length === 0)
-                return;
-            Ui.closeOverlays();
-            Ui.switcherOpen = true;
-            // Start on the previous window, so a quick Alt+Tab flips between two.
-            selected = windows.length > 1 && delta > 0 ? 1 : 0;
-            if (delta < 0)
-                selected = windows.length - 1;
-            return;
-        }
-        selected = (selected + delta + windows.length) % windows.length;
-    }
-    function commit() {
-        if (!Ui.switcherOpen)
-            return;
-        const target = windows[selected];
-        Ui.switcherOpen = false;
-        target?.wayland?.activate();
-    }
-    // A window that closes while the switcher is up drops out of it.
-    Connections {
-        target: Hyprland
-        function onRawEvent(event) {
-            if (Ui.switcherOpen && event.name === "closewindow") {
-                root.windows = root.windows.filter(w => w?.wayland);
-                root.selected = Math.min(root.selected, root.windows.length - 1);
-                if (root.windows.length === 0)
-                    Ui.switcherOpen = false;
-            }
-        }
-    }
-
-    GlobalShortcut {
-        appid: "nocturne"
-        name: "switcher-next"
-        description: "Window switcher: next window"
-        onPressed: root.step(1)
-    }
-    GlobalShortcut {
-        appid: "nocturne"
-        name: "switcher-previous"
-        description: "Window switcher: previous window"
-        onPressed: root.step(-1)
-    }
-    // Bound to releasing Alt, which the switcher may not see itself if it was quick.
-    GlobalShortcut {
-        appid: "nocturne"
-        name: "switcher-commit"
-        description: "Window switcher: switch to the chosen window"
-        onPressed: root.commit()
-    }
-
-    Rectangle {
-        anchors.fill: parent
-        color: Qt.rgba(7 / 255, 7 / 255, 11 / 255, 0.26)
-        opacity: card.opacity
-        MouseArea {
-            anchors.fill: parent
-            onClicked: Ui.switcherOpen = false
-        }
-    }
-
-    Rectangle {
-        id: card
-        readonly property int columns: Math.max(1, Math.min(root.windows.length, Math.floor((root.width - 120) / 252)))
-        anchors.centerIn: parent
-        width: grid.implicitWidth + 32
-        height: grid.implicitHeight + 32
-        radius: Theme.radiusLarge
-        color: Theme.glassStrong
-        border.color: Theme.lineStrong
-        opacity: Ui.switcherOpen ? 1 : 0
-        scale: Ui.switcherOpen ? 1 : 0.96
-        Behavior on opacity { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
-        Behavior on scale { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutExpo } }
-
-        focus: Ui.switcherOpen
-        Keys.onReleased: event => { if (event.key === Qt.Key_Alt || event.key === Qt.Key_Meta) root.commit(); }
-        Keys.onPressed: event => {
-            const back = event.modifiers & Qt.ShiftModifier;
-            if (event.key === Qt.Key_Escape)
-                Ui.switcherOpen = false;
-            else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)
-                root.commit();
-            else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Right)
-                root.step(back ? -1 : 1);
-            else if (event.key === Qt.Key_Backtab || event.key === Qt.Key_Left)
-                root.step(-1);
-            else if (event.key === Qt.Key_Down)
-                root.step(card.columns);
-            else if (event.key === Qt.Key_Up)
-                root.step(-card.columns);
-            else
-                return;
-            event.accepted = true;
-        }
-
-        GridLayout {
-            id: grid
-            x: 16
-            y: 16
-            columns: card.columns
-            rowSpacing: 12
-            columnSpacing: 12
-
-            Repeater {
-                model: Ui.switcherOpen ? root.windows : []
-                delegate: Rectangle {
-                    id: tile
-                    required property var modelData
-                    required property int index
-                    readonly property bool current: root.selected === index
-                    readonly property var entry: DesktopEntries.heuristicLookup(modelData.wayland?.appId ?? "")
-                    implicitWidth: 240
-                    implicitHeight: 196
-                    radius: Theme.radius
-                    color: current ? Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.16) : area.containsMouse ? Theme.raised : "transparent"
-                    border.width: current ? 2 : 1
-                    border.color: current ? Theme.violet : "transparent"
-                    Behavior on color { ColorAnimation { duration: Theme.fast } }
-
-                    MouseArea {
-                        id: area
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onEntered: root.selected = tile.index
-                        onClicked: { root.selected = tile.index; root.commit(); }
-                    }
-
-                    // The window itself, letterboxed into the preview area.
-                    Item {
-                        id: frame
-                        x: 10
-                        y: 10
-                        width: parent.width - 20
-                        height: 140
-                        ClippingRectangle {
-                            anchors.centerIn: parent
-                            readonly property real aspect: preview.sourceSize.width > 0 ? preview.sourceSize.width / preview.sourceSize.height : 16 / 10
-                            width: Math.min(frame.width, frame.height * aspect)
-                            height: width / aspect
-                            radius: 10
-                            color: Theme.raised
-                            ScreencopyView {
-                                id: preview
-                                anchors.fill: parent
-                                captureSource: tile.modelData.wayland
-                                live: Ui.switcherOpen
-                                constraintSize: Qt.size(440, 280)
-                            }
-                            IconImage {
-                                anchors.centerIn: parent
-                                visible: !preview.hasContent
-                                implicitSize: 48
-                                source: Quickshell.iconPath(tile.entry?.icon ?? tile.modelData.wayland?.appId ?? "", "application-x-executable")
-                            }
-                        }
-                    }
-
-                    RowLayout {
-                        anchors { left: parent.left; right: parent.right; bottom: parent.bottom; margins: 12; bottomMargin: 10 }
-                        spacing: 8
-                        IconImage {
-                            implicitSize: 20
-                            source: Quickshell.iconPath(tile.entry?.icon ?? tile.modelData.wayland?.appId ?? "", "application-x-executable")
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            text: tile.modelData.title || tile.entry?.name || tile.modelData.wayland?.appId || ""
-                            font.weight: tile.current ? Font.DemiBold : Font.Normal
-                            color: tile.current ? Theme.text : Theme.textSoft
-                        }
-                        Label {
-                            text: tile.modelData.workspace?.name ?? ""
-                            font.family: Theme.mono
-                            font.pixelSize: 10
-                            color: Theme.dim
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-```
-
-## `config/quickshell/nocturne/Overview.qml`
-
-```qml
-import QtQuick
-import QtQuick.Layouts
-import Quickshell
-import Quickshell.Hyprland
-import Quickshell.Wayland
-import Quickshell.Widgets
-
-// Every workspace on the focused monitor, with live windows in place. Click a window to focus it,
-// a workspace to go there, drag a window onto another workspace to move it; middle-click closes.
-PanelWindow {
-    id: root
-    screen: Ui.screen
-    anchors { top: true; bottom: true; left: true; right: true }
-    exclusionMode: ExclusionMode.Ignore
-    visible: Ui.overviewOpen || backdrop.opacity > 0
-    color: "transparent"
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.namespace: "nocturne-overview"
-    WlrLayershell.keyboardFocus: Ui.overviewOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-
-    readonly property var monitor: Hyprland.monitorFor(screen)
-    // Layout size of the monitor, which window positions are measured in.
-    readonly property real monitorWidth: monitor ? monitor.width / monitor.scale : width
-    readonly property real monitorHeight: monitor ? monitor.height / monitor.scale : height
-    // This monitor's workspaces, plus an empty one to start or drop into.
-    readonly property var workspaces: {
-        const own = Hyprland.workspaces.values.filter(w => w.id > 0 && w.monitor?.name === monitor?.name).map(w => w.id);
-        const next = Math.max(0, ...Hyprland.workspaces.values.filter(w => w.id > 0).map(w => w.id)) + 1;
-        return [...own, next].sort((a, b) => a - b);
-    }
-    readonly property int columns: Math.min(workspaces.length, workspaces.length > 6 ? 4 : 3)
-    readonly property real cardWidth: Math.min(420, (width - 160 - (columns - 1) * 22) / columns)
-    readonly property real cardHeight: cardWidth * monitorHeight / monitorWidth
-    property int selected: 0
-
-    Connections {
-        target: Ui
-        function onOverviewOpenChanged() {
-            if (!Ui.overviewOpen)
-                return;
-            // Window positions are only as fresh as the last refresh.
-            Hyprland.refreshToplevels();
-            Hyprland.refreshWorkspaces();
-            root.selected = Math.max(0, root.workspaces.indexOf(root.monitor?.activeWorkspace?.id ?? 1));
-        }
-    }
-
-    function workspace(id) {
-        return Hyprland.workspaces.values.find(w => w.id === id) ?? null;
-    }
-    function go(id) {
-        Ui.overviewOpen = false;
-        const existing = workspace(id);
-        if (existing)
-            existing.activate();
-        else
-            Hyprland.dispatch(`hl.dsp.focus({workspace=${id}})`);
-    }
-    function focusWindow(toplevel) {
-        Ui.overviewOpen = false;
-        toplevel.wayland?.activate();
-    }
-    function move(toplevel, id) {
-        if (toplevel.workspace?.id !== id)
-            Hyprland.dispatch(`hl.dsp.window.move({workspace=${id}, window="address:${toplevel.lastIpcObject.address}", follow=false})`);
-        refresh.restart();
-    }
-    Timer {
-        id: refresh
-        interval: 120
-        onTriggered: { Hyprland.refreshToplevels(); Hyprland.refreshWorkspaces(); }
-    }
-    GlobalShortcut {
-        appid: "nocturne"
-        name: "overview"
-        description: "Toggle the workspace overview"
-        onPressed: Ui.toggleOverview()
-    }
-
-    Rectangle {
-        id: backdrop
-        anchors.fill: parent
-        color: Qt.rgba(7 / 255, 7 / 255, 11 / 255, 0.62)
-        opacity: Ui.overviewOpen ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.normal } }
-
-        focus: Ui.overviewOpen
-        Keys.onPressed: event => {
-            const n = root.workspaces.length;
-            if (event.key === Qt.Key_Escape)
-                Ui.overviewOpen = false;
-            else if (event.key === Qt.Key_Right || event.key === Qt.Key_Tab)
-                root.selected = (root.selected + 1) % n;
-            else if (event.key === Qt.Key_Left || event.key === Qt.Key_Backtab)
-                root.selected = (root.selected + n - 1) % n;
-            else if (event.key === Qt.Key_Down)
-                root.selected = Math.min(n - 1, root.selected + root.columns);
-            else if (event.key === Qt.Key_Up)
-                root.selected = Math.max(0, root.selected - root.columns);
-            else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)
-                root.go(root.workspaces[root.selected]);
-            // Number-row keys by position (keycodes 10–18), so AZERTY works too.
-            else if (event.nativeScanCode >= 10 && event.nativeScanCode <= 18)
-                root.go(event.nativeScanCode - 9);
-            else
-                return;
-            event.accepted = true;
-        }
-
-        MouseArea {
-            anchors.fill: parent
-            onClicked: Ui.overviewOpen = false
-        }
-
-        ColumnLayout {
-            anchors.centerIn: parent
-            spacing: 22
-            scale: Ui.overviewOpen ? 1 : 0.94
-            Behavior on scale { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
-
-            Label {
-                Layout.alignment: Qt.AlignHCenter
-                text: "W O R K S P A C E S"
-                font.pixelSize: 12
-                color: Theme.violet
-            }
-
-            GridLayout {
-                Layout.alignment: Qt.AlignHCenter
-                columns: root.columns
-                rowSpacing: 22
-                columnSpacing: 22
-
-                Repeater {
-                    model: Ui.overviewOpen || backdrop.opacity > 0 ? root.workspaces : []
-                    delegate: ColumnLayout {
-                        id: wsItem
-                        required property int modelData
-                        required property int index
-                        readonly property var ws: root.workspace(modelData)
-                        readonly property bool current: root.monitor?.activeWorkspace?.id === modelData
-                        readonly property bool chosen: root.selected === index
-                        spacing: 8
-
-                        Rectangle {
-                            id: card
-                            implicitWidth: root.cardWidth
-                            implicitHeight: root.cardHeight
-                            radius: Theme.radius
-                            color: drop.containsDrag ? Theme.hover : Theme.glassStrong
-                            border.width: wsItem.chosen || drop.containsDrag ? 2 : 1
-                            border.color: wsItem.chosen || drop.containsDrag ? Theme.violet : wsItem.current ? Theme.lineStrong : Theme.line
-                            Behavior on color { ColorAnimation { duration: Theme.fast } }
-
-                            MouseArea {
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onEntered: root.selected = wsItem.index
-                                onClicked: root.go(wsItem.modelData)
-                            }
-                            DropArea {
-                                id: drop
-                                anchors.fill: parent
-                                keys: ["nocturne-window"]
-                                onDropped: d => root.move(d.source.toplevel, wsItem.modelData)
-                            }
-
-                            ClippingRectangle {
-                                anchors.fill: parent
-                                anchors.margins: 1
-                                radius: card.radius - 1
-                                color: "transparent"
-                                Image {
-                                    anchors.fill: parent
-                                    source: "file://" + Ui.wallpapers + Ui.wallpaper + ".png"
-                                    sourceSize.width: root.cardWidth * 2
-                                    fillMode: Image.PreserveAspectCrop
-                                    asynchronous: true
-                                    opacity: wsItem.chosen ? 0.75 : 0.45
-                                    Behavior on opacity { NumberAnimation { duration: Theme.fast } }
-                                }
-                            }
-                            Glyph {
-                                anchors.centerIn: parent
-                                visible: !wsItem.ws || wsItem.ws.toplevels.values.length === 0
-                                text: wsItem.ws ? "󰖯" : "󰐕"
-                                size: 26
-                                color: Theme.dim
-                            }
-
-                            // Windows at their real size and place, tiled first and floating on top.
-                            Item {
-                                anchors.fill: parent
-                                anchors.margins: 1
-                                clip: true
-                                Repeater {
-                                    model: (wsItem.ws?.toplevels.values ?? []).slice()
-                                        .sort((a, b) => (a.lastIpcObject.floating ?? false) - (b.lastIpcObject.floating ?? false))
-                                    delegate: Item {
-                                        id: slot
-                                        required property var modelData
-                                        readonly property var toplevel: modelData
-                                        readonly property var info: modelData.lastIpcObject
-                                        readonly property real k: card.width / root.monitorWidth
-                                        x: ((info.at?.[0] ?? 0) - (root.monitor?.x ?? 0)) * k
-                                        y: ((info.at?.[1] ?? 0) - (root.monitor?.y ?? 0)) * k
-                                        width: Math.max(24, (info.size?.[0] ?? 0) * k)
-                                        height: Math.max(18, (info.size?.[1] ?? 0) * k)
-                                        visible: !!info.size
-
-                                        ClippingRectangle {
-                                            id: tile
-                                            width: slot.width
-                                            height: slot.height
-                                            anchors.centerIn: slot
-                                            radius: 8
-                                            color: Theme.raised
-                                            border.width: hover.containsMouse ? 2 : 1
-                                            border.color: hover.containsMouse ? Theme.violetBright : Theme.line
-                                            Drag.active: hover.drag.active
-                                            Drag.keys: ["nocturne-window"]
-                                            Drag.source: slot
-                                            Drag.hotSpot: Qt.point(width / 2, height / 2)
-                                            states: State {
-                                                when: hover.drag.active
-                                                ParentChange { target: tile; parent: backdrop }
-                                                AnchorChanges { target: tile; anchors.horizontalCenter: undefined; anchors.verticalCenter: undefined }
-                                                PropertyChanges { target: tile; opacity: 0.85; z: 10 }
-                                            }
-
-                                            ScreencopyView {
-                                                anchors.fill: parent
-                                                captureSource: Ui.overviewOpen ? slot.toplevel.wayland : null
-                                                live: true
-                                                constraintSize: Qt.size(slot.width * 2, slot.height * 2)
-                                            }
-                                            IconImage {
-                                                readonly property var entry: DesktopEntries.heuristicLookup(slot.toplevel.wayland?.appId ?? "")
-                                                anchors { right: parent.right; bottom: parent.bottom; margins: 6 }
-                                                implicitSize: Math.min(28, slot.height / 3)
-                                                source: Quickshell.iconPath(entry?.icon ?? slot.toplevel.wayland?.appId ?? "", "application-x-executable")
-                                            }
-                                        }
-                                        MouseArea {
-                                            id: hover
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: drag.active ? Qt.ClosedHandCursor : Qt.PointingHandCursor
-                                            acceptedButtons: Qt.LeftButton | Qt.MiddleButton
-                                            drag.target: tile
-                                            onEntered: root.selected = wsItem.index
-                                            onClicked: m => {
-                                                if (m.button === Qt.MiddleButton) {
-                                                    slot.toplevel.wayland?.close();
-                                                    refresh.restart();
-                                                } else {
-                                                    root.focusWindow(slot.toplevel);
-                                                }
-                                            }
-                                            onReleased: if (drag.active) tile.Drag.drop()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        RowLayout {
-                            Layout.alignment: Qt.AlignHCenter
-                            spacing: 6
-                            Rectangle {
-                                visible: wsItem.current
-                                implicitWidth: 6
-                                implicitHeight: 6
-                                radius: 3
-                                color: Theme.violet
-                            }
-                            Label {
-                                text: wsItem.ws ? `Workspace ${wsItem.ws.name}` : "New workspace"
-                                font.pixelSize: 12
-                                font.weight: wsItem.current ? Font.DemiBold : Font.Normal
-                                color: wsItem.chosen ? Theme.text : Theme.muted
-                            }
-                        }
-                    }
-                }
-            }
-
-            Label {
-                Layout.alignment: Qt.AlignHCenter
-                text: "Click to focus · drag a window to move it · middle-click to close · Esc"
-                font.pixelSize: 11
-                color: Theme.muted
-            }
-        }
-    }
-}
-```
-
 ## `config/quickshell/nocturne/HotCorners.qml`
 
 ```qml
@@ -6679,52 +6123,35 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Wayland
 
-// Push the pointer into the top-left corner for the overview, the top-right one for the
-// control center. A short dwell keeps a passing pointer from opening them; corners rest
-// while a window is fullscreen.
+// Push the pointer into the top-right corner for the control center. A short dwell keeps a
+// passing pointer from opening it; the corner rests while a window is fullscreen.
 Variants {
     model: Quickshell.screens
 
-    delegate: Scope {
-        id: output
+    delegate: PanelWindow {
+        id: corner
         required property var modelData
-        readonly property bool fullscreen: Hyprland.monitorFor(modelData)?.activeWorkspace?.hasFullscreen ?? false
+        screen: modelData
+        visible: !(Hyprland.monitorFor(modelData)?.activeWorkspace?.hasFullscreen ?? false)
+        anchors { top: true; right: true }
+        exclusionMode: ExclusionMode.Ignore
+        implicitWidth: 3
+        implicitHeight: 3
+        color: "transparent"
+        WlrLayershell.layer: WlrLayer.Overlay
+        // Not nocturne-*: nothing here to blur.
+        WlrLayershell.namespace: "hot-corner"
 
-        component Corner: PanelWindow {
-            id: corner
-            property bool left: true
-            signal reached()
-            screen: output.modelData
-            visible: !output.fullscreen
-            anchors { top: true; left: corner.left; right: !corner.left }
-            exclusionMode: ExclusionMode.Ignore
-            implicitWidth: 3
-            implicitHeight: 3
-            color: "transparent"
-            WlrLayershell.layer: WlrLayer.Overlay
-            // Not nocturne-*: nothing here to blur.
-            WlrLayershell.namespace: "hot-corner"
-
-            MouseArea {
-                anchors.fill: parent
-                hoverEnabled: true
-                onEntered: dwell.restart()
-                onExited: dwell.stop()
-            }
-            Timer {
-                id: dwell
-                interval: 160
-                onTriggered: corner.reached()
-            }
+        MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            onEntered: dwell.restart()
+            onExited: dwell.stop()
         }
-
-        Corner {
-            left: true
-            onReached: Ui.toggleOverview()
-        }
-        Corner {
-            left: false
-            onReached: Ui.toggleControl()
+        Timer {
+            id: dwell
+            interval: 160
+            onTriggered: Ui.toggleControl()
         }
     }
 }
