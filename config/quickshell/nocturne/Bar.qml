@@ -92,8 +92,10 @@ PanelWindow {
 
         Capsule {
             id: title
-            readonly property var client: Hyprland.activeToplevel
-            readonly property bool shown: !!client && client.workspace?.id === Hyprland.focusedWorkspace?.id && client.title !== ""
+            // The Wayland toplevel protocol knows the focused window from startup; nothing is
+            // activated on an empty workspace. Show it on the bar of the screen it is on.
+            readonly property var client: ToplevelManager.activeToplevel
+            readonly property bool shown: !!client && client.activated && client.title !== "" && client.screens.some(s => s.name === bar.screen.name)
             visible: shown
             interactive: false
             padding: 16
@@ -139,12 +141,16 @@ PanelWindow {
         }
 
         Capsule {
-            visible: SystemTray.items.values.length > 0
+            // nm-applet and blueman keep running for password and pairing prompts,
+            // but the control center replaces their tray icons.
+            readonly property var items: SystemTray.items.values.filter(i => !["nm-applet", "blueman"].includes(i.id))
+            id: tray
+            visible: items.length > 0
             interactive: false
             padding: 12
             spacing: 10
             Repeater {
-                model: SystemTray.items
+                model: tray.items
                 delegate: Item {
                     id: trayItem
                     required property var modelData

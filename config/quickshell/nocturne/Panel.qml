@@ -18,7 +18,9 @@ PanelWindow {
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
     implicitWidth: sheetWidth
-    implicitHeight: sheet.implicitHeight + 20
+    // A fixed-height surface; only the sheet takes input, so it can grow and shrink smoothly.
+    implicitHeight: (screen?.height ?? 1080) - margins.top - Theme.edge
+    mask: Region { item: sheet }
     margins.top: Theme.barHeight + 10 + Theme.gap
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "nocturne-panel"
@@ -35,6 +37,8 @@ PanelWindow {
         width: parent.width
         // Content sits at x/y = 18; keep the same padding below it.
         implicitHeight: childrenRect.y + childrenRect.height + 18
+        height: implicitHeight
+        clip: true
         radius: Theme.radiusLarge
         color: Theme.glassStrong
         border.color: Theme.line
@@ -44,5 +48,6 @@ PanelWindow {
         Keys.onEscapePressed: panel.dismissed()
         Behavior on opacity { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
         Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
+        Behavior on height { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
     }
 }

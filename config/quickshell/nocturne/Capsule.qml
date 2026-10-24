@@ -25,12 +25,8 @@ Rectangle {
     Behavior on color { ColorAnimation { duration: Theme.fast } }
     Behavior on implicitWidth { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
 
-    RowLayout {
-        id: row
-        anchors.centerIn: parent
-        spacing: 6
-    }
-
+    // Declared before the row so it sits underneath: children with their own
+    // mouse handling (tray icons) receive their clicks, plain contents fall through.
     MouseArea {
         id: mouse
         anchors.fill: parent
@@ -39,5 +35,11 @@ Rectangle {
         cursorShape: root.interactive ? Qt.PointingHandCursor : Qt.ArrowCursor
         onClicked: m => root.clicked(m)
         onWheel: w => root.scrolled(w.angleDelta.y)
+    }
+
+    RowLayout {
+        id: row
+        anchors.centerIn: parent
+        spacing: 6
     }
 }

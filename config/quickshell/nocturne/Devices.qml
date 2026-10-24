@@ -31,11 +31,17 @@ Singleton {
     readonly property var wifiNetwork: wifiDevice?.networks.values.find(n => n.connected) ?? null
     readonly property bool wired: wiredDevice?.connected ?? false
     readonly property string networkName: wifiNetwork ? wifiNetwork.name : wired ? "Wired" : "Offline"
+    // Signal strength as 0–1, whichever scale the backend reports.
+    function strength(network) {
+        return network.signalStrength > 1 ? network.signalStrength / 100 : network.signalStrength;
+    }
+    function signalGlyph(network) {
+        const s = strength(network);
+        return s > 0.75 ? "󰤨" : s > 0.5 ? "󰤥" : s > 0.25 ? "󰤢" : "󰤟";
+    }
     readonly property string networkGlyph: {
-        if (wifiNetwork) {
-            const s = wifiNetwork.signalStrength > 1 ? wifiNetwork.signalStrength / 100 : wifiNetwork.signalStrength;
-            return s > 0.75 ? "󰤨" : s > 0.5 ? "󰤥" : s > 0.25 ? "󰤢" : "󰤟";
-        }
+        if (wifiNetwork)
+            return signalGlyph(wifiNetwork);
         return wired ? "󰈀" : Networking.wifiEnabled ? "󰤯" : "󰤭";
     }
 

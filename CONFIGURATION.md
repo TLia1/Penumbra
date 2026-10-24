@@ -1041,6 +1041,8 @@ ShellRoot {
     IpcHandler {
         target: "panel"
         function control(): void { Ui.toggleControl(); }
+        function wifi(): void { Ui.openControl("wifi"); }
+        function bluetooth(): void { Ui.openControl("bluetooth"); }
         function calendar(): void { Ui.toggleCalendar(); }
         function session(): void { Ui.openSession(); }
         function close(): void { Ui.close(); Ui.sessionOpen = false; }
@@ -1156,8 +1158,10 @@ PanelWindow {
 
         Capsule {
             id: title
-            readonly property var client: Hyprland.activeToplevel
-            readonly property bool shown: !!client && client.workspace?.id === Hyprland.focusedWorkspace?.id && client.title !== ""
+            // The Wayland toplevel protocol knows the focused window from startup; nothing is
+            // activated on an empty workspace. Show it on the bar of the screen it is on.
+            readonly property var client: ToplevelManager.activeToplevel
+            readonly property bool shown: !!client && client.activated && client.title !== "" && client.screens.some(s => s.name === bar.screen.name)
             visible: shown
             interactive: false
             padding: 16
@@ -1203,12 +1207,16 @@ PanelWindow {
         }
 
         Capsule {
-            visible: SystemTray.items.values.length > 0
+            // nm-applet and blueman keep running for password and pairing prompts,
+            // but the control center replaces their tray icons.
+            readonly property var items: SystemTray.items.values.filter(i => !["nm-applet", "blueman"].includes(i.id))
+            id: tray
+            visible: items.length > 0
             interactive: false
             padding: 12
             spacing: 10
             Repeater {
-                model: SystemTray.items
+                model: tray.items
                 delegate: Item {
                     id: trayItem
                     required property var modelData
@@ -1506,12 +1514,8 @@ Rectangle {
     Behavior on color { ColorAnimation { duration: Theme.fast } }
     Behavior on implicitWidth { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
 
-    RowLayout {
-        id: row
-        anchors.centerIn: parent
-        spacing: 6
-    }
-
+    // Declared before the row so it sits underneath: children with their own
+    // mouse handling (tray icons) receive their clicks, plain contents fall through.
     MouseArea {
         id: mouse
         anchors.fill: parent
@@ -1520,6 +1524,12 @@ Rectangle {
         cursorShape: root.interactive ? Qt.PointingHandCursor : Qt.ArrowCursor
         onClicked: m => root.clicked(m)
         onWheel: w => root.scrolled(w.angleDelta.y)
+    }
+
+    RowLayout {
+        id: row
+        anchors.centerIn: parent
+        spacing: 6
     }
 }
 ```
@@ -1557,252 +1567,282 @@ Panel {
         }
     }
 
+    // One page at a time: the main view, or Wi-Fi / Bluetooth settings.
     ColumnLayout {
+        id: pages
         x: 18
         y: 18
         width: root.sheetWidth - 36
-        spacing: 14
+        spacing: 0
 
-        // Header: who, how long, and session shortcuts.
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 12
-            Rectangle {
-                implicitWidth: 42
-                implicitHeight: 42
-                radius: 21
-                gradient: Gradient {
-                    GradientStop { position: 0; color: Theme.violet }
-                    GradientStop { position: 1; color: Theme.violetDeep }
-                }
-                Label {
-                    anchors.centerIn: parent
-                    text: Quickshell.env("USER").charAt(0).toUpperCase()
-                    font.pixelSize: 17
-                    font.weight: Font.Bold
-                    color: Theme.violetInk
-                }
-            }
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 1
-                Label { text: Quickshell.env("USER"); font.pixelSize: 14; font.weight: Font.DemiBold }
-                Label { text: root.uptime; font.pixelSize: 11; color: Theme.muted }
-            }
-            Repeater {
-                model: [
-                    { glyph: "󰸉", tip: "Next wallpaper", run: () => Ui.run(Ui.bin + "nocturne-wallpaper next") },
-                    { glyph: "󰌾", tip: "Lock", run: () => { Ui.close(); Ui.run("loginctl lock-session"); } },
-                    { glyph: "󰐥", tip: "Session", run: () => Ui.openSession() }
-                ]
-                delegate: Rectangle {
-                    required property var modelData
-                    implicitWidth: 36
-                    implicitHeight: 36
-                    radius: 18
-                    color: headerArea.containsMouse ? Theme.hover : Theme.raised
-                    border.color: Theme.line
-                    Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 15; color: Theme.violetBright }
-                    MouseArea {
-                        id: headerArea
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: modelData.run()
-                    }
-                }
-            }
+        Connections {
+            target: Ui
+            function onControlPageChanged() { pageIn.restart(); }
+        }
+        ParallelAnimation {
+            id: pageIn
+            NumberAnimation { target: pages; property: "opacity"; from: 0; to: 1; duration: Theme.normal; easing.type: Easing.OutCubic }
+            NumberAnimation { target: pages; property: "x"; from: Ui.controlPage === "main" ? -6 : 42; to: 18; duration: Theme.slow; easing.type: Easing.OutExpo }
         }
 
-        GridLayout {
+        WifiPage {
             Layout.fillWidth: true
-            columns: 2
-            rowSpacing: 8
-            columnSpacing: 8
-            Tile {
-                Layout.fillWidth: true
-                glyph: Devices.networkGlyph
-                title: Devices.wifiDevice ? "Wi-Fi" : "Network"
-                subtitle: Devices.networkName
-                on: Devices.wifiDevice ? Networking.wifiEnabled : Devices.wired
-                hasMore: true
-                onToggled: Devices.wifiDevice ? Networking.wifiEnabled = !Networking.wifiEnabled : Ui.run(Ui.bin + "nocturne-network")
-                onMore: { Ui.close(); Ui.run(Ui.bin + "nocturne-network"); }
-            }
-            Tile {
-                Layout.fillWidth: true
-                glyph: Devices.bluetoothGlyph
-                title: "Bluetooth"
-                subtitle: Devices.bluetoothName
-                on: Devices.bluetoothOn
-                available: !!Devices.adapter
-                hasMore: true
-                onToggled: Devices.adapter.enabled = !Devices.adapter.enabled
-                onMore: { Ui.close(); Ui.run("blueman-manager"); }
-            }
-            Tile {
-                Layout.fillWidth: true
-                glyph: Notifs.dnd ? "󰂛" : "󰂚"
-                title: "Do not disturb"
-                subtitle: Notifs.dnd ? "Only critical alerts" : "Off"
-                on: Notifs.dnd
-                onToggled: Notifs.dnd = !Notifs.dnd
-            }
-            Tile {
-                Layout.fillWidth: true
-                glyph: Ui.caffeine ? "󰅶" : "󰛊"
-                title: "Stay awake"
-                subtitle: Ui.caffeine ? "Idle lock paused" : "Off"
-                on: Ui.caffeine
-                onToggled: Ui.caffeine = !Ui.caffeine
-            }
+            visible: Ui.controlPage === "wifi"
+            active: root.open && visible
+        }
+
+        BluetoothPage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "bluetooth"
+            active: root.open && visible
         }
 
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 4
-            SliderRow {
-                Layout.fillWidth: true
-                glyph: Devices.volumeGlyph
-                value: Devices.volume
-                muted: Devices.muted
-                onMoved: v => Devices.setVolume(v)
-                onGlyphClicked: if (Devices.sink) Devices.sink.muted = !Devices.sink.muted
-            }
-            SliderRow {
-                Layout.fillWidth: true
-                visible: !!Devices.source
-                glyph: Devices.micMuted ? "󰍭" : "󰍬"
-                value: Devices.source ? Math.round(Devices.source.volume * 100) : 0
-                muted: Devices.micMuted
-                onMoved: v => { Devices.source.muted = false; Devices.source.volume = v / 100; }
-                onGlyphClicked: Devices.source.muted = !Devices.source.muted
-            }
-            SliderRow {
-                Layout.fillWidth: true
-                visible: Sys.brightness >= 0
-                glyph: "󰃟"
-                value: Sys.brightness
-                onMoved: v => Sys.setBrightness(v)
-            }
-        }
+            visible: Ui.controlPage === "main"
+            spacing: 14
 
-        // Media
-        Rectangle {
-            Layout.fillWidth: true
-            visible: !!root.player
-            implicitHeight: 76
-            radius: Theme.radius
-            color: Theme.raised
-            border.color: Theme.line
+            // Header: who, how long, and session shortcuts.
             RowLayout {
-                anchors { fill: parent; margins: 10 }
+                Layout.fillWidth: true
                 spacing: 12
-                ClippingRectangle {
-                    implicitWidth: 56
-                    implicitHeight: 56
-                    radius: 12
-                    color: Theme.hover
-                    Image {
-                        anchors.fill: parent
-                        source: root.player?.trackArtUrl ?? ""
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
+                Rectangle {
+                    implicitWidth: 42
+                    implicitHeight: 42
+                    radius: 21
+                    gradient: Gradient {
+                        GradientStop { position: 0; color: Theme.violet }
+                        GradientStop { position: 1; color: Theme.violetDeep }
                     }
-                    Glyph {
+                    Label {
                         anchors.centerIn: parent
-                        visible: !root.player?.trackArtUrl
-                        text: "󰎆"
-                        size: 22
-                        color: Theme.violetBright
+                        text: Quickshell.env("USER").charAt(0).toUpperCase()
+                        font.pixelSize: 17
+                        font.weight: Font.Bold
+                        color: Theme.violetInk
                     }
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: 2
-                    Label { Layout.fillWidth: true; text: root.player?.trackTitle || root.player?.identity || ""; font.weight: Font.DemiBold }
-                    Label { Layout.fillWidth: true; text: root.player?.trackArtist || root.player?.identity || ""; font.pixelSize: 11; color: Theme.muted }
+                    spacing: 1
+                    Label { text: Quickshell.env("USER"); font.pixelSize: 14; font.weight: Font.DemiBold }
+                    Label { text: root.uptime; font.pixelSize: 11; color: Theme.muted }
                 }
                 Repeater {
                     model: [
-                        { glyph: "󰒮", run: () => root.player.previous(), ok: root.player?.canGoPrevious },
-                        { glyph: root.player?.isPlaying ? "󰏤" : "󰐊", run: () => root.player.togglePlaying(), ok: root.player?.canTogglePlaying, main: true },
-                        { glyph: "󰒭", run: () => root.player.next(), ok: root.player?.canGoNext }
+                        { glyph: "󰸉", tip: "Next wallpaper", run: () => Ui.run(Ui.bin + "nocturne-wallpaper next") },
+                        { glyph: "󰌾", tip: "Lock", run: () => { Ui.close(); Ui.run("loginctl lock-session"); } },
+                        { glyph: "󰐥", tip: "Session", run: () => Ui.openSession() }
                     ]
                     delegate: Rectangle {
                         required property var modelData
-                        implicitWidth: modelData.main ? 38 : 30
-                        implicitHeight: implicitWidth
-                        radius: implicitWidth / 2
-                        opacity: modelData.ok ? 1 : 0.4
-                        color: modelData.main ? Theme.violet : mediaArea.containsMouse ? Theme.hover : "transparent"
-                        Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 16; color: modelData.main ? Theme.violetInk : Theme.text }
+                        implicitWidth: 36
+                        implicitHeight: 36
+                        radius: 18
+                        color: headerArea.containsMouse ? Theme.hover : Theme.raised
+                        border.color: Theme.line
+                        Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 15; color: Theme.violetBright }
                         MouseArea {
-                            id: mediaArea
+                            id: headerArea
                             anchors.fill: parent
                             hoverEnabled: true
-                            enabled: !!modelData.ok
                             cursorShape: Qt.PointingHandCursor
                             onClicked: modelData.run()
                         }
                     }
                 }
             }
-        }
 
-        // Notifications
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.topMargin: 2
-            Label {
+            GridLayout {
                 Layout.fillWidth: true
-                text: Notifs.count ? `Notifications · ${Notifs.count}` : "Notifications"
-                font.pixelSize: 11
-                font.letterSpacing: 1.2
-                font.capitalization: Font.AllUppercase
-                color: Theme.muted
-            }
-            Label {
-                visible: Notifs.count > 0
-                text: "Clear all"
-                font.pixelSize: 11
-                color: clearArea.containsMouse ? Theme.violetBright : Theme.violet
-                MouseArea {
-                    id: clearArea
-                    anchors.fill: parent
-                    anchors.margins: -6
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: Notifs.clear()
+                columns: 2
+                rowSpacing: 8
+                columnSpacing: 8
+                Tile {
+                    Layout.fillWidth: true
+                    glyph: Devices.networkGlyph
+                    title: Devices.wifiDevice ? "Wi-Fi" : "Network"
+                    subtitle: Devices.networkName
+                    on: Devices.wifiDevice ? Networking.wifiEnabled : Devices.wired
+                    hasMore: true
+                    onToggled: Devices.wifiDevice ? Networking.wifiEnabled = !Networking.wifiEnabled : Ui.controlPage = "wifi"
+                    onMore: Ui.controlPage = "wifi"
+                }
+                Tile {
+                    Layout.fillWidth: true
+                    glyph: Devices.bluetoothGlyph
+                    title: "Bluetooth"
+                    subtitle: Devices.bluetoothName
+                    on: Devices.bluetoothOn
+                    available: !!Devices.adapter
+                    hasMore: true
+                    onToggled: Devices.adapter.enabled = !Devices.adapter.enabled
+                    onMore: Ui.controlPage = "bluetooth"
+                }
+                Tile {
+                    Layout.fillWidth: true
+                    glyph: Notifs.dnd ? "󰂛" : "󰂚"
+                    title: "Do not disturb"
+                    subtitle: Notifs.dnd ? "Only critical alerts" : "Off"
+                    on: Notifs.dnd
+                    onToggled: Notifs.dnd = !Notifs.dnd
+                }
+                Tile {
+                    Layout.fillWidth: true
+                    glyph: Ui.caffeine ? "󰅶" : "󰛊"
+                    title: "Stay awake"
+                    subtitle: Ui.caffeine ? "Idle lock paused" : "Off"
+                    on: Ui.caffeine
+                    onToggled: Ui.caffeine = !Ui.caffeine
                 }
             }
-        }
 
-        ListView {
-            Layout.fillWidth: true
-            Layout.preferredHeight: Notifs.count ? Math.min(contentHeight, 340) : 0
-            visible: Notifs.count > 0
-            clip: true
-            spacing: 8
-            model: Notifs.history
-            boundsBehavior: Flickable.StopAtBounds
-            delegate: NotificationCard {
-                required property var modelData
-                width: ListView.view.width
-                notification: modelData
-                compact: true
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+                SliderRow {
+                    Layout.fillWidth: true
+                    glyph: Devices.volumeGlyph
+                    value: Devices.volume
+                    muted: Devices.muted
+                    onMoved: v => Devices.setVolume(v)
+                    onGlyphClicked: if (Devices.sink) Devices.sink.muted = !Devices.sink.muted
+                }
+                SliderRow {
+                    Layout.fillWidth: true
+                    visible: !!Devices.source
+                    glyph: Devices.micMuted ? "󰍭" : "󰍬"
+                    value: Devices.source ? Math.round(Devices.source.volume * 100) : 0
+                    muted: Devices.micMuted
+                    onMoved: v => { Devices.source.muted = false; Devices.source.volume = v / 100; }
+                    onGlyphClicked: Devices.source.muted = !Devices.source.muted
+                }
+                SliderRow {
+                    Layout.fillWidth: true
+                    visible: Sys.brightness >= 0
+                    glyph: "󰃟"
+                    value: Sys.brightness
+                    onMoved: v => Sys.setBrightness(v)
+                }
             }
-            add: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.normal } }
-            displaced: Transition { NumberAnimation { property: "y"; duration: Theme.normal; easing.type: Easing.OutCubic } }
-        }
 
-        ColumnLayout {
-            Layout.fillWidth: true
-            Layout.bottomMargin: 6
-            visible: Notifs.count === 0
-            spacing: 4
-            Glyph { Layout.fillWidth: true; text: "󰂜"; size: 26; color: Theme.dim }
-            Label { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: "All caught up"; color: Theme.muted }
+            // Media
+            Rectangle {
+                Layout.fillWidth: true
+                visible: !!root.player
+                implicitHeight: 76
+                radius: Theme.radius
+                color: Theme.raised
+                border.color: Theme.line
+                RowLayout {
+                    anchors { fill: parent; margins: 10 }
+                    spacing: 12
+                    ClippingRectangle {
+                        implicitWidth: 56
+                        implicitHeight: 56
+                        radius: 12
+                        color: Theme.hover
+                        Image {
+                            anchors.fill: parent
+                            source: root.player?.trackArtUrl ?? ""
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                        }
+                        Glyph {
+                            anchors.centerIn: parent
+                            visible: !root.player?.trackArtUrl
+                            text: "󰎆"
+                            size: 22
+                            color: Theme.violetBright
+                        }
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Label { Layout.fillWidth: true; text: root.player?.trackTitle || root.player?.identity || ""; font.weight: Font.DemiBold }
+                        Label { Layout.fillWidth: true; text: root.player?.trackArtist || root.player?.identity || ""; font.pixelSize: 11; color: Theme.muted }
+                    }
+                    Repeater {
+                        model: [
+                            { glyph: "󰒮", run: () => root.player.previous(), ok: root.player?.canGoPrevious },
+                            { glyph: root.player?.isPlaying ? "󰏤" : "󰐊", run: () => root.player.togglePlaying(), ok: root.player?.canTogglePlaying, main: true },
+                            { glyph: "󰒭", run: () => root.player.next(), ok: root.player?.canGoNext }
+                        ]
+                        delegate: Rectangle {
+                            required property var modelData
+                            implicitWidth: modelData.main ? 38 : 30
+                            implicitHeight: implicitWidth
+                            radius: implicitWidth / 2
+                            opacity: modelData.ok ? 1 : 0.4
+                            color: modelData.main ? Theme.violet : mediaArea.containsMouse ? Theme.hover : "transparent"
+                            Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 16; color: modelData.main ? Theme.violetInk : Theme.text }
+                            MouseArea {
+                                id: mediaArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                enabled: !!modelData.ok
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: modelData.run()
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Notifications
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 2
+                Label {
+                    Layout.fillWidth: true
+                    text: Notifs.count ? `Notifications · ${Notifs.count}` : "Notifications"
+                    font.pixelSize: 11
+                    font.letterSpacing: 1.2
+                    font.capitalization: Font.AllUppercase
+                    color: Theme.muted
+                }
+                Label {
+                    visible: Notifs.count > 0
+                    text: "Clear all"
+                    font.pixelSize: 11
+                    color: clearArea.containsMouse ? Theme.violetBright : Theme.violet
+                    MouseArea {
+                        id: clearArea
+                        anchors.fill: parent
+                        anchors.margins: -6
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: Notifs.clear()
+                    }
+                }
+            }
+
+            ListView {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Notifs.count ? Math.min(contentHeight, 340) : 0
+                visible: Notifs.count > 0
+                clip: true
+                spacing: 8
+                model: Notifs.history
+                boundsBehavior: Flickable.StopAtBounds
+                delegate: NotificationCard {
+                    required property var modelData
+                    width: ListView.view.width
+                    notification: modelData
+                    compact: true
+                }
+                add: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.normal } }
+                displaced: Transition { NumberAnimation { property: "y"; duration: Theme.normal; easing.type: Easing.OutCubic } }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.bottomMargin: 6
+                visible: Notifs.count === 0
+                spacing: 4
+                Glyph { Layout.fillWidth: true; text: "󰂜"; size: 26; color: Theme.dim }
+                Label { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: "All caught up"; color: Theme.muted }
+            }
         }
     }
 }
@@ -1844,11 +1884,17 @@ Singleton {
     readonly property var wifiNetwork: wifiDevice?.networks.values.find(n => n.connected) ?? null
     readonly property bool wired: wiredDevice?.connected ?? false
     readonly property string networkName: wifiNetwork ? wifiNetwork.name : wired ? "Wired" : "Offline"
+    // Signal strength as 0–1, whichever scale the backend reports.
+    function strength(network) {
+        return network.signalStrength > 1 ? network.signalStrength / 100 : network.signalStrength;
+    }
+    function signalGlyph(network) {
+        const s = strength(network);
+        return s > 0.75 ? "󰤨" : s > 0.5 ? "󰤥" : s > 0.25 ? "󰤢" : "󰤟";
+    }
     readonly property string networkGlyph: {
-        if (wifiNetwork) {
-            const s = wifiNetwork.signalStrength > 1 ? wifiNetwork.signalStrength / 100 : wifiNetwork.signalStrength;
-            return s > 0.75 ? "󰤨" : s > 0.5 ? "󰤥" : s > 0.25 ? "󰤢" : "󰤟";
-        }
+        if (wifiNetwork)
+            return signalGlyph(wifiNetwork);
         return wired ? "󰈀" : Networking.wifiEnabled ? "󰤯" : "󰤭";
     }
 
@@ -2285,7 +2331,9 @@ PanelWindow {
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
     implicitWidth: sheetWidth
-    implicitHeight: sheet.implicitHeight + 20
+    // A fixed-height surface; only the sheet takes input, so it can grow and shrink smoothly.
+    implicitHeight: (screen?.height ?? 1080) - margins.top - Theme.edge
+    mask: Region { item: sheet }
     margins.top: Theme.barHeight + 10 + Theme.gap
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "nocturne-panel"
@@ -2302,6 +2350,8 @@ PanelWindow {
         width: parent.width
         // Content sits at x/y = 18; keep the same padding below it.
         implicitHeight: childrenRect.y + childrenRect.height + 18
+        height: implicitHeight
+        clip: true
         radius: Theme.radiusLarge
         color: Theme.glassStrong
         border.color: Theme.line
@@ -2311,6 +2361,7 @@ PanelWindow {
         Keys.onEscapePressed: panel.dismissed()
         Behavior on opacity { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
         Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
+        Behavior on height { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
     }
 }
 ```
@@ -2796,6 +2847,7 @@ Singleton {
     id: root
 
     property bool controlOpen: false
+    property string controlPage: "main" // main, wifi or bluetooth
     property bool calendarOpen: false
     property bool sessionOpen: false
     property bool caffeine: false
@@ -2821,7 +2873,14 @@ Singleton {
     function toggleControl() {
         const reopen = !controlOpen && Date.now() - closedAt > 250;
         close();
+        if (reopen)
+            controlPage = "main";
         controlOpen = reopen;
+    }
+    function openControl(page) {
+        close();
+        controlPage = page;
+        controlOpen = true;
     }
     function toggleCalendar() {
         const reopen = !calendarOpen && Date.now() - closedAt > 250;
@@ -2850,6 +2909,671 @@ Singleton {
         Quickshell.execDetached(["bash", "-c", command]);
     }
     readonly property string bin: Quickshell.env("HOME") + "/.local/bin/"
+}
+```
+
+## `config/quickshell/nocturne/BluetoothPage.qml`
+
+```qml
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import Quickshell.Bluetooth
+
+// Bluetooth devices: discover, pair, connect, disconnect and forget.
+ColumnLayout {
+    id: root
+
+    property bool active: false
+    readonly property var adapter: Devices.adapter
+    readonly property bool powered: adapter?.enabled ?? false
+    readonly property var all: Bluetooth.devices.values
+    readonly property var paired: all.filter(d => d.paired || d.bonded)
+        .sort((a, b) => (b.connected - a.connected) || a.name.localeCompare(b.name))
+    // Unnamed devices only advertise their address; leave them out.
+    readonly property var available: all.filter(d => !d.paired && !d.bonded && d.deviceName && !/^([0-9A-F]{2}[:-]){5}[0-9A-F]{2}$/i.test(d.name))
+        .sort((a, b) => a.name.localeCompare(b.name))
+    property string expanded: ""
+    property string pairingAddress: ""
+
+    spacing: 12
+
+    // Discover only while the page is on screen.
+    function updateDiscovery() {
+        if (adapter && adapter.enabled && adapter.discovering !== active)
+            adapter.discovering = active;
+    }
+    onActiveChanged: { updateDiscovery(); if (!active) expanded = ""; }
+    onPoweredChanged: updateDiscovery()
+
+    function glyphFor(device) {
+        const icon = device.icon ?? "";
+        if (icon.includes("headset") || icon.includes("headphone"))
+            return "󰋋";
+        if (icon.includes("audio") || icon.includes("speaker"))
+            return "󰓃";
+        if (icon.includes("mouse"))
+            return "󰍽";
+        if (icon.includes("keyboard"))
+            return "󰌌";
+        if (icon.includes("gaming") || icon.includes("joystick"))
+            return "󰊴";
+        if (icon.includes("phone"))
+            return "󰏲";
+        if (icon.includes("computer"))
+            return "󰌢";
+        return "󰂯";
+    }
+    function statusFor(device) {
+        if (device.state === BluetoothDeviceState.Connecting)
+            return "Connecting…";
+        if (device.state === BluetoothDeviceState.Disconnecting)
+            return "Disconnecting…";
+        if (device.connected)
+            return device.batteryAvailable ? `Connected · ${Math.round(device.battery > 1 ? device.battery : device.battery * 100)}% battery` : "Connected";
+        return "Not connected";
+    }
+
+    PageHeader {
+        Layout.fillWidth: true
+        title: "Bluetooth"
+        status: !root.adapter ? "No adapter" : !root.powered ? "Off" : root.adapter.discovering ? "On · searching for devices" : "On"
+        showSwitch: !!root.adapter
+        checked: root.powered
+        onBack: Ui.controlPage = "main"
+        onToggled: root.adapter.enabled = !root.adapter.enabled
+    }
+
+    component SectionTitle: Label {
+        Layout.fillWidth: true
+        Layout.topMargin: 2
+        font.pixelSize: 11
+        font.letterSpacing: 1.2
+        font.capitalization: Font.AllUppercase
+        color: Theme.muted
+    }
+
+    Flickable {
+        id: scroller
+        Layout.fillWidth: true
+        Layout.preferredHeight: Math.min(contentHeight, 400)
+        visible: root.powered
+        contentHeight: sections.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: ScrollBar { policy: scroller.contentHeight > scroller.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
+
+        ColumnLayout {
+            id: sections
+            width: scroller.width
+            spacing: 4
+
+            SectionTitle { visible: root.paired.length > 0; text: "My devices" }
+            Repeater {
+                model: root.paired
+                delegate: ListRow {
+                    id: row
+                    required property var modelData
+                    readonly property var dev: modelData
+                    readonly property bool changing: dev.state === BluetoothDeviceState.Connecting || dev.state === BluetoothDeviceState.Disconnecting
+                    Layout.fillWidth: true
+                    glyph: root.glyphFor(dev)
+                    title: dev.name
+                    subtitle: root.statusFor(dev)
+                    highlighted: dev.connected
+                    busy: changing
+                    expanded: root.expanded === dev.address
+                    onClicked: {
+                        const open = root.expanded === dev.address;
+                        root.expanded = open ? "" : dev.address;
+                        // One click connects; the row stays open for Disconnect and Forget.
+                        if (!open && !dev.connected && !changing)
+                            dev.connect();
+                    }
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        PillButton {
+                            text: row.dev.connected ? "Disconnect" : "Connect"
+                            primary: !row.dev.connected
+                            available: !row.changing
+                            onClicked: row.dev.connected ? row.dev.disconnect() : row.dev.connect()
+                        }
+                        PillButton {
+                            text: "Forget"
+                            danger: true
+                            onClicked: { root.expanded = ""; row.dev.forget(); }
+                        }
+                    }
+                }
+            }
+
+            SectionTitle {
+                Layout.topMargin: root.paired.length ? 10 : 2
+                text: root.available.length ? "Available devices" : "Searching for devices…"
+            }
+            Repeater {
+                model: root.available
+                delegate: ListRow {
+                    id: candidate
+                    required property var modelData
+                    readonly property var dev: modelData
+                    Layout.fillWidth: true
+                    glyph: root.glyphFor(dev)
+                    title: dev.name
+                    subtitle: dev.pairing ? "Pairing…" : "Click to pair"
+                    busy: dev.pairing
+                    onClicked: {
+                        if (dev.pairing)
+                            return;
+                        root.pairingAddress = dev.address;
+                        dev.pair();
+                    }
+                    // Trust and connect as soon as pairing completes.
+                    Connections {
+                        target: candidate.dev
+                        function onPairedChanged() {
+                            if (candidate.dev.paired && root.pairingAddress === candidate.dev.address) {
+                                root.pairingAddress = "";
+                                candidate.dev.trusted = true;
+                                candidate.dev.connect();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    ColumnLayout {
+        Layout.fillWidth: true
+        Layout.topMargin: 6
+        Layout.bottomMargin: 6
+        visible: !root.powered
+        spacing: 4
+        Glyph { Layout.fillWidth: true; text: "󰂲"; size: 28; color: Theme.dim }
+        Label {
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
+            text: !root.adapter ? "This computer has no Bluetooth adapter" : "Bluetooth is off"
+            color: Theme.muted
+        }
+    }
+
+    Label {
+        Layout.alignment: Qt.AlignRight
+        visible: !!root.adapter
+        text: "Advanced Bluetooth settings"
+        font.pixelSize: 11
+        color: advancedArea.containsMouse ? Theme.violetBright : Theme.muted
+        MouseArea {
+            id: advancedArea
+            anchors.fill: parent
+            anchors.margins: -4
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: { Ui.close(); Ui.run("blueman-manager"); }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/ListRow.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+
+// A device or network row; `expanded` reveals the extra content below it.
+Rectangle {
+    id: root
+
+    property string glyph
+    property string title
+    property string subtitle
+    property string trailing: "" // glyph on the right, e.g. a lock
+    property bool highlighted: false
+    property bool busy: false
+    property bool expanded: false
+    property bool danger: false
+    default property alias extra: extraColumn.data
+    signal clicked()
+
+    implicitHeight: column.implicitHeight + 16
+    radius: Theme.radiusSmall
+    color: highlighted ? Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.16) : area.containsMouse || expanded ? Theme.raised : "transparent"
+    border.color: highlighted ? Theme.lineStrong : expanded ? Theme.line : "transparent"
+    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on implicitHeight { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
+    clip: true
+
+    MouseArea {
+        id: area
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.clicked()
+    }
+
+    ColumnLayout {
+        id: column
+        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 8; leftMargin: 10; rightMargin: 10 }
+        spacing: 8
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 11
+            Glyph {
+                Layout.preferredWidth: 22
+                text: root.glyph
+                size: 17
+                color: root.highlighted ? Theme.violetBright : Theme.textSoft
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 0
+                Label { Layout.fillWidth: true; text: root.title; font.weight: root.highlighted ? Font.DemiBold : Font.Normal }
+                Label {
+                    Layout.fillWidth: true
+                    visible: text !== ""
+                    text: root.subtitle
+                    font.pixelSize: 11
+                    color: root.danger ? Theme.rose : root.highlighted ? Theme.violet : Theme.muted
+                }
+            }
+            Glyph {
+                visible: root.busy
+                text: "󰔟"
+                size: 14
+                color: Theme.violet
+                RotationAnimation on rotation { running: root.busy; from: 0; to: 360; duration: 1200; loops: Animation.Infinite }
+            }
+            Glyph {
+                visible: root.trailing !== "" && !root.busy
+                text: root.trailing
+                size: 13
+                color: Theme.dim
+            }
+        }
+
+        ColumnLayout {
+            id: extraColumn
+            Layout.fillWidth: true
+            Layout.leftMargin: 33
+            visible: root.expanded
+            spacing: 8
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/PageHeader.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+
+// Back arrow, title, optional status text and an on/off switch.
+RowLayout {
+    id: root
+
+    property string title
+    property string status
+    property bool checked: false
+    property bool showSwitch: true
+    signal back()
+    signal toggled()
+
+    spacing: 10
+
+    Rectangle {
+        implicitWidth: 34
+        implicitHeight: 34
+        radius: 17
+        color: backArea.containsMouse ? Theme.hover : Theme.raised
+        border.color: Theme.line
+        Glyph { anchors.centerIn: parent; text: "󰁍"; size: 15; color: Theme.textSoft }
+        MouseArea {
+            id: backArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.back()
+        }
+    }
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: 0
+        // fillWidth on the labels lets the column (and so the row) stretch to the switch.
+        Label { Layout.fillWidth: true; text: root.title; font.pixelSize: 15; font.weight: Font.DemiBold }
+        Label { Layout.fillWidth: true; visible: text !== ""; text: root.status; font.pixelSize: 11; color: Theme.muted }
+    }
+    Switch {
+        visible: root.showSwitch
+        checked: root.checked
+        onToggled: root.toggled()
+    }
+}
+```
+
+## `config/quickshell/nocturne/PillButton.qml`
+
+```qml
+import QtQuick
+
+// Small text button used inside expanded rows.
+Rectangle {
+    id: root
+
+    property string text
+    property bool primary: false
+    property bool danger: false
+    property bool available: true
+    signal clicked()
+
+    implicitWidth: label.implicitWidth + 26
+    implicitHeight: 30
+    radius: 15
+    opacity: available ? 1 : 0.45
+    color: primary ? (area.containsMouse ? Theme.violetBright : Theme.violet) : area.containsMouse ? Theme.hover : Theme.raised
+    border.color: danger ? Qt.rgba(239 / 255, 143 / 255, 164 / 255, 0.5) : primary ? Theme.violetBright : Theme.line
+    Behavior on color { ColorAnimation { duration: Theme.fast } }
+
+    Label {
+        id: label
+        anchors.centerIn: parent
+        text: root.text
+        font.pixelSize: 11
+        font.weight: Font.DemiBold
+        color: root.primary ? Theme.violetInk : root.danger ? Theme.rose : Theme.text
+    }
+    MouseArea {
+        id: area
+        anchors.fill: parent
+        hoverEnabled: true
+        enabled: root.available
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.clicked()
+    }
+}
+```
+
+## `config/quickshell/nocturne/Switch.qml`
+
+```qml
+import QtQuick
+
+// Pill switch.
+Rectangle {
+    id: root
+
+    property bool checked: false
+    signal toggled()
+
+    implicitWidth: 44
+    implicitHeight: 24
+    radius: 12
+    color: checked ? Theme.violet : Theme.raised
+    border.color: checked ? Theme.violetBright : Theme.lineStrong
+    Behavior on color { ColorAnimation { duration: Theme.fast } }
+
+    Rectangle {
+        width: 18
+        height: 18
+        radius: 9
+        y: 3
+        x: root.checked ? root.width - width - 3 : 3
+        color: root.checked ? Theme.violetInk : Theme.textSoft
+        Behavior on x { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.toggled()
+    }
+}
+```
+
+## `config/quickshell/nocturne/WifiPage.qml`
+
+```qml
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import Quickshell.Networking
+
+// Wi-Fi networks: scan, connect (with a password when needed), disconnect and forget.
+ColumnLayout {
+    id: root
+
+    property bool active: false
+    readonly property var device: Devices.wifiDevice
+    readonly property var networks: (device?.networks.values ?? [])
+        .filter(n => n.name)
+        .sort((a, b) => (b.connected - a.connected) || (b.known - a.known) || (Devices.strength(b) - Devices.strength(a)))
+    property string expanded: ""
+    property var failures: ({}) // network name → message
+
+    spacing: 12
+
+    // Scan only while the page is on screen.
+    function updateScanner() {
+        if (device)
+            device.scannerEnabled = active && Networking.wifiEnabled;
+    }
+    onActiveChanged: { updateScanner(); if (!active) expanded = ""; }
+    onDeviceChanged: updateScanner()
+    Connections {
+        target: Networking
+        function onWifiEnabledChanged() { root.updateScanner(); }
+    }
+
+    function fail(name, message) {
+        failures = Object.assign({}, failures, { [name]: message });
+    }
+    function clearFailure(name) {
+        const next = Object.assign({}, failures);
+        delete next[name];
+        failures = next;
+    }
+
+    PageHeader {
+        Layout.fillWidth: true
+        title: "Wi-Fi"
+        status: !root.device ? "No Wi-Fi adapter" : !Networking.wifiEnabled ? "Off" : Devices.wifiNetwork ? `Connected to ${Devices.wifiNetwork.name}` : "Not connected"
+        showSwitch: !!root.device
+        checked: Networking.wifiEnabled
+        onBack: Ui.controlPage = "main"
+        onToggled: Networking.wifiEnabled = !Networking.wifiEnabled
+    }
+
+    // Wired connection, while a cable is plugged in.
+    ListRow {
+        Layout.fillWidth: true
+        visible: Devices.wired
+        glyph: "󰈀"
+        title: "Ethernet"
+        subtitle: "Connected"
+        highlighted: true
+    }
+
+    Label {
+        Layout.fillWidth: true
+        Layout.topMargin: 2
+        visible: !!root.device && Networking.wifiEnabled
+        text: root.networks.length ? "Networks" : "Searching for networks…"
+        font.pixelSize: 11
+        font.letterSpacing: 1.2
+        font.capitalization: Font.AllUppercase
+        color: Theme.muted
+    }
+
+    ListView {
+        id: list
+        Layout.fillWidth: true
+        Layout.preferredHeight: Math.min(contentHeight, 380)
+        visible: !!root.device && Networking.wifiEnabled
+        clip: true
+        spacing: 4
+        boundsBehavior: Flickable.StopAtBounds
+        model: root.networks
+        ScrollBar.vertical: ScrollBar { policy: list.contentHeight > list.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
+
+        delegate: ListRow {
+            id: row
+            required property var modelData
+            readonly property var net: modelData
+            readonly property bool secured: net.security !== WifiSecurityType.Open
+            readonly property bool connecting: net.stateChanging || net.state === ConnectionState.Connecting
+            readonly property string failure: root.failures[net.name] ?? ""
+
+            width: ListView.view.width
+            glyph: Devices.signalGlyph(net)
+            title: net.name
+            subtitle: failure !== "" ? failure : net.connected ? "Connected" : connecting ? "Connecting…" : net.known ? "Saved" : secured ? "Secured" : "Open"
+            danger: failure !== ""
+            trailing: secured ? "󰌾" : ""
+            highlighted: net.connected
+            busy: connecting
+            expanded: root.expanded === net.name
+
+            function connect() {
+                root.clearFailure(net.name);
+                if (net.known || !secured)
+                    net.connect();
+                else if (password.text !== "")
+                    net.connectWithPsk(password.text);
+            }
+
+            onClicked: {
+                const open = root.expanded === net.name;
+                root.expanded = open ? "" : net.name;
+                // Saved and open networks connect straight away; the row stays open for Forget.
+                if (!open && !net.connected && (net.known || !secured))
+                    connect();
+                if (!open && !net.known && secured)
+                    password.forceActiveFocus();
+            }
+
+            Connections {
+                target: row.net
+                function onConnectionFailed(reason) {
+                    const wrongKey = reason === ConnectionFailReason.NoSecrets || reason === ConnectionFailReason.WifiAuthTimeout || reason === ConnectionFailReason.WifiClientFailed;
+                    root.fail(row.net.name, wrongKey ? "Wrong password, or the network refused the connection" : "Couldn't connect");
+                    root.expanded = row.net.name;
+                }
+                function onConnectedChanged() {
+                    if (row.net.connected) {
+                        root.clearFailure(row.net.name);
+                        password.text = "";
+                    }
+                }
+            }
+
+            // Password entry for new secured networks.
+            RowLayout {
+                Layout.fillWidth: true
+                visible: !row.net.known && row.secured
+                spacing: 8
+                TextField {
+                    id: password
+                    Layout.fillWidth: true
+                    placeholderText: "Password"
+                    echoMode: reveal.checked ? TextInput.Normal : TextInput.Password
+                    color: Theme.text
+                    placeholderTextColor: Theme.dim
+                    selectionColor: Theme.violet
+                    selectedTextColor: Theme.violetInk
+                    font.family: Theme.sans
+                    font.pixelSize: 12
+                    leftPadding: 12
+                    rightPadding: 34
+                    background: Rectangle {
+                        implicitHeight: 32
+                        radius: 10
+                        color: Theme.glassStrong
+                        border.color: password.activeFocus ? Theme.violet : Theme.lineStrong
+                    }
+                    onAccepted: row.connect()
+                    Glyph {
+                        id: reveal
+                        property bool checked: false
+                        anchors { right: parent.right; rightMargin: 10; verticalCenter: parent.verticalCenter }
+                        text: checked ? "󰈈" : "󰈉"
+                        size: 14
+                        color: Theme.muted
+                        MouseArea {
+                            anchors.fill: parent
+                            anchors.margins: -4
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: reveal.checked = !reveal.checked
+                        }
+                    }
+                }
+                PillButton {
+                    text: "Connect"
+                    primary: true
+                    available: password.text !== "" && !row.connecting
+                    onClicked: row.connect()
+                }
+            }
+
+            Flow {
+                Layout.fillWidth: true
+                visible: row.net.known || row.net.connected || !row.secured
+                spacing: 6
+                PillButton {
+                    visible: !row.net.connected
+                    text: row.connecting ? "Connecting…" : "Connect"
+                    primary: true
+                    available: !row.connecting
+                    onClicked: row.connect()
+                }
+                PillButton {
+                    visible: row.net.connected
+                    text: "Disconnect"
+                    onClicked: row.net.disconnect()
+                }
+                PillButton {
+                    visible: row.net.known
+                    text: "Forget"
+                    danger: true
+                    onClicked: { row.net.forget(); root.expanded = ""; }
+                }
+            }
+        }
+    }
+
+    ColumnLayout {
+        Layout.fillWidth: true
+        Layout.topMargin: 6
+        Layout.bottomMargin: 6
+        visible: !root.device || !Networking.wifiEnabled
+        spacing: 4
+        Glyph { Layout.fillWidth: true; text: "󰤭"; size: 28; color: Theme.dim }
+        Label {
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
+            text: !root.device ? "This computer has no Wi-Fi adapter" : "Wi-Fi is off"
+            color: Theme.muted
+        }
+    }
+
+    Label {
+        Layout.alignment: Qt.AlignRight
+        text: "Advanced network settings"
+        font.pixelSize: 11
+        color: advancedArea.containsMouse ? Theme.violetBright : Theme.muted
+        MouseArea {
+            id: advancedArea
+            anchors.fill: parent
+            anchors.margins: -4
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: { Ui.close(); Ui.run("nm-connection-editor"); }
+        }
+    }
 }
 ```
 

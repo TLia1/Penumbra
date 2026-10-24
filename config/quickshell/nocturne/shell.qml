@@ -28,6 +28,8 @@ ShellRoot {
     IpcHandler {
         target: "panel"
         function control(): void { Ui.toggleControl(); }
+        function wifi(): void { Ui.openControl("wifi"); }
+        function bluetooth(): void { Ui.openControl("bluetooth"); }
         function calendar(): void { Ui.toggleCalendar(); }
         function session(): void { Ui.openSession(); }
         function close(): void { Ui.close(); Ui.sessionOpen = false; }

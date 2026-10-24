@@ -8,6 +8,7 @@ Singleton {
     id: root
 
     property bool controlOpen: false
+    property string controlPage: "main" // main, wifi or bluetooth
     property bool calendarOpen: false
     property bool sessionOpen: false
     property bool caffeine: false
@@ -33,7 +34,14 @@ Singleton {
     function toggleControl() {
         const reopen = !controlOpen && Date.now() - closedAt > 250;
         close();
+        if (reopen)
+            controlPage = "main";
         controlOpen = reopen;
+    }
+    function openControl(page) {
+        close();
+        controlPage = page;
+        controlOpen = true;
     }
     function toggleCalendar() {
         const reopen = !calendarOpen && Date.now() - closedAt > 250;
