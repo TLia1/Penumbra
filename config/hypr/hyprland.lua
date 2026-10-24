@@ -21,7 +21,8 @@ hl.config({
  dwindle = {preserve_split = true},
  input = {kb_layout = "@@KB_LAYOUT@@", kb_variant = "@@KB_VARIANT@@", kb_options = "@@KB_OPTIONS@@", numlock_by_default = @@NUMLOCK@@,
   follow_mouse = 1, sensitivity = 0, touchpad = {natural_scroll = true}},
- misc = {disable_hyprland_logo = true, disable_splash_rendering = true, force_default_wallpaper = 0},
+ -- A fresh lock screen (hyprlock from a TTY) can take over if the shell's ever dies while locked.
+ misc = {disable_hyprland_logo = true, disable_splash_rendering = true, force_default_wallpaper = 0, allow_session_lock_restore = true},
 })
 hl.curve("nocturne", {type = "bezier", points = {{0.16, 1}, {0.3, 1}}})
 hl.curve("soft", {type = "bezier", points = {{0.4, 0}, {0.2, 1}}})
@@ -37,8 +38,8 @@ local function exec(key, cmd) hl.bind(key, hl.dsp.exec_cmd(cmd)) end
 exec("SUPER + Return", "kitty")
 exec("SUPER + Q", "kitty")
 exec("SUPER + E", "dolphin")
-exec("SUPER + R", "rofi -show drun")
-exec("SUPER + space", "rofi -show drun")
+exec("SUPER + R", "~/.local/bin/nocturne-launcher")
+exec("SUPER + space", "~/.local/bin/nocturne-launcher")
 exec("SUPER + B", "firefox")
 exec("SUPER + M", "~/.local/bin/nocturne-power")
 exec("SUPER + L", "loginctl lock-session")
@@ -47,9 +48,15 @@ exec("SUPER + A", "quickshell -c nocturne ipc call panel control")
 exec("SUPER + SHIFT + V", "~/.local/bin/nocturne-clipboard")
 exec("SUPER + SHIFT + C", "~/.local/bin/nocturne-picker")
 exec("SUPER + W", "~/.local/bin/nocturne-wallpaper next")
+exec("SUPER + SHIFT + W", "quickshell -c nocturne ipc call panel wallpapers")
 exec("SUPER + SHIFT + R", "~/.local/bin/nocturne-session restart")
 exec("Print", "~/.local/bin/nocturne-shot")
 exec("SHIFT + Print", "~/.local/bin/nocturne-shot annotate")
+-- The shell answers these directly (Quickshell global shortcuts), with no process per key press.
+hl.bind("ALT + Tab", hl.dsp.global("nocturne:switcher-next"))
+hl.bind("ALT + SHIFT + Tab", hl.dsp.global("nocturne:switcher-previous"))
+hl.bind("ALT + Alt_L", hl.dsp.global("nocturne:switcher-commit"), {release=true, non_consuming=true})
+hl.bind("SUPER + Tab", hl.dsp.global("nocturne:overview"))
 hl.bind("SUPER + C", hl.dsp.window.close())
 hl.bind("SUPER + V", hl.dsp.window.float({action="toggle"}))
 hl.bind("SUPER + F", hl.dsp.window.fullscreen())
@@ -76,5 +83,7 @@ hl.window_rule({name="settings", match={class="^(org.pulseaudio.pavucontrol|pavu
 hl.window_rule({name="annotate", match={class="^(com.gabm.satty)$"}, float=true, center=true})
 -- Frosted glass behind every Nocturne shell surface and the launcher.
 hl.layer_rule({name="glass", match={namespace="^(nocturne-.*|rofi)$"}, blur=true, ignore_alpha=0.3})
+-- The screenshot overlay must be gone at once, before grim reads the screen.
+hl.layer_rule({name="shot", match={namespace="^nocturne-shot$"}, no_anim=true})
 hl.window_rule({name="suppress-maximize", match={class=".*"}, suppress_event="maximize"})
 hl.on("hyprland.start", function() hl.exec_cmd("~/.local/bin/nocturne-session") end)

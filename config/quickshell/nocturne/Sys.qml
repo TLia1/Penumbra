@@ -14,6 +14,8 @@ Singleton {
     property int brightness: -1 // -1 when the machine has no backlight
     property int updates: 0
     property string updatesDetail: ""
+    property var updateSources: [] // [{ name, packages: ["name old -> new" or a Flatpak ref] }]
+    property bool checkingUpdates: updateCheck.running
 
     property var lastCpu: null
 
@@ -88,8 +90,10 @@ Singleton {
                     const status = JSON.parse(text);
                     root.updates = parseInt(status.text.replace(/\D/g, "")) || 0;
                     root.updatesDetail = status.tooltip.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+                    root.updateSources = status.sources ?? [];
                 } catch (e) {
                     root.updates = 0;
+                    root.updateSources = [];
                 }
             }
         }

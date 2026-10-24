@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Switch Nocturne wallpapers with an awww transition; the lock screen follows the choice.
+# Switch Nocturne wallpapers (the next one, or one by name) with an awww transition;
+# the lock screen follows the choice.
 set -euo pipefail
 dir="$HOME/.local/share/nocturne"
 state="$HOME/.local/state/nocturne/wallpaper"
@@ -10,16 +11,19 @@ transition=(--transition-type grow --transition-duration 1.4 --transition-fps 12
 case "${1:-next}" in
  next)
   for i in "${!names[@]}"; do [[ ${names[i]} = "$current" ]] && break; done
-  current=${names[(i + 1) % ${#names[@]}]}
-  # Grow each scene out of its planet, or the eclipse.
-  case $current in
-   wallpaper-dawn) transition+=(--transition-pos 0.32,0.37);;
-   wallpaper-eclipse) transition+=(--transition-pos 0.65,0.63);;
-   *) transition+=(--transition-pos 0.68,0.51);;
-  esac;;
+  current=${names[(i + 1) % ${#names[@]}]};;
+ wallpaper|wallpaper-dawn|wallpaper-eclipse) current=$1;;
  restore) transition=(--transition-type none);;
- *) echo "Usage: nocturne-wallpaper [next|restore]" >&2; exit 2;;
+ *) echo "Usage: nocturne-wallpaper [next|restore|wallpaper|wallpaper-dawn|wallpaper-eclipse]" >&2; exit 2;;
 esac
+# Grow each scene out of its planet, or the eclipse.
+if [[ ${1:-next} != restore ]]; then
+ case $current in
+  wallpaper-dawn) transition+=(--transition-pos 0.32,0.37);;
+  wallpaper-eclipse) transition+=(--transition-pos 0.65,0.63);;
+  *) transition+=(--transition-pos 0.68,0.51);;
+ esac
+fi
 mkdir -p "${state%/*}"
 printf '%s\n' "$current" > "$state"
 ln -sfn "$dir/$current-clean.png" "$dir/lock.png"

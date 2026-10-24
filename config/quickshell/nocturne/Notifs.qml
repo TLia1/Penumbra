@@ -12,11 +12,27 @@ Singleton {
     // Newest first.
     readonly property var history: server.trackedNotifications.values.slice().reverse()
     readonly property int count: history.length
+    // History by app, newest first: [{ app, items }].
+    readonly property var groups: {
+        const groups = [];
+        for (const n of history) {
+            const app = n.appName || "Notification";
+            let group = groups.find(g => g.app === app);
+            if (!group)
+                groups.push(group = { app, items: [] });
+            group.items.push(n);
+        }
+        return groups;
+    }
 
     function clear() {
         for (const n of server.trackedNotifications.values.slice())
             n.dismiss();
         popups = [];
+    }
+    function clearApp(app) {
+        for (const n of history.filter(n => (n.appName || "Notification") === app))
+            n.dismiss();
     }
     function hidePopup(n) {
         popups = popups.filter(p => p !== n);
@@ -35,6 +51,7 @@ Singleton {
         bodyMarkupSupported: true
         bodyHyperlinksSupported: true
         imageSupported: true
+        inlineReplySupported: true
         persistenceSupported: true
 
         onNotification: n => {

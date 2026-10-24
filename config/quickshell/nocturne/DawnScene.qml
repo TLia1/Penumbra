@@ -17,7 +17,7 @@ WallpaperScene {
     readonly property real ringY: 172
     readonly property real ringTilt: 16 * Math.PI / 180
 
-    SceneLayer { scene: root; name: "sky"; z: 0 }
+    SceneLayer { scene: root; name: root.clean ? "sky-clean" : "sky"; z: 0 }
     // Rendered brighter than the still image, so it can swell and ebb around it.
     SceneLayer {
         scene: root

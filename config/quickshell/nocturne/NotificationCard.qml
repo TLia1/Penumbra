@@ -12,15 +12,20 @@ Rectangle {
     property bool compact: false
     readonly property bool critical: notification?.urgency === NotificationUrgency.Critical
     readonly property var actions: (notification?.actions ?? []).filter(a => a.identifier !== "default")
-    readonly property string iconSource: {
-        const n = notification;
-        if (!n)
+    // Big images (screenshots, photos) show under the text; small ones (avatars) are the icon.
+    readonly property bool largeImage: probe.status === Image.Ready && probe.implicitWidth >= 240
+    readonly property string appIconSource: {
+        const icon = notification?.appIcon ?? "";
+        if (!icon)
             return "";
-        if (n.image)
-            return n.image;
-        if (n.appIcon)
-            return n.appIcon.startsWith("/") || n.appIcon.includes("://") ? n.appIcon : Quickshell.iconPath(n.appIcon, true);
-        return "";
+        return icon.startsWith("/") || icon.includes("://") ? icon : Quickshell.iconPath(icon, true);
+    }
+    readonly property string iconSource: notification?.image && !largeImage ? notification.image : appIconSource
+    Image {
+        id: probe
+        visible: false
+        source: root.notification?.image ?? ""
+        asynchronous: true
     }
 
     implicitHeight: layout.implicitHeight + 28
@@ -121,6 +126,70 @@ Rectangle {
                 linkColor: Theme.violetBright
                 onLinkActivated: link => Qt.openUrlExternally(link)
             }
+            ClippingRectangle {
+                Layout.fillWidth: true
+                Layout.topMargin: 6
+                Layout.preferredHeight: Math.min(root.compact ? 120 : 180, width * probe.implicitHeight / Math.max(1, probe.implicitWidth))
+                visible: root.largeImage
+                radius: 10
+                color: Theme.raised
+                Image {
+                    anchors.fill: parent
+                    source: root.largeImage ? root.notification.image : ""
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                }
+            }
+
+            // Inline reply, for chat apps that offer it.
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.topMargin: 6
+                visible: root.notification?.hasInlineReply ?? false
+                implicitHeight: 34
+                radius: 17
+                color: Theme.raised
+                border.color: reply.activeFocus ? Theme.violet : Theme.line
+                TextInput {
+                    id: reply
+                    anchors { fill: parent; leftMargin: 14; rightMargin: 40 }
+                    verticalAlignment: TextInput.AlignVCenter
+                    color: Theme.text
+                    font.family: Theme.sans
+                    font.pixelSize: 12
+                    selectionColor: Theme.violetDeep
+                    clip: true
+                    function send() {
+                        if (!text.trim())
+                            return;
+                        root.notification.sendInlineReply(text);
+                        root.notification.dismiss();
+                    }
+                    Keys.onReturnPressed: send()
+                    Keys.onEnterPressed: send()
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: !reply.text
+                        text: root.notification?.inlineReplyPlaceholder || "Reply…"
+                        font.pixelSize: 12
+                        color: Theme.dim
+                    }
+                }
+                Rectangle {
+                    anchors { right: parent.right; rightMargin: 3; verticalCenter: parent.verticalCenter }
+                    width: 28
+                    height: 28
+                    radius: 14
+                    color: reply.text ? Theme.violet : "transparent"
+                    Glyph { anchors.centerIn: parent; text: "󰒊"; size: 13; color: reply.text ? Theme.violetInk : Theme.dim }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: reply.send()
+                    }
+                }
+            }
+
             Flow {
                 Layout.fillWidth: true
                 Layout.topMargin: 6

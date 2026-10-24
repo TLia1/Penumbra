@@ -18,7 +18,7 @@ WallpaperScene {
     readonly property point world: Qt.point(380, 2950)
     readonly property real worldRadius: 1680
 
-    SceneLayer { scene: root; name: "sky"; z: 0 }
+    SceneLayer { scene: root; name: root.clean ? "sky-clean" : "sky"; z: 0 }
     // Zoomed a touch so its cropped edges never come into view as it turns.
     SceneLayer {
         scene: root

@@ -59,7 +59,11 @@ for name, folder in (('wallpaper-dawn', 'dawn'), ('wallpaper-eclipse', 'eclipse'
     out = root / 'config/quickshell/nocturne' / folder
     out.mkdir(exist_ok=True)
     names = [child.get('id')[6:] for child in scene if (child.get('id') or '').startswith('layer-')]
-    layers = [render(scene, out, None, 'sky')] + [render(scene, out, layer, layer) for layer in names if layer != 'stars']
+    # The lock screen animates the scene too, over a backdrop without the wordmark.
+    clean = copy.deepcopy(scene)
+    clean.remove(clean.find(f"{{{ns}}}g[@id='wordmark']"))
+    layers = [render(scene, out, None, 'sky'), render(clean, out, None, 'sky-clean')]
+    layers += [render(scene, out, layer, layer) for layer in names if layer != 'stars']
     stars = [{'x': float(star.get('cx')), 'y': float(star.get('cy')), 'r': float(star.get('r')),
               'opacity': float(star.get('opacity')), 'glint': star.get('class') == 'glint'}
              for star in scene.find(f".//*[@id='layer-stars']")]

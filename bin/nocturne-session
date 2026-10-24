@@ -20,16 +20,15 @@ start() {
 dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP QT_QPA_PLATFORMTHEME GTK_THEME XCURSOR_THEME XCURSOR_SIZE
 hyprctl setcursor Nocturne-Cursors 28 >/dev/null
 start awww-daemon awww-daemon
-# Bar, notifications, OSD, control center and session overlay.
+# The shell is the polkit agent too; an older KDE agent would hold the registration.
+pkill -u "$UID" -f '^/usr/lib/polkit-kde-authentication-agent-1' || true
+# Bar, notifications, OSD, control center, launcher, overlays, lock screen and polkit agent.
 start quickshell quickshell -c nocturne
 start hypridle hypridle
 # Clipboard history for text and images.
 if ! pgrep -u "$UID" -f "^wl-paste --type text --watch cliphist store" >/dev/null; then
  nohup wl-paste --type text --watch cliphist store >/dev/null 2>&1 9>&- &
  nohup wl-paste --type image --watch cliphist store >/dev/null 2>&1 9>&- &
-fi
-if ! pgrep -u "$UID" -f "^/usr/lib/polkit-kde-authentication-agent-1" >/dev/null; then
- nohup /usr/lib/polkit-kde-authentication-agent-1 >"$HOME/.local/state/nocturne/polkit.log" 2>&1 9>&- &
 fi
 nohup "$HOME/.local/bin/nocturne-wallpaper" restore >"$HOME/.local/state/nocturne/wallpaper.log" 2>&1 9>&- &
 exec 9>&-

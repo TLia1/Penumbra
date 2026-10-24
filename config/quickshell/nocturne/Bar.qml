@@ -40,9 +40,10 @@ PanelWindow {
 
         Capsule {
             padding: 14
-            tip: "Applications"
-            onClicked: Ui.run("rofi -show drun")
-            Glyph { text: "󰣇"; size: 20; color: Theme.violetBright }
+            tip: "Applications · right-click for the clipboard"
+            active: Ui.launcherOpen
+            onClicked: m => Ui.toggleLauncher(m.button === Qt.RightButton ? "clipboard" : "apps")
+            Glyph { text: "󰣇"; size: 20; color: Ui.launcherOpen ? Theme.violetInk : Theme.violetBright }
         }
 
         Capsule {
@@ -60,6 +61,39 @@ PanelWindow {
                 font.pixelSize: 14
                 font.weight: Font.Bold
                 color: Ui.calendarOpen ? Theme.violetInk : "#eee8ff"
+            }
+        }
+
+        // What's playing, with cava's spectrum when it is installed.
+        Capsule {
+            visible: !!Media.player
+            padding: 14
+            spacing: 10
+            tip: Media.player ? [Media.player.trackTitle, Media.player.trackArtist].filter(t => t).join(" · ") + "\nMiddle-click to play or pause · scroll to skip" : ""
+            onClicked: m => m.button === Qt.MiddleButton ? Media.player.togglePlaying() : Ui.toggleControl()
+            onScrolled: delta => delta > 0 ? Media.player.previous() : Media.player.next()
+            Row {
+                visible: Ui.hasVisualizer && !!Media.playing
+                spacing: 2
+                Layout.preferredHeight: 18
+                Repeater {
+                    model: Media.bars
+                    delegate: Rectangle {
+                        required property real modelData
+                        anchors.bottom: parent?.bottom
+                        width: 3
+                        height: 3 + modelData * 15
+                        radius: 1.5
+                        color: Theme.violetBright
+                        Behavior on height { NumberAnimation { duration: 60 } }
+                    }
+                }
+            }
+            Glyph { visible: !Ui.hasVisualizer || !Media.playing; text: Media.playing ? "󰎆" : "󰏤"; color: Theme.violetBright }
+            Label {
+                text: Media.player?.trackTitle || Media.player?.identity || ""
+                Layout.maximumWidth: 170
+                color: "#c8b8dc"
             }
         }
     }
@@ -115,12 +149,22 @@ PanelWindow {
         spacing: Theme.gap
 
         Capsule {
+            visible: Devices.layouts.length > 1
+            padding: 14
+            tip: `${Devices.layoutName} · click to switch`
+            onClicked: Devices.nextLayout()
+            Glyph { text: "󰌌"; color: Theme.textSoft }
+            Label { text: Devices.layoutCode; font.family: Theme.mono; font.weight: Font.Bold; color: Theme.textSoft }
+        }
+
+        Capsule {
             visible: Sys.updates > 0
             padding: 12
+            active: Ui.updatesOpen
             tip: Sys.updatesDetail
-            onClicked: Ui.run(Ui.bin + "nocturne-updates open")
-            Glyph { text: "󰚰"; color: Theme.violetBright }
-            Label { text: Sys.updates; color: Theme.violetBright }
+            onClicked: Ui.toggleUpdates()
+            Glyph { text: "󰚰"; color: Ui.updatesOpen ? Theme.violetInk : Theme.violetBright }
+            Label { text: Sys.updates; color: Ui.updatesOpen ? Theme.violetInk : Theme.violetBright }
         }
 
         Capsule {

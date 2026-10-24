@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
@@ -16,6 +17,7 @@ Panel {
     onDismissed: Ui.dismiss()
 
     readonly property var player: Mpris.players.values.find(p => p.isPlaying) ?? Mpris.players.values[0] ?? null
+    property var expandedApps: []
 
     property string uptime: ""
     onOpenChanged: if (open) { uptimeFile.reload(); Sys.refreshBrightness(); }
@@ -28,7 +30,7 @@ Panel {
         }
     }
 
-    // One page at a time: the main view, or Wi-Fi / Bluetooth settings.
+    // One page at a time: the main view, or Wi-Fi, Bluetooth or sound settings.
     ColumnLayout {
         id: pages
         x: 18
@@ -55,6 +57,12 @@ Panel {
         BluetoothPage {
             Layout.fillWidth: true
             visible: Ui.controlPage === "bluetooth"
+            active: root.open && visible
+        }
+
+        MixerPage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "mixer"
             active: root.open && visible
         }
 
@@ -91,7 +99,7 @@ Panel {
                 }
                 Repeater {
                     model: [
-                        { glyph: "󰸉", tip: "Next wallpaper", run: () => Ui.run(Ui.bin + "nocturne-wallpaper next") },
+                        { glyph: "󰸉", tip: "Wallpaper", run: () => Ui.toggleWallpapers() },
                         { glyph: "󰌾", tip: "Lock", run: () => { Ui.close(); Ui.run("loginctl lock-session"); } },
                         { glyph: "󰐥", tip: "Session", run: () => Ui.openSession() }
                     ]
@@ -156,21 +164,57 @@ Panel {
                     on: Ui.caffeine
                     onToggled: Ui.caffeine = !Ui.caffeine
                 }
+                Tile {
+                    Layout.fillWidth: true
+                    glyph: "󱩌"
+                    title: "Night light"
+                    subtitle: !Ui.hasNightLight ? "Needs hyprsunset" : Ui.nightLight ? `Warm · ${Ui.nightTemperature} K` : "Off"
+                    on: Ui.nightLight
+                    available: Ui.hasNightLight
+                    onToggled: Ui.nightLight = !Ui.nightLight
+                }
+                Tile {
+                    Layout.fillWidth: true
+                    glyph: "󰹑"
+                    title: "Screenshot"
+                    subtitle: "Region, window or screen"
+                    onToggled: Ui.openShot()
+                }
             }
 
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 4
-                SliderRow {
+                RowLayout {
                     Layout.fillWidth: true
-                    glyph: Devices.volumeGlyph
-                    value: Devices.volume
-                    muted: Devices.muted
-                    onMoved: v => Devices.setVolume(v)
-                    onGlyphClicked: if (Devices.sink) Devices.sink.muted = !Devices.sink.muted
+                    spacing: 2
+                    SliderRow {
+                        Layout.fillWidth: true
+                        glyph: Devices.volumeGlyph
+                        value: Devices.volume
+                        muted: Devices.muted
+                        onMoved: v => Devices.setVolume(v)
+                        onGlyphClicked: if (Devices.sink) Devices.sink.muted = !Devices.sink.muted
+                    }
+                    // Devices and per-app volume.
+                    Rectangle {
+                        implicitWidth: 26
+                        implicitHeight: 36
+                        radius: Theme.radiusSmall
+                        color: mixerArea.containsMouse ? Theme.hover : "transparent"
+                        Glyph { anchors.centerIn: parent; text: "󰅂"; color: Theme.muted }
+                        MouseArea {
+                            id: mixerArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Ui.controlPage = "mixer"
+                        }
+                    }
                 }
                 SliderRow {
                     Layout.fillWidth: true
+                    Layout.rightMargin: 28
                     visible: !!Devices.source
                     glyph: Devices.micMuted ? "󰍭" : "󰍬"
                     value: Devices.source ? Math.round(Devices.source.volume * 100) : 0
@@ -180,6 +224,7 @@ Panel {
                 }
                 SliderRow {
                     Layout.fillWidth: true
+                    Layout.rightMargin: 28
                     visible: Sys.brightness >= 0
                     glyph: "󰃟"
                     value: Sys.brightness
@@ -187,64 +232,159 @@ Panel {
                 }
             }
 
-            // Media
-            Rectangle {
+            // Media: blurred cover art behind the track, controls and a seek bar.
+            ClippingRectangle {
+                id: media
                 Layout.fillWidth: true
                 visible: !!root.player
-                implicitHeight: 76
+                implicitHeight: mediaColumn.implicitHeight + 20
                 radius: Theme.radius
                 color: Theme.raised
                 border.color: Theme.line
-                RowLayout {
-                    anchors { fill: parent; margins: 10 }
-                    spacing: 12
-                    ClippingRectangle {
-                        implicitWidth: 56
-                        implicitHeight: 56
-                        radius: 12
-                        color: Theme.hover
-                        Image {
-                            anchors.fill: parent
-                            source: root.player?.trackArtUrl ?? ""
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
-                        }
-                        Glyph {
-                            anchors.centerIn: parent
-                            visible: !root.player?.trackArtUrl
-                            text: "󰎆"
-                            size: 22
-                            color: Theme.violetBright
-                        }
+
+                Image {
+                    id: artwork
+                    anchors.fill: parent
+                    source: root.player?.trackArtUrl ?? ""
+                    sourceSize.width: 200
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    visible: false
+                }
+                MultiEffect {
+                    anchors.fill: parent
+                    source: artwork
+                    visible: artwork.status === Image.Ready
+                    blurEnabled: true
+                    blur: 1
+                    blurMax: 48
+                    saturation: 0.2
+                    opacity: 0.45
+                }
+                Rectangle {
+                    anchors.fill: parent
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0; color: Qt.rgba(16 / 255, 13 / 255, 24 / 255, 0.55) }
+                        GradientStop { position: 1; color: Qt.rgba(16 / 255, 13 / 255, 24 / 255, 0.15) }
                     }
-                    ColumnLayout {
+                }
+
+                // MPRIS doesn't announce position changes; ask while it's on screen.
+                Timer {
+                    interval: 1000
+                    repeat: true
+                    running: root.open && !!root.player?.isPlaying
+                    onTriggered: root.player.positionChanged()
+                }
+                function time(seconds) {
+                    const s = Math.max(0, Math.floor(seconds));
+                    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+                }
+
+                ColumnLayout {
+                    id: mediaColumn
+                    anchors { left: parent.left; right: parent.right; top: parent.top; margins: 10 }
+                    spacing: 8
+                    RowLayout {
                         Layout.fillWidth: true
-                        spacing: 2
-                        Label { Layout.fillWidth: true; text: root.player?.trackTitle || root.player?.identity || ""; font.weight: Font.DemiBold }
-                        Label { Layout.fillWidth: true; text: root.player?.trackArtist || root.player?.identity || ""; font.pixelSize: 11; color: Theme.muted }
+                        spacing: 12
+                        ClippingRectangle {
+                            implicitWidth: 56
+                            implicitHeight: 56
+                            radius: 12
+                            color: Theme.hover
+                            Image {
+                                anchors.fill: parent
+                                source: root.player?.trackArtUrl ?? ""
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                            }
+                            Glyph {
+                                anchors.centerIn: parent
+                                visible: !root.player?.trackArtUrl
+                                text: "󰎆"
+                                size: 22
+                                color: Theme.violetBright
+                            }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Label { Layout.fillWidth: true; text: root.player?.trackTitle || root.player?.identity || ""; font.weight: Font.DemiBold }
+                            Label { Layout.fillWidth: true; text: root.player?.trackArtist || root.player?.identity || ""; font.pixelSize: 11; color: Theme.textSoft }
+                        }
+                        Repeater {
+                            model: [
+                                { glyph: "󰒮", run: () => root.player.previous(), ok: root.player?.canGoPrevious },
+                                { glyph: root.player?.isPlaying ? "󰏤" : "󰐊", run: () => root.player.togglePlaying(), ok: root.player?.canTogglePlaying, main: true },
+                                { glyph: "󰒭", run: () => root.player.next(), ok: root.player?.canGoNext }
+                            ]
+                            delegate: Rectangle {
+                                required property var modelData
+                                implicitWidth: modelData.main ? 38 : 30
+                                implicitHeight: implicitWidth
+                                radius: implicitWidth / 2
+                                opacity: modelData.ok ? 1 : 0.4
+                                color: modelData.main ? Theme.violet : mediaArea.containsMouse ? Theme.hover : "transparent"
+                                Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 16; color: modelData.main ? Theme.violetInk : Theme.text }
+                                MouseArea {
+                                    id: mediaArea
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    enabled: !!modelData.ok
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: modelData.run()
+                                }
+                            }
+                        }
                     }
-                    Repeater {
-                        model: [
-                            { glyph: "󰒮", run: () => root.player.previous(), ok: root.player?.canGoPrevious },
-                            { glyph: root.player?.isPlaying ? "󰏤" : "󰐊", run: () => root.player.togglePlaying(), ok: root.player?.canTogglePlaying, main: true },
-                            { glyph: "󰒭", run: () => root.player.next(), ok: root.player?.canGoNext }
-                        ]
-                        delegate: Rectangle {
-                            required property var modelData
-                            implicitWidth: modelData.main ? 38 : 30
-                            implicitHeight: implicitWidth
-                            radius: implicitWidth / 2
-                            opacity: modelData.ok ? 1 : 0.4
-                            color: modelData.main ? Theme.violet : mediaArea.containsMouse ? Theme.hover : "transparent"
-                            Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 16; color: modelData.main ? Theme.violetInk : Theme.text }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: (root.player?.lengthSupported ?? false) && root.player.length > 0
+                        spacing: 10
+                        Label {
+                            text: media.time(root.player?.position ?? 0)
+                            font.family: Theme.mono
+                            font.pixelSize: 10
+                            color: Theme.textSoft
+                        }
+                        Item {
+                            Layout.fillWidth: true
+                            implicitHeight: 14
+                            readonly property real progress: root.player?.length > 0 ? Math.min(1, root.player.position / root.player.length) : 0
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width
+                                height: seekArea.containsMouse ? 6 : 4
+                                radius: height / 2
+                                color: Qt.rgba(1, 1, 1, 0.12)
+                                Behavior on height { NumberAnimation { duration: Theme.fast } }
+                                Rectangle {
+                                    width: parent.width * parent.parent.progress
+                                    height: parent.height
+                                    radius: height / 2
+                                    color: Theme.violet
+                                }
+                            }
                             MouseArea {
-                                id: mediaArea
+                                id: seekArea
                                 anchors.fill: parent
                                 hoverEnabled: true
-                                enabled: !!modelData.ok
+                                enabled: root.player?.canSeek ?? false
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: modelData.run()
+                                function seek(x) {
+                                    root.player.position = Math.max(0, Math.min(1, x / width)) * root.player.length;
+                                }
+                                onPressed: m => seek(m.x)
+                                onPositionChanged: m => { if (pressed) seek(m.x); }
                             }
+                        }
+                        Label {
+                            text: media.time(root.player?.length ?? 0)
+                            font.family: Theme.mono
+                            font.pixelSize: 10
+                            color: Theme.textSoft
                         }
                     }
                 }
@@ -278,21 +418,75 @@ Panel {
                 }
             }
 
+            // Grouped by app; each group shows its newest notification until expanded.
             ListView {
                 Layout.fillWidth: true
-                Layout.preferredHeight: Notifs.count ? Math.min(contentHeight, 340) : 0
+                Layout.preferredHeight: Notifs.count ? Math.min(contentHeight, 360) : 0
                 visible: Notifs.count > 0
                 clip: true
-                spacing: 8
-                model: Notifs.history
+                spacing: 12
+                model: Notifs.groups
                 boundsBehavior: Flickable.StopAtBounds
-                delegate: NotificationCard {
+                delegate: ColumnLayout {
+                    id: group
                     required property var modelData
+                    readonly property bool expanded: root.expandedApps.includes(modelData.app)
                     width: ListView.view.width
-                    notification: modelData
-                    compact: true
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 4
+                        Layout.rightMargin: 4
+                        Label {
+                            Layout.fillWidth: true
+                            text: group.modelData.app + (group.modelData.items.length > 1 ? ` · ${group.modelData.items.length}` : "")
+                            font.pixelSize: 11
+                            font.weight: Font.DemiBold
+                            color: Theme.textSoft
+                        }
+                        Label {
+                            visible: group.modelData.items.length > 1
+                            text: group.expanded ? "Show less" : "Show all"
+                            font.pixelSize: 11
+                            color: expandArea.containsMouse ? Theme.violetBright : Theme.violet
+                            MouseArea {
+                                id: expandArea
+                                anchors.fill: parent
+                                anchors.margins: -6
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.expandedApps = group.expanded
+                                    ? root.expandedApps.filter(a => a !== group.modelData.app)
+                                    : [...root.expandedApps, group.modelData.app]
+                            }
+                        }
+                        Glyph {
+                            Layout.leftMargin: 8
+                            text: "󰎟"
+                            size: 13
+                            color: clearGroup.containsMouse ? Theme.text : Theme.dim
+                            MouseArea {
+                                id: clearGroup
+                                anchors.fill: parent
+                                anchors.margins: -6
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Notifs.clearApp(group.modelData.app)
+                            }
+                        }
+                    }
+
+                    Repeater {
+                        model: group.expanded ? group.modelData.items : group.modelData.items.slice(0, 1)
+                        delegate: NotificationCard {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            notification: modelData
+                            compact: true
+                        }
+                    }
                 }
-                add: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.normal } }
                 displaced: Transition { NumberAnimation { property: "y"; duration: Theme.normal; easing.type: Easing.OutCubic } }
             }
 

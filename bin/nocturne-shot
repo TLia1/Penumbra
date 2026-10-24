@@ -1,10 +1,25 @@
 #!/usr/bin/env bash
-# Region screenshot to ~/Pictures/Screenshots; "annotate" opens it in Satty first.
+# Screenshot to ~/Pictures/Screenshots, saved and copied; "annotate" opens it in Satty first.
+# The shell's overlay picks the area (region, window or screen) and passes it back with
+# --geometry "X,Y WxH"; without the shell, slurp asks for a region.
 set -euo pipefail
+annotate=false
+region=
+while (( $# )); do
+ case $1 in
+  annotate) annotate=true;;
+  --geometry) region=${2?--geometry needs "X,Y WxH"}; shift;;
+  *) echo 'Usage: nocturne-shot [annotate] [--geometry "X,Y WxH"]' >&2; exit 2;;
+ esac
+ shift
+done
+if [[ -z $region ]]; then
+ quickshell -c nocturne ipc call shot open "$annotate" >/dev/null 2>&1 && exit
+ region=$(slurp -b 100d18aa -c b69af7 -w 2) || exit 0
+fi
 mkdir -p "$HOME/Pictures/Screenshots"
-region=$(slurp -b 100d18aa -c b69af7 -w 2) || exit 0
 file="$HOME/Pictures/Screenshots/$(date +%Y-%m-%d_%H-%M-%S).png"
-if [[ ${1:-} = annotate ]]; then
+if [[ $annotate = true ]]; then
  grim -g "$region" - | satty --filename - --output-filename "$file"
  exit
 fi

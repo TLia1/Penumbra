@@ -1,12 +1,14 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Quickshell.Widgets
 
-// Glyph button (mute) plus a soft violet slider, 0–100.
+// Glyph (or app icon) button for mute, plus a soft violet slider, 0–100.
 RowLayout {
     id: root
 
     property string glyph
+    property string icon: ""
     property real value: 0
     property bool muted: false
     signal moved(real value)
@@ -21,9 +23,17 @@ RowLayout {
         color: button.containsMouse ? Theme.hover : Theme.raised
         Glyph {
             anchors.centerIn: parent
+            visible: root.icon === ""
             text: root.glyph
             size: 16
             color: root.muted ? Theme.dim : Theme.violetBright
+        }
+        IconImage {
+            anchors.centerIn: parent
+            visible: root.icon !== ""
+            implicitSize: 20
+            source: root.icon
+            opacity: root.muted ? 0.4 : 1
         }
         MouseArea {
             id: button

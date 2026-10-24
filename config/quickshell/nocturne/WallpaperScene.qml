@@ -7,6 +7,8 @@ Item {
     required property string folder
     required property var layers
     property bool running: true
+    // The lock screen leaves out the wordmark.
+    property bool clean: false
     // Device pixels per scene unit, so layers decode no larger than they are shown.
     property real pixelScale: 1
 

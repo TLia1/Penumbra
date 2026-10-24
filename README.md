@@ -35,17 +35,17 @@ Log out through **Super+M → Log out → Confirm**, then sign in again when con
 | Component | Design / behavior |
 |---|---|
 | Hyprland | Lua, slowly rotating violet gradient borders, violet glow on the focused window, rounded windows, frosted-glass blur behind every shell surface and the launcher, soft window/workspace animations |
-| Nocturne shell | Quickshell (QML) bar of floating capsules, control center, notification popups and history, volume/brightness OSD, calendar and full-screen session overlay; see "Nocturne shell" below |
-| Rofi | Translucent application launcher, run command, window switcher and clipboard history; fallback session menu when the shell is not running |
+| Nocturne shell | Quickshell (QML) bar of floating capsules, control center, notification popups and history, volume/brightness OSD, calendar, session overlay, app launcher and clipboard history, Alt+Tab switcher, workspace overview, lock screen, polkit password dialog and screenshot overlay; see "Nocturne shell" below |
+| Rofi | Fallback launcher, clipboard history and session menu when the shell is not running |
 | Kitty + Fish | Violet ANSI palette, animated cursor trail, Starship prompt, custom Arch logo and grouped Fastfetch greeting |
 | Dolphin / Qt | Nocturne KDE and Qt palettes, Breeze widgets, Papirus violet folder overlay |
 | GTK | Breeze Dark, near-black surfaces, violet selection/accent overrides |
 | GRUB | Optional orbital wallpaper, violet menu selection, keyboard hints and countdown |
 | Plymouth | Optional animated violet orbit, native password dialogs and update progress |
 | SDDM | Original animated QML greeter, wordmark-free orbital wallpaper, editable username, password, session selector, restart/shutdown confirmation |
-| Hyprlock | Wordmark-free version of the current wallpaper, clock and password field; locks after ten idle minutes and before suspend |
+| Lock screen | The shell's own: the current wallpaper without its wordmark (dawn and eclipse keep moving), clock, password field and media controls; locks after ten idle minutes and before suspend. Hyprlock takes over when the shell is not running |
 | Wallpaper | Three original SVG scenes, night, dawn and eclipse, plus pre-rendered PNGs and wordmark-free variants for the lock screen and greeter (`tools/build-wallpapers.py`); awww switches them with a transition that grows out of the planet. The shell animates dawn (twinkling stars, a breathing glow and rim light, a moonlet riding the ring, the odd shooting star) and eclipse (a drifting nebula, glinting stars, a swaying corona and diamond-ring flare, two backlit moons that pass in front of and behind the eclipse, an aurora on the near world's horizon, a blinking satellite, shooting stars); both pause under fullscreen windows |
-| Tools | Clipboard history (cliphist), color picker (hyprpicker), screenshot annotation (Satty) |
+| Tools | Clipboard history (cliphist), color picker (hyprpicker), screenshot annotation (Satty), night light (hyprsunset), audio visualizer (cava) |
 
 Near-black `#0d0a12`, surface `#100d18`, violet `#b69af7`, text `#e4dced`, muted `#8f809f`. Fonts: Inter and JetBrainsMono Nerd Font.
 
@@ -54,7 +54,9 @@ Near-black `#0d0a12`, surface `#100d18`, violet `#b69af7`, text `#e4dced`, muted
 | Shortcut | Action |
 |---|---|
 | Super+Enter / Super+Q | Kitty with Fish |
-| Super+Space / Super+R | App launcher |
+| Super+Space / Super+R | App launcher (`>` runs a command, a sum is worked out) |
+| Alt+Tab / Alt+Shift+Tab | Window switcher; release Alt to switch |
+| Super+Tab | Workspace overview |
 | Super+E | Dolphin |
 | Super+C | Close focused window |
 | Super+V | Toggle floating |
@@ -71,12 +73,13 @@ Near-black `#0d0a12`, surface `#100d18`, violet `#b69af7`, text `#e4dced`, muted
 | Super+Shift+V | Clipboard history |
 | Super+Shift+C | Pick a color on screen; copies its hex value |
 | Super+W | Next wallpaper |
+| Super+Shift+W | Wallpaper picker |
 | Super+Shift+R | Restart the shell |
-| Print | Select screenshot region; save to `~/Pictures/Screenshots` and copy it |
-| Shift+Print | Select a region and annotate it in Satty |
+| Print | Screenshot a region, window or the whole screen; save to `~/Pictures/Screenshots` and copy it |
+| Shift+Print | The same, then annotate it in Satty |
 | Audio / media / brightness keys | Volume, mute, playback, brightness where hardware supports it |
 
-Bar: click the clock for a calendar. CPU/RAM open htop. Click the network/Bluetooth/audio/battery capsule (or press Super+A) for the control center; right-click it for pavucontrol, scroll it for volume. Tray icons are tinted violet until hovered; right-click for their menu. Hover any capsule for details. Destructive session actions require a second press to confirm.
+Bar: click the Arch logo for the launcher (right-click for the clipboard) and the clock for a calendar. While something plays, a capsule shows it with a small spectrum: click for the control center, middle-click to pause, scroll to skip. CPU/RAM open the process monitor (right-click for htop). With several keyboard layouts, a capsule shows the current one; click it to switch. Click the network/Bluetooth/audio/battery capsule (or press Super+A) for the control center; right-click it for pavucontrol, scroll it for volume. Tray icons are tinted violet until hovered; right-click for their menu. Hover any capsule for details. Push the pointer into the top-left corner for the overview, the top-right one for the control center. Destructive session actions require a second press to confirm.
 
 ## Files and destinations
 
@@ -213,15 +216,24 @@ The bar shows an automatically detected battery immediately before the power but
 
 ## Nocturne shell
 
-The bar, notifications, volume/brightness popup, control center, calendar and session overlay are one Quickshell configuration in `config/quickshell/nocturne/`, replacing Waybar and Mako. Every surface is a translucent layer Hyprland blurs (namespaces `nocturne-*`).
+The bar, notifications, volume/brightness popup, control center, calendar, session overlay, launcher, window switcher, overview, lock screen, polkit agent and screenshot overlay are one Quickshell configuration in `config/quickshell/nocturne/`, replacing Waybar, Mako, Rofi, Hyprlock and the KDE polkit agent (Rofi and Hyprlock stay as fallbacks). Every surface is a translucent layer Hyprland blurs (namespaces `nocturne-*`).
 
 - **Bar** keeps the floating-capsule layout. The active workspace pill widens; the title capsule shows the focused window only on the current workspace.
-- **Control center** (Super+A, or click the status capsule): Wi-Fi and Bluetooth toggles, Do not disturb, Stay awake (pauses idle locking), volume, microphone and brightness sliders, the current media player, and notification history with Clear all. Shortcuts for the next wallpaper, lock and the session overlay sit in its header. Escape or a click outside closes it.
+- **Launcher** (Super+Space): type to search applications; often-launched ones rise to the top. Start with `>` to run a command (Shift+Enter runs it in Kitty). A sum such as `2*pi` or `=sqrt(2)` shows its result; Enter copies it. Tab switches to the **clipboard history**, with image thumbnails and swatches for copied colors: Enter copies, Shift+Delete forgets an entry, Super+Shift+V opens it directly.
+- **Window switcher** (Alt+Tab): live previews of every window, most recently used first. Keep Alt down and press Tab (Shift+Tab goes back) or use the arrows; release Alt to switch, Escape to cancel.
+- **Overview** (Super+Tab, or the top-left corner): each workspace on the monitor with its windows live and in place, over the wallpaper. Click a window to focus it, a workspace to go there (the last one starts a new workspace), drag a window onto another workspace to move it, middle-click a window to close it. Number keys jump to a workspace.
+- **Control center** (Super+A, or click the status capsule): Wi-Fi and Bluetooth toggles, Do not disturb, Stay awake (pauses idle locking), Night light (hyprsunset, 4500 K) and Screenshot, volume, microphone and brightness sliders, the current media player with its cover art and a seek bar, and notification history grouped by app with Clear all. Shortcuts for the wallpaper picker, lock and the session overlay sit in its header. Escape or a click outside closes it.
+- **Sound page** opens from the chevron beside the volume slider (or `ipc call panel mixer`): pick the output and input device, and set each app's own volume and mute.
 - **Wi-Fi and Bluetooth pages** open from the chevron on each tile (or `ipc call panel wifi|bluetooth`). Wi-Fi lists nearby networks while the page is open: click a saved or open network to connect, type the password inline for a new secured one, and expand the connected or saved network to Disconnect or Forget it. Bluetooth lists your devices (one click connects; expand to Disconnect or Forget) and discovers new ones while open; click one to pair, trust and connect it. "Advanced settings" links still reach nm-connection-editor and Blueman for anything else (static IPs, enterprise Wi-Fi).
 - **Tray**: nm-applet and Blueman keep running in the background for password and pairing prompts, but their tray icons are hidden since the control center covers them.
-- **Notifications** pop in at the top right and move to the history when they time out (hovering pauses that). Critical notifications stay until dismissed and still show during Do not disturb. Clicking a notification runs its default action.
+- **Notifications** pop in at the top right and move to the history when they time out (hovering pauses that). Critical notifications stay until dismissed and still show during Do not disturb. Clicking a notification runs its default action. Screenshots and photos show as a preview; chat apps that support it get a reply field.
+- **Lock screen** (Super+L, after ten idle minutes and before suspend): the clock over the current wallpaper without its wordmark, still animating, your `~/.face` (or initial), and the password field; it warns about Caps Lock and shows what's playing. Passwords go through the same PAM `login` stack hyprlock uses. If the shell ever dies while locked, switch to a TTY (Ctrl+Alt+F3), log in and run `hyprctl --instance 0 dispatch 'hl.dsp.exec_cmd("hyprlock")'`, then unlock there.
+- **Polkit**: when an app asks for administrator rights, a password card appears over the dimmed screen in place of the KDE dialog.
+- **Screenshots** (Print): the screen freezes; drag a region, click a window, or click for the whole screen (R, W and S switch, E toggles annotating in Satty, Escape cancels).
+- **Updates**: the updates capsule opens a list of pending packages by source, with Check again and Update now.
+- **Wallpaper picker** (Super+Shift+W, or the wallpaper button in the control center): the three wallpapers side by side; click one to switch.
 - **Session overlay** (Super+M): arrow keys and Enter, or the mouse. Log out, Restart and Shut down ask for a second press.
-- **Scripts** reach it through IPC: `quickshell -c nocturne ipc call panel control|calendar|session|close`, `osd flash volume 40 false`, `notifications clear|dnd`, `updates refresh`. `nocturne-osd` and `nocturne-power` fall back to a plain notification and the rofi menu when the shell is not running.
+- **Scripts** reach it through IPC: `quickshell -c nocturne ipc call panel control|wifi|bluetooth|mixer|calendar|session|updates|wallpapers|overview|close`, `launcher apps|clipboard`, `lock lock`, `shot open false`, `osd flash volume 40 false`, `notifications clear|dnd`, `updates refresh`. Alt+Tab and Super+Tab are Quickshell global shortcuts (`nocturne:switcher-next`, `nocturne:overview`…). `nocturne-osd`, `nocturne-power`, `nocturne-launcher`, `nocturne-clipboard`, `nocturne-shot` and hypridle fall back to a plain notification, rofi, slurp and hyprlock when the shell is not running.
 
 Edit the QML and Quickshell reloads it live. `Theme.qml` holds the palette, fonts, radii and animation timings.
 

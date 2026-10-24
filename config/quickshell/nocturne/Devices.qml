@@ -2,6 +2,8 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Bluetooth
+import Quickshell.Hyprland
+import Quickshell.Io
 import Quickshell.Networking
 import Quickshell.Services.Pipewire
 import Quickshell.Services.UPower
@@ -65,5 +67,39 @@ Singleton {
             return charging ? "Charging" : "On battery";
         const h = Math.floor(seconds / 3600), m = Math.round(seconds % 3600 / 60);
         return `${h ? h + " h " : ""}${m} min ${charging ? "until full" : "left"}`;
+    }
+
+    // Keyboard layouts of the main keyboard, e.g. ["us", "fr"], and the one in use.
+    property var layouts: []
+    property int layoutIndex: 0
+    property string layoutName: ""
+    readonly property string layoutCode: (layouts[layoutIndex] ?? "").toUpperCase()
+    function nextLayout() {
+        Quickshell.execDetached(["hyprctl", "switchxkblayout", "all", "next"]);
+    }
+    Process {
+        id: keyboards
+        running: true
+        command: ["hyprctl", "devices", "-j"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const all = JSON.parse(text).keyboards;
+                    const main = all.find(k => k.main) ?? all[all.length - 1];
+                    root.layouts = main.layout.split(",").map(l => l.trim()).filter(l => l);
+                    root.layoutIndex = main.active_layout_index ?? 0;
+                    root.layoutName = main.active_keymap ?? "";
+                } catch (e) {
+                    root.layouts = [];
+                }
+            }
+        }
+    }
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) {
+            if (event.name === "activelayout" || event.name === "configreloaded")
+                keyboards.running = true;
+        }
     }
 }

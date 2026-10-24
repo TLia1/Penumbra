@@ -1,6 +1,7 @@
 //@ pragma UseQApplication
 //@ pragma IconTheme Nocturne
-// NOCTURNE shell: animated wallpapers, bar, control center, notifications, OSD, calendar and session overlay.
+// NOCTURNE shell: animated wallpapers, bar, control center, notifications, OSD, calendar, session
+// overlay, launcher, window switcher, overview, lock screen, polkit agent and screenshot overlay.
 // Run with `quickshell -c nocturne`; scripts talk to it with `quickshell -c nocturne ipc call …`.
 import QtQuick
 import Quickshell
@@ -19,9 +20,22 @@ ShellRoot {
     ControlCenter {}
     CalendarPanel {}
     ProcessPanel {}
+    UpdatesPanel {}
+    WallpaperPicker {}
     NotificationPopups {}
     Osd {}
     SessionMenu {}
+    Launcher {}
+    Switcher {}
+    Overview {}
+    HotCorners {}
+    PolkitDialog {}
+    ScreenshotOverlay {
+        id: shot
+    }
+    LockScreen {
+        id: lockScreen
+    }
 
     IpcHandler {
         target: "osd"
@@ -35,10 +49,31 @@ ShellRoot {
         function control(): void { Ui.toggleControl(); }
         function wifi(): void { Ui.openControl("wifi"); }
         function bluetooth(): void { Ui.openControl("bluetooth"); }
+        function mixer(): void { Ui.openControl("mixer"); }
         function calendar(): void { Ui.toggleCalendar(); }
         function monitor(): void { Ui.toggleMonitor(); }
         function session(): void { Ui.openSession(); }
-        function close(): void { Ui.close(); Ui.sessionOpen = false; }
+        function updates(): void { Ui.toggleUpdates(); }
+        function wallpapers(): void { Ui.toggleWallpapers(); }
+        function overview(): void { Ui.toggleOverview(); }
+        function close(): void { Ui.closeOverlays(); }
+    }
+
+    IpcHandler {
+        target: "launcher"
+        function apps(): void { Ui.toggleLauncher("apps"); }
+        function clipboard(): void { Ui.toggleLauncher("clipboard"); }
+    }
+
+    IpcHandler {
+        target: "shot"
+        function open(annotate: bool): void { shot.open(annotate); }
+    }
+
+    IpcHandler {
+        target: "lock"
+        function lock(): void { lockScreen.lock(); }
+        function isLocked(): bool { return lockScreen.locked; }
     }
 
     IpcHandler {

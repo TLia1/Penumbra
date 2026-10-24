@@ -10,8 +10,8 @@ XKB_RULES=/usr/share/X11/xkb/rules/base.lst
 
 PACKAGES=(
     # Desktop
-    hyprland quickshell awww sddm hyprlock hypridle rofi
-    xdg-desktop-portal-hyprland xdg-desktop-portal-gtk polkit-kde-agent
+    hyprland quickshell awww sddm hyprlock hypridle hyprsunset rofi
+    xdg-desktop-portal-hyprland xdg-desktop-portal-gtk
     # Terminal and editor
     kitty fish starship fastfetch htop neovim git ripgrep unzip nodejs npm
     # Applications
@@ -20,7 +20,7 @@ PACKAGES=(
     breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme
     qt5ct qt6ct qt5-wayland qt5-quickcontrols2 ttf-jetbrains-mono-nerd inter-font
     # Hardware and services
-    networkmanager bluez bluez-utils pipewire-pulse wireplumber brightnessctl playerctl
+    networkmanager bluez bluez-utils pipewire-pulse wireplumber brightnessctl playerctl cava
     # Screenshots, clipboard and color picker
     grim slurp satty hyprpicker cliphist wl-clipboard
     # Used by the helper scripts and build tools

@@ -15,6 +15,8 @@ PanelWindow {
     color: "transparent"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "nocturne-popups"
+    // A click gives the popup the keyboard, for inline replies.
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
     // Only the cards take input; the rest of the column passes clicks through.
     mask: Region { item: column }
 

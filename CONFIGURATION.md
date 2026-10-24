@@ -17,8 +17,8 @@ XKB_RULES=/usr/share/X11/xkb/rules/base.lst
 
 PACKAGES=(
     # Desktop
-    hyprland quickshell awww sddm hyprlock hypridle rofi
-    xdg-desktop-portal-hyprland xdg-desktop-portal-gtk polkit-kde-agent
+    hyprland quickshell awww sddm hyprlock hypridle hyprsunset rofi
+    xdg-desktop-portal-hyprland xdg-desktop-portal-gtk
     # Terminal and editor
     kitty fish starship fastfetch htop neovim git ripgrep unzip nodejs npm
     # Applications
@@ -27,7 +27,7 @@ PACKAGES=(
     breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme
     qt5ct qt6ct qt5-wayland qt5-quickcontrols2 ttf-jetbrains-mono-nerd inter-font
     # Hardware and services
-    networkmanager bluez bluez-utils pipewire-pulse wireplumber brightnessctl playerctl
+    networkmanager bluez bluez-utils pipewire-pulse wireplumber brightnessctl playerctl cava
     # Screenshots, clipboard and color picker
     grim slurp satty hyprpicker cliphist wl-clipboard
     # Used by the helper scripts and build tools
@@ -674,7 +674,11 @@ for name, folder in (('wallpaper-dawn', 'dawn'), ('wallpaper-eclipse', 'eclipse'
     out = root / 'config/quickshell/nocturne' / folder
     out.mkdir(exist_ok=True)
     names = [child.get('id')[6:] for child in scene if (child.get('id') or '').startswith('layer-')]
-    layers = [render(scene, out, None, 'sky')] + [render(scene, out, layer, layer) for layer in names if layer != 'stars']
+    # The lock screen animates the scene too, over a backdrop without the wordmark.
+    clean = copy.deepcopy(scene)
+    clean.remove(clean.find(f"{{{ns}}}g[@id='wordmark']"))
+    layers = [render(scene, out, None, 'sky'), render(clean, out, None, 'sky-clean')]
+    layers += [render(scene, out, layer, layer) for layer in names if layer != 'stars']
     stars = [{'x': float(star.get('cx')), 'y': float(star.get('cy')), 'r': float(star.get('r')),
               'opacity': float(star.get('opacity')), 'glint': star.get('class') == 'glint'}
              for star in scene.find(f".//*[@id='layer-stars']")]
@@ -782,16 +786,15 @@ start() {
 dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP QT_QPA_PLATFORMTHEME GTK_THEME XCURSOR_THEME XCURSOR_SIZE
 hyprctl setcursor Nocturne-Cursors 28 >/dev/null
 start awww-daemon awww-daemon
-# Bar, notifications, OSD, control center and session overlay.
+# The shell is the polkit agent too; an older KDE agent would hold the registration.
+pkill -u "$UID" -f '^/usr/lib/polkit-kde-authentication-agent-1' || true
+# Bar, notifications, OSD, control center, launcher, overlays, lock screen and polkit agent.
 start quickshell quickshell -c nocturne
 start hypridle hypridle
 # Clipboard history for text and images.
 if ! pgrep -u "$UID" -f "^wl-paste --type text --watch cliphist store" >/dev/null; then
  nohup wl-paste --type text --watch cliphist store >/dev/null 2>&1 9>&- &
  nohup wl-paste --type image --watch cliphist store >/dev/null 2>&1 9>&- &
-fi
-if ! pgrep -u "$UID" -f "^/usr/lib/polkit-kde-authentication-agent-1" >/dev/null; then
- nohup /usr/lib/polkit-kde-authentication-agent-1 >"$HOME/.local/state/nocturne/polkit.log" 2>&1 9>&- &
 fi
 nohup "$HOME/.local/bin/nocturne-wallpaper" restore >"$HOME/.local/state/nocturne/wallpaper.log" 2>&1 9>&- &
 exec 9>&-
@@ -801,12 +804,27 @@ exec 9>&-
 
 ```bash
 #!/usr/bin/env bash
-# Region screenshot to ~/Pictures/Screenshots; "annotate" opens it in Satty first.
+# Screenshot to ~/Pictures/Screenshots, saved and copied; "annotate" opens it in Satty first.
+# The shell's overlay picks the area (region, window or screen) and passes it back with
+# --geometry "X,Y WxH"; without the shell, slurp asks for a region.
 set -euo pipefail
+annotate=false
+region=
+while (( $# )); do
+ case $1 in
+  annotate) annotate=true;;
+  --geometry) region=${2?--geometry needs "X,Y WxH"}; shift;;
+  *) echo 'Usage: nocturne-shot [annotate] [--geometry "X,Y WxH"]' >&2; exit 2;;
+ esac
+ shift
+done
+if [[ -z $region ]]; then
+ quickshell -c nocturne ipc call shot open "$annotate" >/dev/null 2>&1 && exit
+ region=$(slurp -b 100d18aa -c b69af7 -w 2) || exit 0
+fi
 mkdir -p "$HOME/Pictures/Screenshots"
-region=$(slurp -b 100d18aa -c b69af7 -w 2) || exit 0
 file="$HOME/Pictures/Screenshots/$(date +%Y-%m-%d_%H-%M-%S).png"
-if [[ ${1:-} = annotate ]]; then
+if [[ $annotate = true ]]; then
  grim -g "$region" - | satty --filename - --output-filename "$file"
  exit
 fi
@@ -819,16 +837,27 @@ notify-send -a Nocturne -i "$file" 'Screenshot saved' "Copied to clipboard · ${
 
 ```bash
 #!/usr/bin/env bash
-# Clipboard history from cliphist, picked in the Nocturne launcher style.
+# Clipboard history from cliphist, in the shell's launcher; this rofi menu is the fallback without it.
 set -euo pipefail
 if [[ ${1:-} = clear ]]; then
  cliphist wipe
+ rm -rf "${XDG_RUNTIME_DIR:-/tmp}/nocturne/clipboard"
  notify-send -a Nocturne 'Clipboard cleared' 'History has been wiped.'
  exit
 fi
+quickshell -c nocturne ipc call launcher clipboard >/dev/null 2>&1 && exit
 choice=$(cliphist list | rofi -dmenu -i -p CLIPBOARD -display-columns 2 \
  -theme-str 'entry { placeholder: "Search clipboard history…"; } listview { lines: 8; } element { padding: 9px 12px; }') || exit 0
 cliphist decode <<<"$choice" | wl-copy
+```
+
+## `bin/nocturne-launcher`
+
+```bash
+#!/usr/bin/env bash
+# The Nocturne shell draws the launcher; this rofi menu is the fallback without it.
+quickshell -c nocturne ipc call launcher apps >/dev/null 2>&1 && exit
+exec rofi -show drun
 ```
 
 ## `bin/nocturne-picker`
@@ -846,7 +875,8 @@ notify-send -a Nocturne "Color copied · $color" "<span foreground='$color'>█�
 
 ```bash
 #!/usr/bin/env bash
-# Switch Nocturne wallpapers with an awww transition; the lock screen follows the choice.
+# Switch Nocturne wallpapers (the next one, or one by name) with an awww transition;
+# the lock screen follows the choice.
 set -euo pipefail
 dir="$HOME/.local/share/nocturne"
 state="$HOME/.local/state/nocturne/wallpaper"
@@ -857,16 +887,19 @@ transition=(--transition-type grow --transition-duration 1.4 --transition-fps 12
 case "${1:-next}" in
  next)
   for i in "${!names[@]}"; do [[ ${names[i]} = "$current" ]] && break; done
-  current=${names[(i + 1) % ${#names[@]}]}
-  # Grow each scene out of its planet, or the eclipse.
-  case $current in
-   wallpaper-dawn) transition+=(--transition-pos 0.32,0.37);;
-   wallpaper-eclipse) transition+=(--transition-pos 0.65,0.63);;
-   *) transition+=(--transition-pos 0.68,0.51);;
-  esac;;
+  current=${names[(i + 1) % ${#names[@]}]};;
+ wallpaper|wallpaper-dawn|wallpaper-eclipse) current=$1;;
  restore) transition=(--transition-type none);;
- *) echo "Usage: nocturne-wallpaper [next|restore]" >&2; exit 2;;
+ *) echo "Usage: nocturne-wallpaper [next|restore|wallpaper|wallpaper-dawn|wallpaper-eclipse]" >&2; exit 2;;
 esac
+# Grow each scene out of its planet, or the eclipse.
+if [[ ${1:-next} != restore ]]; then
+ case $current in
+  wallpaper-dawn) transition+=(--transition-pos 0.32,0.37);;
+  wallpaper-eclipse) transition+=(--transition-pos 0.65,0.63);;
+  *) transition+=(--transition-pos 0.68,0.51);;
+ esac
+fi
 mkdir -p "${state%/*}"
 printf '%s\n' "$current" > "$state"
 ln -sfn "$dir/$current-clean.png" "$dir/lock.png"
@@ -1014,7 +1047,8 @@ gtk-decoration-layout=icon:minimize,maximize,close
 
 ```text
 general {
-    lock_cmd = pidof hyprlock || hyprlock
+    # The shell's lock screen; hyprlock when the shell isn't running.
+    lock_cmd = quickshell -c nocturne ipc call lock lock || pidof hyprlock || hyprlock
     before_sleep_cmd = loginctl lock-session
     after_sleep_cmd = hyprctl dispatch 'hl.dsp.dpms("on")'
 }
@@ -1050,7 +1084,8 @@ hl.config({
  dwindle = {preserve_split = true},
  input = {kb_layout = "@@KB_LAYOUT@@", kb_variant = "@@KB_VARIANT@@", kb_options = "@@KB_OPTIONS@@", numlock_by_default = @@NUMLOCK@@,
   follow_mouse = 1, sensitivity = 0, touchpad = {natural_scroll = true}},
- misc = {disable_hyprland_logo = true, disable_splash_rendering = true, force_default_wallpaper = 0},
+ -- A fresh lock screen (hyprlock from a TTY) can take over if the shell's ever dies while locked.
+ misc = {disable_hyprland_logo = true, disable_splash_rendering = true, force_default_wallpaper = 0, allow_session_lock_restore = true},
 })
 hl.curve("nocturne", {type = "bezier", points = {{0.16, 1}, {0.3, 1}}})
 hl.curve("soft", {type = "bezier", points = {{0.4, 0}, {0.2, 1}}})
@@ -1066,8 +1101,8 @@ local function exec(key, cmd) hl.bind(key, hl.dsp.exec_cmd(cmd)) end
 exec("SUPER + Return", "kitty")
 exec("SUPER + Q", "kitty")
 exec("SUPER + E", "dolphin")
-exec("SUPER + R", "rofi -show drun")
-exec("SUPER + space", "rofi -show drun")
+exec("SUPER + R", "~/.local/bin/nocturne-launcher")
+exec("SUPER + space", "~/.local/bin/nocturne-launcher")
 exec("SUPER + B", "firefox")
 exec("SUPER + M", "~/.local/bin/nocturne-power")
 exec("SUPER + L", "loginctl lock-session")
@@ -1076,9 +1111,15 @@ exec("SUPER + A", "quickshell -c nocturne ipc call panel control")
 exec("SUPER + SHIFT + V", "~/.local/bin/nocturne-clipboard")
 exec("SUPER + SHIFT + C", "~/.local/bin/nocturne-picker")
 exec("SUPER + W", "~/.local/bin/nocturne-wallpaper next")
+exec("SUPER + SHIFT + W", "quickshell -c nocturne ipc call panel wallpapers")
 exec("SUPER + SHIFT + R", "~/.local/bin/nocturne-session restart")
 exec("Print", "~/.local/bin/nocturne-shot")
 exec("SHIFT + Print", "~/.local/bin/nocturne-shot annotate")
+-- The shell answers these directly (Quickshell global shortcuts), with no process per key press.
+hl.bind("ALT + Tab", hl.dsp.global("nocturne:switcher-next"))
+hl.bind("ALT + SHIFT + Tab", hl.dsp.global("nocturne:switcher-previous"))
+hl.bind("ALT + Alt_L", hl.dsp.global("nocturne:switcher-commit"), {release=true, non_consuming=true})
+hl.bind("SUPER + Tab", hl.dsp.global("nocturne:overview"))
 hl.bind("SUPER + C", hl.dsp.window.close())
 hl.bind("SUPER + V", hl.dsp.window.float({action="toggle"}))
 hl.bind("SUPER + F", hl.dsp.window.fullscreen())
@@ -1105,6 +1146,8 @@ hl.window_rule({name="settings", match={class="^(org.pulseaudio.pavucontrol|pavu
 hl.window_rule({name="annotate", match={class="^(com.gabm.satty)$"}, float=true, center=true})
 -- Frosted glass behind every Nocturne shell surface and the launcher.
 hl.layer_rule({name="glass", match={namespace="^(nocturne-.*|rofi)$"}, blur=true, ignore_alpha=0.3})
+-- The screenshot overlay must be gone at once, before grim reads the screen.
+hl.layer_rule({name="shot", match={namespace="^nocturne-shot$"}, no_anim=true})
 hl.window_rule({name="suppress-maximize", match={class=".*"}, suppress_event="maximize"})
 hl.on("hyprland.start", function() hl.exec_cmd("~/.local/bin/nocturne-session") end)
 ```
@@ -1413,7 +1456,8 @@ toolbutton_style=4
 ```qml
 //@ pragma UseQApplication
 //@ pragma IconTheme Nocturne
-// NOCTURNE shell: animated wallpapers, bar, control center, notifications, OSD, calendar and session overlay.
+// NOCTURNE shell: animated wallpapers, bar, control center, notifications, OSD, calendar, session
+// overlay, launcher, window switcher, overview, lock screen, polkit agent and screenshot overlay.
 // Run with `quickshell -c nocturne`; scripts talk to it with `quickshell -c nocturne ipc call …`.
 import QtQuick
 import Quickshell
@@ -1432,9 +1476,22 @@ ShellRoot {
     ControlCenter {}
     CalendarPanel {}
     ProcessPanel {}
+    UpdatesPanel {}
+    WallpaperPicker {}
     NotificationPopups {}
     Osd {}
     SessionMenu {}
+    Launcher {}
+    Switcher {}
+    Overview {}
+    HotCorners {}
+    PolkitDialog {}
+    ScreenshotOverlay {
+        id: shot
+    }
+    LockScreen {
+        id: lockScreen
+    }
 
     IpcHandler {
         target: "osd"
@@ -1448,10 +1505,31 @@ ShellRoot {
         function control(): void { Ui.toggleControl(); }
         function wifi(): void { Ui.openControl("wifi"); }
         function bluetooth(): void { Ui.openControl("bluetooth"); }
+        function mixer(): void { Ui.openControl("mixer"); }
         function calendar(): void { Ui.toggleCalendar(); }
         function monitor(): void { Ui.toggleMonitor(); }
         function session(): void { Ui.openSession(); }
-        function close(): void { Ui.close(); Ui.sessionOpen = false; }
+        function updates(): void { Ui.toggleUpdates(); }
+        function wallpapers(): void { Ui.toggleWallpapers(); }
+        function overview(): void { Ui.toggleOverview(); }
+        function close(): void { Ui.closeOverlays(); }
+    }
+
+    IpcHandler {
+        target: "launcher"
+        function apps(): void { Ui.toggleLauncher("apps"); }
+        function clipboard(): void { Ui.toggleLauncher("clipboard"); }
+    }
+
+    IpcHandler {
+        target: "shot"
+        function open(annotate: bool): void { shot.open(annotate); }
+    }
+
+    IpcHandler {
+        target: "lock"
+        function lock(): void { lockScreen.lock(); }
+        function isLocked(): bool { return lockScreen.locked; }
     }
 
     IpcHandler {
@@ -1586,6 +1664,8 @@ Item {
     required property string folder
     required property var layers
     property bool running: true
+    // The lock screen leaves out the wordmark.
+    property bool clean: false
     // Device pixels per scene unit, so layers decode no larger than they are shown.
     property real pixelScale: 1
 
@@ -1787,7 +1867,7 @@ WallpaperScene {
     readonly property real ringY: 172
     readonly property real ringTilt: 16 * Math.PI / 180
 
-    SceneLayer { scene: root; name: "sky"; z: 0 }
+    SceneLayer { scene: root; name: root.clean ? "sky-clean" : "sky"; z: 0 }
     // Rendered brighter than the still image, so it can swell and ebb around it.
     SceneLayer {
         scene: root
@@ -1882,7 +1962,7 @@ WallpaperScene {
     readonly property point world: Qt.point(380, 2950)
     readonly property real worldRadius: 1680
 
-    SceneLayer { scene: root; name: "sky"; z: 0 }
+    SceneLayer { scene: root; name: root.clean ? "sky-clean" : "sky"; z: 0 }
     // Zoomed a touch so its cropped edges never come into view as it turns.
     SceneLayer {
         scene: root
@@ -2134,9 +2214,10 @@ PanelWindow {
 
         Capsule {
             padding: 14
-            tip: "Applications"
-            onClicked: Ui.run("rofi -show drun")
-            Glyph { text: "󰣇"; size: 20; color: Theme.violetBright }
+            tip: "Applications · right-click for the clipboard"
+            active: Ui.launcherOpen
+            onClicked: m => Ui.toggleLauncher(m.button === Qt.RightButton ? "clipboard" : "apps")
+            Glyph { text: "󰣇"; size: 20; color: Ui.launcherOpen ? Theme.violetInk : Theme.violetBright }
         }
 
         Capsule {
@@ -2154,6 +2235,39 @@ PanelWindow {
                 font.pixelSize: 14
                 font.weight: Font.Bold
                 color: Ui.calendarOpen ? Theme.violetInk : "#eee8ff"
+            }
+        }
+
+        // What's playing, with cava's spectrum when it is installed.
+        Capsule {
+            visible: !!Media.player
+            padding: 14
+            spacing: 10
+            tip: Media.player ? [Media.player.trackTitle, Media.player.trackArtist].filter(t => t).join(" · ") + "\nMiddle-click to play or pause · scroll to skip" : ""
+            onClicked: m => m.button === Qt.MiddleButton ? Media.player.togglePlaying() : Ui.toggleControl()
+            onScrolled: delta => delta > 0 ? Media.player.previous() : Media.player.next()
+            Row {
+                visible: Ui.hasVisualizer && !!Media.playing
+                spacing: 2
+                Layout.preferredHeight: 18
+                Repeater {
+                    model: Media.bars
+                    delegate: Rectangle {
+                        required property real modelData
+                        anchors.bottom: parent?.bottom
+                        width: 3
+                        height: 3 + modelData * 15
+                        radius: 1.5
+                        color: Theme.violetBright
+                        Behavior on height { NumberAnimation { duration: 60 } }
+                    }
+                }
+            }
+            Glyph { visible: !Ui.hasVisualizer || !Media.playing; text: Media.playing ? "󰎆" : "󰏤"; color: Theme.violetBright }
+            Label {
+                text: Media.player?.trackTitle || Media.player?.identity || ""
+                Layout.maximumWidth: 170
+                color: "#c8b8dc"
             }
         }
     }
@@ -2209,28 +2323,41 @@ PanelWindow {
         spacing: Theme.gap
 
         Capsule {
-            visible: Sys.updates > 0
-            padding: 12
-            tip: Sys.updatesDetail
-            onClicked: Ui.run(Ui.bin + "nocturne-updates open")
-            Glyph { text: "󰚰"; color: Theme.violetBright }
-            Label { text: Sys.updates; color: Theme.violetBright }
+            visible: Devices.layouts.length > 1
+            padding: 14
+            tip: `${Devices.layoutName} · click to switch`
+            onClicked: Devices.nextLayout()
+            Glyph { text: "󰌌"; color: Theme.textSoft }
+            Label { text: Devices.layoutCode; font.family: Theme.mono; font.weight: Font.Bold; color: Theme.textSoft }
         }
 
         Capsule {
+            visible: Sys.updates > 0
+            padding: 12
+            active: Ui.updatesOpen
+            tip: Sys.updatesDetail
+            onClicked: Ui.toggleUpdates()
+            Glyph { text: "󰚰"; color: Ui.updatesOpen ? Theme.violetInk : Theme.violetBright }
+            Label { text: Sys.updates; color: Ui.updatesOpen ? Theme.violetInk : Theme.violetBright }
+        }
+
+        Capsule {
+            id: monitor
             padding: 12
             spacing: 12
+            active: Ui.monitorOpen
             tip: `CPU ${Sys.cpu}% · Memory ${Sys.memoryDetail}`
-            onClicked: Ui.run("kitty --class nocturne-monitor htop")
+            onClicked: m => m.button === Qt.RightButton ? Ui.run("kitty --class nocturne-monitor htop") : Ui.toggleMonitor()
+            readonly property color tint: Ui.monitorOpen ? Theme.violetInk : "#aaa0bb"
             RowLayout {
                 spacing: 5
-                Glyph { text: "󰻠"; size: 12; color: "#aaa0bb" }
-                Label { text: Sys.cpu + "%"; font.pixelSize: 11; color: "#aaa0bb"; font.family: Theme.mono }
+                Glyph { text: "󰻠"; size: 12; color: monitor.tint }
+                Label { text: Sys.cpu + "%"; font.pixelSize: 11; color: monitor.tint; font.family: Theme.mono }
             }
             RowLayout {
                 spacing: 5
-                Glyph { text: "󰍛"; size: 12; color: "#aaa0bb" }
-                Label { text: Sys.memory + "%"; font.pixelSize: 11; color: "#aaa0bb"; font.family: Theme.mono }
+                Glyph { text: "󰍛"; size: 12; color: monitor.tint }
+                Label { text: Sys.memory + "%"; font.pixelSize: 11; color: monitor.tint; font.family: Theme.mono }
             }
         }
 
@@ -2566,6 +2693,7 @@ Rectangle {
 
 ```qml
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
@@ -2583,6 +2711,7 @@ Panel {
     onDismissed: Ui.dismiss()
 
     readonly property var player: Mpris.players.values.find(p => p.isPlaying) ?? Mpris.players.values[0] ?? null
+    property var expandedApps: []
 
     property string uptime: ""
     onOpenChanged: if (open) { uptimeFile.reload(); Sys.refreshBrightness(); }
@@ -2595,7 +2724,7 @@ Panel {
         }
     }
 
-    // One page at a time: the main view, or Wi-Fi / Bluetooth settings.
+    // One page at a time: the main view, or Wi-Fi, Bluetooth or sound settings.
     ColumnLayout {
         id: pages
         x: 18
@@ -2622,6 +2751,12 @@ Panel {
         BluetoothPage {
             Layout.fillWidth: true
             visible: Ui.controlPage === "bluetooth"
+            active: root.open && visible
+        }
+
+        MixerPage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "mixer"
             active: root.open && visible
         }
 
@@ -2658,7 +2793,7 @@ Panel {
                 }
                 Repeater {
                     model: [
-                        { glyph: "󰸉", tip: "Next wallpaper", run: () => Ui.run(Ui.bin + "nocturne-wallpaper next") },
+                        { glyph: "󰸉", tip: "Wallpaper", run: () => Ui.toggleWallpapers() },
                         { glyph: "󰌾", tip: "Lock", run: () => { Ui.close(); Ui.run("loginctl lock-session"); } },
                         { glyph: "󰐥", tip: "Session", run: () => Ui.openSession() }
                     ]
@@ -2723,21 +2858,57 @@ Panel {
                     on: Ui.caffeine
                     onToggled: Ui.caffeine = !Ui.caffeine
                 }
+                Tile {
+                    Layout.fillWidth: true
+                    glyph: "󱩌"
+                    title: "Night light"
+                    subtitle: !Ui.hasNightLight ? "Needs hyprsunset" : Ui.nightLight ? `Warm · ${Ui.nightTemperature} K` : "Off"
+                    on: Ui.nightLight
+                    available: Ui.hasNightLight
+                    onToggled: Ui.nightLight = !Ui.nightLight
+                }
+                Tile {
+                    Layout.fillWidth: true
+                    glyph: "󰹑"
+                    title: "Screenshot"
+                    subtitle: "Region, window or screen"
+                    onToggled: Ui.openShot()
+                }
             }
 
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 4
-                SliderRow {
+                RowLayout {
                     Layout.fillWidth: true
-                    glyph: Devices.volumeGlyph
-                    value: Devices.volume
-                    muted: Devices.muted
-                    onMoved: v => Devices.setVolume(v)
-                    onGlyphClicked: if (Devices.sink) Devices.sink.muted = !Devices.sink.muted
+                    spacing: 2
+                    SliderRow {
+                        Layout.fillWidth: true
+                        glyph: Devices.volumeGlyph
+                        value: Devices.volume
+                        muted: Devices.muted
+                        onMoved: v => Devices.setVolume(v)
+                        onGlyphClicked: if (Devices.sink) Devices.sink.muted = !Devices.sink.muted
+                    }
+                    // Devices and per-app volume.
+                    Rectangle {
+                        implicitWidth: 26
+                        implicitHeight: 36
+                        radius: Theme.radiusSmall
+                        color: mixerArea.containsMouse ? Theme.hover : "transparent"
+                        Glyph { anchors.centerIn: parent; text: "󰅂"; color: Theme.muted }
+                        MouseArea {
+                            id: mixerArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Ui.controlPage = "mixer"
+                        }
+                    }
                 }
                 SliderRow {
                     Layout.fillWidth: true
+                    Layout.rightMargin: 28
                     visible: !!Devices.source
                     glyph: Devices.micMuted ? "󰍭" : "󰍬"
                     value: Devices.source ? Math.round(Devices.source.volume * 100) : 0
@@ -2747,6 +2918,7 @@ Panel {
                 }
                 SliderRow {
                     Layout.fillWidth: true
+                    Layout.rightMargin: 28
                     visible: Sys.brightness >= 0
                     glyph: "󰃟"
                     value: Sys.brightness
@@ -2754,64 +2926,159 @@ Panel {
                 }
             }
 
-            // Media
-            Rectangle {
+            // Media: blurred cover art behind the track, controls and a seek bar.
+            ClippingRectangle {
+                id: media
                 Layout.fillWidth: true
                 visible: !!root.player
-                implicitHeight: 76
+                implicitHeight: mediaColumn.implicitHeight + 20
                 radius: Theme.radius
                 color: Theme.raised
                 border.color: Theme.line
-                RowLayout {
-                    anchors { fill: parent; margins: 10 }
-                    spacing: 12
-                    ClippingRectangle {
-                        implicitWidth: 56
-                        implicitHeight: 56
-                        radius: 12
-                        color: Theme.hover
-                        Image {
-                            anchors.fill: parent
-                            source: root.player?.trackArtUrl ?? ""
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
-                        }
-                        Glyph {
-                            anchors.centerIn: parent
-                            visible: !root.player?.trackArtUrl
-                            text: "󰎆"
-                            size: 22
-                            color: Theme.violetBright
-                        }
+
+                Image {
+                    id: artwork
+                    anchors.fill: parent
+                    source: root.player?.trackArtUrl ?? ""
+                    sourceSize.width: 200
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    visible: false
+                }
+                MultiEffect {
+                    anchors.fill: parent
+                    source: artwork
+                    visible: artwork.status === Image.Ready
+                    blurEnabled: true
+                    blur: 1
+                    blurMax: 48
+                    saturation: 0.2
+                    opacity: 0.45
+                }
+                Rectangle {
+                    anchors.fill: parent
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0; color: Qt.rgba(16 / 255, 13 / 255, 24 / 255, 0.55) }
+                        GradientStop { position: 1; color: Qt.rgba(16 / 255, 13 / 255, 24 / 255, 0.15) }
                     }
-                    ColumnLayout {
+                }
+
+                // MPRIS doesn't announce position changes; ask while it's on screen.
+                Timer {
+                    interval: 1000
+                    repeat: true
+                    running: root.open && !!root.player?.isPlaying
+                    onTriggered: root.player.positionChanged()
+                }
+                function time(seconds) {
+                    const s = Math.max(0, Math.floor(seconds));
+                    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+                }
+
+                ColumnLayout {
+                    id: mediaColumn
+                    anchors { left: parent.left; right: parent.right; top: parent.top; margins: 10 }
+                    spacing: 8
+                    RowLayout {
                         Layout.fillWidth: true
-                        spacing: 2
-                        Label { Layout.fillWidth: true; text: root.player?.trackTitle || root.player?.identity || ""; font.weight: Font.DemiBold }
-                        Label { Layout.fillWidth: true; text: root.player?.trackArtist || root.player?.identity || ""; font.pixelSize: 11; color: Theme.muted }
+                        spacing: 12
+                        ClippingRectangle {
+                            implicitWidth: 56
+                            implicitHeight: 56
+                            radius: 12
+                            color: Theme.hover
+                            Image {
+                                anchors.fill: parent
+                                source: root.player?.trackArtUrl ?? ""
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                            }
+                            Glyph {
+                                anchors.centerIn: parent
+                                visible: !root.player?.trackArtUrl
+                                text: "󰎆"
+                                size: 22
+                                color: Theme.violetBright
+                            }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Label { Layout.fillWidth: true; text: root.player?.trackTitle || root.player?.identity || ""; font.weight: Font.DemiBold }
+                            Label { Layout.fillWidth: true; text: root.player?.trackArtist || root.player?.identity || ""; font.pixelSize: 11; color: Theme.textSoft }
+                        }
+                        Repeater {
+                            model: [
+                                { glyph: "󰒮", run: () => root.player.previous(), ok: root.player?.canGoPrevious },
+                                { glyph: root.player?.isPlaying ? "󰏤" : "󰐊", run: () => root.player.togglePlaying(), ok: root.player?.canTogglePlaying, main: true },
+                                { glyph: "󰒭", run: () => root.player.next(), ok: root.player?.canGoNext }
+                            ]
+                            delegate: Rectangle {
+                                required property var modelData
+                                implicitWidth: modelData.main ? 38 : 30
+                                implicitHeight: implicitWidth
+                                radius: implicitWidth / 2
+                                opacity: modelData.ok ? 1 : 0.4
+                                color: modelData.main ? Theme.violet : mediaArea.containsMouse ? Theme.hover : "transparent"
+                                Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 16; color: modelData.main ? Theme.violetInk : Theme.text }
+                                MouseArea {
+                                    id: mediaArea
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    enabled: !!modelData.ok
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: modelData.run()
+                                }
+                            }
+                        }
                     }
-                    Repeater {
-                        model: [
-                            { glyph: "󰒮", run: () => root.player.previous(), ok: root.player?.canGoPrevious },
-                            { glyph: root.player?.isPlaying ? "󰏤" : "󰐊", run: () => root.player.togglePlaying(), ok: root.player?.canTogglePlaying, main: true },
-                            { glyph: "󰒭", run: () => root.player.next(), ok: root.player?.canGoNext }
-                        ]
-                        delegate: Rectangle {
-                            required property var modelData
-                            implicitWidth: modelData.main ? 38 : 30
-                            implicitHeight: implicitWidth
-                            radius: implicitWidth / 2
-                            opacity: modelData.ok ? 1 : 0.4
-                            color: modelData.main ? Theme.violet : mediaArea.containsMouse ? Theme.hover : "transparent"
-                            Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 16; color: modelData.main ? Theme.violetInk : Theme.text }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: (root.player?.lengthSupported ?? false) && root.player.length > 0
+                        spacing: 10
+                        Label {
+                            text: media.time(root.player?.position ?? 0)
+                            font.family: Theme.mono
+                            font.pixelSize: 10
+                            color: Theme.textSoft
+                        }
+                        Item {
+                            Layout.fillWidth: true
+                            implicitHeight: 14
+                            readonly property real progress: root.player?.length > 0 ? Math.min(1, root.player.position / root.player.length) : 0
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width
+                                height: seekArea.containsMouse ? 6 : 4
+                                radius: height / 2
+                                color: Qt.rgba(1, 1, 1, 0.12)
+                                Behavior on height { NumberAnimation { duration: Theme.fast } }
+                                Rectangle {
+                                    width: parent.width * parent.parent.progress
+                                    height: parent.height
+                                    radius: height / 2
+                                    color: Theme.violet
+                                }
+                            }
                             MouseArea {
-                                id: mediaArea
+                                id: seekArea
                                 anchors.fill: parent
                                 hoverEnabled: true
-                                enabled: !!modelData.ok
+                                enabled: root.player?.canSeek ?? false
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: modelData.run()
+                                function seek(x) {
+                                    root.player.position = Math.max(0, Math.min(1, x / width)) * root.player.length;
+                                }
+                                onPressed: m => seek(m.x)
+                                onPositionChanged: m => { if (pressed) seek(m.x); }
                             }
+                        }
+                        Label {
+                            text: media.time(root.player?.length ?? 0)
+                            font.family: Theme.mono
+                            font.pixelSize: 10
+                            color: Theme.textSoft
                         }
                     }
                 }
@@ -2845,21 +3112,75 @@ Panel {
                 }
             }
 
+            // Grouped by app; each group shows its newest notification until expanded.
             ListView {
                 Layout.fillWidth: true
-                Layout.preferredHeight: Notifs.count ? Math.min(contentHeight, 340) : 0
+                Layout.preferredHeight: Notifs.count ? Math.min(contentHeight, 360) : 0
                 visible: Notifs.count > 0
                 clip: true
-                spacing: 8
-                model: Notifs.history
+                spacing: 12
+                model: Notifs.groups
                 boundsBehavior: Flickable.StopAtBounds
-                delegate: NotificationCard {
+                delegate: ColumnLayout {
+                    id: group
                     required property var modelData
+                    readonly property bool expanded: root.expandedApps.includes(modelData.app)
                     width: ListView.view.width
-                    notification: modelData
-                    compact: true
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 4
+                        Layout.rightMargin: 4
+                        Label {
+                            Layout.fillWidth: true
+                            text: group.modelData.app + (group.modelData.items.length > 1 ? ` · ${group.modelData.items.length}` : "")
+                            font.pixelSize: 11
+                            font.weight: Font.DemiBold
+                            color: Theme.textSoft
+                        }
+                        Label {
+                            visible: group.modelData.items.length > 1
+                            text: group.expanded ? "Show less" : "Show all"
+                            font.pixelSize: 11
+                            color: expandArea.containsMouse ? Theme.violetBright : Theme.violet
+                            MouseArea {
+                                id: expandArea
+                                anchors.fill: parent
+                                anchors.margins: -6
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.expandedApps = group.expanded
+                                    ? root.expandedApps.filter(a => a !== group.modelData.app)
+                                    : [...root.expandedApps, group.modelData.app]
+                            }
+                        }
+                        Glyph {
+                            Layout.leftMargin: 8
+                            text: "󰎟"
+                            size: 13
+                            color: clearGroup.containsMouse ? Theme.text : Theme.dim
+                            MouseArea {
+                                id: clearGroup
+                                anchors.fill: parent
+                                anchors.margins: -6
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Notifs.clearApp(group.modelData.app)
+                            }
+                        }
+                    }
+
+                    Repeater {
+                        model: group.expanded ? group.modelData.items : group.modelData.items.slice(0, 1)
+                        delegate: NotificationCard {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            notification: modelData
+                            compact: true
+                        }
+                    }
                 }
-                add: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.normal } }
                 displaced: Transition { NumberAnimation { property: "y"; duration: Theme.normal; easing.type: Easing.OutCubic } }
             }
 
@@ -2883,6 +3204,8 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Bluetooth
+import Quickshell.Hyprland
+import Quickshell.Io
 import Quickshell.Networking
 import Quickshell.Services.Pipewire
 import Quickshell.Services.UPower
@@ -2947,6 +3270,40 @@ Singleton {
         const h = Math.floor(seconds / 3600), m = Math.round(seconds % 3600 / 60);
         return `${h ? h + " h " : ""}${m} min ${charging ? "until full" : "left"}`;
     }
+
+    // Keyboard layouts of the main keyboard, e.g. ["us", "fr"], and the one in use.
+    property var layouts: []
+    property int layoutIndex: 0
+    property string layoutName: ""
+    readonly property string layoutCode: (layouts[layoutIndex] ?? "").toUpperCase()
+    function nextLayout() {
+        Quickshell.execDetached(["hyprctl", "switchxkblayout", "all", "next"]);
+    }
+    Process {
+        id: keyboards
+        running: true
+        command: ["hyprctl", "devices", "-j"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const all = JSON.parse(text).keyboards;
+                    const main = all.find(k => k.main) ?? all[all.length - 1];
+                    root.layouts = main.layout.split(",").map(l => l.trim()).filter(l => l);
+                    root.layoutIndex = main.active_layout_index ?? 0;
+                    root.layoutName = main.active_keymap ?? "";
+                } catch (e) {
+                    root.layouts = [];
+                }
+            }
+        }
+    }
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) {
+            if (event.name === "activelayout" || event.name === "configreloaded")
+                keyboards.running = true;
+        }
+    }
 }
 ```
 
@@ -3000,15 +3357,20 @@ Rectangle {
     property bool compact: false
     readonly property bool critical: notification?.urgency === NotificationUrgency.Critical
     readonly property var actions: (notification?.actions ?? []).filter(a => a.identifier !== "default")
-    readonly property string iconSource: {
-        const n = notification;
-        if (!n)
+    // Big images (screenshots, photos) show under the text; small ones (avatars) are the icon.
+    readonly property bool largeImage: probe.status === Image.Ready && probe.implicitWidth >= 240
+    readonly property string appIconSource: {
+        const icon = notification?.appIcon ?? "";
+        if (!icon)
             return "";
-        if (n.image)
-            return n.image;
-        if (n.appIcon)
-            return n.appIcon.startsWith("/") || n.appIcon.includes("://") ? n.appIcon : Quickshell.iconPath(n.appIcon, true);
-        return "";
+        return icon.startsWith("/") || icon.includes("://") ? icon : Quickshell.iconPath(icon, true);
+    }
+    readonly property string iconSource: notification?.image && !largeImage ? notification.image : appIconSource
+    Image {
+        id: probe
+        visible: false
+        source: root.notification?.image ?? ""
+        asynchronous: true
     }
 
     implicitHeight: layout.implicitHeight + 28
@@ -3109,6 +3471,70 @@ Rectangle {
                 linkColor: Theme.violetBright
                 onLinkActivated: link => Qt.openUrlExternally(link)
             }
+            ClippingRectangle {
+                Layout.fillWidth: true
+                Layout.topMargin: 6
+                Layout.preferredHeight: Math.min(root.compact ? 120 : 180, width * probe.implicitHeight / Math.max(1, probe.implicitWidth))
+                visible: root.largeImage
+                radius: 10
+                color: Theme.raised
+                Image {
+                    anchors.fill: parent
+                    source: root.largeImage ? root.notification.image : ""
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                }
+            }
+
+            // Inline reply, for chat apps that offer it.
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.topMargin: 6
+                visible: root.notification?.hasInlineReply ?? false
+                implicitHeight: 34
+                radius: 17
+                color: Theme.raised
+                border.color: reply.activeFocus ? Theme.violet : Theme.line
+                TextInput {
+                    id: reply
+                    anchors { fill: parent; leftMargin: 14; rightMargin: 40 }
+                    verticalAlignment: TextInput.AlignVCenter
+                    color: Theme.text
+                    font.family: Theme.sans
+                    font.pixelSize: 12
+                    selectionColor: Theme.violetDeep
+                    clip: true
+                    function send() {
+                        if (!text.trim())
+                            return;
+                        root.notification.sendInlineReply(text);
+                        root.notification.dismiss();
+                    }
+                    Keys.onReturnPressed: send()
+                    Keys.onEnterPressed: send()
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: !reply.text
+                        text: root.notification?.inlineReplyPlaceholder || "Reply…"
+                        font.pixelSize: 12
+                        color: Theme.dim
+                    }
+                }
+                Rectangle {
+                    anchors { right: parent.right; rightMargin: 3; verticalCenter: parent.verticalCenter }
+                    width: 28
+                    height: 28
+                    radius: 14
+                    color: reply.text ? Theme.violet : "transparent"
+                    Glyph { anchors.centerIn: parent; text: "󰒊"; size: 13; color: reply.text ? Theme.violetInk : Theme.dim }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: reply.send()
+                    }
+                }
+            }
+
             Flow {
                 Layout.fillWidth: true
                 Layout.topMargin: 6
@@ -3168,6 +3594,8 @@ PanelWindow {
     color: "transparent"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "nocturne-popups"
+    // A click gives the popup the keyboard, for inline replies.
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
     // Only the cards take input; the rest of the column passes clicks through.
     mask: Region { item: column }
 
@@ -3220,11 +3648,27 @@ Singleton {
     // Newest first.
     readonly property var history: server.trackedNotifications.values.slice().reverse()
     readonly property int count: history.length
+    // History by app, newest first: [{ app, items }].
+    readonly property var groups: {
+        const groups = [];
+        for (const n of history) {
+            const app = n.appName || "Notification";
+            let group = groups.find(g => g.app === app);
+            if (!group)
+                groups.push(group = { app, items: [] });
+            group.items.push(n);
+        }
+        return groups;
+    }
 
     function clear() {
         for (const n of server.trackedNotifications.values.slice())
             n.dismiss();
         popups = [];
+    }
+    function clearApp(app) {
+        for (const n of history.filter(n => (n.appName || "Notification") === app))
+            n.dismiss();
     }
     function hidePopup(n) {
         popups = popups.filter(p => p !== n);
@@ -3243,6 +3687,7 @@ Singleton {
         bodyMarkupSupported: true
         bodyHyperlinksSupported: true
         imageSupported: true
+        inlineReplySupported: true
         persistenceSupported: true
 
         onNotification: n => {
@@ -3542,12 +3987,14 @@ PanelWindow {
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Quickshell.Widgets
 
-// Glyph button (mute) plus a soft violet slider, 0–100.
+// Glyph (or app icon) button for mute, plus a soft violet slider, 0–100.
 RowLayout {
     id: root
 
     property string glyph
+    property string icon: ""
     property real value: 0
     property bool muted: false
     signal moved(real value)
@@ -3562,9 +4009,17 @@ RowLayout {
         color: button.containsMouse ? Theme.hover : Theme.raised
         Glyph {
             anchors.centerIn: parent
+            visible: root.icon === ""
             text: root.glyph
             size: 16
             color: root.muted ? Theme.dim : Theme.violetBright
+        }
+        IconImage {
+            anchors.centerIn: parent
+            visible: root.icon !== ""
+            implicitSize: 20
+            source: root.icon
+            opacity: root.muted ? 0.4 : 1
         }
         MouseArea {
             id: button
@@ -3578,6 +4033,8 @@ RowLayout {
     Slider {
         id: slider
         Layout.fillWidth: true
+        // The custom background and handle give no implicit height, which would leave a 0 px hit area.
+        implicitHeight: 36
         from: 0
         to: 100
         value: root.value
@@ -3637,11 +4094,14 @@ Singleton {
     id: root
 
     property int cpu: 0
+    property int cores: 1
     property int memory: 0
     property string memoryDetail: ""
     property int brightness: -1 // -1 when the machine has no backlight
     property int updates: 0
     property string updatesDetail: ""
+    property var updateSources: [] // [{ name, packages: ["name old -> new" or a Flatpak ref] }]
+    property bool checkingUpdates: updateCheck.running
 
     property var lastCpu: null
 
@@ -3660,6 +4120,7 @@ Singleton {
         id: stat
         path: "/proc/stat"
         onLoaded: {
+            root.cores = (text().match(/^cpu\d+ /gm) ?? []).length || 1;
             const f = text().split("\n")[0].trim().split(/\s+/).slice(1).map(Number);
             const idle = f[3] + f[4], total = f.reduce((a, b) => a + b, 0);
             if (root.lastCpu) {
@@ -3715,8 +4176,10 @@ Singleton {
                     const status = JSON.parse(text);
                     root.updates = parseInt(status.text.replace(/\D/g, "")) || 0;
                     root.updatesDetail = status.tooltip.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+                    root.updateSources = status.sources ?? [];
                 } catch (e) {
                     root.updates = 0;
+                    root.updateSources = [];
                 }
             }
         }
@@ -3869,16 +4332,26 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Io
 
 // Which surfaces are open, and the screen they open on.
 Singleton {
     id: root
 
     property bool controlOpen: false
-    property string controlPage: "main" // main, wifi or bluetooth
+    property string controlPage: "main" // main, wifi, bluetooth or mixer
     property bool calendarOpen: false
+    property bool monitorOpen: false
+    property bool updatesOpen: false
+    property bool wallpapersOpen: false
     property bool sessionOpen: false
+    property bool launcherOpen: false
+    property string launcherMode: "apps" // apps or clipboard
+    property bool switcherOpen: false
+    property bool overviewOpen: false
+    property bool shotOpen: false
     property bool caffeine: false
+    property bool nightLight: false
 
     property string osdKind: "volume"
     property int osdValue: 0
@@ -3891,6 +4364,18 @@ Singleton {
     function close() {
         controlOpen = false;
         calendarOpen = false;
+        monitorOpen = false;
+        updatesOpen = false;
+        wallpapersOpen = false;
+    }
+    // Full-screen overlays replace each other and any open panel.
+    function closeOverlays() {
+        close();
+        sessionOpen = false;
+        launcherOpen = false;
+        switcherOpen = false;
+        overviewOpen = false;
+        shotOpen = false;
     }
     // A click outside a panel closes it; ignore that same click reopening it from the bar.
     property double closedAt: 0
@@ -3915,9 +4400,39 @@ Singleton {
         close();
         calendarOpen = reopen;
     }
-    function openSession() {
+    function toggleMonitor() {
+        const reopen = !monitorOpen && Date.now() - closedAt > 250;
         close();
+        monitorOpen = reopen;
+    }
+    function toggleUpdates() {
+        const reopen = !updatesOpen && Date.now() - closedAt > 250;
+        close();
+        updatesOpen = reopen;
+    }
+    function toggleWallpapers() {
+        const reopen = !wallpapersOpen && Date.now() - closedAt > 250;
+        close();
+        wallpapersOpen = reopen;
+    }
+    function openSession() {
+        closeOverlays();
         sessionOpen = true;
+    }
+    function toggleLauncher(mode) {
+        const reopen = !(launcherOpen && launcherMode === mode);
+        closeOverlays();
+        launcherMode = mode;
+        launcherOpen = reopen;
+    }
+    function toggleOverview() {
+        const reopen = !overviewOpen;
+        closeOverlays();
+        overviewOpen = reopen;
+    }
+    function openShot() {
+        closeOverlays();
+        shotOpen = true;
     }
 
     function showOsd(kind, value, muted) {
@@ -3931,6 +4446,37 @@ Singleton {
         id: osdTimer
         interval: 1500
         onTriggered: root.osdVisible = false
+    }
+
+    // The chosen wallpaper (wallpaper, wallpaper-dawn…), as nocturne-wallpaper records it.
+    property string wallpaper: "wallpaper"
+    readonly property string wallpapers: Quickshell.env("HOME") + "/.local/share/nocturne/"
+    FileView {
+        path: Quickshell.env("HOME") + "/.local/state/nocturne/wallpaper"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: root.wallpaper = text().trim() || "wallpaper"
+    }
+
+    // Optional tools, found once at startup.
+    property bool hasNightLight: false
+    property bool hasVisualizer: false
+    Process {
+        running: true
+        command: ["bash", "-c", "command -v hyprsunset; command -v cava"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.hasNightLight = text.includes("/hyprsunset");
+                root.hasVisualizer = text.includes("/cava");
+            }
+        }
+    }
+    // Night light: hyprsunset warms the screen for as long as it runs.
+    readonly property int nightTemperature: 4500
+    Process {
+        running: root.nightLight && root.hasNightLight
+        command: ["hyprsunset", "--temperature", String(root.nightTemperature)]
     }
 
     function run(command) {
@@ -4301,7 +4847,7 @@ Rectangle {
 
     implicitWidth: label.implicitWidth + 26
     implicitHeight: 30
-    radius: 15
+    radius: height / 2
     opacity: available ? 1 : 0.45
     color: primary ? (area.containsMouse ? Theme.violetBright : Theme.violet) : area.containsMouse ? Theme.hover : Theme.raised
     border.color: danger ? Qt.rgba(239 / 255, 143 / 255, 164 / 255, 0.5) : primary ? Theme.violetBright : Theme.line
@@ -4600,6 +5146,2496 @@ ColumnLayout {
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             onClicked: { Ui.close(); Ui.run("nm-connection-editor"); }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/MixerPage.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Services.Pipewire
+
+// Sound: pick the output and input device, and set each app's own volume.
+ColumnLayout {
+    id: root
+
+    property bool active: false
+    readonly property var audioNodes: Pipewire.nodes.values.filter(n => n.audio)
+    readonly property var outputs: audioNodes.filter(n => n.isSink && !n.isStream)
+    readonly property var inputs: audioNodes.filter(n => !n.isSink && !n.isStream)
+    // Apps playing sound; recording streams (isSink) are left out.
+    readonly property var streams: audioNodes.filter(n => n.isStream && !n.isSink)
+
+    spacing: 12
+
+    // Volume, mute and properties are only live on tracked nodes.
+    PwObjectTracker {
+        objects: root.active ? [...root.outputs, ...root.inputs, ...root.streams] : []
+    }
+
+    // The port ("Speaker", "HDMI / DisplayPort 1 Output") tells a card's devices apart;
+    // Bluetooth devices go by their own name.
+    function deviceName(node) {
+        const port = node.name.startsWith("bluez") ? "" : node.properties["device.profile.description"];
+        return port || node.description || node.nickname || node.name;
+    }
+    function deviceGlyph(node, input) {
+        const name = (node.name + " " + node.description).toLowerCase();
+        if (name.includes("bluez") || name.includes("headset") || name.includes("headphone"))
+            return input ? "󰋎" : "󰋋";
+        if (name.includes("hdmi") || name.includes("displayport"))
+            return "󰡁";
+        return input ? "󰍬" : "󰓃";
+    }
+    function appName(node) {
+        const p = node.properties;
+        return p["application.name"] || node.description || node.name;
+    }
+    function appIcon(node) {
+        const p = node.properties;
+        const entry = DesktopEntries.heuristicLookup(p["application.process.binary"] ?? p["application.name"] ?? "");
+        return Quickshell.iconPath(p["application.icon-name"] || entry?.icon || p["application.process.binary"] || "", "audio-volume-high");
+    }
+
+    PageHeader {
+        Layout.fillWidth: true
+        title: "Sound"
+        status: Pipewire.defaultAudioSink ? root.deviceName(Pipewire.defaultAudioSink) : "No output"
+        showSwitch: false
+        onBack: Ui.controlPage = "main"
+    }
+
+    Label {
+        Layout.fillWidth: true
+        Layout.topMargin: 2
+        text: "Output"
+        font.pixelSize: 11
+        font.letterSpacing: 1.2
+        font.capitalization: Font.AllUppercase
+        color: Theme.muted
+    }
+    Repeater {
+        model: root.outputs
+        delegate: ListRow {
+            required property var modelData
+            Layout.fillWidth: true
+            glyph: root.deviceGlyph(modelData, false)
+            title: root.deviceName(modelData)
+            highlighted: Pipewire.defaultAudioSink === modelData
+            subtitle: highlighted ? "In use" : ""
+            onClicked: Pipewire.preferredDefaultAudioSink = modelData
+        }
+    }
+
+    Label {
+        Layout.fillWidth: true
+        Layout.topMargin: 2
+        visible: root.inputs.length > 0
+        text: "Input"
+        font.pixelSize: 11
+        font.letterSpacing: 1.2
+        font.capitalization: Font.AllUppercase
+        color: Theme.muted
+    }
+    Repeater {
+        model: root.inputs
+        delegate: ListRow {
+            required property var modelData
+            Layout.fillWidth: true
+            glyph: root.deviceGlyph(modelData, true)
+            title: root.deviceName(modelData)
+            highlighted: Pipewire.defaultAudioSource === modelData
+            subtitle: highlighted ? "In use" : ""
+            onClicked: Pipewire.preferredDefaultAudioSource = modelData
+        }
+    }
+
+    Label {
+        Layout.fillWidth: true
+        Layout.topMargin: 2
+        text: "Applications"
+        font.pixelSize: 11
+        font.letterSpacing: 1.2
+        font.capitalization: Font.AllUppercase
+        color: Theme.muted
+    }
+    Repeater {
+        model: root.streams
+        delegate: ColumnLayout {
+            id: stream
+            required property var modelData
+            Layout.fillWidth: true
+            spacing: 0
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: 46
+                text: root.appName(stream.modelData) + (stream.modelData.properties["media.name"] ? " · " + stream.modelData.properties["media.name"] : "")
+                font.pixelSize: 11
+                color: Theme.textSoft
+            }
+            SliderRow {
+                Layout.fillWidth: true
+                icon: root.appIcon(stream.modelData)
+                value: Math.round((stream.modelData.audio?.volume ?? 0) * 100)
+                muted: stream.modelData.audio?.muted ?? false
+                onMoved: v => { stream.modelData.audio.muted = false; stream.modelData.audio.volume = v / 100; }
+                onGlyphClicked: stream.modelData.audio.muted = !stream.modelData.audio.muted
+            }
+        }
+    }
+    ColumnLayout {
+        Layout.fillWidth: true
+        Layout.bottomMargin: 4
+        visible: root.streams.length === 0
+        spacing: 4
+        Glyph { Layout.fillWidth: true; text: "󰝚"; size: 26; color: Theme.dim }
+        Label {
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
+            text: "No app is playing sound"
+            color: Theme.muted
+        }
+    }
+
+    Label {
+        Layout.alignment: Qt.AlignRight
+        text: "Advanced sound settings"
+        font.pixelSize: 11
+        color: advancedArea.containsMouse ? Theme.violetBright : Theme.muted
+        MouseArea {
+            id: advancedArea
+            anchors.fill: parent
+            anchors.margins: -4
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: { Ui.close(); Ui.run("pavucontrol"); }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/Media.qml`
+
+```qml
+pragma Singleton
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import Quickshell.Services.Mpris
+
+// What's playing, and a small spectrum of it from cava while it plays.
+Singleton {
+    id: root
+
+    // The player that is playing, else the last one that played, while it lasts.
+    readonly property var playing: Mpris.players.values.find(p => p.isPlaying) ?? null
+    property var recent: null
+    onPlayingChanged: if (playing) recent = playing
+    readonly property var player: playing ?? (Mpris.players.values.includes(recent) ? recent : null)
+    readonly property int count: 8
+    property var bars: new Array(count).fill(0)
+
+    readonly property string config: [
+        "[general]", `bars = ${count}`, "framerate = 30", "sleep_timer = 2",
+        "[input]", "method = pipewire",
+        "[output]", "method = raw", "raw_target = /dev/stdout", "data_format = ascii",
+        "ascii_max_range = 100", "bar_delimiter = 59", "frame_delimiter = 10",
+        "[smoothing]", "noise_reduction = 60", ""
+    ].join("\n")
+
+    // cava prints one frame per line: "12;40;7;…;".
+    Process {
+        running: Ui.hasVisualizer && !!root.playing
+        command: ["bash", "-c", 'f="${XDG_RUNTIME_DIR:-/tmp}/nocturne/cava.conf"; mkdir -p "${f%/*}"; printf "%s" "$1" > "$f"; exec cava -p "$f"', "_", root.config]
+        stdout: SplitParser {
+            onRead: data => root.bars = data.split(";").filter(v => v !== "").map(v => Math.min(1, parseInt(v) / 100))
+        }
+        onRunningChanged: if (!running) root.bars = new Array(root.count).fill(0)
+    }
+}
+```
+
+## `config/quickshell/nocturne/UpdatesPanel.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+
+// Pending updates by source, under the updates capsule; "Update now" opens the Kitty session.
+Panel {
+    id: root
+    anchors { top: true; right: true }
+    margins.right: Theme.edge
+    sheetWidth: 400
+    open: Ui.updatesOpen
+    onDismissed: Ui.dismiss()
+
+    ColumnLayout {
+        x: 18
+        y: 18
+        width: root.sheetWidth - 36
+        spacing: 12
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 12
+            Rectangle {
+                implicitWidth: 42
+                implicitHeight: 42
+                radius: 21
+                gradient: Gradient {
+                    GradientStop { position: 0; color: Theme.violet }
+                    GradientStop { position: 1; color: Theme.violetDeep }
+                }
+                Glyph { anchors.centerIn: parent; text: "󰚰"; size: 19; color: Theme.violetInk }
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 1
+                Label {
+                    text: Sys.updates === 1 ? "1 update" : `${Sys.updates} updates`
+                    font.pixelSize: 15
+                    font.weight: Font.DemiBold
+                }
+                Label {
+                    text: Sys.checkingUpdates ? "Checking…" : "Checked every 15 minutes"
+                    font.pixelSize: 11
+                    color: Theme.muted
+                }
+            }
+        }
+
+        Flickable {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(contentHeight, 380)
+            contentHeight: list.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+
+            ColumnLayout {
+                id: list
+                width: parent.width
+                spacing: 6
+
+                Repeater {
+                    model: Sys.updateSources
+                    delegate: ColumnLayout {
+                        id: source
+                        required property var modelData
+                        Layout.fillWidth: true
+                        spacing: 2
+
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 4
+                            Layout.bottomMargin: 2
+                            text: `${source.modelData.name} · ${source.modelData.packages.length}`
+                            font.pixelSize: 11
+                            font.letterSpacing: 1.2
+                            font.capitalization: Font.AllUppercase
+                            color: Theme.muted
+                        }
+                        Repeater {
+                            model: source.modelData.packages
+                            // "name old -> new", or just a Flatpak ref.
+                            delegate: RowLayout {
+                                required property string modelData
+                                readonly property var parts: modelData.match(/^(\S+)\s+(\S+)\s+->\s+(\S+)$/)
+                                Layout.fillWidth: true
+                                Layout.leftMargin: 4
+                                spacing: 8
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: parent.parts ? parent.parts[1] : parent.modelData
+                                    font.family: Theme.mono
+                                    font.pixelSize: 11
+                                }
+                                Label {
+                                    visible: !!parent.parts
+                                    text: parent.parts ? `${parent.parts[2]} → ${parent.parts[3]}` : ""
+                                    Layout.maximumWidth: 190
+                                    font.family: Theme.mono
+                                    font.pixelSize: 10
+                                    color: Theme.violet
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: 4
+            spacing: 8
+            Item { Layout.fillWidth: true }
+            PillButton {
+                text: "Check again"
+                implicitHeight: 34
+                available: !Sys.checkingUpdates
+                onClicked: Sys.refreshUpdates()
+            }
+            PillButton {
+                text: "Update now"
+                primary: true
+                implicitHeight: 34
+                onClicked: {
+                    Ui.close();
+                    Ui.run(Ui.bin + "nocturne-updates open");
+                }
+            }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/WallpaperPicker.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell.Widgets
+
+// The three wallpapers side by side; click one to switch with nocturne-wallpaper's transition.
+Panel {
+    id: root
+    anchors { top: true; right: true }
+    margins.right: Theme.edge
+    sheetWidth: 620
+    open: Ui.wallpapersOpen
+    onDismissed: Ui.dismiss()
+
+    readonly property var choices: [
+        { name: "wallpaper", title: "Night", animated: false },
+        { name: "wallpaper-dawn", title: "Dawn", animated: true },
+        { name: "wallpaper-eclipse", title: "Eclipse", animated: true }
+    ]
+
+    ColumnLayout {
+        x: 18
+        y: 18
+        width: root.sheetWidth - 36
+        spacing: 12
+
+        Label {
+            text: "Wallpaper"
+            font.pixelSize: 15
+            font.weight: Font.DemiBold
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 10
+            Repeater {
+                model: root.choices
+                delegate: ColumnLayout {
+                    id: choice
+                    required property var modelData
+                    readonly property bool current: Ui.wallpaper === modelData.name
+                    Layout.fillWidth: true
+                    // Equal thirds, whatever the labels' widths.
+                    Layout.preferredWidth: 1
+                    spacing: 6
+
+                    ClippingRectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: width * 9 / 16
+                        radius: Theme.radiusSmall
+                        color: Theme.raised
+                        border.width: choice.current ? 2 : 1
+                        border.color: choice.current ? Theme.violet : area.containsMouse ? Theme.lineStrong : Theme.line
+                        contentUnderBorder: true
+                        Image {
+                            anchors.fill: parent
+                            source: "file://" + Ui.wallpapers + choice.modelData.name + ".png"
+                            sourceSize.width: 360
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            scale: area.containsMouse ? 1.04 : 1
+                            Behavior on scale { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+                        }
+                        Rectangle {
+                            visible: choice.modelData.animated
+                            anchors { left: parent.left; top: parent.top; margins: 8 }
+                            implicitWidth: badge.implicitWidth + 14
+                            implicitHeight: 20
+                            radius: 10
+                            color: Theme.glassStrong
+                            Label {
+                                id: badge
+                                anchors.centerIn: parent
+                                text: "Animated"
+                                font.pixelSize: 9
+                                font.weight: Font.DemiBold
+                                color: Theme.violetBright
+                            }
+                        }
+                        MouseArea {
+                            id: area
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (!choice.current)
+                                    Ui.run(Ui.bin + "nocturne-wallpaper " + choice.modelData.name);
+                            }
+                        }
+                    }
+                    RowLayout {
+                        Layout.alignment: Qt.AlignHCenter
+                        spacing: 6
+                        Rectangle {
+                            visible: choice.current
+                            implicitWidth: 6
+                            implicitHeight: 6
+                            radius: 3
+                            color: Theme.violet
+                        }
+                        Label {
+                            text: choice.modelData.title
+                            font.weight: choice.current ? Font.DemiBold : Font.Normal
+                            color: choice.current ? Theme.text : Theme.muted
+                        }
+                    }
+                }
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            text: "Super+W cycles through them · the lock screen follows your choice"
+            font.pixelSize: 11
+            color: Theme.dim
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/Launcher.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Io
+import Quickshell.Wayland
+import Quickshell.Widgets
+
+// Applications and clipboard history, over a dimmed screen. Type to search; `>` runs a command,
+// a sum (or `=`) is worked out and copied; Tab switches between applications and the clipboard.
+PanelWindow {
+    id: root
+    screen: Ui.screen
+    anchors { top: true; bottom: true; left: true; right: true }
+    exclusionMode: ExclusionMode.Ignore
+    visible: Ui.launcherOpen || card.opacity > 0
+    color: "transparent"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.namespace: "nocturne-launcher"
+    WlrLayershell.keyboardFocus: Ui.launcherOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+
+    readonly property bool clipboard: Ui.launcherMode === "clipboard"
+    readonly property var apps: DesktopEntries.applications.values.filter(e => !e.noDisplay)
+    property var results: []
+    property var clips: []
+    property var usage: ({}) // desktop entry id → launches
+
+    Connections {
+        target: Ui
+        function onLauncherOpenChanged() { if (Ui.launcherOpen) root.reset(); }
+        function onLauncherModeChanged() { if (Ui.launcherOpen) root.reset(); }
+    }
+    onAppsChanged: refresh()
+
+    function reset() {
+        search.text = "";
+        search.forceActiveFocus();
+        if (clipboard)
+            clipList.running = true;
+        refresh();
+    }
+
+    // ── Results ─────────────────────────────────────────────────────
+    function refresh() {
+        const text = search.text, q = text.trim().toLowerCase();
+        let list = [];
+        if (clipboard) {
+            list = clips.filter(c => !q || c.text.toLowerCase().includes(q)).map(c => ({ kind: "clip", clip: c }));
+        } else if (text.startsWith(">")) {
+            if (text.slice(1).trim())
+                list = [{ kind: "run", command: text.slice(1).trim() }];
+        } else {
+            const sum = calculate(text);
+            if (sum !== null)
+                list.push({ kind: "calc", value: sum });
+            const scored = apps.map(e => ({ entry: e, score: score(e, q) })).filter(s => s.score > 0);
+            scored.sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name));
+            list = list.concat(scored.slice(0, 60).map(s => ({ kind: "app", entry: s.entry })));
+            if (q && list.length === 0)
+                list.push({ kind: "run", command: text.trim() });
+        }
+        results = list;
+        view.currentIndex = 0;
+        view.positionViewAtBeginning();
+    }
+
+    // Name matches first, then initials and scattered letters, then descriptions; often-launched
+    // apps rise a little. Everything matches an empty query.
+    function score(entry, q) {
+        const boost = Math.min(15, usage[entry.id] ?? 0);
+        if (!q)
+            return 1 + boost;
+        const name = entry.name.toLowerCase();
+        let s = 0;
+        if (name === q)
+            s = 120;
+        else if (name.startsWith(q))
+            s = 100;
+        else if (name.split(/[\s\-_.]+/).some(w => w.startsWith(q)))
+            s = 85;
+        else if (name.includes(q))
+            s = 70;
+        else if (fuzzy(name, q))
+            s = 30 + fuzzy(name, q);
+        else if ([entry.genericName, entry.keywords.join(" "), entry.comment, entry.id].join(" ").toLowerCase().includes(q))
+            s = 25;
+        return s ? s + boost : 0;
+    }
+    // Letters of q in order inside name; fewer gaps score higher (1–30), no match is 0.
+    function fuzzy(name, q) {
+        let at = -1, gaps = 0;
+        for (const c of q) {
+            const next = name.indexOf(c, at + 1);
+            if (next < 0)
+                return 0;
+            gaps += next - at - 1;
+            at = next;
+        }
+        return Math.max(1, 30 - gaps);
+    }
+
+    // Arithmetic and Math functions only; anything else is not a sum.
+    readonly property var mathNames: ({
+        pi: "Math.PI", e: "Math.E", sqrt: "Math.sqrt", cbrt: "Math.cbrt", abs: "Math.abs", round: "Math.round",
+        floor: "Math.floor", ceil: "Math.ceil", sin: "Math.sin", cos: "Math.cos", tan: "Math.tan",
+        asin: "Math.asin", acos: "Math.acos", atan: "Math.atan", ln: "Math.log", log: "Math.log10",
+        exp: "Math.exp", min: "Math.min", max: "Math.max", pow: "Math.pow"
+    })
+    function calculate(text) {
+        const forced = text.startsWith("=");
+        let expr = text.replace(/^=/, "").trim().toLowerCase();
+        if (!expr || !/^[\d\s+\-*/%^().,a-z]+$/.test(expr) || !/\d|pi/.test(expr))
+            return null;
+        // A sum needs an operator or a function; a bare number is a search.
+        if (!forced && !/[+\-*/%^]|[a-z]+\s*\(/.test(expr.replace(/^-/, "")))
+            return null;
+        // A comma is a decimal point (3,5), unless it separates a function's arguments.
+        if (!/[a-z]\s*\(/.test(expr))
+            expr = expr.replace(/(\d),(\d)/g, "$1.$2");
+        let unknown = false;
+        expr = expr.replace(/\^/g, "**")
+            .replace(/[a-z]+/g, word => root.mathNames[word] ?? (unknown = true, word));
+        if (unknown)
+            return null;
+        try {
+            const value = Function(`"use strict"; return (${expr});`)();
+            return typeof value === "number" && isFinite(value) ? Number(value.toPrecision(12)) : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // ── Actions ─────────────────────────────────────────────────────
+    function activate(index, alternate) {
+        const item = results[index];
+        if (!item)
+            return;
+        Ui.launcherOpen = false;
+        if (item.kind === "app") {
+            launch(item.entry);
+        } else if (item.kind === "run") {
+            Quickshell.execDetached(alternate ? ["kitty", "--hold", "bash", "-c", item.command] : ["bash", "-c", item.command]);
+        } else if (item.kind === "calc") {
+            Quickshell.execDetached(["wl-copy", String(item.value)]);
+        } else if (item.kind === "clip") {
+            Quickshell.execDetached(["bash", "-c", 'printf "%s" "$1" | cliphist decode | wl-copy', "_", item.clip.line]);
+        }
+    }
+    function launch(entry) {
+        // Field codes (%u, %F…) stand for files and URLs; there are none to pass.
+        const command = entry.command.filter(arg => !/^%[a-zA-Z]$/.test(arg));
+        Quickshell.execDetached({
+            command: entry.runInTerminal ? ["kitty", "--", ...command] : command,
+            workingDirectory: entry.workingDirectory || Quickshell.env("HOME")
+        });
+        usage = Object.assign({}, usage, { [entry.id]: (usage[entry.id] ?? 0) + 1 });
+        usageFile.setText(JSON.stringify(usage));
+    }
+    function forget(index) {
+        const item = results[index];
+        if (item?.kind !== "clip")
+            return;
+        Quickshell.execDetached(["bash", "-c", 'printf "%s" "$1" | cliphist delete', "_", item.clip.line]);
+        clips = clips.filter(c => c !== item.clip);
+        const keep = view.currentIndex;
+        refresh();
+        view.currentIndex = Math.min(keep, results.length - 1);
+    }
+
+    FileView {
+        id: usageFile
+        path: Quickshell.env("HOME") + "/.local/state/nocturne/launcher.json"
+        printErrors: false
+        onLoaded: {
+            try {
+                root.usage = JSON.parse(text());
+            } catch (e) {
+                root.usage = {};
+            }
+        }
+    }
+
+    // cliphist lists "id<TAB>preview", newest first; images preview as
+    // "[[ binary data 52 KiB png 800x600 ]]".
+    Process {
+        id: clipList
+        command: ["cliphist", "list"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.clips = text.split("\n").filter(line => line.includes("\t")).map(line => {
+                    const tab = line.indexOf("\t"), preview = line.slice(tab + 1);
+                    const image = preview.match(/^\[\[ binary data (.+) (\w+) (\d+)x(\d+) \]\]$/);
+                    return {
+                        line,
+                        id: line.slice(0, tab),
+                        text: image ? `${image[2].toUpperCase()} image · ${image[3]}×${image[4]} · ${image[1]}` : preview.replace(/\s+/g, " ").trim(),
+                        image: image ? image[2] : ""
+                    };
+                });
+                root.refresh();
+            }
+        }
+    }
+    readonly property string thumbs: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/nocturne/clipboard"
+
+    // ── Surface ─────────────────────────────────────────────────────
+    // Faint enough that the glass rule leaves it unblurred; only the card is frosted.
+    Rectangle {
+        anchors.fill: parent
+        color: Qt.rgba(7 / 255, 7 / 255, 11 / 255, 0.26)
+        opacity: card.opacity
+        MouseArea {
+            anchors.fill: parent
+            onClicked: Ui.launcherOpen = false
+        }
+    }
+
+    Rectangle {
+        id: card
+        width: 640
+        x: (parent.width - width) / 2
+        y: Math.round(parent.height * 0.17)
+        implicitHeight: column.implicitHeight + 24
+        height: implicitHeight
+        radius: Theme.radiusLarge
+        color: Theme.glassStrong
+        border.color: Theme.lineStrong
+        clip: true
+        opacity: Ui.launcherOpen ? 1 : 0
+        scale: Ui.launcherOpen ? 1 : 0.96
+        Behavior on opacity { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
+        Behavior on height { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
+
+        // Swallow clicks so they don't reach the backdrop.
+        MouseArea { anchors.fill: parent }
+
+        ColumnLayout {
+            id: column
+            x: 12
+            y: 12
+            width: parent.width - 24
+            spacing: 8
+
+            // Search field and mode switch.
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: 10
+                Layout.preferredHeight: 48
+                spacing: 12
+                Glyph {
+                    text: root.clipboard ? "󰅍" : search.text.startsWith(">") ? "󰆍" : "󰍉"
+                    size: 20
+                    color: Theme.violetBright
+                }
+                TextInput {
+                    id: search
+                    Layout.fillWidth: true
+                    color: Theme.text
+                    selectionColor: Theme.violetDeep
+                    selectedTextColor: Theme.text
+                    font.family: Theme.sans
+                    font.pixelSize: 17
+                    clip: true
+                    focus: true
+                    onTextChanged: root.refresh()
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: !search.text
+                        text: root.clipboard ? "Search clipboard history…" : "Search applications, > run, = calculate…"
+                        font.pixelSize: 17
+                        color: Theme.dim
+                    }
+                    Keys.onPressed: event => {
+                        const ctrl = event.modifiers & Qt.ControlModifier;
+                        if (event.key === Qt.Key_Escape) {
+                            Ui.launcherOpen = false;
+                        } else if (event.key === Qt.Key_Down || (ctrl && event.key === Qt.Key_N)) {
+                            view.incrementCurrentIndex();
+                        } else if (event.key === Qt.Key_Up || (ctrl && event.key === Qt.Key_P)) {
+                            view.decrementCurrentIndex();
+                        } else if (event.key === Qt.Key_PageDown) {
+                            view.currentIndex = Math.min(root.results.length - 1, view.currentIndex + 6);
+                        } else if (event.key === Qt.Key_PageUp) {
+                            view.currentIndex = Math.max(0, view.currentIndex - 6);
+                        } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+                            Ui.launcherMode = root.clipboard ? "apps" : "clipboard";
+                        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            root.activate(view.currentIndex, event.modifiers & Qt.ShiftModifier);
+                        } else if (event.key === Qt.Key_Delete && (event.modifiers & Qt.ShiftModifier)) {
+                            root.forget(view.currentIndex);
+                        } else {
+                            return;
+                        }
+                        event.accepted = true;
+                    }
+                }
+                Repeater {
+                    model: [{ mode: "apps", label: "Apps", glyph: "󰀻" }, { mode: "clipboard", label: "Clipboard", glyph: "󰅍" }]
+                    delegate: Rectangle {
+                        required property var modelData
+                        readonly property bool current: Ui.launcherMode === modelData.mode
+                        implicitWidth: modeRow.implicitWidth + 22
+                        implicitHeight: 30
+                        radius: 15
+                        color: current ? Theme.violet : modeArea.containsMouse ? Theme.hover : Theme.raised
+                        border.color: current ? Theme.violetBright : Theme.line
+                        Behavior on color { ColorAnimation { duration: Theme.fast } }
+                        RowLayout {
+                            id: modeRow
+                            anchors.centerIn: parent
+                            spacing: 6
+                            Glyph { text: modelData.glyph; size: 13; color: current ? Theme.violetInk : Theme.textSoft }
+                            Label { text: modelData.label; font.pixelSize: 11; font.weight: Font.DemiBold; color: current ? Theme.violetInk : Theme.text }
+                        }
+                        MouseArea {
+                            id: modeArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: { Ui.launcherMode = modelData.mode; search.forceActiveFocus(); }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: 1
+                color: Theme.line
+            }
+
+            ListView {
+                id: view
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(contentHeight, 7 * 56)
+                visible: root.results.length > 0
+                clip: true
+                spacing: 2
+                model: root.results
+                boundsBehavior: Flickable.StopAtBounds
+                highlightMoveDuration: Theme.fast
+                highlight: Rectangle {
+                    radius: Theme.radiusSmall
+                    color: Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.16)
+                    border.color: Theme.lineStrong
+                }
+                delegate: Item {
+                    id: row
+                    required property var modelData
+                    required property int index
+                    readonly property bool current: ListView.isCurrentItem
+                    readonly property bool isImage: modelData.kind === "clip" && modelData.clip.image !== ""
+                    width: ListView.view.width
+                    implicitHeight: isImage ? 84 : 54
+
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onEntered: view.currentIndex = row.index
+                        onClicked: root.activate(row.index, false)
+                    }
+
+                    RowLayout {
+                        anchors { fill: parent; leftMargin: 12; rightMargin: 14 }
+                        spacing: 14
+
+                        // App icon, or a glyph for commands, sums and text clips.
+                        Item {
+                            visible: !row.isImage
+                            implicitWidth: 32
+                            implicitHeight: 32
+                            IconImage {
+                                anchors.fill: parent
+                                visible: row.modelData.kind === "app"
+                                source: row.modelData.kind === "app" ? Quickshell.iconPath(row.modelData.entry.icon, "application-x-executable") : ""
+                                asynchronous: true
+                            }
+                            // Picked colors (#rrggbb) show as a swatch.
+                            Rectangle {
+                                readonly property bool swatch: row.modelData.kind === "clip" && /^#[0-9a-fA-F]{6}$/.test(row.modelData.clip.text)
+                                anchors.fill: parent
+                                visible: row.modelData.kind !== "app"
+                                radius: 10
+                                color: swatch ? row.modelData.clip.text : Theme.raised
+                                border.color: swatch ? Theme.lineStrong : "transparent"
+                                Glyph {
+                                    anchors.centerIn: parent
+                                    visible: !parent.swatch
+                                    text: ({ run: "󰆍", calc: "󰃬", clip: "󰅍" })[row.modelData.kind] ?? ""
+                                    size: 16
+                                    color: Theme.violetBright
+                                }
+                            }
+                        }
+
+                        // Image clips show a thumbnail, decoded once into the runtime directory.
+                        ClippingRectangle {
+                            visible: row.isImage
+                            implicitWidth: 112
+                            implicitHeight: 68
+                            radius: 10
+                            color: Theme.raised
+                            Image {
+                                id: thumb
+                                anchors.fill: parent
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                                sourceSize: Qt.size(224, 136)
+                            }
+                            Process {
+                                running: row.isImage
+                                command: ["bash", "-c", 'f=$1; [ -s "$f" ] || { mkdir -p "${f%/*}"; printf "%s" "$2" | cliphist decode > "$f"; }',
+                                    "_", `${root.thumbs}/${row.modelData.clip?.id}.${row.modelData.clip?.image}`, row.modelData.clip?.line ?? ""]
+                                onExited: thumb.source = `file://${root.thumbs}/${row.modelData.clip.id}.${row.modelData.clip.image}`
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+                            Label {
+                                Layout.fillWidth: true
+                                text: {
+                                    const m = row.modelData;
+                                    if (m.kind === "app")
+                                        return m.entry.name;
+                                    if (m.kind === "run")
+                                        return m.command;
+                                    if (m.kind === "calc")
+                                        return "= " + m.value;
+                                    return m.clip.text;
+                                }
+                                font.pixelSize: row.modelData.kind === "calc" ? 17 : 13
+                                font.family: row.modelData.kind === "run" || row.modelData.kind === "calc" ? Theme.mono : Theme.sans
+                                font.weight: row.current ? Font.DemiBold : Font.Normal
+                                color: row.modelData.kind === "calc" ? Theme.violetBright : Theme.text
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                visible: text !== ""
+                                text: {
+                                    const m = row.modelData;
+                                    if (m.kind === "app")
+                                        return m.entry.genericName || m.entry.comment;
+                                    if (m.kind === "run")
+                                        return "Run command · Shift+Enter in a terminal";
+                                    if (m.kind === "calc")
+                                        return "Enter copies the result";
+                                    return "";
+                                }
+                                font.pixelSize: 11
+                                color: Theme.muted
+                            }
+                        }
+
+                        Glyph {
+                            visible: row.current
+                            text: "󰌑"
+                            size: 14
+                            color: Theme.violet
+                        }
+                    }
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 14
+                Layout.bottomMargin: 10
+                visible: root.results.length === 0
+                spacing: 4
+                Glyph {
+                    Layout.fillWidth: true
+                    text: root.clipboard ? "󰅍" : "󰍉"
+                    size: 26
+                    color: Theme.dim
+                }
+                Label {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: root.clipboard ? (search.text ? "Nothing copied matches" : "Nothing copied yet") : "Type to search"
+                    color: Theme.muted
+                }
+            }
+
+            // Hints, and clearing the clipboard.
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: 10
+                Layout.rightMargin: 4
+                Label {
+                    Layout.fillWidth: true
+                    text: root.clipboard ? "↑↓ choose · Enter copy · Shift+Del forget · Tab apps · Esc close"
+                        : "↑↓ choose · Enter open · Tab clipboard · Esc close"
+                    font.pixelSize: 11
+                    color: Theme.dim
+                }
+                PillButton {
+                    visible: root.clipboard && root.clips.length > 0
+                    text: "Clear history"
+                    danger: true
+                    onClicked: {
+                        Ui.launcherOpen = false;
+                        Ui.run(Ui.bin + "nocturne-clipboard clear");
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/Switcher.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Hyprland
+import Quickshell.Wayland
+import Quickshell.Widgets
+
+// Alt+Tab: live previews of every window, most recently used first. Tab moves on, releasing Alt
+// switches; Escape or a click outside cancels.
+PanelWindow {
+    id: root
+    screen: Ui.screen
+    anchors { top: true; bottom: true; left: true; right: true }
+    exclusionMode: ExclusionMode.Ignore
+    visible: Ui.switcherOpen || card.opacity > 0
+    color: "transparent"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.namespace: "nocturne-switcher"
+    WlrLayershell.keyboardFocus: Ui.switcherOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+
+    // The order is frozen while the switcher is up, so focus changes don't shuffle it.
+    property var windows: []
+    property int selected: 0
+
+    // Windows by last focus, most recent first, kept from Hyprland's focus changes; windows not
+    // focused since the shell started follow in Hyprland's own order.
+    property var history: []
+    Connections {
+        target: Hyprland
+        function onActiveToplevelChanged() {
+            const active = Hyprland.activeToplevel;
+            if (active)
+                root.history = [active, ...root.history.filter(t => t !== active && t)];
+        }
+    }
+    function recent() {
+        const rank = t => {
+            const i = history.indexOf(t);
+            return i >= 0 ? i : 1000 + (t.lastIpcObject.focusHistoryID ?? 0);
+        };
+        return Hyprland.toplevels.values
+            .filter(t => t.wayland && t.workspace && t.workspace.id > 0)
+            .sort((a, b) => rank(a) - rank(b));
+    }
+    function step(delta) {
+        if (!Ui.switcherOpen) {
+            windows = recent();
+            if (windows.length === 0)
+                return;
+            Ui.closeOverlays();
+            Ui.switcherOpen = true;
+            // Start on the previous window, so a quick Alt+Tab flips between two.
+            selected = windows.length > 1 && delta > 0 ? 1 : 0;
+            if (delta < 0)
+                selected = windows.length - 1;
+            return;
+        }
+        selected = (selected + delta + windows.length) % windows.length;
+    }
+    function commit() {
+        if (!Ui.switcherOpen)
+            return;
+        const target = windows[selected];
+        Ui.switcherOpen = false;
+        target?.wayland?.activate();
+    }
+    // A window that closes while the switcher is up drops out of it.
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) {
+            if (Ui.switcherOpen && event.name === "closewindow") {
+                root.windows = root.windows.filter(w => w?.wayland);
+                root.selected = Math.min(root.selected, root.windows.length - 1);
+                if (root.windows.length === 0)
+                    Ui.switcherOpen = false;
+            }
+        }
+    }
+
+    GlobalShortcut {
+        appid: "nocturne"
+        name: "switcher-next"
+        description: "Window switcher: next window"
+        onPressed: root.step(1)
+    }
+    GlobalShortcut {
+        appid: "nocturne"
+        name: "switcher-previous"
+        description: "Window switcher: previous window"
+        onPressed: root.step(-1)
+    }
+    // Bound to releasing Alt, which the switcher may not see itself if it was quick.
+    GlobalShortcut {
+        appid: "nocturne"
+        name: "switcher-commit"
+        description: "Window switcher: switch to the chosen window"
+        onPressed: root.commit()
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        color: Qt.rgba(7 / 255, 7 / 255, 11 / 255, 0.26)
+        opacity: card.opacity
+        MouseArea {
+            anchors.fill: parent
+            onClicked: Ui.switcherOpen = false
+        }
+    }
+
+    Rectangle {
+        id: card
+        readonly property int columns: Math.max(1, Math.min(root.windows.length, Math.floor((root.width - 120) / 252)))
+        anchors.centerIn: parent
+        width: grid.implicitWidth + 32
+        height: grid.implicitHeight + 32
+        radius: Theme.radiusLarge
+        color: Theme.glassStrong
+        border.color: Theme.lineStrong
+        opacity: Ui.switcherOpen ? 1 : 0
+        scale: Ui.switcherOpen ? 1 : 0.96
+        Behavior on opacity { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutExpo } }
+
+        focus: Ui.switcherOpen
+        Keys.onReleased: event => { if (event.key === Qt.Key_Alt || event.key === Qt.Key_Meta) root.commit(); }
+        Keys.onPressed: event => {
+            const back = event.modifiers & Qt.ShiftModifier;
+            if (event.key === Qt.Key_Escape)
+                Ui.switcherOpen = false;
+            else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)
+                root.commit();
+            else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Right)
+                root.step(back ? -1 : 1);
+            else if (event.key === Qt.Key_Backtab || event.key === Qt.Key_Left)
+                root.step(-1);
+            else if (event.key === Qt.Key_Down)
+                root.step(card.columns);
+            else if (event.key === Qt.Key_Up)
+                root.step(-card.columns);
+            else
+                return;
+            event.accepted = true;
+        }
+
+        GridLayout {
+            id: grid
+            x: 16
+            y: 16
+            columns: card.columns
+            rowSpacing: 12
+            columnSpacing: 12
+
+            Repeater {
+                model: Ui.switcherOpen ? root.windows : []
+                delegate: Rectangle {
+                    id: tile
+                    required property var modelData
+                    required property int index
+                    readonly property bool current: root.selected === index
+                    readonly property var entry: DesktopEntries.heuristicLookup(modelData.wayland?.appId ?? "")
+                    implicitWidth: 240
+                    implicitHeight: 196
+                    radius: Theme.radius
+                    color: current ? Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.16) : area.containsMouse ? Theme.raised : "transparent"
+                    border.width: current ? 2 : 1
+                    border.color: current ? Theme.violet : "transparent"
+                    Behavior on color { ColorAnimation { duration: Theme.fast } }
+
+                    MouseArea {
+                        id: area
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onEntered: root.selected = tile.index
+                        onClicked: { root.selected = tile.index; root.commit(); }
+                    }
+
+                    // The window itself, letterboxed into the preview area.
+                    Item {
+                        id: frame
+                        x: 10
+                        y: 10
+                        width: parent.width - 20
+                        height: 140
+                        ClippingRectangle {
+                            anchors.centerIn: parent
+                            readonly property real aspect: preview.sourceSize.width > 0 ? preview.sourceSize.width / preview.sourceSize.height : 16 / 10
+                            width: Math.min(frame.width, frame.height * aspect)
+                            height: width / aspect
+                            radius: 10
+                            color: Theme.raised
+                            ScreencopyView {
+                                id: preview
+                                anchors.fill: parent
+                                captureSource: tile.modelData.wayland
+                                live: Ui.switcherOpen
+                                constraintSize: Qt.size(440, 280)
+                            }
+                            IconImage {
+                                anchors.centerIn: parent
+                                visible: !preview.hasContent
+                                implicitSize: 48
+                                source: Quickshell.iconPath(tile.entry?.icon ?? tile.modelData.wayland?.appId ?? "", "application-x-executable")
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        anchors { left: parent.left; right: parent.right; bottom: parent.bottom; margins: 12; bottomMargin: 10 }
+                        spacing: 8
+                        IconImage {
+                            implicitSize: 20
+                            source: Quickshell.iconPath(tile.entry?.icon ?? tile.modelData.wayland?.appId ?? "", "application-x-executable")
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: tile.modelData.title || tile.entry?.name || tile.modelData.wayland?.appId || ""
+                            font.weight: tile.current ? Font.DemiBold : Font.Normal
+                            color: tile.current ? Theme.text : Theme.textSoft
+                        }
+                        Label {
+                            text: tile.modelData.workspace?.name ?? ""
+                            font.family: Theme.mono
+                            font.pixelSize: 10
+                            color: Theme.dim
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/Overview.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Hyprland
+import Quickshell.Wayland
+import Quickshell.Widgets
+
+// Every workspace on the focused monitor, with live windows in place. Click a window to focus it,
+// a workspace to go there, drag a window onto another workspace to move it; middle-click closes.
+PanelWindow {
+    id: root
+    screen: Ui.screen
+    anchors { top: true; bottom: true; left: true; right: true }
+    exclusionMode: ExclusionMode.Ignore
+    visible: Ui.overviewOpen || backdrop.opacity > 0
+    color: "transparent"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.namespace: "nocturne-overview"
+    WlrLayershell.keyboardFocus: Ui.overviewOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+
+    readonly property var monitor: Hyprland.monitorFor(screen)
+    // Layout size of the monitor, which window positions are measured in.
+    readonly property real monitorWidth: monitor ? monitor.width / monitor.scale : width
+    readonly property real monitorHeight: monitor ? monitor.height / monitor.scale : height
+    // This monitor's workspaces, plus an empty one to start or drop into.
+    readonly property var workspaces: {
+        const own = Hyprland.workspaces.values.filter(w => w.id > 0 && w.monitor?.name === monitor?.name).map(w => w.id);
+        const next = Math.max(0, ...Hyprland.workspaces.values.filter(w => w.id > 0).map(w => w.id)) + 1;
+        return [...own, next].sort((a, b) => a - b);
+    }
+    readonly property int columns: Math.min(workspaces.length, workspaces.length > 6 ? 4 : 3)
+    readonly property real cardWidth: Math.min(420, (width - 160 - (columns - 1) * 22) / columns)
+    readonly property real cardHeight: cardWidth * monitorHeight / monitorWidth
+    property int selected: 0
+
+    Connections {
+        target: Ui
+        function onOverviewOpenChanged() {
+            if (!Ui.overviewOpen)
+                return;
+            // Window positions are only as fresh as the last refresh.
+            Hyprland.refreshToplevels();
+            Hyprland.refreshWorkspaces();
+            root.selected = Math.max(0, root.workspaces.indexOf(root.monitor?.activeWorkspace?.id ?? 1));
+        }
+    }
+
+    function workspace(id) {
+        return Hyprland.workspaces.values.find(w => w.id === id) ?? null;
+    }
+    function go(id) {
+        Ui.overviewOpen = false;
+        const existing = workspace(id);
+        if (existing)
+            existing.activate();
+        else
+            Hyprland.dispatch(`hl.dsp.focus({workspace=${id}})`);
+    }
+    function focusWindow(toplevel) {
+        Ui.overviewOpen = false;
+        toplevel.wayland?.activate();
+    }
+    function move(toplevel, id) {
+        if (toplevel.workspace?.id !== id)
+            Hyprland.dispatch(`hl.dsp.window.move({workspace=${id}, window="address:${toplevel.lastIpcObject.address}", follow=false})`);
+        refresh.restart();
+    }
+    Timer {
+        id: refresh
+        interval: 120
+        onTriggered: { Hyprland.refreshToplevels(); Hyprland.refreshWorkspaces(); }
+    }
+    GlobalShortcut {
+        appid: "nocturne"
+        name: "overview"
+        description: "Toggle the workspace overview"
+        onPressed: Ui.toggleOverview()
+    }
+
+    Rectangle {
+        id: backdrop
+        anchors.fill: parent
+        color: Qt.rgba(7 / 255, 7 / 255, 11 / 255, 0.62)
+        opacity: Ui.overviewOpen ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+
+        focus: Ui.overviewOpen
+        Keys.onPressed: event => {
+            const n = root.workspaces.length;
+            if (event.key === Qt.Key_Escape)
+                Ui.overviewOpen = false;
+            else if (event.key === Qt.Key_Right || event.key === Qt.Key_Tab)
+                root.selected = (root.selected + 1) % n;
+            else if (event.key === Qt.Key_Left || event.key === Qt.Key_Backtab)
+                root.selected = (root.selected + n - 1) % n;
+            else if (event.key === Qt.Key_Down)
+                root.selected = Math.min(n - 1, root.selected + root.columns);
+            else if (event.key === Qt.Key_Up)
+                root.selected = Math.max(0, root.selected - root.columns);
+            else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)
+                root.go(root.workspaces[root.selected]);
+            // Number-row keys by position (keycodes 10–18), so AZERTY works too.
+            else if (event.nativeScanCode >= 10 && event.nativeScanCode <= 18)
+                root.go(event.nativeScanCode - 9);
+            else
+                return;
+            event.accepted = true;
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: Ui.overviewOpen = false
+        }
+
+        ColumnLayout {
+            anchors.centerIn: parent
+            spacing: 22
+            scale: Ui.overviewOpen ? 1 : 0.94
+            Behavior on scale { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
+
+            Label {
+                Layout.alignment: Qt.AlignHCenter
+                text: "W O R K S P A C E S"
+                font.pixelSize: 12
+                color: Theme.violet
+            }
+
+            GridLayout {
+                Layout.alignment: Qt.AlignHCenter
+                columns: root.columns
+                rowSpacing: 22
+                columnSpacing: 22
+
+                Repeater {
+                    model: Ui.overviewOpen || backdrop.opacity > 0 ? root.workspaces : []
+                    delegate: ColumnLayout {
+                        id: wsItem
+                        required property int modelData
+                        required property int index
+                        readonly property var ws: root.workspace(modelData)
+                        readonly property bool current: root.monitor?.activeWorkspace?.id === modelData
+                        readonly property bool chosen: root.selected === index
+                        spacing: 8
+
+                        Rectangle {
+                            id: card
+                            implicitWidth: root.cardWidth
+                            implicitHeight: root.cardHeight
+                            radius: Theme.radius
+                            color: drop.containsDrag ? Theme.hover : Theme.glassStrong
+                            border.width: wsItem.chosen || drop.containsDrag ? 2 : 1
+                            border.color: wsItem.chosen || drop.containsDrag ? Theme.violet : wsItem.current ? Theme.lineStrong : Theme.line
+                            Behavior on color { ColorAnimation { duration: Theme.fast } }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onEntered: root.selected = wsItem.index
+                                onClicked: root.go(wsItem.modelData)
+                            }
+                            DropArea {
+                                id: drop
+                                anchors.fill: parent
+                                keys: ["nocturne-window"]
+                                onDropped: d => root.move(d.source.toplevel, wsItem.modelData)
+                            }
+
+                            ClippingRectangle {
+                                anchors.fill: parent
+                                anchors.margins: 1
+                                radius: card.radius - 1
+                                color: "transparent"
+                                Image {
+                                    anchors.fill: parent
+                                    source: "file://" + Ui.wallpapers + Ui.wallpaper + ".png"
+                                    sourceSize.width: root.cardWidth * 2
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    opacity: wsItem.chosen ? 0.75 : 0.45
+                                    Behavior on opacity { NumberAnimation { duration: Theme.fast } }
+                                }
+                            }
+                            Glyph {
+                                anchors.centerIn: parent
+                                visible: !wsItem.ws || wsItem.ws.toplevels.values.length === 0
+                                text: wsItem.ws ? "󰖯" : "󰐕"
+                                size: 26
+                                color: Theme.dim
+                            }
+
+                            // Windows at their real size and place, tiled first and floating on top.
+                            Item {
+                                anchors.fill: parent
+                                anchors.margins: 1
+                                clip: true
+                                Repeater {
+                                    model: (wsItem.ws?.toplevels.values ?? []).slice()
+                                        .sort((a, b) => (a.lastIpcObject.floating ?? false) - (b.lastIpcObject.floating ?? false))
+                                    delegate: Item {
+                                        id: slot
+                                        required property var modelData
+                                        readonly property var toplevel: modelData
+                                        readonly property var info: modelData.lastIpcObject
+                                        readonly property real k: card.width / root.monitorWidth
+                                        x: ((info.at?.[0] ?? 0) - (root.monitor?.x ?? 0)) * k
+                                        y: ((info.at?.[1] ?? 0) - (root.monitor?.y ?? 0)) * k
+                                        width: Math.max(24, (info.size?.[0] ?? 0) * k)
+                                        height: Math.max(18, (info.size?.[1] ?? 0) * k)
+                                        visible: !!info.size
+
+                                        ClippingRectangle {
+                                            id: tile
+                                            width: slot.width
+                                            height: slot.height
+                                            anchors.centerIn: slot
+                                            radius: 8
+                                            color: Theme.raised
+                                            border.width: hover.containsMouse ? 2 : 1
+                                            border.color: hover.containsMouse ? Theme.violetBright : Theme.line
+                                            Drag.active: hover.drag.active
+                                            Drag.keys: ["nocturne-window"]
+                                            Drag.source: slot
+                                            Drag.hotSpot: Qt.point(width / 2, height / 2)
+                                            states: State {
+                                                when: hover.drag.active
+                                                ParentChange { target: tile; parent: backdrop }
+                                                AnchorChanges { target: tile; anchors.horizontalCenter: undefined; anchors.verticalCenter: undefined }
+                                                PropertyChanges { target: tile; opacity: 0.85; z: 10 }
+                                            }
+
+                                            ScreencopyView {
+                                                anchors.fill: parent
+                                                captureSource: Ui.overviewOpen ? slot.toplevel.wayland : null
+                                                live: true
+                                                constraintSize: Qt.size(slot.width * 2, slot.height * 2)
+                                            }
+                                            IconImage {
+                                                readonly property var entry: DesktopEntries.heuristicLookup(slot.toplevel.wayland?.appId ?? "")
+                                                anchors { right: parent.right; bottom: parent.bottom; margins: 6 }
+                                                implicitSize: Math.min(28, slot.height / 3)
+                                                source: Quickshell.iconPath(entry?.icon ?? slot.toplevel.wayland?.appId ?? "", "application-x-executable")
+                                            }
+                                        }
+                                        MouseArea {
+                                            id: hover
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: drag.active ? Qt.ClosedHandCursor : Qt.PointingHandCursor
+                                            acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                                            drag.target: tile
+                                            onEntered: root.selected = wsItem.index
+                                            onClicked: m => {
+                                                if (m.button === Qt.MiddleButton) {
+                                                    slot.toplevel.wayland?.close();
+                                                    refresh.restart();
+                                                } else {
+                                                    root.focusWindow(slot.toplevel);
+                                                }
+                                            }
+                                            onReleased: if (drag.active) tile.Drag.drop()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.alignment: Qt.AlignHCenter
+                            spacing: 6
+                            Rectangle {
+                                visible: wsItem.current
+                                implicitWidth: 6
+                                implicitHeight: 6
+                                radius: 3
+                                color: Theme.violet
+                            }
+                            Label {
+                                text: wsItem.ws ? `Workspace ${wsItem.ws.name}` : "New workspace"
+                                font.pixelSize: 12
+                                font.weight: wsItem.current ? Font.DemiBold : Font.Normal
+                                color: wsItem.chosen ? Theme.text : Theme.muted
+                            }
+                        }
+                    }
+                }
+            }
+
+            Label {
+                Layout.alignment: Qt.AlignHCenter
+                text: "Click to focus · drag a window to move it · middle-click to close · Esc"
+                font.pixelSize: 11
+                color: Theme.muted
+            }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/HotCorners.qml`
+
+```qml
+import QtQuick
+import Quickshell
+import Quickshell.Hyprland
+import Quickshell.Wayland
+
+// Push the pointer into the top-left corner for the overview, the top-right one for the
+// control center. A short dwell keeps a passing pointer from opening them; corners rest
+// while a window is fullscreen.
+Variants {
+    model: Quickshell.screens
+
+    delegate: Scope {
+        id: output
+        required property var modelData
+        readonly property bool fullscreen: Hyprland.monitorFor(modelData)?.activeWorkspace?.hasFullscreen ?? false
+
+        component Corner: PanelWindow {
+            id: corner
+            property bool left: true
+            signal reached()
+            screen: output.modelData
+            visible: !output.fullscreen
+            anchors { top: true; left: corner.left; right: !corner.left }
+            exclusionMode: ExclusionMode.Ignore
+            implicitWidth: 3
+            implicitHeight: 3
+            color: "transparent"
+            WlrLayershell.layer: WlrLayer.Overlay
+            // Not nocturne-*: nothing here to blur.
+            WlrLayershell.namespace: "hot-corner"
+
+            MouseArea {
+                anchors.fill: parent
+                hoverEnabled: true
+                onEntered: dwell.restart()
+                onExited: dwell.stop()
+            }
+            Timer {
+                id: dwell
+                interval: 160
+                onTriggered: corner.reached()
+            }
+        }
+
+        Corner {
+            left: true
+            onReached: Ui.toggleOverview()
+        }
+        Corner {
+            left: false
+            onReached: Ui.toggleControl()
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/ScreenshotOverlay.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Hyprland
+import Quickshell.Wayland
+
+// Print: the screen freezes; drag a region, click a window or click for the whole screen.
+// The overlay then steps aside (no closing animation) and nocturne-shot captures the area.
+PanelWindow {
+    id: root
+    screen: Ui.screen
+    anchors { top: true; bottom: true; left: true; right: true }
+    exclusionMode: ExclusionMode.Ignore
+    visible: Ui.shotOpen
+    color: "transparent"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.namespace: "nocturne-shot"
+    WlrLayershell.keyboardFocus: Ui.shotOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+
+    property string mode: "region" // region, window or screen
+    property bool annotate: false
+    property rect selection: Qt.rect(0, 0, 0, 0)
+    property point origin
+    property bool dragging: false
+    property var hovered: null // window geometry under the pointer, in window mode
+
+    readonly property var monitor: Hyprland.monitorFor(screen)
+    // Windows on this screen's workspace in local coordinates, floating ones first (they're on top).
+    readonly property var windows: (monitor?.activeWorkspace?.toplevels.values ?? [])
+        .filter(t => t.lastIpcObject.size)
+        .sort((a, b) => (b.lastIpcObject.floating ?? false) - (a.lastIpcObject.floating ?? false))
+        .map(t => ({
+            title: t.title,
+            rect: Qt.rect(t.lastIpcObject.at[0] - monitor.x, t.lastIpcObject.at[1] - monitor.y, t.lastIpcObject.size[0], t.lastIpcObject.size[1])
+        }))
+    // What gets captured if the user confirms now.
+    readonly property rect target: mode === "screen" ? Qt.rect(0, 0, width, height)
+        : mode === "window" ? (hovered?.rect ?? Qt.rect(0, 0, 0, 0)) : selection
+
+    function open(withAnnotate) {
+        Ui.openShot();
+        annotate = withAnnotate;
+    }
+    // Start fresh however it opens (Print, or the control center's tile).
+    Connections {
+        target: Ui
+        function onShotOpenChanged() {
+            if (!Ui.shotOpen)
+                return;
+            Hyprland.refreshToplevels();
+            root.annotate = false;
+            root.mode = "region";
+            root.selection = Qt.rect(0, 0, 0, 0);
+            root.hovered = null;
+            root.dragging = false;
+        }
+    }
+    function capture() {
+        const r = target;
+        if (r.width < 4 || r.height < 4)
+            return;
+        const geometry = `${Math.round(r.x + monitor.x)},${Math.round(r.y + monitor.y)} ${Math.round(r.width)}x${Math.round(r.height)}`;
+        Ui.shotOpen = false;
+        shoot.args = [Ui.bin + "nocturne-shot", ...(annotate ? ["annotate"] : []), "--geometry", geometry];
+        shoot.restart();
+    }
+    // Let the compositor draw a frame without the overlay before grim reads the screen.
+    Timer {
+        id: shoot
+        property var args: []
+        interval: 90
+        onTriggered: Quickshell.execDetached(args)
+    }
+    function windowAt(x, y) {
+        return windows.find(w => x >= w.rect.x && x < w.rect.x + w.rect.width && y >= w.rect.y && y < w.rect.y + w.rect.height) ?? null;
+    }
+
+    // The frozen frame, taken once as the overlay opens.
+    ScreencopyView {
+        id: frame
+        anchors.fill: parent
+        captureSource: Ui.shotOpen ? root.screen : null
+        live: false
+    }
+
+    Item {
+        id: content
+        anchors.fill: parent
+        visible: frame.hasContent
+        focus: Ui.shotOpen
+        Keys.onPressed: event => {
+            if (event.key === Qt.Key_Escape)
+                Ui.shotOpen = false;
+            else if (event.key === Qt.Key_R)
+                root.mode = "region";
+            else if (event.key === Qt.Key_W)
+                root.mode = "window";
+            else if (event.key === Qt.Key_S)
+                root.mode = "screen";
+            else if (event.key === Qt.Key_E)
+                root.annotate = !root.annotate;
+            else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                root.capture();
+            else
+                return;
+            event.accepted = true;
+        }
+
+        // Dim everything but the target: above, below, left and right of it.
+        component Shade: Rectangle {
+            color: Qt.rgba(7 / 255, 7 / 255, 11 / 255, 0.5)
+        }
+        Shade { width: root.width; height: Math.max(0, root.target.y) }
+        Shade {
+            y: root.target.y + root.target.height
+            width: root.width
+            height: Math.max(0, root.height - y)
+        }
+        Shade {
+            y: root.target.y
+            width: Math.max(0, root.target.x)
+            height: root.target.height
+        }
+        Shade {
+            x: root.target.x + root.target.width
+            y: root.target.y
+            width: Math.max(0, root.width - x)
+            height: root.target.height
+        }
+        Rectangle {
+            visible: root.target.width > 0 && root.target.height > 0 && root.mode !== "screen"
+            x: root.target.x - 2
+            y: root.target.y - 2
+            width: root.target.width + 4
+            height: root.target.height + 4
+            color: "transparent"
+            radius: 4
+            border.width: 2
+            border.color: Theme.violet
+            Rectangle {
+                anchors { left: parent.left; top: parent.bottom; topMargin: 8 }
+                visible: parent.width > 60
+                implicitWidth: size.implicitWidth + 16
+                implicitHeight: 22
+                radius: 11
+                color: Theme.glassStrong
+                Label {
+                    id: size
+                    anchors.centerIn: parent
+                    text: `${Math.round(root.target.width)} × ${Math.round(root.target.height)}`
+                    font.family: Theme.mono
+                    font.pixelSize: 10
+                    color: Theme.textSoft
+                }
+            }
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: root.mode === "region" ? Qt.CrossCursor : Qt.PointingHandCursor
+            onPressed: m => {
+                if (root.mode !== "region")
+                    return;
+                root.origin = Qt.point(m.x, m.y);
+                root.selection = Qt.rect(m.x, m.y, 0, 0);
+                root.dragging = true;
+            }
+            onPositionChanged: m => {
+                if (root.mode === "window")
+                    root.hovered = root.windowAt(m.x, m.y);
+                else if (root.dragging)
+                    root.selection = Qt.rect(Math.min(m.x, root.origin.x), Math.min(m.y, root.origin.y),
+                        Math.abs(m.x - root.origin.x), Math.abs(m.y - root.origin.y));
+            }
+            onReleased: {
+                const wasDragging = root.dragging;
+                root.dragging = false;
+                if (root.mode !== "region" || wasDragging)
+                    root.capture();
+            }
+        }
+
+        // Mode and after-capture choices.
+        Rectangle {
+            id: toolbar
+            anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 48 }
+            visible: !root.dragging
+            implicitWidth: tools.implicitWidth + 16
+            implicitHeight: 52
+            radius: 26
+            color: Theme.glassStrong
+            border.color: Theme.lineStrong
+
+            // Clicks between the buttons stay on the toolbar.
+            MouseArea { anchors.fill: parent }
+
+            RowLayout {
+                id: tools
+                anchors.centerIn: parent
+                spacing: 6
+                Repeater {
+                    model: [
+                        { mode: "region", glyph: "󰆞", label: "Region", key: "R" },
+                        { mode: "window", glyph: "󰖯", label: "Window", key: "W" },
+                        { mode: "screen", glyph: "󰍹", label: "Screen", key: "S" }
+                    ]
+                    delegate: Rectangle {
+                        required property var modelData
+                        readonly property bool current: root.mode === modelData.mode
+                        implicitWidth: toolRow.implicitWidth + 24
+                        implicitHeight: 38
+                        radius: 19
+                        color: current ? Theme.violet : toolArea.containsMouse ? Theme.hover : "transparent"
+                        Behavior on color { ColorAnimation { duration: Theme.fast } }
+                        RowLayout {
+                            id: toolRow
+                            anchors.centerIn: parent
+                            spacing: 7
+                            Glyph { text: modelData.glyph; size: 15; color: current ? Theme.violetInk : Theme.textSoft }
+                            Label { text: modelData.label; font.weight: Font.DemiBold; color: current ? Theme.violetInk : Theme.text }
+                        }
+                        MouseArea {
+                            id: toolArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: { root.mode = modelData.mode; root.hovered = null; }
+                        }
+                    }
+                }
+                Rectangle {
+                    Layout.leftMargin: 4
+                    Layout.rightMargin: 4
+                    implicitWidth: 1
+                    implicitHeight: 24
+                    color: Theme.line
+                }
+                Rectangle {
+                    implicitWidth: editRow.implicitWidth + 24
+                    implicitHeight: 38
+                    radius: 19
+                    color: root.annotate ? Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.2) : editArea.containsMouse ? Theme.hover : "transparent"
+                    border.color: root.annotate ? Theme.violet : "transparent"
+                    RowLayout {
+                        id: editRow
+                        anchors.centerIn: parent
+                        spacing: 7
+                        Glyph { text: "󰏫"; size: 15; color: root.annotate ? Theme.violetBright : Theme.textSoft }
+                        Label { text: "Annotate"; color: root.annotate ? Theme.violetBright : Theme.text }
+                    }
+                    MouseArea {
+                        id: editArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.annotate = !root.annotate
+                    }
+                }
+                Rectangle {
+                    implicitWidth: 38
+                    implicitHeight: 38
+                    radius: 19
+                    color: closeArea.containsMouse ? Theme.hover : "transparent"
+                    Glyph { anchors.centerIn: parent; text: "󰅖"; size: 15; color: Theme.textSoft }
+                    MouseArea {
+                        id: closeArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: Ui.shotOpen = false
+                    }
+                }
+            }
+        }
+
+        Label {
+            anchors { horizontalCenter: parent.horizontalCenter; bottom: toolbar.top; bottomMargin: 12 }
+            visible: !root.dragging
+            text: (root.mode === "region" ? "Drag to select" : root.mode === "window" ? "Click a window" : "Click or press Enter for the whole screen")
+                + (root.annotate ? " · opens in Satty" : " · saved and copied") + " · Esc to cancel"
+            font.pixelSize: 11
+            color: Theme.textSoft
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/PolkitDialog.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Services.Polkit
+import Quickshell.Wayland
+
+// The polkit agent: when an app asks for administrator rights, a password card over the dimmed screen.
+Scope {
+    id: root
+
+    readonly property var flow: agent.flow
+    property bool shown: false
+    property string error: ""
+
+    PolkitAgent {
+        id: agent
+        onAuthenticationRequestStarted: {
+            root.error = "";
+            root.shown = true;
+        }
+    }
+    Connections {
+        target: root.flow
+        ignoreUnknownSignals: true
+        function onAuthenticationFailed() {
+            root.error = "Wrong password";
+            shake.restart();
+        }
+        function onIsCompletedChanged() {
+            if (root.flow?.isCompleted)
+                root.shown = false;
+        }
+    }
+    onFlowChanged: {
+        input.text = "";
+        if (!flow)
+            shown = false;
+    }
+
+    function submit() {
+        if (flow && flow.isResponseRequired) {
+            error = "";
+            flow.submit(input.text);
+            input.text = "";
+        }
+    }
+    function cancel() {
+        flow?.cancelAuthenticationRequest();
+        shown = false;
+    }
+
+    PanelWindow {
+        screen: Ui.screen
+        anchors { top: true; bottom: true; left: true; right: true }
+        exclusionMode: ExclusionMode.Ignore
+        visible: root.shown || card.opacity > 0
+        color: "transparent"
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.namespace: "nocturne-polkit"
+        WlrLayershell.keyboardFocus: root.shown ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+
+        Rectangle {
+            anchors.fill: parent
+            color: Qt.rgba(7 / 255, 7 / 255, 11 / 255, 0.62)
+            opacity: card.opacity
+        }
+
+        Rectangle {
+            id: card
+            width: 420
+            height: column.implicitHeight + 48
+            anchors.centerIn: parent
+            radius: Theme.radiusLarge
+            color: Theme.glassStrong
+            border.color: Theme.lineStrong
+            opacity: root.shown ? 1 : 0
+            scale: root.shown ? 1 : 0.94
+            Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+            Behavior on scale { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
+
+            SequentialAnimation {
+                id: shake
+                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 14; duration: 50 }
+                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: -12; duration: 70 }
+                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 8; duration: 60 }
+                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 0; duration: 60 }
+            }
+
+            ColumnLayout {
+                id: column
+                x: 24
+                y: 24
+                width: parent.width - 48
+                spacing: 14
+
+                RowLayout {
+                    spacing: 14
+                    Rectangle {
+                        implicitWidth: 48
+                        implicitHeight: 48
+                        radius: 24
+                        gradient: Gradient {
+                            GradientStop { position: 0; color: Theme.violet }
+                            GradientStop { position: 1; color: Theme.violetDeep }
+                        }
+                        Glyph { anchors.centerIn: parent; text: "󰒃"; size: 22; color: Theme.violetInk }
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Label {
+                            text: "A U T H E N T I C A T E"
+                            font.pixelSize: 10
+                            color: Theme.violet
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: "Administrator rights needed"
+                            font.pixelSize: 16
+                            font.weight: Font.DemiBold
+                        }
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: root.flow?.message ?? ""
+                    wrapMode: Text.Wrap
+                    color: Theme.textSoft
+                }
+                Label {
+                    Layout.fillWidth: true
+                    visible: text !== ""
+                    text: root.flow?.actionId ?? ""
+                    font.family: Theme.mono
+                    font.pixelSize: 10
+                    color: Theme.dim
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 4
+                    implicitHeight: 48
+                    radius: 24
+                    color: Theme.raised
+                    border.width: input.activeFocus ? 2 : 1
+                    border.color: root.error ? Theme.rose : input.activeFocus ? Theme.violet : Theme.lineStrong
+                    Behavior on border.color { ColorAnimation { duration: Theme.fast } }
+
+                    TextInput {
+                        id: input
+                        anchors { fill: parent; leftMargin: 20; rightMargin: 44 }
+                        verticalAlignment: TextInput.AlignVCenter
+                        echoMode: root.flow?.responseVisible ? TextInput.Normal : TextInput.Password
+                        passwordCharacter: "•"
+                        color: Theme.text
+                        font.family: Theme.sans
+                        font.pixelSize: 15
+                        font.letterSpacing: echoMode === TextInput.Password ? 2 : 0
+                        selectionColor: Theme.violetDeep
+                        enabled: !!root.flow?.isResponseRequired
+                        focus: root.shown
+                        onVisibleChanged: if (visible) forceActiveFocus()
+                        Keys.onReturnPressed: root.submit()
+                        Keys.onEnterPressed: root.submit()
+                        Keys.onEscapePressed: root.cancel()
+                        Label {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: !input.text
+                            text: (root.flow?.inputPrompt ?? "").replace(/:\s*$/, "") || "Password"
+                            color: Theme.dim
+                            font.pixelSize: 13
+                        }
+                    }
+                    Glyph {
+                        anchors { right: parent.right; rightMargin: 18; verticalCenter: parent.verticalCenter }
+                        text: root.flow?.isResponseRequired === false ? "󰔟" : "󰌆"
+                        size: 15
+                        color: Theme.dim
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: text !== ""
+                    text: root.error || (root.flow?.supplementaryMessage ?? "")
+                    wrapMode: Text.Wrap
+                    font.pixelSize: 12
+                    color: root.error || root.flow?.supplementaryIsError ? Theme.rose : Theme.muted
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 4
+                    spacing: 8
+                    Item { Layout.fillWidth: true }
+                    PillButton {
+                        text: "Cancel"
+                        implicitHeight: 36
+                        implicitWidth: 96
+                        onClicked: root.cancel()
+                    }
+                    PillButton {
+                        text: "Authenticate"
+                        primary: true
+                        implicitHeight: 36
+                        implicitWidth: 124
+                        available: !!root.flow?.isResponseRequired
+                        onClicked: root.submit()
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/LockScreen.qml`
+
+```qml
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import Quickshell.Services.Pam
+import Quickshell.Wayland
+
+// The lock screen, on every monitor. hypridle locks through `ipc call lock lock` (which
+// `loginctl lock-session` triggers); hyprlock takes over when the shell is not running.
+Scope {
+    id: root
+
+    property string password: ""
+    property bool busy: false
+    property string message: ""
+    property bool capsLock: false
+    readonly property bool locked: sessionLock.locked
+    signal rejected()
+
+    function lock() {
+        if (sessionLock.locked)
+            return;
+        Ui.closeOverlays();
+        password = "";
+        message = "";
+        checkCaps();
+        sessionLock.locked = true;
+    }
+    function submit() {
+        if (busy || password === "")
+            return;
+        busy = true;
+        message = "";
+        pam.start();
+    }
+    function checkCaps() {
+        caps.running = true;
+    }
+
+    // The default "login" PAM stack, the same one hyprlock includes.
+    PamContext {
+        id: pam
+        onPamMessage: {
+            if (responseRequired)
+                respond(root.password);
+            else if (message)
+                root.message = message;
+        }
+        onCompleted: result => {
+            root.busy = false;
+            root.password = "";
+            if (result === PamResult.Success) {
+                sessionLock.locked = false;
+                return;
+            }
+            if (result === PamResult.MaxTries)
+                root.message = "Too many attempts; wait a moment";
+            else if (!root.message)
+                root.message = "Wrong password";
+            root.rejected();
+        }
+        onError: error => {
+            root.busy = false;
+            root.password = "";
+            root.message = "Could not check the password (" + PamError.toString(error) + ")";
+            root.rejected();
+        }
+    }
+
+    // Caps Lock lights an LED on every keyboard that has one.
+    Process {
+        id: caps
+        command: ["bash", "-c", "cat /sys/class/leds/*::capslock/brightness 2>/dev/null"]
+        stdout: StdioCollector {
+            onStreamFinished: root.capsLock = text.split("\n").some(v => parseInt(v) > 0)
+        }
+    }
+
+    WlSessionLock {
+        id: sessionLock
+        WlSessionLockSurface {
+            id: surface
+            color: Theme.base
+            LockContent {
+                anchors.fill: parent
+                lock: root
+                pixelRatio: surface.screen?.devicePixelRatio ?? 1
+            }
+        }
+    }
+}
+```
+
+## `config/quickshell/nocturne/LockContent.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Io
+import Quickshell.Services.Mpris
+import Quickshell.Widgets
+
+// One monitor of the lock screen: the wordmark-free wallpaper (dawn and eclipse keep moving),
+// the time, and the password field. Every monitor shows the same password dots.
+Rectangle {
+    id: surface
+    required property var lock
+    property real pixelRatio: 1
+    color: Theme.base
+
+    readonly property var player: Mpris.players.values.find(p => p.isPlaying) ?? null
+
+    // ── Wallpaper ───────────────────────────────────────────────────
+    Image {
+        anchors.fill: parent
+        source: "file://" + Ui.wallpapers + Ui.wallpaper + "-clean.png"
+        fillMode: Image.PreserveAspectCrop
+        asynchronous: true
+    }
+    // Cover the screen like `awww img --resize crop`.
+    Loader {
+        id: scene
+        anchors.centerIn: parent
+        // Not before the surface has a size: the scene decodes its layers for it.
+        active: surface.width > 0 && ["wallpaper-dawn", "wallpaper-eclipse"].includes(Ui.wallpaper)
+        scale: item ? Math.max(surface.width / item.width, surface.height / item.height) : 1
+        sourceComponent: Ui.wallpaper === "wallpaper-eclipse" ? eclipse : dawn
+        Component {
+            id: dawn
+            DawnScene {
+                clean: true
+                pixelScale: width > 0 && height > 0 ? Math.max(surface.width / width, surface.height / height) * surface.pixelRatio : 1
+            }
+        }
+        Component {
+            id: eclipse
+            EclipseScene {
+                clean: true
+                pixelScale: width > 0 && height > 0 ? Math.max(surface.width / width, surface.height / height) * surface.pixelRatio : 1
+            }
+        }
+    }
+    // Darker toward the bottom, where the password field sits.
+    Rectangle {
+        anchors.fill: parent
+        gradient: Gradient {
+            GradientStop { position: 0; color: Qt.rgba(13 / 255, 10 / 255, 18 / 255, 0.25) }
+            GradientStop { position: 0.55; color: Qt.rgba(13 / 255, 10 / 255, 18 / 255, 0.35) }
+            GradientStop { position: 1; color: Qt.rgba(13 / 255, 10 / 255, 18 / 255, 0.78) }
+        }
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        onClicked: input.forceActiveFocus()
+    }
+
+    // ── Content ─────────────────────────────────────────────────────
+    Item {
+        id: content
+        anchors.fill: parent
+        opacity: 0
+        Component.onCompleted: { opacity = 1; input.forceActiveFocus(); }
+        Behavior on opacity { NumberAnimation { duration: Theme.slow * 2; easing.type: Easing.OutCubic } }
+
+        SystemClock {
+            id: clock
+            precision: SystemClock.Seconds
+        }
+
+        // Battery and network, top right.
+        RowLayout {
+            anchors { top: parent.top; right: parent.right; margins: 28 }
+            spacing: 16
+            Glyph { text: Devices.networkGlyph; size: 16; color: Theme.textSoft }
+            RowLayout {
+                visible: Devices.hasBattery
+                spacing: 6
+                Glyph { text: Devices.batteryGlyph; size: 16; color: Devices.batteryColor }
+                Label { text: Devices.batteryPercent + "%"; font.family: Theme.mono; color: Devices.batteryColor }
+            }
+        }
+
+        ColumnLayout {
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: Math.round(parent.height * 0.2)
+            spacing: 0
+            Label {
+                Layout.alignment: Qt.AlignHCenter
+                text: Qt.formatDateTime(clock.date, "HH:mm")
+                font.pixelSize: 124
+                font.weight: Font.Light
+                font.letterSpacing: -3
+                color: Theme.text
+            }
+            Label {
+                Layout.alignment: Qt.AlignHCenter
+                text: Qt.formatDateTime(clock.date, "dddd d MMMM")
+                font.pixelSize: 15
+                font.letterSpacing: 3
+                font.capitalization: Font.AllUppercase
+                color: Theme.violet
+            }
+        }
+
+        ColumnLayout {
+            id: login
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: Math.round(parent.height * 0.58)
+            spacing: 14
+
+            // ~/.face when there is one, else the initial the control center shows.
+            ClippingRectangle {
+                Layout.alignment: Qt.AlignHCenter
+                implicitWidth: 76
+                implicitHeight: 76
+                radius: 38
+                border.width: 2
+                border.color: Theme.violet
+                Rectangle {
+                    anchors.fill: parent
+                    gradient: Gradient {
+                        GradientStop { position: 0; color: Theme.violet }
+                        GradientStop { position: 1; color: Theme.violetDeep }
+                    }
+                }
+                Label {
+                    anchors.centerIn: parent
+                    visible: face.status !== Image.Ready
+                    text: Quickshell.env("USER").charAt(0).toUpperCase()
+                    font.pixelSize: 30
+                    font.weight: Font.Bold
+                    color: Theme.violetInk
+                }
+                Image {
+                    id: face
+                    anchors.fill: parent
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                }
+                FileView {
+                    path: Quickshell.env("HOME") + "/.face"
+                    printErrors: false
+                    onLoaded: face.source = "file://" + path
+                }
+            }
+            Label {
+                Layout.alignment: Qt.AlignHCenter
+                text: Quickshell.env("USER")
+                font.pixelSize: 15
+                font.weight: Font.DemiBold
+            }
+
+            // The typed password shows as dots; the real field is invisible behind them.
+            Rectangle {
+                id: field
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: 4
+                implicitWidth: 320
+                implicitHeight: 52
+                radius: 26
+                color: Theme.glassStrong
+                border.width: input.activeFocus ? 2 : 1
+                border.color: surface.lock.message && !surface.lock.busy ? Theme.rose : input.activeFocus ? Theme.violet : Theme.lineStrong
+                Behavior on border.color { ColorAnimation { duration: Theme.fast } }
+
+                TextInput {
+                    id: input
+                    anchors.fill: parent
+                    opacity: 0
+                    echoMode: TextInput.Password
+                    enabled: !surface.lock.busy
+                    onTextChanged: if (surface.lock.password !== text) surface.lock.password = text
+                    Keys.onReturnPressed: surface.lock.submit()
+                    Keys.onEnterPressed: surface.lock.submit()
+                    Keys.onEscapePressed: text = ""
+                    Keys.onPressed: event => {
+                        surface.lock.checkCaps();
+                        event.accepted = false;
+                    }
+                }
+                Connections {
+                    target: surface.lock
+                    function onPasswordChanged() {
+                        if (input.text !== surface.lock.password)
+                            input.text = surface.lock.password;
+                    }
+                    function onRejected() { shake.restart(); }
+                }
+
+                Label {
+                    anchors.centerIn: parent
+                    visible: surface.lock.password === "" && !surface.lock.busy
+                    text: "Enter password"
+                    color: Theme.dim
+                    font.pixelSize: 13
+                }
+                Row {
+                    anchors.centerIn: parent
+                    spacing: 8
+                    Repeater {
+                        model: Math.min(surface.lock.password.length, 22)
+                        delegate: Rectangle {
+                            width: 9
+                            height: 9
+                            radius: 4.5
+                            color: Theme.violetBright
+                            scale: 0
+                            Component.onCompleted: scale = 1
+                            Behavior on scale { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutBack } }
+                        }
+                    }
+                }
+                Glyph {
+                    anchors { right: parent.right; rightMargin: 18; verticalCenter: parent.verticalCenter }
+                    text: surface.lock.busy ? "󰔟" : "󰌆"
+                    size: 15
+                    color: surface.lock.busy ? Theme.violet : Theme.dim
+                    RotationAnimation on rotation { running: surface.lock.busy; from: 0; to: 360; duration: 1200; loops: Animation.Infinite }
+                }
+
+                SequentialAnimation {
+                    id: shake
+                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: 18; duration: 50 }
+                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: -14; duration: 70 }
+                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: 10; duration: 60 }
+                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: 0; duration: 60 }
+                }
+            }
+
+            Label {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredHeight: 16
+                text: surface.lock.message || (surface.lock.capsLock ? "Caps Lock is on" : "")
+                font.pixelSize: 12
+                color: surface.lock.message ? Theme.rose : Theme.amber
+            }
+        }
+
+        // What's playing, with its controls.
+        Rectangle {
+            anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 40 }
+            visible: !!surface.player
+            implicitWidth: 360
+            implicitHeight: 64
+            radius: 32
+            color: Theme.glassStrong
+            border.color: Theme.line
+            RowLayout {
+                anchors { fill: parent; leftMargin: 8; rightMargin: 12 }
+                spacing: 12
+                ClippingRectangle {
+                    implicitWidth: 48
+                    implicitHeight: 48
+                    radius: 24
+                    color: Theme.raised
+                    Image {
+                        anchors.fill: parent
+                        source: surface.player?.trackArtUrl ?? ""
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 1
+                    Label { Layout.fillWidth: true; text: surface.player?.trackTitle || surface.player?.identity || ""; font.weight: Font.DemiBold }
+                    Label { Layout.fillWidth: true; text: surface.player?.trackArtist ?? ""; font.pixelSize: 11; color: Theme.muted }
+                }
+                Repeater {
+                    model: [
+                        { glyph: "󰒮", run: () => surface.player.previous() },
+                        { glyph: surface.player?.isPlaying ? "󰏤" : "󰐊", run: () => surface.player.togglePlaying(), main: true },
+                        { glyph: "󰒭", run: () => surface.player.next() }
+                    ]
+                    delegate: Rectangle {
+                        required property var modelData
+                        implicitWidth: modelData.main ? 36 : 28
+                        implicitHeight: implicitWidth
+                        radius: implicitWidth / 2
+                        color: modelData.main ? Theme.violet : lockMedia.containsMouse ? Theme.hover : "transparent"
+                        Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 15; color: modelData.main ? Theme.violetInk : Theme.text }
+                        MouseArea {
+                            id: lockMedia
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: { modelData.run(); input.forceActiveFocus(); }
+                        }
+                    }
+                }
+            }
         }
     }
 }
