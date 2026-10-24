@@ -1,5 +1,6 @@
 -- NOCTURNE / Hyprland 0.56 Lua configuration
-hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "1.2" })
+-- Keyboard, Num Lock and scale come from ~/.config/nocturne/settings.conf (see ./install.sh --help).
+hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "@@SCALE@@" })
 hl.env("XCURSOR_THEME", "Nocturne-Cursors")
 hl.env("XCURSOR_SIZE", "28")
 hl.env("HYPRCURSOR_SIZE", "28")
@@ -18,7 +19,8 @@ hl.config({
   blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = 0.9, popups = true} },
  animations = {enabled = true},
  dwindle = {preserve_split = true},
- input = {kb_layout = "fr", follow_mouse = 1, sensitivity = 0, touchpad = {natural_scroll = true}, {numlock_by_defautl = true}},
+ input = {kb_layout = "@@KB_LAYOUT@@", kb_variant = "@@KB_VARIANT@@", kb_options = "@@KB_OPTIONS@@", numlock_by_default = @@NUMLOCK@@,
+  follow_mouse = 1, sensitivity = 0, touchpad = {natural_scroll = true}},
  misc = {disable_hyprland_logo = true, disable_splash_rendering = true, force_default_wallpaper = 0},
 })
 hl.curve("nocturne", {type = "bezier", points = {{0.16, 1}, {0.3, 1}}})
@@ -53,7 +55,7 @@ hl.bind("SUPER + V", hl.dsp.window.float({action="toggle"}))
 hl.bind("SUPER + F", hl.dsp.window.fullscreen())
 hl.bind("SUPER + J", hl.dsp.layout("togglesplit"))
 for _, d in ipairs({"left", "right", "up", "down"}) do hl.bind("SUPER + "..d, hl.dsp.focus({direction=d})) end
--- Physical keycodes keep workspace shortcuts usable on AZERTY.
+-- Physical keycodes keep the number-row workspace shortcuts working on any layout (AZERTY included).
 for i=1,10 do
  hl.bind("SUPER + code:"..(i+9), hl.dsp.focus({workspace=i}))
  hl.bind("SUPER + SHIFT + code:"..(i+9), hl.dsp.window.move({workspace=i}))

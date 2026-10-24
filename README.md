@@ -1,8 +1,8 @@
 # NOCTURNE
 
-An original black-and-violet Arch Linux desktop, installed for **lia** on **21 October 2026**. Targets **Hyprland 0.56.2 with Lua configuration**, SDDM 0.21, Kitty 0.49, and Fish 4.9. The French keyboard layout was preserved.
+An original black-and-violet Arch Linux desktop. Targets **Hyprland 0.56.2 with Lua configuration**, SDDM 0.21, Kitty 0.49, and Fish 4.9.
 
-## Reinstall
+## Install
 
 Copy this whole folder to the target machine, open a terminal in it, and run:
 
@@ -12,6 +12,21 @@ chmod +x install.sh
 ```
 
 Run as your regular desktop user. Sudo prompts normally; no password is stored in the bundle. The installer uses the current pacman databases, official Arch packages, timestamped backups, and user-scoped configuration. It does not install anything from the AUR. On a substantially older Arch installation, perform a normal full system upgrade yourself first. Never use `pacman -Sy` alone. This installer does not update repositories. Optional GRUB and Plymouth theming asks separately before changing boot configuration; see Boot themes below.
+
+### Your settings
+
+Before changing anything, the installer shows the settings below and offers to change them. On the first run it detects the keyboard layout this machine already uses (`localectl status`, falling back to the console keymap, then `us`). Your answers are saved in `~/.config/nocturne/settings.conf` and reused by later runs; edit that file and run `./install.sh --user-only` to change them.
+
+| Setting | Option | Default |
+|---|---|---|
+| Keyboard layout | `--layout fr` (several: `--layout us,fr`) | detected, else `us` |
+| Layout variant | `--variant intl` | detected, else none |
+| Keyboard options | `--kb-options caps:escape` | detected, else none |
+| Display scale | `--scale 1.25` | `auto` |
+| Num Lock at login | `--numlock off` | `on` |
+| Login shell | `--shell keep` | `fish` |
+
+Command-line options win over the saved file. `-y` uses the saved or detected settings without asking; `./install.sh --help` lists every option. The login screen gets the same keyboard layout as the desktop (through `localectl`, leaving the text console keymap alone).
 
 Log out through **Super+M → Log out → Confirm**, then sign in again when convenient. The running desktop has already been configured; a fresh login applies the environment to every application and displays the new greeter. Existing applications may need reopening to pick up fonts, colors, and icons. Applications that enforce their own theme still use their own appearance setting.
 
@@ -45,7 +60,7 @@ Near-black `#0d0a12`, surface `#100d18`, violet `#b69af7`, text `#e4dced`, muted
 | Super+V | Toggle floating |
 | Super+F | Fullscreen |
 | Super+arrow | Focus adjacent window |
-| Super+physical number-row key | Workspace 1–10, AZERTY compatible |
+| Super+physical number-row key | Workspace 1–10, on any keyboard layout (AZERTY included) |
 | Super+Shift+physical number-row key | Move window to workspace |
 | Super+left/right mouse drag | Move / resize |
 | Super+J | Toggle split direction |
@@ -75,13 +90,13 @@ Bar: click the clock for a calendar. CPU/RAM open htop. Click the network/Blueto
 - `previews/` contains real screenshots of the installed desktop, launcher, power menu, lock screen, and greeter test mode.
 - `validation/` contains package versions and validation logs.
 
-`@@HOME@@` in the two Qt configuration templates is replaced by the installer's Python step. All other paths are portable home-relative paths or fixed standard system paths. The default shell changes through `usermod`; the installer does not copy account/password databases.
+`@@PLACEHOLDERS@@` in configuration files (your home folder in the two Qt configurations; keyboard, Num Lock and scale in `config/hypr/hyprland.lua`) are filled in by the installer as it copies them. All other paths are portable home-relative paths or fixed standard system paths. The default shell changes through `usermod`; the installer does not copy account/password databases.
 
 ## What the installer changes
 
 1. Installs the packages listed explicitly in `install.sh`.
 2. Backs up existing managed system files under `/var/lib/nocturne/backups/TIMESTAMP` and deploys SDDM.
-3. Sets the target user's login shell to `/usr/bin/fish`.
+3. Sets the target user's login shell to `/usr/bin/fish` (unless `--shell keep`) and the login screen's keyboard layout to yours.
 4. Enables NetworkManager and Bluetooth, and enables SDDM without restarting it.
 5. Backs up managed user files under `~/.local/state/nocturne/backups/TIMESTAMP` and copies this configuration.
 6. Applies GTK dark preference, font, cursor, and icon settings through GSettings.
@@ -109,7 +124,7 @@ sudo rm /etc/sddm.conf.d/90-nocturne.conf
 hyprctl reload
 ```
 
-This leaves installed packages and other theme settings in place. To change the login shell back, read `/var/lib/nocturne/backups/20261021-200558/previous-shell.txt` and run `sudo usermod -s /path/from/that/file lia`. To use Dunst again: `systemctl --user unmask dunst.service`, then start Dunst with the Nocturne shell stopped (it is the notification daemon). GSettings values before installation are in `before/gsettings-interface.txt`. Do not restart SDDM from a session with unsaved work: that ends the session.
+This leaves installed packages and other theme settings in place. To change the login shell back, read `/var/lib/nocturne/backups/20261021-200558/previous-shell.txt` and run `sudo usermod -s /path/from/that/file "$USER"`. To use Dunst again: `systemctl --user unmask dunst.service`, then start Dunst with the Nocturne shell stopped (it is the notification daemon). GSettings values before installation are in `before/gsettings-interface.txt`. Do not restart SDDM from a session with unsaved work: that ends the session.
 
 ## Maintenance
 
@@ -134,7 +149,7 @@ quickshell -c nocturne ipc show   # list the shell's IPC commands
 QT_QUICK_BACKEND=software sddm-greeter-qt6 --test-mode --theme /usr/share/sddm/themes/nocturne
 ```
 
-The greeter uses Qt Quick's software backend to be reliable on this VM. Kitty uses its native cursor trail, avoiding expensive always-running custom shaders. Change `input.kb_layout` in `config/hypr/hyprland.lua` for a different keyboard layout. Change the monitor rule there if you want a particular resolution; this setup keeps the monitor's preferred mode.
+The greeter uses Qt Quick's software backend to be reliable on this VM. Kitty uses its native cursor trail, avoiding expensive always-running custom shaders. Keyboard layout and display scale are installer settings (see Your settings). Change the monitor rule in `config/hypr/hyprland.lua` if you want a particular resolution; this setup keeps the monitor's preferred mode.
 
 ## Sources and licensing
 
