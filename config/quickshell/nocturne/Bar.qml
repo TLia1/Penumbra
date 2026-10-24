@@ -64,16 +64,16 @@ PanelWindow {
             }
         }
 
-        // What's playing, with cava's spectrum when it is installed.
+        // What's playing, with cava's spectrum when it is installed; hidden while paused.
         Capsule {
-            visible: !!Media.player
+            visible: !!Media.playing
             padding: 14
             spacing: 10
-            tip: Media.player ? [Media.player.trackTitle, Media.player.trackArtist].filter(t => t).join(" · ") + "\nMiddle-click to play or pause · scroll to skip" : ""
+            tip: Media.player ? [Media.player.trackTitle, Media.player.trackArtist].filter(t => t).join(" · ") + "\nMiddle-click to pause · scroll to skip" : ""
             onClicked: m => m.button === Qt.MiddleButton ? Media.player.togglePlaying() : Ui.toggleControl()
             onScrolled: delta => delta > 0 ? Media.player.previous() : Media.player.next()
             Row {
-                visible: Ui.hasVisualizer && !!Media.playing
+                visible: Ui.hasVisualizer
                 spacing: 2
                 Layout.preferredHeight: 18
                 Repeater {
@@ -89,7 +89,7 @@ PanelWindow {
                     }
                 }
             }
-            Glyph { visible: !Ui.hasVisualizer || !Media.playing; text: Media.playing ? "󰎆" : "󰏤"; color: Theme.violetBright }
+            Glyph { visible: !Ui.hasVisualizer; text: "󰎆"; color: Theme.violetBright }
             Label {
                 text: Media.player?.trackTitle || Media.player?.identity || ""
                 Layout.maximumWidth: 170
