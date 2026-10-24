@@ -11,8 +11,9 @@ ColumnLayout {
     readonly property var audioNodes: Pipewire.nodes.values.filter(n => n.audio)
     readonly property var outputs: audioNodes.filter(n => n.isSink && !n.isStream)
     readonly property var inputs: audioNodes.filter(n => !n.isSink && !n.isStream)
-    // Apps playing sound; recording streams (isSink) are left out.
-    readonly property var streams: audioNodes.filter(n => n.isStream && !n.isSink)
+    // Apps playing sound. Quickshell flags playback streams as sinks (AudioOutStream =
+    // Audio | Sink | Stream); recording streams are sources and are left out.
+    readonly property var streams: audioNodes.filter(n => n.isStream && n.isSink)
 
     spacing: 12
 
