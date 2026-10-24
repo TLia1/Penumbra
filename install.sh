@@ -59,12 +59,14 @@ copy_tree "$ROOT/config" "$HOME/.config"
 copy_tree "$ROOT/bin" "$HOME/.local/bin"
 copy_tree "$ROOT/share" "$HOME/.local/share"
 mkdir -p "$HOME/.local/share/nocturne"
-# Wallpaper is managed separately and backed up on subsequent installations.
-if [[ -e "$HOME/.local/share/nocturne/wallpaper.png" ]]; then
- mkdir -p "$backup/.local/share/nocturne"
- cp -a "$HOME/.local/share/nocturne/wallpaper.png" "$backup/.local/share/nocturne/"
-else printf '%s\n' "$HOME/.local/share/nocturne/wallpaper.png" >> "$backup/new-files.txt"; fi
-cp "$ROOT/assets/wallpaper.png" "$HOME/.local/share/nocturne/wallpaper.png"
+# Wallpapers are managed separately and backed up on subsequent installations.
+for wallpaper in wallpaper.png wallpaper-clean.png; do
+ if [[ -e "$HOME/.local/share/nocturne/$wallpaper" ]]; then
+  mkdir -p "$backup/.local/share/nocturne"
+  cp -a "$HOME/.local/share/nocturne/$wallpaper" "$backup/.local/share/nocturne/"
+ else printf '%s\n' "$HOME/.local/share/nocturne/$wallpaper" >> "$backup/new-files.txt"; fi
+ cp "$ROOT/assets/$wallpaper" "$HOME/.local/share/nocturne/$wallpaper"
+done
 python - "$HOME" <<'PY'
 from pathlib import Path
 import sys

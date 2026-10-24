@@ -19,18 +19,18 @@ Log out through **Super+M → Log out → Confirm**, then sign in again when con
 
 | Component | Design / behavior |
 |---|---|
-| Hyprland | Lua, violet gradient borders, rounded windows, blur, soft window/workspace animations |
-| Waybar | Separate rounded capsules: launcher and clock on the left; occupied workspaces and focused window title in the center; CPU, RAM, tray, network, Bluetooth, audio and power on the right |
-| Rofi | Application launcher, run command, window switcher, matching session menu |
+| Hyprland | Lua, slowly rotating violet gradient borders, violet glow on the focused window, rounded windows, frosted-glass blur behind the bar, launcher and notifications, soft window/workspace animations |
+| Waybar | Separate rounded capsules: launcher and clock on the left; occupied workspaces and focused window title in the center; grouped CPU/RAM, tray, grouped network/Bluetooth/audio/battery, and power on the right |
+| Rofi | Translucent application launcher, run command, window switcher; session menu as a row of icon tiles with confirmation |
 | Kitty + Fish | Violet ANSI palette, animated cursor trail, Starship prompt, custom Arch logo and grouped Fastfetch greeting |
 | Dolphin / Qt | Nocturne KDE and Qt palettes, Breeze widgets, Papirus violet folder overlay |
 | GTK | Breeze Dark, near-black surfaces, violet selection/accent overrides |
 | GRUB | Optional orbital wallpaper, violet menu selection, keyboard hints and countdown |
 | Plymouth | Optional animated violet orbit, native password dialogs and update progress |
-| SDDM | Original animated QML greeter, orbital wallpaper, editable username, password, session selector, restart/shutdown confirmation |
-| Hyprlock | Matching wallpaper, clock and password field; locks after ten idle minutes and before suspend |
+| SDDM | Original animated QML greeter, wordmark-free orbital wallpaper, editable username, password, session selector, restart/shutdown confirmation |
+| Hyprlock | Wordmark-free wallpaper, clock and password field; locks after ten idle minutes and before suspend |
 | Notifications | Mako with violet borders and critical-notification persistence |
-| Wallpaper | Original scalable SVG artwork plus pre-rendered PNG, no external image downloads |
+| Wallpaper | Original scalable SVG artwork plus pre-rendered PNG; a wordmark-free variant for the lock screen and greeter (`tools/build-wallpapers.py`), no external image downloads |
 
 Near-black `#0d0a12`, surface `#100d18`, violet `#b69af7`, text `#e4dced`, muted `#8f809f`. Fonts: Inter and JetBrainsMono Nerd Font.
 
@@ -63,7 +63,7 @@ Bar: click time to change date/time display; hover for calendar. CPU/RAM open ht
 - `config/` → `~/.config/` (all authored user configuration files).
 - `bin/` → `~/.local/bin/` (session, power, network, Bluetooth, screenshot scripts).
 - `share/` → `~/.local/share/` (KDE color scheme and violet icon overlay).
-- `assets/wallpaper.png` → `~/.local/share/nocturne/wallpaper.png`.
+- `assets/wallpaper.png` and `assets/wallpaper-clean.png` → `~/.local/share/nocturne/`. After editing `assets/wallpaper.svg`, run `tools/build-wallpapers.py` to re-render both and the SDDM copy.
 - `system/` mirrors absolute system paths: SDDM configuration and complete theme.
 - `CONFIGURATION.md` contains the full installer, helper scripts, every authored configuration, and wallpaper SVG in Markdown.
 - `previews/` contains real screenshots of the installed desktop, launcher, power menu, lock screen, and greeter test mode.
@@ -114,9 +114,8 @@ hyprctl configerrors
 # Reapply just the user files, without sudo or package installation
 ./install.sh --user-only
 
-# Regenerate the wallpaper PNG after editing the SVG
-rsvg-convert assets/wallpaper.svg -o assets/wallpaper.png
-cp assets/wallpaper.png system/usr/share/sddm/themes/nocturne/wallpaper.png
+# Regenerate both wallpaper PNGs and the SDDM copy after editing the SVG
+python tools/build-wallpapers.py
 ./install.sh
 
 # Inspect session logs

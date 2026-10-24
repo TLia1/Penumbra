@@ -13,8 +13,9 @@ hl.config({
  general = { gaps_in = 6, gaps_out = 14, border_size = 2, resize_on_border = true, layout = "dwindle",
   col = { active_border = {colors = {"rgba(a78bfaee)", "rgba(6d28d9bb)"}, angle = 45}, inactive_border = "rgba(282333ff)" } },
  decoration = { rounding = 16, rounding_power = 2, active_opacity = 1, inactive_opacity = 0.97,
-  shadow = {enabled = true, range = 24, render_power = 3, color = "rgba(00000066)"},
-  blur = {enabled = true, size = 5, passes = 2, vibrancy = 0.15} },
+  shadow = {enabled = true, range = 28, render_power = 3, color = "rgba(1a0b2e88)", color_inactive = "rgba(00000055)"},
+  glow = {enabled = true, range = 18, render_power = 3, color = "rgba(7c3aed40)", color_inactive = "rgba(00000000)"},
+  blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = 0.9, popups = true} },
  animations = {enabled = true},
  dwindle = {preserve_split = true},
  input = {kb_layout = "fr", follow_mouse = 1, sensitivity = 0, touchpad = {natural_scroll = true}},
@@ -22,9 +23,11 @@ hl.config({
 })
 hl.curve("nocturne", {type = "bezier", points = {{0.16, 1}, {0.3, 1}}})
 hl.curve("soft", {type = "bezier", points = {{0.4, 0}, {0.2, 1}}})
+hl.curve("linear", {type = "bezier", points = {{0, 0}, {1, 1}}})
 for _, a in ipairs({
  {"windows", 4.5, "nocturne", "slide"}, {"windowsIn", 4, "nocturne", "popin 94%"},
  {"windowsOut", 3, "soft", "popin 96%"}, {"border", 5, "nocturne", nil},
+ {"borderangle", 60, "linear", "loop"},
  {"fade", 3, "soft", nil}, {"workspaces", 4.5, "nocturne", "slide"},
  {"layers", 3.5, "nocturne", "fade"}
 }) do hl.animation({leaf=a[1], enabled=true, speed=a[2], bezier=a[3], style=a[4]}) end
@@ -63,5 +66,7 @@ for key,cmd in pairs({
  XF86AudioPlay="playerctl play-pause", XF86AudioNext="playerctl next", XF86AudioPrev="playerctl previous"
 }) do hl.bind(key, hl.dsp.exec_cmd(cmd), {locked=true, repeating=true}) end
 hl.window_rule({name="settings", match={class="^(org.pulseaudio.pavucontrol|pavucontrol|blueman-manager|nm-connection-editor|qt6ct)$"}, float=true, size="820 540", center=true})
+-- Frosted glass: blur behind the translucent bar, launcher and notifications.
+hl.layer_rule({name="glass", match={namespace="^(waybar|rofi|notifications)$"}, blur=true, ignore_alpha=0.3})
 hl.window_rule({name="suppress-maximize", match={class=".*"}, suppress_event="maximize"})
 hl.on("hyprland.start", function() hl.exec_cmd("~/.local/bin/nocturne-session") end)

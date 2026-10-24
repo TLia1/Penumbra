@@ -2,10 +2,9 @@
 * { font-family: "JetBrainsMono Nerd Font", "Inter"; font-size: 12px; min-height: 0; border: none; }
 window#waybar { background: transparent; color: #ded8ed; }
 .modules-left, .modules-center, .modules-right { background: transparent; }
-#custom-launcher, #clock, #window, #cpu, #memory, #tray,
-#network, #custom-bluetooth, #pulseaudio, #battery, #custom-power, #custom-updates {
-    background: rgba(16, 13, 24, 0.96);
-    border: 1px solid #352842;
+#custom-launcher, #clock, #window, #stats, #tray, #controls, #custom-power, #custom-updates {
+    background: rgba(16, 13, 24, 0.72);
+    border: 1px solid rgba(182, 154, 247, 0.16);
     border-radius: 999px;
     padding: 0 13px;
     margin: 1px 0;
@@ -14,8 +13,8 @@ window#waybar { background: transparent; color: #ded8ed; }
 #clock { font-family: "Inter"; font-weight: 700; font-size: 14px; color: #eee8ff; padding: 0 18px; }
 #workspaces { background: transparent; padding: 0; margin: 0; }
 #workspaces button {
-    background: rgba(16, 13, 24, 0.96);
-    border: 1px solid #352842;
+    background: rgba(16, 13, 24, 0.72);
+    border: 1px solid rgba(182, 154, 247, 0.16);
     border-radius: 999px;
     margin: 1px 4px;
     padding: 0 12px;
@@ -33,7 +32,11 @@ window#waybar { background: transparent; color: #ded8ed; }
 }
 #window { font-family: "Inter"; font-size: 12px; color: #c8b8dc; padding: 0 16px; }
 window#waybar.empty #window { background: transparent; border: none; padding: 0; margin: 0; }
-#cpu, #memory { color: #aaa0bb; font-size: 11px; padding: 0 12px; }
+/* Grouped capsules: the group draws the pill, its modules sit inside it. */
+#stats { padding: 0 6px; }
+#controls { padding: 0 8px; }
+#cpu, #memory { color: #aaa0bb; font-size: 11px; padding: 0 6px; }
+#network, #custom-bluetooth, #pulseaudio, #battery { padding: 0 7px; }
 #tray { padding: 0 12px; }
 #network, #custom-bluetooth, #pulseaudio { color: #c8bbde; }
 #custom-bluetooth.unavailable, #network.disconnected, #pulseaudio.muted { color: #6c627b; }

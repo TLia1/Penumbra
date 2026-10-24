@@ -1,16 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
-choice=$(printf '󰌾  Lock\n󰤄  Suspend\n󰍃  Log out\n󰜉  Restart\n󰐥  Shut down\n' | rofi -dmenu -i -p 'SESSION' -theme-str 'listview { lines: 5; } mainbox { children: [ inputbar, listview ]; }') || exit 0
+# One row of large icon tiles; rofi returns the selected index, so labels can change freely.
+tiles='window { width: 620px; padding: 22px; } mainbox { children: [ listview ]; }
+listview { columns: 5; lines: 1; spacing: 10px; fixed-columns: true; fixed-height: true; }
+element { orientation: vertical; padding: 16px 0 10px; border-radius: 16px; }
+element-text { horizontal-align: 0.5; font: "Inter 10"; }'
+menu() {
+ local -n labels=$1 icons=$2; local i
+ for i in "${!labels[@]}"; do
+  printf "<span font_desc='JetBrainsMono Nerd Font 26'>%s</span>\n<span alpha='75%%'>%s</span>|" "${icons[i]}" "${labels[i]}"
+ done
+}
+pick() { rofi -dmenu -sep '|' -eh 4 -markup-rows -no-custom -format i -no-show-icons -p "$1" -theme-str "$tiles $2"; }
+names=(Lock Suspend 'Log out' Restart 'Shut down')
+glyphs=(󰌾 󰤄 󰍃 󰜉 󰐥)
+choice=$(menu names glyphs | pick SESSION '') || exit 0
 case "$choice" in
- *Lock) loginctl lock-session; exit;;
- *Suspend) systemctl suspend; exit;;
- *'Log out') action=logout;;
- *Restart) action=reboot;;
- *'Shut down') action=poweroff;;
+ 0) loginctl lock-session; exit;;
+ 1) systemctl suspend; exit;;
+ 2) action=logout;;
+ 3) action=reboot;;
+ 4) action=poweroff;;
  *) exit;;
 esac
-answer=$(printf 'Cancel\nConfirm\n' | rofi -dmenu -i -p "$choice" -theme-str 'listview { lines: 2; } mainbox { children: [ inputbar, listview ]; }') || exit 0
-[[ "$answer" = Confirm ]] || exit 0
+confirm=(Cancel "${names[choice]}")
+confirm_glyphs=(󰜺 "${glyphs[choice]}")
+answer=$(menu confirm confirm_glyphs | pick CONFIRM 'window { width: 300px; } listview { columns: 2; }') || exit 0
+[[ "$answer" = 1 ]] || exit 0
 case "$action" in
  logout) hyprctl dispatch 'hl.dsp.exit()';;
  reboot) systemctl reboot;;

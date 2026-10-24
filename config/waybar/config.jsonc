@@ -16,15 +16,19 @@
   ],
   "modules-right": [
     "custom/updates",
-    "cpu",
-    "memory",
+    "group/stats",
     "tray",
-    "network",
-    "custom/bluetooth",
-    "pulseaudio",
-    "battery",
+    "group/controls",
     "custom/power"
   ],
+  "group/stats": {
+    "orientation": "inherit",
+    "modules": ["cpu", "memory"]
+  },
+  "group/controls": {
+    "orientation": "inherit",
+    "modules": ["network", "custom/bluetooth", "pulseaudio", "battery"]
+  },
   "custom/launcher": {
     "format": "󰣇",
     "tooltip-format": "Nocturne · Applications",

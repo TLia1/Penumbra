@@ -1,8 +1,8 @@
-* { bg: #100d18; fg: #e9e1f5; muted: #8f809f; violet: #b69af7; selection: #292039;
- background-color: transparent; text-color: @fg; border-color: #443253; }
+* { bg: #100d18c4; fg: #e9e1f5; muted: #8f809f; violet: #b69af7; selection: #2e2342b3;
+ background-color: transparent; text-color: @fg; border-color: #b69af733; }
 window { width: 640px; padding: 26px; border: 1px; border-radius: 22px; background-color: @bg; }
 mainbox { spacing: 22px; children: [ inputbar, listview, mode-switcher ]; }
-inputbar { padding: 16px; border-radius: 12px; background-color: #1c1528; spacing: 14px; children: [ prompt, entry ]; }
+inputbar { padding: 16px; border-radius: 12px; background-color: #1c152899; spacing: 14px; children: [ prompt, entry ]; }
 prompt { text-color: @violet; font: "Inter Bold 11"; vertical-align: 0.5; }
 entry { placeholder: "Search your applications…"; placeholder-color: @muted; }
 listview { lines: 6; columns: 1; spacing: 5px; fixed-height: true; }
@@ -12,5 +12,5 @@ element-icon { size: 28px; }
 element-text { vertical-align: 0.5; text-color: inherit; }
 mode-switcher { spacing: 10px; }
 button { padding: 8px; border-radius: 8px; text-color: @muted; font: "Inter 10"; }
-button selected { text-color: @violet; background-color: #20172e; }
+button selected { text-color: @violet; background-color: #20172e99; }
 message { padding: 10px; }

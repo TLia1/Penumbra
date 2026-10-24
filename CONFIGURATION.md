@@ -66,12 +66,14 @@ copy_tree "$ROOT/config" "$HOME/.config"
 copy_tree "$ROOT/bin" "$HOME/.local/bin"
 copy_tree "$ROOT/share" "$HOME/.local/share"
 mkdir -p "$HOME/.local/share/nocturne"
-# Wallpaper is managed separately and backed up on subsequent installations.
-if [[ -e "$HOME/.local/share/nocturne/wallpaper.png" ]]; then
- mkdir -p "$backup/.local/share/nocturne"
- cp -a "$HOME/.local/share/nocturne/wallpaper.png" "$backup/.local/share/nocturne/"
-else printf '%s\n' "$HOME/.local/share/nocturne/wallpaper.png" >> "$backup/new-files.txt"; fi
-cp "$ROOT/assets/wallpaper.png" "$HOME/.local/share/nocturne/wallpaper.png"
+# Wallpapers are managed separately and backed up on subsequent installations.
+for wallpaper in wallpaper.png wallpaper-clean.png; do
+ if [[ -e "$HOME/.local/share/nocturne/$wallpaper" ]]; then
+  mkdir -p "$backup/.local/share/nocturne"
+  cp -a "$HOME/.local/share/nocturne/$wallpaper" "$backup/.local/share/nocturne/"
+ else printf '%s\n' "$HOME/.local/share/nocturne/$wallpaper" >> "$backup/new-files.txt"; fi
+ cp "$ROOT/assets/$wallpaper" "$HOME/.local/share/nocturne/$wallpaper"
+done
 python - "$HOME" <<'PY'
 from pathlib import Path
 import sys
@@ -243,6 +245,28 @@ subprocess.run(['rsvg-convert',str(p),'-o',str(p.with_suffix('.png'))],check=Tru
 print(f'Built {len(frames)} original shapes / {len(list((THEME/"cursors").iterdir()))} cursor names, five sizes each.')
 ```
 
+## `tools/build-wallpapers.py`
+
+```python
+#!/usr/bin/env python3
+"""Render the desktop wallpaper and a wordmark-free variant for the lock screen and greeter."""
+from pathlib import Path
+import re
+import shutil
+import subprocess
+
+root = Path(__file__).resolve().parents[1]
+assets = root / 'assets'
+source = (assets / 'wallpaper.svg').read_text()
+# The wordmark (rule + two text lines) blurs into a smudge on hyprlock and crowds the SDDM card.
+clean = re.sub(r'<path d="M150 1330h56"[^>]*/>\n|<text [^>]*>[^<]*</text>\n', '', source)
+assert clean.count('<text') == 0 and clean != source, 'wordmark not found in wallpaper.svg'
+(assets / 'wallpaper-clean.svg').write_text(clean)
+for name in ('wallpaper', 'wallpaper-clean'):
+    subprocess.run(['rsvg-convert', str(assets / f'{name}.svg'), '-o', str(assets / f'{name}.png')], check=True)
+shutil.copyfile(assets / 'wallpaper-clean.png', root / 'system/usr/share/sddm/themes/nocturne/wallpaper.png')
+```
+
 ## `bin/nocturne-bluetooth`
 
 ```bash
@@ -276,17 +300,33 @@ fi
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-choice=$(printf '󰌾  Lock\n󰤄  Suspend\n󰍃  Log out\n󰜉  Restart\n󰐥  Shut down\n' | rofi -dmenu -i -p 'SESSION' -theme-str 'listview { lines: 5; } mainbox { children: [ inputbar, listview ]; }') || exit 0
+# One row of large icon tiles; rofi returns the selected index, so labels can change freely.
+tiles='window { width: 620px; padding: 22px; } mainbox { children: [ listview ]; }
+listview { columns: 5; lines: 1; spacing: 10px; fixed-columns: true; fixed-height: true; }
+element { orientation: vertical; padding: 16px 0 10px; border-radius: 16px; }
+element-text { horizontal-align: 0.5; font: "Inter 10"; }'
+menu() {
+ local -n labels=$1 icons=$2; local i
+ for i in "${!labels[@]}"; do
+  printf "<span font_desc='JetBrainsMono Nerd Font 26'>%s</span>\n<span alpha='75%%'>%s</span>|" "${icons[i]}" "${labels[i]}"
+ done
+}
+pick() { rofi -dmenu -sep '|' -eh 4 -markup-rows -no-custom -format i -no-show-icons -p "$1" -theme-str "$tiles $2"; }
+names=(Lock Suspend 'Log out' Restart 'Shut down')
+glyphs=(󰌾 󰤄 󰍃 󰜉 󰐥)
+choice=$(menu names glyphs | pick SESSION '') || exit 0
 case "$choice" in
- *Lock) loginctl lock-session; exit;;
- *Suspend) systemctl suspend; exit;;
- *'Log out') action=logout;;
- *Restart) action=reboot;;
- *'Shut down') action=poweroff;;
+ 0) loginctl lock-session; exit;;
+ 1) systemctl suspend; exit;;
+ 2) action=logout;;
+ 3) action=reboot;;
+ 4) action=poweroff;;
  *) exit;;
 esac
-answer=$(printf 'Cancel\nConfirm\n' | rofi -dmenu -i -p "$choice" -theme-str 'listview { lines: 2; } mainbox { children: [ inputbar, listview ]; }') || exit 0
-[[ "$answer" = Confirm ]] || exit 0
+confirm=(Cancel "${names[choice]}")
+confirm_glyphs=(󰜺 "${glyphs[choice]}")
+answer=$(menu confirm confirm_glyphs | pick CONFIRM 'window { width: 300px; } listview { columns: 2; }') || exit 0
+[[ "$answer" = 1 ]] || exit 0
 case "$action" in
  logout) hyprctl dispatch 'hl.dsp.exit()';;
  reboot) systemctl reboot;;
@@ -507,8 +547,9 @@ hl.config({
  general = { gaps_in = 6, gaps_out = 14, border_size = 2, resize_on_border = true, layout = "dwindle",
   col = { active_border = {colors = {"rgba(a78bfaee)", "rgba(6d28d9bb)"}, angle = 45}, inactive_border = "rgba(282333ff)" } },
  decoration = { rounding = 16, rounding_power = 2, active_opacity = 1, inactive_opacity = 0.97,
-  shadow = {enabled = true, range = 24, render_power = 3, color = "rgba(00000066)"},
-  blur = {enabled = true, size = 5, passes = 2, vibrancy = 0.15} },
+  shadow = {enabled = true, range = 28, render_power = 3, color = "rgba(1a0b2e88)", color_inactive = "rgba(00000055)"},
+  glow = {enabled = true, range = 18, render_power = 3, color = "rgba(7c3aed40)", color_inactive = "rgba(00000000)"},
+  blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = 0.9, popups = true} },
  animations = {enabled = true},
  dwindle = {preserve_split = true},
  input = {kb_layout = "fr", follow_mouse = 1, sensitivity = 0, touchpad = {natural_scroll = true}},
@@ -516,9 +557,11 @@ hl.config({
 })
 hl.curve("nocturne", {type = "bezier", points = {{0.16, 1}, {0.3, 1}}})
 hl.curve("soft", {type = "bezier", points = {{0.4, 0}, {0.2, 1}}})
+hl.curve("linear", {type = "bezier", points = {{0, 0}, {1, 1}}})
 for _, a in ipairs({
  {"windows", 4.5, "nocturne", "slide"}, {"windowsIn", 4, "nocturne", "popin 94%"},
  {"windowsOut", 3, "soft", "popin 96%"}, {"border", 5, "nocturne", nil},
+ {"borderangle", 60, "linear", "loop"},
  {"fade", 3, "soft", nil}, {"workspaces", 4.5, "nocturne", "slide"},
  {"layers", 3.5, "nocturne", "fade"}
 }) do hl.animation({leaf=a[1], enabled=true, speed=a[2], bezier=a[3], style=a[4]}) end
@@ -557,6 +600,8 @@ for key,cmd in pairs({
  XF86AudioPlay="playerctl play-pause", XF86AudioNext="playerctl next", XF86AudioPrev="playerctl previous"
 }) do hl.bind(key, hl.dsp.exec_cmd(cmd), {locked=true, repeating=true}) end
 hl.window_rule({name="settings", match={class="^(org.pulseaudio.pavucontrol|pavucontrol|blueman-manager|nm-connection-editor|qt6ct)$"}, float=true, size="820 540", center=true})
+-- Frosted glass: blur behind the translucent bar, launcher and notifications.
+hl.layer_rule({name="glass", match={namespace="^(waybar|rofi|notifications)$"}, blur=true, ignore_alpha=0.3})
 hl.window_rule({name="suppress-maximize", match={class=".*"}, suppress_event="maximize"})
 hl.on("hyprland.start", function() hl.exec_cmd("~/.local/bin/nocturne-session") end)
 ```
@@ -571,10 +616,10 @@ general {
 }
 background {
     monitor =
-    path = ~/.local/share/nocturne/wallpaper.png
+    path = ~/.local/share/nocturne/wallpaper-clean.png
     blur_passes = 2
-    blur_size = 5
-    brightness = 0.65
+    blur_size = 3
+    brightness = 0.7
 }
 label {
     monitor =
@@ -811,7 +856,7 @@ map ctrl+shift+t new_tab_with_cwd
 
 ```text
 font=Inter 11
-background-color=#15101ff5
+background-color=#15101fc4
 text-color=#e9e1f5
 border-color=#8e6ac8
 border-size=1
@@ -918,11 +963,11 @@ configuration {
 ## `config/rofi/nocturne.rasi`
 
 ```text
-* { bg: #100d18; fg: #e9e1f5; muted: #8f809f; violet: #b69af7; selection: #292039;
- background-color: transparent; text-color: @fg; border-color: #443253; }
+* { bg: #100d18c4; fg: #e9e1f5; muted: #8f809f; violet: #b69af7; selection: #2e2342b3;
+ background-color: transparent; text-color: @fg; border-color: #b69af733; }
 window { width: 640px; padding: 26px; border: 1px; border-radius: 22px; background-color: @bg; }
 mainbox { spacing: 22px; children: [ inputbar, listview, mode-switcher ]; }
-inputbar { padding: 16px; border-radius: 12px; background-color: #1c1528; spacing: 14px; children: [ prompt, entry ]; }
+inputbar { padding: 16px; border-radius: 12px; background-color: #1c152899; spacing: 14px; children: [ prompt, entry ]; }
 prompt { text-color: @violet; font: "Inter Bold 11"; vertical-align: 0.5; }
 entry { placeholder: "Search your applications…"; placeholder-color: @muted; }
 listview { lines: 6; columns: 1; spacing: 5px; fixed-height: true; }
@@ -932,7 +977,7 @@ element-icon { size: 28px; }
 element-text { vertical-align: 0.5; text-color: inherit; }
 mode-switcher { spacing: 10px; }
 button { padding: 8px; border-radius: 8px; text-color: @muted; font: "Inter 10"; }
-button selected { text-color: @violet; background-color: #20172e; }
+button selected { text-color: @violet; background-color: #20172e99; }
 message { padding: 10px; }
 ```
 
@@ -984,15 +1029,19 @@ format = "[󰥔 $time](#71637f)"
   ],
   "modules-right": [
     "custom/updates",
-    "cpu",
-    "memory",
+    "group/stats",
     "tray",
-    "network",
-    "custom/bluetooth",
-    "pulseaudio",
-    "battery",
+    "group/controls",
     "custom/power"
   ],
+  "group/stats": {
+    "orientation": "inherit",
+    "modules": ["cpu", "memory"]
+  },
+  "group/controls": {
+    "orientation": "inherit",
+    "modules": ["network", "custom/bluetooth", "pulseaudio", "battery"]
+  },
   "custom/launcher": {
     "format": "󰣇",
     "tooltip-format": "Nocturne · Applications",
@@ -1107,10 +1156,9 @@ format = "[󰥔 $time](#71637f)"
 * { font-family: "JetBrainsMono Nerd Font", "Inter"; font-size: 12px; min-height: 0; border: none; }
 window#waybar { background: transparent; color: #ded8ed; }
 .modules-left, .modules-center, .modules-right { background: transparent; }
-#custom-launcher, #clock, #window, #cpu, #memory, #tray,
-#network, #custom-bluetooth, #pulseaudio, #battery, #custom-power, #custom-updates {
-    background: rgba(16, 13, 24, 0.96);
-    border: 1px solid #352842;
+#custom-launcher, #clock, #window, #stats, #tray, #controls, #custom-power, #custom-updates {
+    background: rgba(16, 13, 24, 0.72);
+    border: 1px solid rgba(182, 154, 247, 0.16);
     border-radius: 999px;
     padding: 0 13px;
     margin: 1px 0;
@@ -1119,8 +1167,8 @@ window#waybar { background: transparent; color: #ded8ed; }
 #clock { font-family: "Inter"; font-weight: 700; font-size: 14px; color: #eee8ff; padding: 0 18px; }
 #workspaces { background: transparent; padding: 0; margin: 0; }
 #workspaces button {
-    background: rgba(16, 13, 24, 0.96);
-    border: 1px solid #352842;
+    background: rgba(16, 13, 24, 0.72);
+    border: 1px solid rgba(182, 154, 247, 0.16);
     border-radius: 999px;
     margin: 1px 4px;
     padding: 0 12px;
@@ -1138,7 +1186,11 @@ window#waybar { background: transparent; color: #ded8ed; }
 }
 #window { font-family: "Inter"; font-size: 12px; color: #c8b8dc; padding: 0 16px; }
 window#waybar.empty #window { background: transparent; border: none; padding: 0; margin: 0; }
-#cpu, #memory { color: #aaa0bb; font-size: 11px; padding: 0 12px; }
+/* Grouped capsules: the group draws the pill, its modules sit inside it. */
+#stats { padding: 0 6px; }
+#controls { padding: 0 8px; }
+#cpu, #memory { color: #aaa0bb; font-size: 11px; padding: 0 6px; }
+#network, #custom-bluetooth, #pulseaudio, #battery { padding: 0 7px; }
 #tray { padding: 0 12px; }
 #network, #custom-bluetooth, #pulseaudio { color: #c8bbde; }
 #custom-bluetooth.unavailable, #network.disconnected, #pulseaudio.muted { color: #6c627b; }
