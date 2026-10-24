@@ -1,7 +1,7 @@
--- NOCTURNE / Hyprland 0.56 Lua configuration
--- Keyboard, Num Lock and scale come from ~/.config/nocturne/settings.conf (see ./install.sh --help).
+-- PENUMBRA / Hyprland 0.56 Lua configuration
+-- Keyboard, Num Lock and scale come from ~/.config/penumbra/settings.conf (see ./install.sh --help).
 hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "@@SCALE@@" })
-hl.env("XCURSOR_THEME", "Nocturne-Cursors")
+hl.env("XCURSOR_THEME", "Penumbra-Cursors")
 hl.env("XCURSOR_SIZE", "28")
 hl.env("HYPRCURSOR_SIZE", "28")
 hl.env("QT_QPA_PLATFORMTHEME", "qt6ct")
@@ -24,35 +24,35 @@ hl.config({
  -- A fresh lock screen (hyprlock from a TTY) can take over if the shell's ever dies while locked.
  misc = {disable_hyprland_logo = true, disable_splash_rendering = true, force_default_wallpaper = 0, allow_session_lock_restore = true},
 })
-hl.curve("nocturne", {type = "bezier", points = {{0.16, 1}, {0.3, 1}}})
+hl.curve("penumbra", {type = "bezier", points = {{0.16, 1}, {0.3, 1}}})
 hl.curve("soft", {type = "bezier", points = {{0.4, 0}, {0.2, 1}}})
 hl.curve("linear", {type = "bezier", points = {{0, 0}, {1, 1}}})
 for _, a in ipairs({
- {"windows", 4.5, "nocturne", "slide"}, {"windowsIn", 4, "nocturne", "popin 94%"},
- {"windowsOut", 3, "soft", "popin 96%"}, {"border", 5, "nocturne", nil},
+ {"windows", 4.5, "penumbra", "slide"}, {"windowsIn", 4, "penumbra", "popin 94%"},
+ {"windowsOut", 3, "soft", "popin 96%"}, {"border", 5, "penumbra", nil},
  {"borderangle", 60, "linear", "loop"},
- {"fade", 3, "soft", nil}, {"workspaces", 4.5, "nocturne", "slide"},
- {"layers", 3.5, "nocturne", "fade"}
+ {"fade", 3, "soft", nil}, {"workspaces", 4.5, "penumbra", "slide"},
+ {"layers", 3.5, "penumbra", "fade"}
 }) do hl.animation({leaf=a[1], enabled=true, speed=a[2], bezier=a[3], style=a[4]}) end
 local function exec(key, cmd) hl.bind(key, hl.dsp.exec_cmd(cmd)) end
 exec("SUPER + Return", "kitty")
 exec("SUPER + Q", "kitty")
 exec("SUPER + E", "dolphin")
-exec("SUPER + R", "~/.local/bin/nocturne-launcher")
-exec("SUPER + space", "~/.local/bin/nocturne-launcher")
+exec("SUPER + R", "~/.local/bin/penumbra-launcher")
+exec("SUPER + space", "~/.local/bin/penumbra-launcher")
 exec("SUPER + B", "firefox")
-exec("SUPER + M", "~/.local/bin/nocturne-power")
+exec("SUPER + M", "~/.local/bin/penumbra-power")
 exec("SUPER + L", "loginctl lock-session")
-exec("SUPER + N", "quickshell -c nocturne ipc call notifications clear")
-exec("SUPER + A", "quickshell -c nocturne ipc call panel control")
-exec("SUPER + SHIFT + V", "~/.local/bin/nocturne-clipboard")
-exec("SUPER + semicolon", "quickshell -c nocturne ipc call launcher emoji")
-exec("SUPER + SHIFT + C", "~/.local/bin/nocturne-picker")
-exec("SUPER + W", "~/.local/bin/nocturne-wallpaper next")
-exec("SUPER + SHIFT + W", "quickshell -c nocturne ipc call panel wallpapers")
-exec("SUPER + SHIFT + R", "~/.local/bin/nocturne-session restart")
-exec("Print", "~/.local/bin/nocturne-shot")
-exec("SHIFT + Print", "~/.local/bin/nocturne-shot annotate")
+exec("SUPER + N", "quickshell -c penumbra ipc call notifications clear")
+exec("SUPER + A", "quickshell -c penumbra ipc call panel control")
+exec("SUPER + SHIFT + V", "~/.local/bin/penumbra-clipboard")
+exec("SUPER + semicolon", "quickshell -c penumbra ipc call launcher emoji")
+exec("SUPER + SHIFT + C", "~/.local/bin/penumbra-picker")
+exec("SUPER + W", "~/.local/bin/penumbra-wallpaper next")
+exec("SUPER + SHIFT + W", "quickshell -c penumbra ipc call panel wallpapers")
+exec("SUPER + SHIFT + R", "~/.local/bin/penumbra-session restart")
+exec("Print", "~/.local/bin/penumbra-shot")
+exec("SHIFT + Print", "~/.local/bin/penumbra-shot annotate")
 hl.bind("SUPER + C", hl.dsp.window.close())
 hl.bind("SUPER + V", hl.dsp.window.float({action="toggle"}))
 hl.bind("SUPER + F", hl.dsp.window.fullscreen())
@@ -68,18 +68,18 @@ hl.bind("SUPER + mouse:273", hl.dsp.window.resize(), {mouse=true})
 hl.bind("SUPER + mouse_down", hl.dsp.focus({workspace="e+1"}))
 hl.bind("SUPER + mouse_up", hl.dsp.focus({workspace="e-1"}))
 for key,cmd in pairs({
- XF86AudioRaiseVolume="~/.local/bin/nocturne-osd volume up",
- XF86AudioLowerVolume="~/.local/bin/nocturne-osd volume down",
- XF86AudioMute="~/.local/bin/nocturne-osd volume mute",
- XF86AudioMicMute="~/.local/bin/nocturne-osd microphone mute",
- XF86MonBrightnessUp="~/.local/bin/nocturne-osd brightness up", XF86MonBrightnessDown="~/.local/bin/nocturne-osd brightness down",
+ XF86AudioRaiseVolume="~/.local/bin/penumbra-osd volume up",
+ XF86AudioLowerVolume="~/.local/bin/penumbra-osd volume down",
+ XF86AudioMute="~/.local/bin/penumbra-osd volume mute",
+ XF86AudioMicMute="~/.local/bin/penumbra-osd microphone mute",
+ XF86MonBrightnessUp="~/.local/bin/penumbra-osd brightness up", XF86MonBrightnessDown="~/.local/bin/penumbra-osd brightness down",
  XF86AudioPlay="playerctl play-pause", XF86AudioNext="playerctl next", XF86AudioPrev="playerctl previous"
 }) do hl.bind(key, hl.dsp.exec_cmd(cmd), {locked=true, repeating=true}) end
 hl.window_rule({name="settings", match={class="^(org.pulseaudio.pavucontrol|pavucontrol|blueman-manager|nm-connection-editor|qt6ct)$"}, float=true, size="820 540", center=true})
 hl.window_rule({name="annotate", match={class="^(com.gabm.satty)$"}, float=true, center=true})
--- Frosted glass behind every Nocturne shell surface and the launcher.
-hl.layer_rule({name="glass", match={namespace="^(nocturne-.*|rofi)$"}, blur=true, ignore_alpha=0.3})
+-- Frosted glass behind every Penumbra shell surface and the launcher.
+hl.layer_rule({name="glass", match={namespace="^(penumbra-.*|rofi)$"}, blur=true, ignore_alpha=0.3})
 -- The screenshot overlay must be gone at once, before grim reads the screen.
-hl.layer_rule({name="shot", match={namespace="^nocturne-shot$"}, no_anim=true})
+hl.layer_rule({name="shot", match={namespace="^penumbra-shot$"}, no_anim=true})
 hl.window_rule({name="suppress-maximize", match={class=".*"}, suppress_event="maximize"})
-hl.on("hyprland.start", function() hl.exec_cmd("~/.local/bin/nocturne-session") end)
+hl.on("hyprland.start", function() hl.exec_cmd("~/.local/bin/penumbra-session") end)

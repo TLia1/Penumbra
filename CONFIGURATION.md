@@ -1,18 +1,18 @@
-# Complete Nocturne configuration
+# Complete Penumbra configuration
 
-Full installer, cursor generator, scripts and authored text configuration. Compiled Xcursor binaries are under `system/usr/share/icons/Nocturne-Cursors/cursors/`; their original SVGs are under `assets/cursors/`. Both are included alongside this Markdown file.
+Full installer, cursor generator, scripts and authored text configuration. Compiled Xcursor binaries are under `system/usr/share/icons/Penumbra-Cursors/cursors/`; their original SVGs are under `assets/cursors/`. Both are included alongside this Markdown file.
 
 ## `install.sh`
 
 ```bash
 #!/usr/bin/env bash
-# Nocturne installer. Run it as your regular desktop user: ./install.sh
+# Penumbra installer. Run it as your regular desktop user: ./install.sh
 # Run ./install.sh --help for the options.
 set -euo pipefail
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 STAMP=$(date +%Y%m%d-%H%M%S)
-SETTINGS_FILE=${XDG_CONFIG_HOME:-$HOME/.config}/nocturne/settings.conf
+SETTINGS_FILE=${XDG_CONFIG_HOME:-$HOME/.config}/penumbra/settings.conf
 XKB_RULES=/usr/share/X11/xkb/rules/base.lst
 
 PACKAGES=(
@@ -57,10 +57,10 @@ Settings (detected on the first run, then remembered in $SETTINGS_FILE):
 
 Other options:
   -y, --yes            Don't ask about the settings; use the saved or detected ones.
-  --skip-packages      Don't install packages (or NOCTURNE_SKIP_PACKAGES=1).
+  --skip-packages      Don't install packages (or PENUMBRA_SKIP_PACKAGES=1).
   --remove-legacy yes|no|ask
                        Whether to remove Waybar, Mako and swaybg if they are
-                       installed (or NOCTURNE_REMOVE_LEGACY=1/0). Default: ask.
+                       installed (or PENUMBRA_REMOVE_LEGACY=1/0). Default: ask.
   --user NAME          Desktop user for --system-only (default: \$SUDO_USER).
   -h, --help           Show this help.
 EOF
@@ -114,7 +114,7 @@ load_saved_settings() {
 save_settings() {
     mkdir -p "$(dirname "$SETTINGS_FILE")"
     {
-        echo '# Nocturne settings, written by install.sh.'
+        echo '# Penumbra settings, written by install.sh.'
         echo '# Edit them, then run ./install.sh --user-only to apply.'
         local key
         for key in "${SETTING_KEYS[@]}"; do printf '%s=%s\n' "$key" "${settings[$key]}"; done
@@ -260,7 +260,7 @@ remove_legacy_packages() {
     (( ${#installed[@]} )) || return 0
     case $REMOVE_LEGACY in
         yes) ;;
-        ask) ask "Remove packages Nocturne no longer uses (${installed[*]})?" || return 0 ;;
+        ask) ask "Remove packages Penumbra no longer uses (${installed[*]})?" || return 0 ;;
         *) return 0 ;;
     esac
     pacman -Q "${installed[@]}" > "$BACKUP/removed-packages.txt"
@@ -315,7 +315,7 @@ run_system_part() {
     [[ $EUID == 0 ]] || die 'The system part needs root: sudo ./install.sh --system-only'
     local user=${TARGET_USER:-${SUDO_USER:-}}
     [[ -n $user && $user != root ]] || die 'Name the desktop user with --user NAME.'
-    BACKUP=/var/lib/nocturne/backups/$STAMP
+    BACKUP=/var/lib/penumbra/backups/$STAMP
     mkdir -p "$BACKUP"
 
     step 'Installing packages'
@@ -338,13 +338,13 @@ run_system_part() {
 # ─── User part ───────────────────────────────────────────────────────────────
 
 install_wallpapers() {
-    local dir=$HOME/.local/share/nocturne wallpaper
+    local dir=$HOME/.local/share/penumbra wallpaper
     mkdir -p "$dir"
     for wallpaper in "$ROOT"/assets/wallpaper*.png; do
-        backup_file "$dir/${wallpaper##*/}" ".local/share/nocturne/${wallpaper##*/}"
+        backup_file "$dir/${wallpaper##*/}" ".local/share/penumbra/${wallpaper##*/}"
         cp "$wallpaper" "$dir/"
     done
-    # The lock screen follows the chosen wallpaper; nocturne-wallpaper repoints this link.
+    # The lock screen follows the chosen wallpaper; penumbra-wallpaper repoints this link.
     [[ -e $dir/lock.png ]] || ln -sfn "$dir/wallpaper-clean.png" "$dir/lock.png"
 }
 
@@ -365,13 +365,13 @@ apply_gtk_settings() {
     gsettings list-recursively org.gnome.desktop.interface > "$BACKUP/gsettings-interface.txt"
     gsettings set org.gnome.desktop.interface color-scheme prefer-dark
     gsettings set org.gnome.desktop.interface gtk-theme Breeze-Dark
-    gsettings set org.gnome.desktop.interface icon-theme Nocturne
-    gsettings set org.gnome.desktop.interface cursor-theme Nocturne-Cursors
+    gsettings set org.gnome.desktop.interface icon-theme Penumbra
+    gsettings set org.gnome.desktop.interface cursor-theme Penumbra-Cursors
     gsettings set org.gnome.desktop.interface cursor-size 28
     gsettings set org.gnome.desktop.interface font-name 'Inter 10'
 }
 
-# The Nocturne shell is the notification daemon; mask Dunst so it can't compete.
+# The Penumbra shell is the notification daemon; mask Dunst so it can't compete.
 disable_dunst() {
     systemctl --user cat dunst.service >/dev/null 2>&1 || return 0
     systemctl --user is-enabled dunst.service > "$BACKUP/dunst.enabled" 2>&1 || true
@@ -381,14 +381,14 @@ disable_dunst() {
 }
 
 run_user_part() {
-    BACKUP=$HOME/.local/state/nocturne/backups/$STAMP
+    BACKUP=$HOME/.local/state/penumbra/backups/$STAMP
     mkdir -p "$BACKUP"
 
     step 'Installing your configuration'
     install_tree "$ROOT/config" "$HOME/.config"
     install_tree "$ROOT/bin" "$HOME/.local/bin"
     install_tree "$ROOT/share" "$HOME/.local/share"
-    chmod +x "$HOME"/.local/bin/nocturne-*
+    chmod +x "$HOME"/.local/bin/penumbra-*
     install_wallpapers
     retire_legacy_desktop
 
@@ -398,10 +398,10 @@ run_user_part() {
     systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
     if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
         hyprctl reload
-        hyprctl dispatch "hl.dsp.exec_cmd('~/.local/bin/nocturne-session restart')"
+        hyprctl dispatch "hl.dsp.exec_cmd('~/.local/bin/penumbra-session restart')"
     fi
 
-    printf '\nNocturne installed. User backup: %s\n' "$BACKUP"
+    printf '\nPenumbra installed. User backup: %s\n' "$BACKUP"
     echo 'Log out when convenient to apply every environment setting.'
 }
 
@@ -421,8 +421,8 @@ run_system_part_with_sudo() {
 
 PART=all
 ASSUME_YES=0
-SKIP_PACKAGES=${NOCTURNE_SKIP_PACKAGES:-0}
-case ${NOCTURNE_REMOVE_LEGACY:-ask} in 1) REMOVE_LEGACY=yes ;; 0) REMOVE_LEGACY=no ;; *) REMOVE_LEGACY=ask ;; esac
+SKIP_PACKAGES=${PENUMBRA_SKIP_PACKAGES:-0}
+case ${PENUMBRA_REMOVE_LEGACY:-ask} in 1) REMOVE_LEGACY=yes ;; 0) REMOVE_LEGACY=no ;; *) REMOVE_LEGACY=ask ;; esac
 TARGET_USER=''
 
 while (( $# )); do
@@ -487,12 +487,12 @@ from pathlib import Path
 import math, shutil, subprocess, tempfile
 ROOT=Path(__file__).resolve().parents[1]
 ASSETS=ROOT/'assets/cursors'
-THEME=ROOT/'system/usr/share/icons/Nocturne-Cursors'
+THEME=ROOT/'system/usr/share/icons/Penumbra-Cursors'
 for stale in ASSETS.glob('*.svg'):stale.unlink()
 shutil.rmtree(THEME/'cursors',ignore_errors=True)
 ASSETS.mkdir(parents=True,exist_ok=True)
 (THEME/'cursors').mkdir(parents=True,exist_ok=True)
-# Palette: midnight outline, moonlit lavender body, Nocturne violet accents.
+# Palette: midnight outline, moonlit lavender body, Penumbra violet accents.
 D='#100b1b'; F='url(#body)'; V='#b69af7'; A='#8a63e8'; C='#9a82c9'; R='#ef8fa4'; O=1.6
 DEFS=('<defs><linearGradient id="body" gradientUnits="userSpaceOnUse" x1="0" y1="2" x2="0" y2="30">'
  '<stop offset="0" stop-color="#faf6ff"/><stop offset="1" stop-color="#d4c2ff"/></linearGradient>'
@@ -583,7 +583,7 @@ aliases={
  'help':'question_arrow left_ptr_help whats_this d9ce0ab605698f320427677b458ad60b',
  'watch':'wait', 'left_ptr_watch':'progress half-busy 08e8e1c95fe2fc01f976f1e063a24ccd',
 }
-with tempfile.TemporaryDirectory(prefix='nocturne-cursors-') as tmp:
+with tempfile.TemporaryDirectory(prefix='penumbra-cursors-') as tmp:
  tmp=Path(tmp)
  for name,(images,hx,hy) in frames.items():
   lines=[]
@@ -597,9 +597,9 @@ with tempfile.TemporaryDirectory(prefix='nocturne-cursors-') as tmp:
   subprocess.run(['xcursorgen',str(cfg),str(THEME/'cursors'/name)],check=True)
  for canonical,names in aliases.items():
   for alias in names.split():shutil.copyfile(THEME/'cursors'/canonical,THEME/'cursors'/alias)
-(THEME/'index.theme').write_text('[Icon Theme]\nName=Nocturne Cursors\nComment=Soft lavender cursors with midnight outlines and a violet ring spinner\nInherits=breeze_cursors\n')
+(THEME/'index.theme').write_text('[Icon Theme]\nName=Penumbra Cursors\nComment=Soft lavender cursors with midnight outlines and a violet ring spinner\nInherits=breeze_cursors\n')
 # SVG contact sheet, keeping the artwork editable and inspectable.
-parts=['<svg xmlns="http://www.w3.org/2000/svg" width="960" height="570" viewBox="0 0 960 570"><rect width="960" height="570" rx="24" fill="#100d18"/><text x="40" y="50" fill="#e4dced" font-family="Inter" font-size="24">NOCTURNE / CURSORS</text><text x="40" y="79" fill="#8f809f" font-family="Inter" font-size="13">Soft lavender silhouettes · midnight outlines · violet ring spinner</text>']
+parts=['<svg xmlns="http://www.w3.org/2000/svg" width="960" height="570" viewBox="0 0 960 570"><rect width="960" height="570" rx="24" fill="#100d18"/><text x="40" y="50" fill="#e4dced" font-family="Inter" font-size="24">PENUMBRA / CURSORS</text><text x="40" y="79" fill="#8f809f" font-family="Inter" font-size="13">Soft lavender silhouettes · midnight outlines · violet ring spinner</text>']
 for n,(name,(images,_,_)) in enumerate(frames.items()):
  x=40+(n%6)*150;y=110+(n//6)*110
  inner=images[len(images)//3].split('>',1)[1].rsplit('</svg>',1)[0]
@@ -637,7 +637,7 @@ for name in ('wallpaper', 'wallpaper-dawn', 'wallpaper-eclipse'):
     (assets / f'{name}-clean.svg').write_text(clean)
     for variant in (name, f'{name}-clean'):
         subprocess.run(['rsvg-convert', str(assets / f'{variant}.svg'), '-o', str(assets / f'{variant}.png')], check=True)
-shutil.copyfile(assets / 'wallpaper-clean.png', root / 'system/usr/share/sddm/themes/nocturne/wallpaper.png')
+shutil.copyfile(assets / 'wallpaper-clean.png', root / 'system/usr/share/sddm/themes/penumbra/wallpaper.png')
 
 # Animated scenes: every top-level `layer-*` element becomes its own cropped PNG, drawn in
 # document order; whatever is left (sky gradient, wordmark) is the backdrop. Stars are drawn
@@ -671,7 +671,7 @@ def render(scene, out, layer, name):
 
 for name, folder in (('wallpaper-dawn', 'dawn'), ('wallpaper-eclipse', 'eclipse')):
     scene = ET.parse(assets / f'{name}.svg').getroot()
-    out = root / 'config/quickshell/nocturne' / folder
+    out = root / 'config/quickshell/penumbra' / folder
     out.mkdir(exist_ok=True)
     names = [child.get('id')[6:] for child in scene if (child.get('id') or '').startswith('layer-')]
     # The lock screen animates the scene too, over a backdrop without the wordmark.
@@ -692,7 +692,7 @@ for name, folder in (('wallpaper-dawn', 'dawn'), ('wallpaper-eclipse', 'eclipse'
         subprocess.run([shutil.which('qsb') or '/usr/lib/qt6/bin/qsb', '--qt6', '-o', f'{shader}.qsb', str(shader)], check=True)
 ```
 
-## `bin/nocturne-bluetooth`
+## `bin/penumbra-bluetooth`
 
 ```bash
 #!/usr/bin/env bash
@@ -708,25 +708,25 @@ else
 fi
 ```
 
-## `bin/nocturne-network`
+## `bin/penumbra-network`
 
 ```bash
 #!/usr/bin/env bash
 if nmcli -t -f TYPE device | grep -qx wifi; then
- exec kitty --class nocturne-network -e nmtui
+ exec kitty --class penumbra-network -e nmtui
 else
  notify-send 'Network settings' 'Ethernet is available. No Wi-Fi adapter is attached to this VM.'
  exec nm-connection-editor
 fi
 ```
 
-## `bin/nocturne-power`
+## `bin/penumbra-power`
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-# The Nocturne shell draws the session overlay; this rofi menu is the fallback without it.
-quickshell -c nocturne ipc call panel session >/dev/null 2>&1 && exit
+# The Penumbra shell draws the session overlay; this rofi menu is the fallback without it.
+quickshell -c penumbra ipc call panel session >/dev/null 2>&1 && exit
 # One row of large icon tiles; rofi returns the selected index, so labels can change freely.
 tiles='window { width: 620px; padding: 22px; } mainbox { children: [ listview ]; }
 listview { columns: 5; lines: 1; spacing: 10px; fixed-columns: true; fixed-height: true; }
@@ -761,14 +761,14 @@ case "$action" in
 esac
 ```
 
-## `bin/nocturne-session`
+## `bin/penumbra-session`
 
 ```bash
 #!/usr/bin/env bash
 set -u
-export QT_QPA_PLATFORMTHEME=qt6ct GTK_THEME=Breeze-Dark XCURSOR_THEME=Nocturne-Cursors XCURSOR_SIZE=28
-mkdir -p "$HOME/.local/state/nocturne"
-exec 9>"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/nocturne-session.lock"
+export QT_QPA_PLATFORMTHEME=qt6ct GTK_THEME=Breeze-Dark XCURSOR_THEME=Penumbra-Cursors XCURSOR_SIZE=28
+mkdir -p "$HOME/.local/state/penumbra"
+exec 9>"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/penumbra-session.lock"
 flock -n 9 || exit 0
 if [[ ${1:-} = restart ]]; then
     pkill -x quickshell || true
@@ -780,27 +780,27 @@ fi
 start() {
  local process=$1; shift
  if ! pgrep -u "$UID" -x "$process" >/dev/null; then
-  nohup "$@" >"$HOME/.local/state/nocturne/$process.log" 2>&1 9>&- &
+  nohup "$@" >"$HOME/.local/state/penumbra/$process.log" 2>&1 9>&- &
  fi
 }
 dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP QT_QPA_PLATFORMTHEME GTK_THEME XCURSOR_THEME XCURSOR_SIZE
-hyprctl setcursor Nocturne-Cursors 28 >/dev/null
+hyprctl setcursor Penumbra-Cursors 28 >/dev/null
 start awww-daemon awww-daemon
 # The shell is the polkit agent too; an older KDE agent would hold the registration.
 pkill -u "$UID" -f '^/usr/lib/polkit-kde-authentication-agent-1' || true
 # Bar, notifications, OSD, control center, launcher, overlays, lock screen and polkit agent.
-start quickshell quickshell -c nocturne
+start quickshell quickshell -c penumbra
 start hypridle hypridle
 # Clipboard history for text and images.
 if ! pgrep -u "$UID" -f "^wl-paste --type text --watch cliphist store" >/dev/null; then
  nohup wl-paste --type text --watch cliphist store >/dev/null 2>&1 9>&- &
  nohup wl-paste --type image --watch cliphist store >/dev/null 2>&1 9>&- &
 fi
-nohup "$HOME/.local/bin/nocturne-wallpaper" restore >"$HOME/.local/state/nocturne/wallpaper.log" 2>&1 9>&- &
+nohup "$HOME/.local/bin/penumbra-wallpaper" restore >"$HOME/.local/state/penumbra/wallpaper.log" 2>&1 9>&- &
 exec 9>&-
 ```
 
-## `bin/nocturne-shot`
+## `bin/penumbra-shot`
 
 ```bash
 #!/usr/bin/env bash
@@ -814,12 +814,12 @@ while (( $# )); do
  case $1 in
   annotate) annotate=true;;
   --geometry) region=${2?--geometry needs "X,Y WxH"}; shift;;
-  *) echo 'Usage: nocturne-shot [annotate] [--geometry "X,Y WxH"]' >&2; exit 2;;
+  *) echo 'Usage: penumbra-shot [annotate] [--geometry "X,Y WxH"]' >&2; exit 2;;
  esac
  shift
 done
 if [[ -z $region ]]; then
- quickshell -c nocturne ipc call shot open "$annotate" >/dev/null 2>&1 && exit
+ quickshell -c penumbra ipc call shot open "$annotate" >/dev/null 2>&1 && exit
  region=$(slurp -b 100d18aa -c b69af7 -w 2) || exit 0
 fi
 mkdir -p "$HOME/Pictures/Screenshots"
@@ -830,10 +830,10 @@ if [[ $annotate = true ]]; then
 fi
 grim -g "$region" "$file"
 wl-copy < "$file"
-notify-send -a Nocturne -i "$file" 'Screenshot saved' "Copied to clipboard · ${file/#$HOME/\~}"
+notify-send -a Penumbra -i "$file" 'Screenshot saved' "Copied to clipboard · ${file/#$HOME/\~}"
 ```
 
-## `bin/nocturne-clipboard`
+## `bin/penumbra-clipboard`
 
 ```bash
 #!/usr/bin/env bash
@@ -841,26 +841,26 @@ notify-send -a Nocturne -i "$file" 'Screenshot saved' "Copied to clipboard · ${
 set -euo pipefail
 if [[ ${1:-} = clear ]]; then
  cliphist wipe
- rm -rf "${XDG_RUNTIME_DIR:-/tmp}/nocturne/clipboard"
- notify-send -a Nocturne 'Clipboard cleared' 'History has been wiped.'
+ rm -rf "${XDG_RUNTIME_DIR:-/tmp}/penumbra/clipboard"
+ notify-send -a Penumbra 'Clipboard cleared' 'History has been wiped.'
  exit
 fi
-quickshell -c nocturne ipc call launcher clipboard >/dev/null 2>&1 && exit
+quickshell -c penumbra ipc call launcher clipboard >/dev/null 2>&1 && exit
 choice=$(cliphist list | rofi -dmenu -i -p CLIPBOARD -display-columns 2 \
  -theme-str 'entry { placeholder: "Search clipboard history…"; } listview { lines: 8; } element { padding: 9px 12px; }') || exit 0
 cliphist decode <<<"$choice" | wl-copy
 ```
 
-## `bin/nocturne-launcher`
+## `bin/penumbra-launcher`
 
 ```bash
 #!/usr/bin/env bash
-# The Nocturne shell draws the launcher; this rofi menu is the fallback without it.
-quickshell -c nocturne ipc call launcher apps >/dev/null 2>&1 && exit
+# The Penumbra shell draws the launcher; this rofi menu is the fallback without it.
+quickshell -c penumbra ipc call launcher apps >/dev/null 2>&1 && exit
 exec rofi -show drun
 ```
 
-## `bin/nocturne-picker`
+## `bin/penumbra-picker`
 
 ```bash
 #!/usr/bin/env bash
@@ -868,18 +868,18 @@ exec rofi -show drun
 set -euo pipefail
 color=$(hyprpicker --autocopy --format=hex --no-fancy --quiet 2>/dev/null) || exit 0
 [[ -n "$color" ]] || exit 0
-notify-send -a Nocturne "Color copied · $color" "<span foreground='$color'>██████</span>  $color"
+notify-send -a Penumbra "Color copied · $color" "<span foreground='$color'>██████</span>  $color"
 ```
 
-## `bin/nocturne-wallpaper`
+## `bin/penumbra-wallpaper`
 
 ```bash
 #!/usr/bin/env bash
-# Switch Nocturne wallpapers (the next one, or one by name) with an awww transition;
+# Switch Penumbra wallpapers (the next one, or one by name) with an awww transition;
 # the lock screen follows the choice.
 set -euo pipefail
-dir="$HOME/.local/share/nocturne"
-state="$HOME/.local/state/nocturne/wallpaper"
+dir="$HOME/.local/share/penumbra"
+state="$HOME/.local/state/penumbra/wallpaper"
 names=(wallpaper wallpaper-dawn wallpaper-eclipse)
 current=$(cat "$state" 2>/dev/null || echo wallpaper)
 [[ -e "$dir/$current.png" ]] || current=wallpaper
@@ -890,7 +890,7 @@ case "${1:-next}" in
   current=${names[(i + 1) % ${#names[@]}]};;
  wallpaper|wallpaper-dawn|wallpaper-eclipse) current=$1;;
  restore) transition=(--transition-type none);;
- *) echo "Usage: nocturne-wallpaper [next|restore|wallpaper|wallpaper-dawn|wallpaper-eclipse]" >&2; exit 2;;
+ *) echo "Usage: penumbra-wallpaper [next|restore|wallpaper|wallpaper-dawn|wallpaper-eclipse]" >&2; exit 2;;
 esac
 # Grow each scene out of its planet, or the eclipse.
 if [[ ${1:-next} != restore ]]; then
@@ -905,7 +905,7 @@ printf '%s\n' "$current" > "$state"
 ln -sfn "$dir/$current-clean.png" "$dir/lock.png"
 # The shell animates dawn and eclipse over awww's still image, once the transition has finished.
 [[ ${1:-next} = restore ]] && delay=0 || delay=1400
-quickshell -c nocturne ipc call wallpaper set "$current" "$delay" >/dev/null 2>&1 || true
+quickshell -c penumbra ipc call wallpaper set "$current" "$delay" >/dev/null 2>&1 || true
 for _ in {1..50}; do awww query >/dev/null 2>&1 && break; sleep 0.1; done
 exec awww img "$dir/$current.png" --resize crop "${transition[@]}"
 ```
@@ -932,15 +932,15 @@ Places Icons Auto-resize=false
 Places Icons Static Size=22
 
 [UiSettings]
-ColorScheme=Nocturne
+ColorScheme=Penumbra
 ```
 
-## `config/environment.d/60-nocturne.conf`
+## `config/environment.d/60-penumbra.conf`
 
 ```text
 QT_QPA_PLATFORMTHEME=qt6ct
 GTK_THEME=Breeze-Dark
-XCURSOR_THEME=Nocturne-Cursors
+XCURSOR_THEME=Penumbra-Cursors
 XCURSOR_SIZE=28
 ```
 
@@ -1005,9 +1005,9 @@ selection { background-color: #916dcf; color: #ffffff; }
 ```text
 [Settings]
 gtk-theme-name=Breeze-Dark
-gtk-icon-theme-name=Nocturne
+gtk-icon-theme-name=Penumbra
 gtk-font-name=Inter 10
-gtk-cursor-theme-name=Nocturne-Cursors
+gtk-cursor-theme-name=Penumbra-Cursors
 gtk-cursor-theme-size=28
 gtk-application-prefer-dark-theme=true
 gtk-decoration-layout=icon:minimize,maximize,close
@@ -1035,9 +1035,9 @@ selection { background-color: #916dcf; color: #ffffff; }
 ```text
 [Settings]
 gtk-theme-name=Breeze-Dark
-gtk-icon-theme-name=Nocturne
+gtk-icon-theme-name=Penumbra
 gtk-font-name=Inter 10
-gtk-cursor-theme-name=Nocturne-Cursors
+gtk-cursor-theme-name=Penumbra-Cursors
 gtk-cursor-theme-size=28
 gtk-application-prefer-dark-theme=true
 gtk-decoration-layout=icon:minimize,maximize,close
@@ -1048,7 +1048,7 @@ gtk-decoration-layout=icon:minimize,maximize,close
 ```text
 general {
     # The shell's lock screen; hyprlock when the shell isn't running.
-    lock_cmd = quickshell -c nocturne ipc call lock lock || pidof hyprlock || hyprlock
+    lock_cmd = quickshell -c penumbra ipc call lock lock || pidof hyprlock || hyprlock
     before_sleep_cmd = loginctl lock-session
     after_sleep_cmd = hyprctl dispatch 'hl.dsp.dpms("on")'
 }
@@ -1061,10 +1061,10 @@ listener {
 ## `config/hypr/hyprland.lua`
 
 ```lua
--- NOCTURNE / Hyprland 0.56 Lua configuration
--- Keyboard, Num Lock and scale come from ~/.config/nocturne/settings.conf (see ./install.sh --help).
+-- PENUMBRA / Hyprland 0.56 Lua configuration
+-- Keyboard, Num Lock and scale come from ~/.config/penumbra/settings.conf (see ./install.sh --help).
 hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "@@SCALE@@" })
-hl.env("XCURSOR_THEME", "Nocturne-Cursors")
+hl.env("XCURSOR_THEME", "Penumbra-Cursors")
 hl.env("XCURSOR_SIZE", "28")
 hl.env("HYPRCURSOR_SIZE", "28")
 hl.env("QT_QPA_PLATFORMTHEME", "qt6ct")
@@ -1087,35 +1087,35 @@ hl.config({
  -- A fresh lock screen (hyprlock from a TTY) can take over if the shell's ever dies while locked.
  misc = {disable_hyprland_logo = true, disable_splash_rendering = true, force_default_wallpaper = 0, allow_session_lock_restore = true},
 })
-hl.curve("nocturne", {type = "bezier", points = {{0.16, 1}, {0.3, 1}}})
+hl.curve("penumbra", {type = "bezier", points = {{0.16, 1}, {0.3, 1}}})
 hl.curve("soft", {type = "bezier", points = {{0.4, 0}, {0.2, 1}}})
 hl.curve("linear", {type = "bezier", points = {{0, 0}, {1, 1}}})
 for _, a in ipairs({
- {"windows", 4.5, "nocturne", "slide"}, {"windowsIn", 4, "nocturne", "popin 94%"},
- {"windowsOut", 3, "soft", "popin 96%"}, {"border", 5, "nocturne", nil},
+ {"windows", 4.5, "penumbra", "slide"}, {"windowsIn", 4, "penumbra", "popin 94%"},
+ {"windowsOut", 3, "soft", "popin 96%"}, {"border", 5, "penumbra", nil},
  {"borderangle", 60, "linear", "loop"},
- {"fade", 3, "soft", nil}, {"workspaces", 4.5, "nocturne", "slide"},
- {"layers", 3.5, "nocturne", "fade"}
+ {"fade", 3, "soft", nil}, {"workspaces", 4.5, "penumbra", "slide"},
+ {"layers", 3.5, "penumbra", "fade"}
 }) do hl.animation({leaf=a[1], enabled=true, speed=a[2], bezier=a[3], style=a[4]}) end
 local function exec(key, cmd) hl.bind(key, hl.dsp.exec_cmd(cmd)) end
 exec("SUPER + Return", "kitty")
 exec("SUPER + Q", "kitty")
 exec("SUPER + E", "dolphin")
-exec("SUPER + R", "~/.local/bin/nocturne-launcher")
-exec("SUPER + space", "~/.local/bin/nocturne-launcher")
+exec("SUPER + R", "~/.local/bin/penumbra-launcher")
+exec("SUPER + space", "~/.local/bin/penumbra-launcher")
 exec("SUPER + B", "firefox")
-exec("SUPER + M", "~/.local/bin/nocturne-power")
+exec("SUPER + M", "~/.local/bin/penumbra-power")
 exec("SUPER + L", "loginctl lock-session")
-exec("SUPER + N", "quickshell -c nocturne ipc call notifications clear")
-exec("SUPER + A", "quickshell -c nocturne ipc call panel control")
-exec("SUPER + SHIFT + V", "~/.local/bin/nocturne-clipboard")
-exec("SUPER + semicolon", "quickshell -c nocturne ipc call launcher emoji")
-exec("SUPER + SHIFT + C", "~/.local/bin/nocturne-picker")
-exec("SUPER + W", "~/.local/bin/nocturne-wallpaper next")
-exec("SUPER + SHIFT + W", "quickshell -c nocturne ipc call panel wallpapers")
-exec("SUPER + SHIFT + R", "~/.local/bin/nocturne-session restart")
-exec("Print", "~/.local/bin/nocturne-shot")
-exec("SHIFT + Print", "~/.local/bin/nocturne-shot annotate")
+exec("SUPER + N", "quickshell -c penumbra ipc call notifications clear")
+exec("SUPER + A", "quickshell -c penumbra ipc call panel control")
+exec("SUPER + SHIFT + V", "~/.local/bin/penumbra-clipboard")
+exec("SUPER + semicolon", "quickshell -c penumbra ipc call launcher emoji")
+exec("SUPER + SHIFT + C", "~/.local/bin/penumbra-picker")
+exec("SUPER + W", "~/.local/bin/penumbra-wallpaper next")
+exec("SUPER + SHIFT + W", "quickshell -c penumbra ipc call panel wallpapers")
+exec("SUPER + SHIFT + R", "~/.local/bin/penumbra-session restart")
+exec("Print", "~/.local/bin/penumbra-shot")
+exec("SHIFT + Print", "~/.local/bin/penumbra-shot annotate")
 hl.bind("SUPER + C", hl.dsp.window.close())
 hl.bind("SUPER + V", hl.dsp.window.float({action="toggle"}))
 hl.bind("SUPER + F", hl.dsp.window.fullscreen())
@@ -1131,21 +1131,21 @@ hl.bind("SUPER + mouse:273", hl.dsp.window.resize(), {mouse=true})
 hl.bind("SUPER + mouse_down", hl.dsp.focus({workspace="e+1"}))
 hl.bind("SUPER + mouse_up", hl.dsp.focus({workspace="e-1"}))
 for key,cmd in pairs({
- XF86AudioRaiseVolume="~/.local/bin/nocturne-osd volume up",
- XF86AudioLowerVolume="~/.local/bin/nocturne-osd volume down",
- XF86AudioMute="~/.local/bin/nocturne-osd volume mute",
- XF86AudioMicMute="~/.local/bin/nocturne-osd microphone mute",
- XF86MonBrightnessUp="~/.local/bin/nocturne-osd brightness up", XF86MonBrightnessDown="~/.local/bin/nocturne-osd brightness down",
+ XF86AudioRaiseVolume="~/.local/bin/penumbra-osd volume up",
+ XF86AudioLowerVolume="~/.local/bin/penumbra-osd volume down",
+ XF86AudioMute="~/.local/bin/penumbra-osd volume mute",
+ XF86AudioMicMute="~/.local/bin/penumbra-osd microphone mute",
+ XF86MonBrightnessUp="~/.local/bin/penumbra-osd brightness up", XF86MonBrightnessDown="~/.local/bin/penumbra-osd brightness down",
  XF86AudioPlay="playerctl play-pause", XF86AudioNext="playerctl next", XF86AudioPrev="playerctl previous"
 }) do hl.bind(key, hl.dsp.exec_cmd(cmd), {locked=true, repeating=true}) end
 hl.window_rule({name="settings", match={class="^(org.pulseaudio.pavucontrol|pavucontrol|blueman-manager|nm-connection-editor|qt6ct)$"}, float=true, size="820 540", center=true})
 hl.window_rule({name="annotate", match={class="^(com.gabm.satty)$"}, float=true, center=true})
--- Frosted glass behind every Nocturne shell surface and the launcher.
-hl.layer_rule({name="glass", match={namespace="^(nocturne-.*|rofi)$"}, blur=true, ignore_alpha=0.3})
+-- Frosted glass behind every Penumbra shell surface and the launcher.
+hl.layer_rule({name="glass", match={namespace="^(penumbra-.*|rofi)$"}, blur=true, ignore_alpha=0.3})
 -- The screenshot overlay must be gone at once, before grim reads the screen.
-hl.layer_rule({name="shot", match={namespace="^nocturne-shot$"}, no_anim=true})
+hl.layer_rule({name="shot", match={namespace="^penumbra-shot$"}, no_anim=true})
 hl.window_rule({name="suppress-maximize", match={class=".*"}, suppress_event="maximize"})
-hl.on("hyprland.start", function() hl.exec_cmd("~/.local/bin/nocturne-session") end)
+hl.on("hyprland.start", function() hl.exec_cmd("~/.local/bin/penumbra-session") end)
 ```
 
 ## `config/hypr/hyprlock.conf`
@@ -1158,7 +1158,7 @@ general {
 }
 background {
     monitor =
-    path = ~/.local/share/nocturne/lock.png
+    path = ~/.local/share/penumbra/lock.png
     blur_passes = 2
     blur_size = 3
     brightness = 0.7
@@ -1208,8 +1208,8 @@ input-field {
 
 ```text
 [General]
-Name=Nocturne
-ColorScheme=Nocturne
+Name=Penumbra
+ColorScheme=Penumbra
 font=Inter,10,-1,5,50,0,0,0,0,0
 fixed=JetBrainsMono Nerd Font,10,-1,5,50,0,0,0,0,0
 
@@ -1312,7 +1312,7 @@ DecorationFocus=182,154,247
 DecorationHover=118,85,174
 
 [Icons]
-Theme=Nocturne
+Theme=Penumbra
 
 [KDE]
 LookAndFeelPackage=org.kde.breezedark.desktop
@@ -1335,13 +1335,13 @@ inactiveBackground=13,10,18
 inactiveForeground=139,124,156
 
 [UiSettings]
-ColorScheme=Nocturne
+ColorScheme=Penumbra
 ```
 
 ## `config/kitty/kitty.conf`
 
 ```text
-# NOCTURNE
+# PENUMBRA
 shell /usr/bin/fish
 font_family JetBrainsMono Nerd Font
 bold_font auto
@@ -1398,9 +1398,9 @@ map ctrl+shift+t new_tab_with_cwd
 
 ```text
 [Appearance]
-color_scheme_path=@@HOME@@/.config/qt6ct/colors/Nocturne.conf
+color_scheme_path=@@HOME@@/.config/qt6ct/colors/Penumbra.conf
 custom_palette=true
-icon_theme=Nocturne
+icon_theme=Penumbra
 standard_dialogs=default
 style=Breeze
 
@@ -1416,7 +1416,7 @@ menus_have_icons=true
 toolbutton_style=4
 ```
 
-## `config/qt6ct/colors/Nocturne.conf`
+## `config/qt6ct/colors/Penumbra.conf`
 
 ```text
 [ColorScheme]
@@ -1429,9 +1429,9 @@ inactive_colors=#e4dced, #1f182b, #42344f, #33263f, #09070e, #59446a, #e4dced, #
 
 ```text
 [Appearance]
-color_scheme_path=@@HOME@@/.config/qt6ct/colors/Nocturne.conf
+color_scheme_path=@@HOME@@/.config/qt6ct/colors/Penumbra.conf
 custom_palette=true
-icon_theme=Nocturne
+icon_theme=Penumbra
 standard_dialogs=default
 style=Breeze
 
@@ -1447,14 +1447,14 @@ menus_have_icons=true
 toolbutton_style=4
 ```
 
-## `config/quickshell/nocturne/shell.qml`
+## `config/quickshell/penumbra/shell.qml`
 
 ```qml
 //@ pragma UseQApplication
-//@ pragma IconTheme Nocturne
-// NOCTURNE shell: animated wallpapers, bar, control center, notifications, OSD, calendar, session
+//@ pragma IconTheme Penumbra
+// PENUMBRA shell: animated wallpapers, bar, control center, notifications, OSD, calendar, session
 // overlay, launcher, lock screen, polkit agent and screenshot overlay.
-// Run with `quickshell -c nocturne`; scripts talk to it with `quickshell -c nocturne ipc call …`.
+// Run with `quickshell -c penumbra`; scripts talk to it with `quickshell -c penumbra ipc call …`.
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -1546,7 +1546,7 @@ ShellRoot {
 }
 ```
 
-## `config/quickshell/nocturne/Wallpaper.qml`
+## `config/quickshell/penumbra/Wallpaper.qml`
 
 ```qml
 import QtQuick
@@ -1557,7 +1557,7 @@ import Quickshell.Wayland
 
 // Animated wallpapers. Each scene sits on the bottom layer over awww's still copy of the same
 // image, so fading it in or out changes nothing at rest; night has no animated scene.
-// nocturne-wallpaper says when the wallpaper changes.
+// penumbra-wallpaper says when the wallpaper changes.
 Scope {
     id: root
 
@@ -1589,7 +1589,7 @@ Scope {
     }
 
     FileView {
-        path: Quickshell.env("HOME") + "/.local/state/nocturne/wallpaper"
+        path: Quickshell.env("HOME") + "/.local/state/penumbra/wallpaper"
         onLoaded: root.show(text().trim(), 0)
     }
 
@@ -1611,7 +1611,7 @@ Scope {
                     color: "transparent"
                     mask: Region {}
                     WlrLayershell.layer: WlrLayer.Bottom
-                    // Not nocturne-*: the glass layer rule would blur it.
+                    // Not penumbra-*: the glass layer rule would blur it.
                     WlrLayershell.namespace: "animated-wallpaper"
 
                     // Nothing to see under a fullscreen window; stop drawing.
@@ -1647,7 +1647,7 @@ Scope {
 }
 ```
 
-## `config/quickshell/nocturne/WallpaperScene.qml`
+## `config/quickshell/penumbra/WallpaperScene.qml`
 
 ```qml
 import QtQuick
@@ -1678,7 +1678,7 @@ Item {
 }
 ```
 
-## `config/quickshell/nocturne/SceneLayer.qml`
+## `config/quickshell/penumbra/SceneLayer.qml`
 
 ```qml
 import QtQuick
@@ -1717,7 +1717,7 @@ Image {
 }
 ```
 
-## `config/quickshell/nocturne/Stars.qml`
+## `config/quickshell/penumbra/Stars.qml`
 
 ```qml
 import QtQuick
@@ -1784,7 +1784,7 @@ Item {
 }
 ```
 
-## `config/quickshell/nocturne/Meteor.qml`
+## `config/quickshell/penumbra/Meteor.qml`
 
 ```qml
 import QtQuick
@@ -1840,7 +1840,7 @@ Item {
 }
 ```
 
-## `config/quickshell/nocturne/DawnScene.qml`
+## `config/quickshell/penumbra/DawnScene.qml`
 
 ```qml
 import QtQuick
@@ -1934,7 +1934,7 @@ WallpaperScene {
 }
 ```
 
-## `config/quickshell/nocturne/EclipseScene.qml`
+## `config/quickshell/penumbra/EclipseScene.qml`
 
 ```qml
 import QtQuick
@@ -2119,7 +2119,7 @@ WallpaperScene {
 }
 ```
 
-## `config/quickshell/nocturne/eclipse/aurora.frag`
+## `config/quickshell/penumbra/eclipse/aurora.frag`
 
 ```glsl
 #version 440
@@ -2164,7 +2164,7 @@ void main() {
 }
 ```
 
-## `config/quickshell/nocturne/Bar.qml`
+## `config/quickshell/penumbra/Bar.qml`
 
 ```qml
 import QtQuick
@@ -2187,7 +2187,7 @@ PanelWindow {
     implicitHeight: Theme.barHeight
     exclusiveZone: Theme.barHeight + 4
     color: "transparent"
-    WlrLayershell.namespace: "nocturne-bar"
+    WlrLayershell.namespace: "penumbra-bar"
 
     IdleInhibitor {
         window: bar
@@ -2342,7 +2342,7 @@ PanelWindow {
             spacing: 12
             active: Ui.monitorOpen
             tip: `CPU ${Sys.cpu}% · Memory ${Sys.memoryDetail}`
-            onClicked: m => m.button === Qt.RightButton ? Ui.run("kitty --class nocturne-monitor htop") : Ui.toggleMonitor()
+            onClicked: m => m.button === Qt.RightButton ? Ui.run("kitty --class penumbra-monitor htop") : Ui.toggleMonitor()
             readonly property color tint: Ui.monitorOpen ? Theme.violetInk : "#aaa0bb"
             RowLayout {
                 spacing: 5
@@ -2421,7 +2421,7 @@ PanelWindow {
             active: Ui.controlOpen
             tip: `${Devices.networkName} · Bluetooth ${Devices.bluetoothName}` + (Devices.hasBattery ? `\n${Devices.batteryDetail}` : "")
             onClicked: m => m.button === Qt.RightButton ? Ui.run("pavucontrol") : Ui.toggleControl()
-            onScrolled: delta => Ui.run(Ui.bin + "nocturne-osd volume " + (delta > 0 ? "up" : "down"))
+            onScrolled: delta => Ui.run(Ui.bin + "penumbra-osd volume " + (delta > 0 ? "up" : "down"))
             readonly property color tint: Ui.controlOpen ? Theme.violetInk : Theme.textSoft
 
             Glyph { text: Devices.networkGlyph; color: Devices.networkName === "Offline" && !Ui.controlOpen ? Theme.dim : controls.tint }
@@ -2521,7 +2521,7 @@ PanelWindow {
 }
 ```
 
-## `config/quickshell/nocturne/CalendarPanel.qml`
+## `config/quickshell/penumbra/CalendarPanel.qml`
 
 ```qml
 import QtQuick
@@ -2634,7 +2634,7 @@ Panel {
 }
 ```
 
-## `config/quickshell/nocturne/Capsule.qml`
+## `config/quickshell/penumbra/Capsule.qml`
 
 ```qml
 import QtQuick
@@ -2684,7 +2684,7 @@ Rectangle {
 }
 ```
 
-## `config/quickshell/nocturne/ControlCenter.qml`
+## `config/quickshell/penumbra/ControlCenter.qml`
 
 ```qml
 import QtQuick
@@ -3192,7 +3192,7 @@ Panel {
 }
 ```
 
-## `config/quickshell/nocturne/Devices.qml`
+## `config/quickshell/penumbra/Devices.qml`
 
 ```qml
 pragma Singleton
@@ -3302,7 +3302,7 @@ Singleton {
 }
 ```
 
-## `config/quickshell/nocturne/Glyph.qml`
+## `config/quickshell/penumbra/Glyph.qml`
 
 ```qml
 import QtQuick
@@ -3319,7 +3319,7 @@ Text {
 }
 ```
 
-## `config/quickshell/nocturne/Label.qml`
+## `config/quickshell/penumbra/Label.qml`
 
 ```qml
 import QtQuick
@@ -3335,7 +3335,7 @@ Text {
 }
 ```
 
-## `config/quickshell/nocturne/NotificationCard.qml`
+## `config/quickshell/penumbra/NotificationCard.qml`
 
 ```qml
 import QtQuick
@@ -3569,7 +3569,7 @@ Rectangle {
 }
 ```
 
-## `config/quickshell/nocturne/NotificationPopups.qml`
+## `config/quickshell/penumbra/NotificationPopups.qml`
 
 ```qml
 import QtQuick
@@ -3588,7 +3588,7 @@ PanelWindow {
     visible: Notifs.popups.length > 0 && !Ui.controlOpen
     color: "transparent"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.namespace: "nocturne-popups"
+    WlrLayershell.namespace: "penumbra-popups"
     // A click gives the popup the keyboard, for inline replies.
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
     // Only the cards take input; the rest of the column passes clicks through.
@@ -3626,7 +3626,7 @@ PanelWindow {
 }
 ```
 
-## `config/quickshell/nocturne/Notifs.qml`
+## `config/quickshell/penumbra/Notifs.qml`
 
 ```qml
 pragma Singleton
@@ -3695,7 +3695,7 @@ Singleton {
 }
 ```
 
-## `config/quickshell/nocturne/Osd.qml`
+## `config/quickshell/penumbra/Osd.qml`
 
 ```qml
 import QtQuick
@@ -3716,7 +3716,7 @@ PanelWindow {
     color: "transparent"
     mask: Region {}
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.namespace: "nocturne-osd"
+    WlrLayershell.namespace: "penumbra-osd"
 
     readonly property string glyph: {
         if (Ui.osdKind === "brightness")
@@ -3776,7 +3776,7 @@ PanelWindow {
 }
 ```
 
-## `config/quickshell/nocturne/Panel.qml`
+## `config/quickshell/penumbra/Panel.qml`
 
 ```qml
 import QtQuick
@@ -3804,7 +3804,7 @@ PanelWindow {
     mask: Region { item: sheet }
     margins.top: Theme.barHeight + 10 + Theme.gap
     WlrLayershell.layer: WlrLayer.Top
-    WlrLayershell.namespace: "nocturne-panel"
+    WlrLayershell.namespace: "penumbra-panel"
     WlrLayershell.keyboardFocus: open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
     HyprlandFocusGrab {
@@ -3834,7 +3834,7 @@ PanelWindow {
 }
 ```
 
-## `config/quickshell/nocturne/SessionMenu.qml`
+## `config/quickshell/penumbra/SessionMenu.qml`
 
 ```qml
 import QtQuick
@@ -3851,7 +3851,7 @@ PanelWindow {
     visible: Ui.sessionOpen || backdrop.opacity > 0
     color: "transparent"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.namespace: "nocturne-session"
+    WlrLayershell.namespace: "penumbra-session"
     WlrLayershell.keyboardFocus: Ui.sessionOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
     readonly property var entries: [
@@ -3976,7 +3976,7 @@ PanelWindow {
 }
 ```
 
-## `config/quickshell/nocturne/SliderRow.qml`
+## `config/quickshell/penumbra/SliderRow.qml`
 
 ```qml
 import QtQuick
@@ -4076,7 +4076,7 @@ RowLayout {
 }
 ```
 
-## `config/quickshell/nocturne/Sys.qml`
+## `config/quickshell/penumbra/Sys.qml`
 
 ```qml
 pragma Singleton
@@ -4164,7 +4164,7 @@ Singleton {
 
     Process {
         id: updateCheck
-        command: [Ui.bin + "nocturne-updates", "status"]
+        command: [Ui.bin + "penumbra-updates", "status"]
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
@@ -4192,14 +4192,14 @@ Singleton {
 }
 ```
 
-## `config/quickshell/nocturne/Theme.qml`
+## `config/quickshell/penumbra/Theme.qml`
 
 ```qml
 pragma Singleton
 import QtQuick
 import Quickshell
 
-// NOCTURNE palette, type and geometry, shared by every shell surface.
+// PENUMBRA palette, type and geometry, shared by every shell surface.
 Singleton {
     readonly property color base: "#0d0a12"
     readonly property color surface: "#100d18"
@@ -4237,7 +4237,7 @@ Singleton {
 }
 ```
 
-## `config/quickshell/nocturne/Tile.qml`
+## `config/quickshell/penumbra/Tile.qml`
 
 ```qml
 import QtQuick
@@ -4320,7 +4320,7 @@ Rectangle {
 }
 ```
 
-## `config/quickshell/nocturne/Ui.qml`
+## `config/quickshell/penumbra/Ui.qml`
 
 ```qml
 pragma Singleton
@@ -4434,11 +4434,11 @@ Singleton {
         onTriggered: root.osdVisible = false
     }
 
-    // The chosen wallpaper (wallpaper, wallpaper-dawn…), as nocturne-wallpaper records it.
+    // The chosen wallpaper (wallpaper, wallpaper-dawn…), as penumbra-wallpaper records it.
     property string wallpaper: "wallpaper"
-    readonly property string wallpapers: Quickshell.env("HOME") + "/.local/share/nocturne/"
+    readonly property string wallpapers: Quickshell.env("HOME") + "/.local/share/penumbra/"
     FileView {
-        path: Quickshell.env("HOME") + "/.local/state/nocturne/wallpaper"
+        path: Quickshell.env("HOME") + "/.local/state/penumbra/wallpaper"
         watchChanges: true
         printErrors: false
         onFileChanged: reload()
@@ -4474,7 +4474,7 @@ Singleton {
 }
 ```
 
-## `config/quickshell/nocturne/BluetoothPage.qml`
+## `config/quickshell/penumbra/BluetoothPage.qml`
 
 ```qml
 import QtQuick
@@ -4680,7 +4680,7 @@ ColumnLayout {
 }
 ```
 
-## `config/quickshell/nocturne/ListRow.qml`
+## `config/quickshell/penumbra/ListRow.qml`
 
 ```qml
 import QtQuick
@@ -4769,7 +4769,7 @@ Rectangle {
 }
 ```
 
-## `config/quickshell/nocturne/PageHeader.qml`
+## `config/quickshell/penumbra/PageHeader.qml`
 
 ```qml
 import QtQuick
@@ -4818,7 +4818,7 @@ RowLayout {
 }
 ```
 
-## `config/quickshell/nocturne/PillButton.qml`
+## `config/quickshell/penumbra/PillButton.qml`
 
 ```qml
 import QtQuick
@@ -4860,7 +4860,7 @@ Rectangle {
 }
 ```
 
-## `config/quickshell/nocturne/Switch.qml`
+## `config/quickshell/penumbra/Switch.qml`
 
 ```qml
 import QtQuick
@@ -4897,7 +4897,7 @@ Rectangle {
 }
 ```
 
-## `config/quickshell/nocturne/WifiPage.qml`
+## `config/quickshell/penumbra/WifiPage.qml`
 
 ```qml
 import QtQuick
@@ -5139,7 +5139,7 @@ ColumnLayout {
 }
 ```
 
-## `config/quickshell/nocturne/MixerPage.qml`
+## `config/quickshell/penumbra/MixerPage.qml`
 
 ```qml
 import QtQuick
@@ -5306,7 +5306,7 @@ ColumnLayout {
 }
 ```
 
-## `config/quickshell/nocturne/Media.qml`
+## `config/quickshell/penumbra/Media.qml`
 
 ```qml
 pragma Singleton
@@ -5338,7 +5338,7 @@ Singleton {
     // cava prints one frame per line: "12;40;7;…;".
     Process {
         running: Ui.hasVisualizer && !!root.playing
-        command: ["bash", "-c", 'f="${XDG_RUNTIME_DIR:-/tmp}/nocturne/cava.conf"; mkdir -p "${f%/*}"; printf "%s" "$1" > "$f"; exec cava -p "$f"', "_", root.config]
+        command: ["bash", "-c", 'f="${XDG_RUNTIME_DIR:-/tmp}/penumbra/cava.conf"; mkdir -p "${f%/*}"; printf "%s" "$1" > "$f"; exec cava -p "$f"', "_", root.config]
         stdout: SplitParser {
             onRead: data => root.bars = data.split(";").filter(v => v !== "").map(v => Math.min(1, parseInt(v) / 100))
         }
@@ -5347,7 +5347,7 @@ Singleton {
 }
 ```
 
-## `config/quickshell/nocturne/UpdatesPanel.qml`
+## `config/quickshell/penumbra/UpdatesPanel.qml`
 
 ```qml
 import QtQuick
@@ -5474,7 +5474,7 @@ Panel {
                 implicitHeight: 34
                 onClicked: {
                     Ui.close();
-                    Ui.run(Ui.bin + "nocturne-updates open");
+                    Ui.run(Ui.bin + "penumbra-updates open");
                 }
             }
         }
@@ -5482,14 +5482,14 @@ Panel {
 }
 ```
 
-## `config/quickshell/nocturne/WallpaperPicker.qml`
+## `config/quickshell/penumbra/WallpaperPicker.qml`
 
 ```qml
 import QtQuick
 import QtQuick.Layouts
 import Quickshell.Widgets
 
-// The three wallpapers side by side; click one to switch with nocturne-wallpaper's transition.
+// The three wallpapers side by side; click one to switch with penumbra-wallpaper's transition.
 Panel {
     id: root
     anchors { top: true; right: true }
@@ -5570,7 +5570,7 @@ Panel {
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
                                 if (!choice.current)
-                                    Ui.run(Ui.bin + "nocturne-wallpaper " + choice.modelData.name);
+                                    Ui.run(Ui.bin + "penumbra-wallpaper " + choice.modelData.name);
                             }
                         }
                     }
@@ -5604,7 +5604,7 @@ Panel {
 }
 ```
 
-## `config/quickshell/nocturne/Launcher.qml`
+## `config/quickshell/penumbra/Launcher.qml`
 
 ```qml
 import QtQuick
@@ -5625,7 +5625,7 @@ PanelWindow {
     visible: Ui.launcherOpen || card.opacity > 0
     color: "transparent"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.namespace: "nocturne-launcher"
+    WlrLayershell.namespace: "penumbra-launcher"
     WlrLayershell.keyboardFocus: Ui.launcherOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
     readonly property var modes: [
@@ -5837,7 +5837,7 @@ PanelWindow {
 
     FileView {
         id: usageFile
-        path: Quickshell.env("HOME") + "/.local/state/nocturne/launcher.json"
+        path: Quickshell.env("HOME") + "/.local/state/penumbra/launcher.json"
         printErrors: false
         onLoaded: {
             try {
@@ -5850,7 +5850,7 @@ PanelWindow {
 
     FileView {
         id: picksFile
-        path: Quickshell.env("HOME") + "/.local/state/nocturne/characters.json"
+        path: Quickshell.env("HOME") + "/.local/state/penumbra/characters.json"
         printErrors: false
         onLoaded: {
             try {
@@ -5906,7 +5906,7 @@ PanelWindow {
             }
         }
     }
-    readonly property string thumbs: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/nocturne/clipboard"
+    readonly property string thumbs: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/penumbra/clipboard"
 
     // ── Surface ─────────────────────────────────────────────────────
     // Faint enough that the glass rule leaves it unblurred; only the card is frosted.
@@ -6288,7 +6288,7 @@ PanelWindow {
                     danger: true
                     onClicked: {
                         Ui.launcherOpen = false;
-                        Ui.run(Ui.bin + "nocturne-clipboard clear");
+                        Ui.run(Ui.bin + "penumbra-clipboard clear");
                     }
                 }
             }
@@ -6297,7 +6297,7 @@ PanelWindow {
 }
 ```
 
-## `config/quickshell/nocturne/symbols.js`
+## `config/quickshell/penumbra/symbols.js`
 
 ```javascript
 .pragma library
@@ -6416,7 +6416,7 @@ var groups = [
 ];
 ```
 
-## `config/quickshell/nocturne/HotCorners.qml`
+## `config/quickshell/penumbra/HotCorners.qml`
 
 ```qml
 import QtQuick
@@ -6440,7 +6440,7 @@ Variants {
         implicitHeight: 3
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
-        // Not nocturne-*: nothing here to blur.
+        // Not penumbra-*: nothing here to blur.
         WlrLayershell.namespace: "hot-corner"
 
         MouseArea {
@@ -6458,7 +6458,7 @@ Variants {
 }
 ```
 
-## `config/quickshell/nocturne/ScreenshotOverlay.qml`
+## `config/quickshell/penumbra/ScreenshotOverlay.qml`
 
 ```qml
 import QtQuick
@@ -6468,7 +6468,7 @@ import Quickshell.Hyprland
 import Quickshell.Wayland
 
 // Print: the screen freezes; drag a region, click a window or click for the whole screen.
-// The overlay then steps aside (no closing animation) and nocturne-shot captures the area.
+// The overlay then steps aside (no closing animation) and penumbra-shot captures the area.
 PanelWindow {
     id: root
     screen: Ui.screen
@@ -6477,7 +6477,7 @@ PanelWindow {
     visible: Ui.shotOpen
     color: "transparent"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.namespace: "nocturne-shot"
+    WlrLayershell.namespace: "penumbra-shot"
     WlrLayershell.keyboardFocus: Ui.shotOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
     property string mode: "region" // region, window or screen
@@ -6524,7 +6524,7 @@ PanelWindow {
             return;
         const geometry = `${Math.round(r.x + monitor.x)},${Math.round(r.y + monitor.y)} ${Math.round(r.width)}x${Math.round(r.height)}`;
         Ui.shotOpen = false;
-        shoot.args = [Ui.bin + "nocturne-shot", ...(annotate ? ["annotate"] : []), "--geometry", geometry];
+        shoot.args = [Ui.bin + "penumbra-shot", ...(annotate ? ["annotate"] : []), "--geometry", geometry];
         shoot.restart();
     }
     // Let the compositor draw a frame without the overlay before grim reads the screen.
@@ -6749,7 +6749,7 @@ PanelWindow {
 }
 ```
 
-## `config/quickshell/nocturne/PolkitDialog.qml`
+## `config/quickshell/penumbra/PolkitDialog.qml`
 
 ```qml
 import QtQuick
@@ -6810,7 +6810,7 @@ Scope {
         visible: root.shown || card.opacity > 0
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.namespace: "nocturne-polkit"
+        WlrLayershell.namespace: "penumbra-polkit"
         WlrLayershell.keyboardFocus: root.shown ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
         Rectangle {
@@ -6969,7 +6969,7 @@ Scope {
 }
 ```
 
-## `config/quickshell/nocturne/LockScreen.qml`
+## `config/quickshell/penumbra/LockScreen.qml`
 
 ```qml
 import QtQuick
@@ -7064,7 +7064,7 @@ Scope {
 }
 ```
 
-## `config/quickshell/nocturne/LockContent.qml`
+## `config/quickshell/penumbra/LockContent.qml`
 
 ```qml
 import QtQuick
@@ -7380,13 +7380,13 @@ configuration {
  display-window: "WINDOWS";
  drun-display-format: "{name}";
  font: "Inter 12";
- icon-theme: "Nocturne";
+ icon-theme: "Penumbra";
  terminal: "kitty";
 }
-@theme "nocturne"
+@theme "penumbra"
 ```
 
-## `config/rofi/nocturne.rasi`
+## `config/rofi/penumbra.rasi`
 
 ```text
 * { bg: #100d18c4; fg: #e9e1f5; muted: #8f809f; violet: #b69af7; selection: #2e2342b3;
@@ -7410,7 +7410,7 @@ message { padding: 10px; }
 ## `config/satty/config.toml`
 
 ```toml
-# NOCTURNE — screenshot annotation (Shift+Print)
+# PENUMBRA — screenshot annotation (Shift+Print)
 [general]
 initial-tool = "arrow"
 copy-command = "wl-copy"
@@ -7474,12 +7474,12 @@ default=hyprland;gtk
 org.freedesktop.impl.portal.FileChooser=gtk
 ```
 
-## `system/etc/sddm.conf.d/90-nocturne.conf`
+## `system/etc/sddm.conf.d/90-penumbra.conf`
 
 ```text
 [Theme]
-Current=nocturne
-CursorTheme=Nocturne-Cursors
+Current=penumbra
+CursorTheme=Penumbra-Cursors
 CursorSize=28
 Font=Inter,10,-1,5,50,0,0,0,0,0
 
@@ -7487,16 +7487,16 @@ Font=Inter,10,-1,5,50,0,0,0,0,0
 GreeterEnvironment=QT_SCREEN_SCALE_FACTORS=1,QT_QUICK_CONTROLS_STYLE=Basic,QT_QUICK_BACKEND=software
 ```
 
-## `system/usr/share/icons/Nocturne-Cursors/index.theme`
+## `system/usr/share/icons/Penumbra-Cursors/index.theme`
 
 ```text
 [Icon Theme]
-Name=Nocturne Cursors
+Name=Penumbra Cursors
 Comment=Soft lavender cursors with midnight outlines and a violet ring spinner
 Inherits=breeze_cursors
 ```
 
-## `system/usr/share/sddm/themes/nocturne/Main.qml`
+## `system/usr/share/sddm/themes/penumbra/Main.qml`
 
 ```qml
 import QtQuick 2.15
@@ -7574,11 +7574,11 @@ Rectangle {
 }
 ```
 
-## `system/usr/share/sddm/themes/nocturne/metadata.desktop`
+## `system/usr/share/sddm/themes/penumbra/metadata.desktop`
 
 ```text
 [SddmGreeterTheme]
-Name=Nocturne
+Name=Penumbra
 Description=An original black and violet orbital greeter
 Author=lia
 License=MIT
@@ -7586,24 +7586,24 @@ Type=sddm-theme
 Version=1.0
 MainScript=Main.qml
 ConfigFile=theme.conf
-Theme-Id=nocturne
+Theme-Id=penumbra
 Theme-API=2.0
 QtVersion=6
 ```
 
-## `system/usr/share/sddm/themes/nocturne/theme.conf`
+## `system/usr/share/sddm/themes/penumbra/theme.conf`
 
 ```text
 [General]
 background=wallpaper.png
 ```
 
-## `share/color-schemes/Nocturne.colors`
+## `share/color-schemes/Penumbra.colors`
 
 ```text
 [General]
-Name=Nocturne
-ColorScheme=Nocturne
+Name=Penumbra
+ColorScheme=Penumbra
 font=Inter,10,-1,5,50,0,0,0,0,0
 fixed=JetBrainsMono Nerd Font,10,-1,5,50,0,0,0,0,0
 
@@ -7729,14 +7729,14 @@ inactiveBackground=13,10,18
 inactiveForeground=139,124,156
 
 [UiSettings]
-ColorScheme=Nocturne
+ColorScheme=Penumbra
 ```
 
-## `share/icons/Nocturne/index.theme`
+## `share/icons/Penumbra/index.theme`
 
 ```text
 [Icon Theme]
-Name=Nocturne
+Name=Penumbra
 Comment=Papirus violet folders
 Inherits=Papirus-Dark,breeze-dark,hicolor
 Directories=16x16/places,22x22/places,24x24/places,32x32/places,48x48/places,64x64/places
@@ -7776,8 +7776,8 @@ Type=Fixed
 
 ```text
 [Icon Theme]
-Name=Nocturne cursor fallback
-Inherits=Nocturne-Cursors
+Name=Penumbra cursor fallback
+Inherits=Penumbra-Cursors
 ```
 
 ## `assets/wallpaper.svg`
@@ -7806,7 +7806,7 @@ Inherits=Nocturne-Cursors
 <g fill="#c8a2ef"><circle cx="2250" cy="430" r="3" opacity=".6"/><circle cx="1110" cy="1110" r="2" opacity=".5"/><circle cx="2080" cy="1260" r="2" opacity=".35"/></g>
 <g id="wordmark">
 <path d="M150 1330h56" stroke="#ad83e2" stroke-width="2"/>
-<text x="150" y="1380" font-family="Inter, sans-serif" font-size="20" letter-spacing="9" fill="#b8a4cf">NOCTURNE</text>
+<text x="150" y="1380" font-family="Inter, sans-serif" font-size="20" letter-spacing="9" fill="#b8a4cf">PENUMBRA</text>
 <text x="150" y="1414" font-family="Inter, sans-serif" font-size="12" letter-spacing="3" fill="#635570">A QUIETER ORBIT.</text>
 </g>
 </svg>
@@ -7852,7 +7852,7 @@ Inherits=Nocturne-Cursors
 </g>
 <g id="wordmark">
 <path d="M2354 1330h56" stroke="#e48ac0" stroke-width="2"/>
-<text x="2410" y="1380" text-anchor="end" font-family="Inter, sans-serif" font-size="20" letter-spacing="9" fill="#d6b4d8">NOCTURNE</text>
+<text x="2410" y="1380" text-anchor="end" font-family="Inter, sans-serif" font-size="20" letter-spacing="9" fill="#d6b4d8">PENUMBRA</text>
 <text x="2410" y="1414" text-anchor="end" font-family="Inter, sans-serif" font-size="12" letter-spacing="3" fill="#6d5574">BEFORE THE LIGHT.</text>
 </g>
 </svg>
@@ -7932,7 +7932,7 @@ Inherits=Nocturne-Cursors
 </g>
 <g id="wordmark">
 <path d="M2354 1330h56" stroke="#b69af7" stroke-width="2"/>
-<text x="2410" y="1380" text-anchor="end" font-family="Inter, sans-serif" font-size="20" letter-spacing="9" fill="#c9b8e6">NOCTURNE</text>
+<text x="2410" y="1380" text-anchor="end" font-family="Inter, sans-serif" font-size="20" letter-spacing="9" fill="#c9b8e6">PENUMBRA</text>
 <text x="2410" y="1414" text-anchor="end" font-family="Inter, sans-serif" font-size="12" letter-spacing="3" fill="#625775">AFTER THE LIGHT.</text>
 </g>
 </svg>
@@ -7944,7 +7944,7 @@ Inherits=Nocturne-Cursors
 {
   "logo": {
     "type": "kitty-direct",
-    "source": "~/.config/fastfetch/nocturne-arch.png",
+    "source": "~/.config/fastfetch/penumbra-arch.png",
     "width": 26,
     "height": 13,
     "padding": {
@@ -8073,7 +8073,7 @@ Inherits=Nocturne-Cursors
 }
 ```
 
-## `config/fastfetch/nocturne-arch.svg`
+## `config/fastfetch/penumbra-arch.svg`
 
 ```xml
 <svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 400 400">
@@ -8082,11 +8082,11 @@ Inherits=Nocturne-Cursors
 </svg>
 ```
 
-## `bin/nocturne-osd`
+## `bin/penumbra-osd`
 
 ```python
 #!/usr/bin/env python3
-"""Adjust desktop controls and show a single, replacing Nocturne popup."""
+"""Adjust desktop controls and show a single, replacing Penumbra popup."""
 import fcntl
 import os
 from pathlib import Path
@@ -8100,11 +8100,11 @@ def run(*args):
 
 def main():
     if len(sys.argv) != 3 or sys.argv[1] not in ('volume', 'microphone', 'brightness') or sys.argv[2] not in ('up', 'down', 'mute', 'show'):
-        sys.exit('Usage: nocturne-osd volume|microphone|brightness up|down|mute|show')
+        sys.exit('Usage: penumbra-osd volume|microphone|brightness up|down|mute|show')
     control, action = sys.argv[1:]
     if control == 'brightness' and action == 'mute':
         sys.exit('Brightness cannot be muted')
-    directory = Path(os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')) / 'nocturne'
+    directory = Path(os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')) / 'penumbra'
     directory.mkdir(parents=True, exist_ok=True)
     # Serialize repeat events so the last popup always reflects the latest value.
     with (directory / 'osd.lock').open('w') as lock:
@@ -8129,24 +8129,24 @@ def main():
             muted = '[MUTED]' in status
             title = f'{label} · Muted' if muted else f'{label} · {value}%'
         value = min(100, max(0, value))
-        # The Nocturne shell draws the popup; fall back to a plain notification without it.
+        # The Penumbra shell draws the popup; fall back to a plain notification without it.
         try:
-            shown = subprocess.run(['quickshell', '-c', 'nocturne', 'ipc', 'call', 'osd', 'flash',
+            shown = subprocess.run(['quickshell', '-c', 'penumbra', 'ipc', 'call', 'osd', 'flash',
                                     control, str(value), 'true' if muted else 'false'],
                                    capture_output=True).returncode == 0
         except OSError:
             shown = False
         if not shown:
-            run('notify-send', '--app-name=Nocturne OSD', '--urgency=low', '--expire-time=1500',
+            run('notify-send', '--app-name=Penumbra OSD', '--urgency=low', '--expire-time=1500',
                 '--hint=int:value:' + str(0 if muted else value),
-                '--hint=string:x-canonical-private-synchronous:nocturne-osd', title)
+                '--hint=string:x-canonical-private-synchronous:penumbra-osd', title)
 
 
 if __name__ == '__main__':
     try:
         main()
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
-        sys.exit(f'nocturne-osd: {error}')
+        sys.exit(f'penumbra-osd: {error}')
 ```
 
 
@@ -8166,9 +8166,9 @@ command -v git >/dev/null
 config_root=${XDG_CONFIG_HOME:-$HOME/.config}
 state_root=${XDG_STATE_HOME:-$HOME/.local/state}
 destination="$config_root/nvim"
-backup=$(mktemp -d "$state_root/nocturne/backups/neovim-XXXXXXXX" 2>/dev/null) || {
-    mkdir -p "$state_root/nocturne/backups"
-    backup=$(mktemp -d "$state_root/nocturne/backups/neovim-XXXXXXXX")
+backup=$(mktemp -d "$state_root/penumbra/backups/neovim-XXXXXXXX" 2>/dev/null) || {
+    mkdir -p "$state_root/penumbra/backups"
+    backup=$(mktemp -d "$state_root/penumbra/backups/neovim-XXXXXXXX")
 }
 if [[ -e "$destination" || -L "$destination" ]]; then
     mv -- "$destination" "$backup/nvim"
@@ -8182,14 +8182,14 @@ nvim --headless '+Lazy! restore' +qa
 printf 'Open a project with: nvim /path/to/project\n'
 ```
 
-### `config/nvim/colors/nocturne.lua`
+### `config/nvim/colors/penumbra.lua`
 
 ```lua
--- Original Nocturne palette, shared with the desktop.
+-- Original Penumbra palette, shared with the desktop.
 vim.cmd('highlight clear')
 if vim.g.syntax_on then vim.cmd('syntax reset') end
 vim.o.background = 'dark'
-vim.g.colors_name = 'nocturne'
+vim.g.colors_name = 'penumbra'
 local c = { bg = '#0d0a12', panel = '#100d18', raised = '#1b1526', border = '#352a46',
   violet = '#b69af7', fg = '#e4dced', muted = '#8f809f', green = '#a6d4bc',
   rose = '#ed9cad', gold = '#e5c49a', blue = '#a3c5e9', pink = '#d5a4dc' }
@@ -8268,7 +8268,7 @@ o.updatetime = 250
 o.timeoutlen = 400
 o.completeopt = { 'menu', 'menuone', 'noselect' }
 o.laststatus = 3
-vim.cmd.colorscheme('nocturne')
+vim.cmd.colorscheme('penumbra')
 local path = vim.fn.stdpath('data') .. '/lazy/lazy.nvim'
 if not vim.uv.fs_stat(path) then
   local result = vim.fn.system({ 'git', 'clone', '--filter=blob:none', '--branch=stable',
@@ -8279,13 +8279,13 @@ if not vim.uv.fs_stat(path) then
   end
 end
 vim.opt.rtp:prepend(path)
-require('lazy').setup('nocturne.plugins', {
+require('lazy').setup('penumbra.plugins', {
   change_detection = { notify = false },
   checker = { enabled = false },
   local_spec = false,
   ui = { border = 'rounded' },
 })
-require('nocturne.keys')
+require('penumbra.keys')
 vim.diagnostic.config({ virtual_text = false, float = { border = 'rounded' }, severity_sort = true })
 vim.api.nvim_create_autocmd('VimEnter', {
   callback = function()
@@ -8318,7 +8318,7 @@ vim.api.nvim_create_autocmd('VimEnter', {
 }
 ```
 
-### `config/nvim/lua/nocturne/keys.lua`
+### `config/nvim/lua/penumbra/keys.lua`
 
 ```lua
 local function map(key, action, desc, mode)
@@ -8368,7 +8368,7 @@ map('<Esc><Esc>', '<C-\\><C-n>', 'Leave terminal mode', 't')
 map('<leader>p', '<cmd>Lazy<cr>', 'Manage plugins')
 ```
 
-### `config/nvim/lua/nocturne/plugins.lua`
+### `config/nvim/lua/penumbra/plugins.lua`
 
 ```lua
 return {
@@ -8392,7 +8392,7 @@ return {
   } },
   { 'akinsho/bufferline.nvim', dependencies = { 'nvim-tree/nvim-web-devicons' }, opts = {
     options = { diagnostics = 'nvim_lsp', separator_style = 'thin',
-      offsets = { { filetype = 'NvimTree', text = 'NOCTURNE · Files', text_align = 'center' } } },
+      offsets = { { filetype = 'NvimTree', text = 'PENUMBRA · Files', text_align = 'center' } } },
   } },
   { 'nvim-lualine/lualine.nvim', opts = {
     options = { theme = {

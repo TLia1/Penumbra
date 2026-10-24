@@ -15,7 +15,7 @@ test_dropin_is_rejected_before_changes (test_boot.IntegrationTests.test_dropin_i
 test_grub_success_and_restore (test_boot.IntegrationTests.test_grub_success_and_restore) ... Restored files from /tmp/tmpojbc036u/backups/20261022-175209-grub-wc1t77p9. Installed packages were retained.
 Boot backup: /tmp/tmptjeyvhc9/backups/20261022-175209-grub-lpreqx55
 ok
-test_grub_syntax_failure_restores_original (test_boot.IntegrationTests.test_grub_syntax_failure_restores_original) ... Nocturne GRUB theme applied. Boot installation and timeout were preserved.
+test_grub_syntax_failure_restores_original (test_boot.IntegrationTests.test_grub_syntax_failure_restores_original) ... Penumbra GRUB theme applied. Boot installation and timeout were preserved.
 Restored files from /tmp/tmptjeyvhc9/backups/20261022-175209-grub-lpreqx55. Installed packages were retained.
 Boot backup: /tmp/tmp6w3xjboy/backups/20261022-175209-grub-r5jcyq5p
 Boot theme failed; restoring previous files.
@@ -29,5 +29,5 @@ test_uki_preset_is_rejected_before_changes (test_boot.IntegrationTests.test_uki_
 Ran 12 tests in 0.030s
 
 OK
-Nocturne Plymouth theme applied and initramfs rebuilt. Reboot when convenient.
+Penumbra Plymouth theme applied and initramfs rebuilt. Reboot when convenient.
 Restored files from /tmp/tmp_u9x06ge/backups/20261022-175209-plymouth-gbdufgca. Installed packages were retained.

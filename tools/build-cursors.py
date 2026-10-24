@@ -7,12 +7,12 @@ from pathlib import Path
 import math, shutil, subprocess, tempfile
 ROOT=Path(__file__).resolve().parents[1]
 ASSETS=ROOT/'assets/cursors'
-THEME=ROOT/'system/usr/share/icons/Nocturne-Cursors'
+THEME=ROOT/'system/usr/share/icons/Penumbra-Cursors'
 for stale in ASSETS.glob('*.svg'):stale.unlink()
 shutil.rmtree(THEME/'cursors',ignore_errors=True)
 ASSETS.mkdir(parents=True,exist_ok=True)
 (THEME/'cursors').mkdir(parents=True,exist_ok=True)
-# Palette: midnight outline, moonlit lavender body, Nocturne violet accents.
+# Palette: midnight outline, moonlit lavender body, Penumbra violet accents.
 D='#100b1b'; F='url(#body)'; V='#b69af7'; A='#8a63e8'; C='#9a82c9'; R='#ef8fa4'; O=1.6
 DEFS=('<defs><linearGradient id="body" gradientUnits="userSpaceOnUse" x1="0" y1="2" x2="0" y2="30">'
  '<stop offset="0" stop-color="#faf6ff"/><stop offset="1" stop-color="#d4c2ff"/></linearGradient>'
@@ -103,7 +103,7 @@ aliases={
  'help':'question_arrow left_ptr_help whats_this d9ce0ab605698f320427677b458ad60b',
  'watch':'wait', 'left_ptr_watch':'progress half-busy 08e8e1c95fe2fc01f976f1e063a24ccd',
 }
-with tempfile.TemporaryDirectory(prefix='nocturne-cursors-') as tmp:
+with tempfile.TemporaryDirectory(prefix='penumbra-cursors-') as tmp:
  tmp=Path(tmp)
  for name,(images,hx,hy) in frames.items():
   lines=[]
@@ -117,9 +117,9 @@ with tempfile.TemporaryDirectory(prefix='nocturne-cursors-') as tmp:
   subprocess.run(['xcursorgen',str(cfg),str(THEME/'cursors'/name)],check=True)
  for canonical,names in aliases.items():
   for alias in names.split():shutil.copyfile(THEME/'cursors'/canonical,THEME/'cursors'/alias)
-(THEME/'index.theme').write_text('[Icon Theme]\nName=Nocturne Cursors\nComment=Soft lavender cursors with midnight outlines and a violet ring spinner\nInherits=breeze_cursors\n')
+(THEME/'index.theme').write_text('[Icon Theme]\nName=Penumbra Cursors\nComment=Soft lavender cursors with midnight outlines and a violet ring spinner\nInherits=breeze_cursors\n')
 # SVG contact sheet, keeping the artwork editable and inspectable.
-parts=['<svg xmlns="http://www.w3.org/2000/svg" width="960" height="570" viewBox="0 0 960 570"><rect width="960" height="570" rx="24" fill="#100d18"/><text x="40" y="50" fill="#e4dced" font-family="Inter" font-size="24">NOCTURNE / CURSORS</text><text x="40" y="79" fill="#8f809f" font-family="Inter" font-size="13">Soft lavender silhouettes · midnight outlines · violet ring spinner</text>']
+parts=['<svg xmlns="http://www.w3.org/2000/svg" width="960" height="570" viewBox="0 0 960 570"><rect width="960" height="570" rx="24" fill="#100d18"/><text x="40" y="50" fill="#e4dced" font-family="Inter" font-size="24">PENUMBRA / CURSORS</text><text x="40" y="79" fill="#8f809f" font-family="Inter" font-size="13">Soft lavender silhouettes · midnight outlines · violet ring spinner</text>']
 for n,(name,(images,_,_)) in enumerate(frames.items()):
  x=40+(n%6)*150;y=110+(n//6)*110
  inner=images[len(images)//3].split('>',1)[1].rsplit('</svg>',1)[0]

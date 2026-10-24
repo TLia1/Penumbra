@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-BACKUPS = Path('/var/lib/nocturne/boot-backups')
+BACKUPS = Path('/var/lib/penumbra/boot-backups')
 
 
 def run(*args):
@@ -203,7 +203,7 @@ class Transaction:
         (self.directory / 'manifest.json').write_text(json.dumps(self.paths, indent=2))
 
     def stage(self, destination):
-        fd, name = tempfile.mkstemp(prefix='.nocturne-', dir=Path(destination).parent)
+        fd, name = tempfile.mkstemp(prefix='.penumbra-', dir=Path(destination).parent)
         os.close(fd)
         self.temporary.append(Path(name))
         return Path(name)
@@ -267,19 +267,22 @@ def theme_existing_grub(tx):
     """Append graphics setup while retaining the working boot menu verbatim."""
     destination = Path('/boot/grub/grub.cfg')
     original = destination.read_text()
-    begin = '# BEGIN NOCTURNE GRAPHICS'
-    end = '# END NOCTURNE GRAPHICS'
-    if begin in original or end in original:
-        # Only replace our own final block; never remove intervening user edits.
-        pattern = r'\n' + begin + r'\n.*?\n' + end + r'\n\Z'
-        if original.count(begin) != 1 or original.count(end) != 1 or not re.search(pattern, original, re.S):
-            raise ValueError('Nocturne graphics block was edited/moved; review manually.')
-        original = re.sub(pattern, '', original, flags=re.S)
+    begin = '# BEGIN PENUMBRA GRAPHICS'
+    end = '# END PENUMBRA GRAPHICS'
+    # The theme was called Nocturne before; replace a block left by that name too.
+    for name in ('PENUMBRA', 'NOCTURNE'):
+        old_begin, old_end = f'# BEGIN {name} GRAPHICS', f'# END {name} GRAPHICS'
+        if old_begin in original or old_end in original:
+            # Only replace our own final block; never remove intervening user edits.
+            pattern = r'\n' + old_begin + r'\n.*?\n' + old_end + r'\n\Z'
+            if original.count(old_begin) != 1 or original.count(old_end) != 1 or not re.search(pattern, original, re.S):
+                raise ValueError('Penumbra graphics block was edited/moved; review manually.')
+            original = re.sub(pattern, '', original, flags=re.S)
     uuid = subprocess.check_output(['grub-probe', '--target=fs_uuid', '/boot/grub'], text=True).strip()
     if not re.fullmatch(r'[A-Za-z0-9-]+', uuid):
         raise ValueError('Cannot determine a safe GRUB filesystem UUID.')
     paths = []
-    for name in ('/boot/grub/fonts/unicode.pf2', '/boot/grub/themes/nocturne/theme.txt'):
+    for name in ('/boot/grub/fonts/unicode.pf2', '/boot/grub/themes/penumbra/theme.txt'):
         value = subprocess.check_output(['grub-mkrelpath', name], text=True).strip()
         if not re.fullmatch(r'/[A-Za-z0-9_./-]+', value):
             raise ValueError('Unsupported GRUB filesystem-relative theme path.')
@@ -288,8 +291,8 @@ def theme_existing_grub(tx):
     block = f"""
 {begin}
 # Keep root, boot entries, default selection and timeout unchanged.
-search --no-floppy --fs-uuid --set=nocturne_root {uuid}
-if loadfont ($nocturne_root){font}; then
+search --no-floppy --fs-uuid --set=penumbra_root {uuid}
+if loadfont ($penumbra_root){font}; then
     insmod all_video
     insmod gfxterm
     insmod gfxmenu
@@ -298,7 +301,7 @@ if loadfont ($nocturne_root){font}; then
         set gfxmode=auto
     fi
     terminal_output gfxterm
-    set theme=($nocturne_root){theme}
+    set theme=($penumbra_root){theme}
     export theme
 fi
 {end}
@@ -319,16 +322,16 @@ def apply_grub():
     with Transaction('grub') as tx:
         defaults = Path('/etc/default/grub')
         tx.save(defaults)
-        deploy(tx, ROOT / 'boot/grub', Path('/boot/grub/themes/nocturne'))
+        deploy(tx, ROOT / 'boot/grub', Path('/boot/grub/themes/penumbra'))
         # Last shell assignments win; preserve all original lines and boot arguments.
         text = defaults.read_text()
-        text = re.sub(r'\n# BEGIN NOCTURNE GRUB\n.*?# END NOCTURNE GRUB\n', '', text, flags=re.S)
-        text += '\n# BEGIN NOCTURNE GRUB\nGRUB_THEME="/boot/grub/themes/nocturne/theme.txt"\nGRUB_TERMINAL_OUTPUT="gfxterm"\n# END NOCTURNE GRUB\n'
+        text = re.sub(r'\n# BEGIN (PENUMBRA|NOCTURNE) GRUB\n.*?# END \1 GRUB\n', '', text, flags=re.S)
+        text += '\n# BEGIN PENUMBRA GRUB\nGRUB_THEME="/boot/grub/themes/penumbra/theme.txt"\nGRUB_TERMINAL_OUTPUT="gfxterm"\n# END PENUMBRA GRUB\n'
         defaults.write_text(text)
         theme_existing_grub(tx)
-        if 'themes/nocturne/theme.txt' not in Path('/boot/grub/grub.cfg').read_text():
+        if 'themes/penumbra/theme.txt' not in Path('/boot/grub/grub.cfg').read_text():
             raise ValueError('Generated GRUB configuration did not activate the theme.')
-    print('Nocturne GRUB theme applied. Boot installation and timeout were preserved.')
+    print('Penumbra GRUB theme applied. Boot installation and timeout were preserved.')
 
 
 def uki_section(image, section):
@@ -451,11 +454,11 @@ def apply_plymouth():
         for path, updated in preset_updates.items():
             tx.save(path)
             path.write_text(updated)
-        deploy(tx, ROOT / 'boot/plymouth', Path('/usr/share/plymouth/themes/nocturne'))
+        deploy(tx, ROOT / 'boot/plymouth', Path('/usr/share/plymouth/themes/penumbra'))
         config.write_text(hooks)
         if not uki_jobs:
             defaults.write_text(cmdline)
-        run('plymouth-set-default-theme', 'nocturne')
+        run('plymouth-set-default-theme', 'penumbra')
         staged_images = []
         for kernel, image, options in jobs:
             stage = tx.stage(image)
@@ -471,8 +474,8 @@ def apply_plymouth():
                     listing = subprocess.check_output(['lsinitcpio', str(initrd)], text=True)
             else:
                 listing = subprocess.check_output(['lsinitcpio', str(stage)], text=True)
-            if 'usr/bin/plymouth' not in listing or 'nocturne.plymouth' not in listing:
-                raise ValueError('Generated initramfs does not contain Plymouth and Nocturne.')
+            if 'usr/bin/plymouth' not in listing or 'penumbra.plymouth' not in listing:
+                raise ValueError('Generated initramfs does not contain Plymouth and Penumbra.')
             os.chmod(stage, image.stat().st_mode & 0o777)
             staged_images.append((stage, image))
         # UKIs carry their command line and initrd; keep their existing GRUB chainload entries.
@@ -480,7 +483,7 @@ def apply_plymouth():
             generate_grub(tx)
         for stage, image in staged_images:
             os.replace(stage, image)
-    print('Nocturne Plymouth theme applied and initramfs rebuilt. Reboot when convenient.')
+    print('Penumbra Plymouth theme applied and initramfs rebuilt. Reboot when convenient.')
 
 
 def main():
@@ -489,7 +492,7 @@ def main():
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error('Run through ./install.sh --boot-only or sudo.')
-    with open('/run/nocturne-boot.lock', 'w') as lock:
+    with open('/run/penumbra-boot.lock', 'w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if args.restore:
             directory = args.restore.resolve()
@@ -499,14 +502,14 @@ def main():
             return
         available = grub_detected()
         print('GRUB: ' + ('verified/confirmed.' if available else 'not verified; boot configuration will be skipped.'))
-        if available and ask('Apply the Nocturne GRUB theme (back up and preserve existing menu)'):
+        if available and ask('Apply the Penumbra GRUB theme (back up and preserve existing menu)'):
             apply_grub()
         installed = subprocess.run(['pacman', '-Qq', 'plymouth'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
         print('Plymouth: ' + ('installed.' if installed else 'not installed.'))
         if not installed and ask('Install Plymouth from the configured Arch repositories'):
             run('pacman', '-S', '--needed', 'plymouth')
             installed = True
-        if installed and available and ask('Apply Nocturne to Plymouth (add splash/hook and rebuild initramfs)'):
+        if installed and available and ask('Apply Penumbra to Plymouth (add splash/hook and rebuild initramfs)'):
             apply_plymouth()
         elif installed and not available:
             print('Plymouth theme is in boot/plymouth; boot integration requires a verified supported GRUB setup.')

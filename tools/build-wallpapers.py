@@ -22,7 +22,7 @@ for name in ('wallpaper', 'wallpaper-dawn', 'wallpaper-eclipse'):
     (assets / f'{name}-clean.svg').write_text(clean)
     for variant in (name, f'{name}-clean'):
         subprocess.run(['rsvg-convert', str(assets / f'{variant}.svg'), '-o', str(assets / f'{variant}.png')], check=True)
-shutil.copyfile(assets / 'wallpaper-clean.png', root / 'system/usr/share/sddm/themes/nocturne/wallpaper.png')
+shutil.copyfile(assets / 'wallpaper-clean.png', root / 'system/usr/share/sddm/themes/penumbra/wallpaper.png')
 
 # Animated scenes: every top-level `layer-*` element becomes its own cropped PNG, drawn in
 # document order; whatever is left (sky gradient, wordmark) is the backdrop. Stars are drawn
@@ -56,7 +56,7 @@ def render(scene, out, layer, name):
 
 for name, folder in (('wallpaper-dawn', 'dawn'), ('wallpaper-eclipse', 'eclipse')):
     scene = ET.parse(assets / f'{name}.svg').getroot()
-    out = root / 'config/quickshell/nocturne' / folder
+    out = root / 'config/quickshell/penumbra' / folder
     out.mkdir(exist_ok=True)
     names = [child.get('id')[6:] for child in scene if (child.get('id') or '').startswith('layer-')]
     # The lock screen animates the scene too, over a backdrop without the wordmark.

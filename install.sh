@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Nocturne installer. Run it as your regular desktop user: ./install.sh
+# Penumbra installer. Run it as your regular desktop user: ./install.sh
 # Run ./install.sh --help for the options.
 set -euo pipefail
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 STAMP=$(date +%Y%m%d-%H%M%S)
-SETTINGS_FILE=${XDG_CONFIG_HOME:-$HOME/.config}/nocturne/settings.conf
+SETTINGS_FILE=${XDG_CONFIG_HOME:-$HOME/.config}/penumbra/settings.conf
 XKB_RULES=/usr/share/X11/xkb/rules/base.lst
 
 PACKAGES=(
@@ -50,10 +50,10 @@ Settings (detected on the first run, then remembered in $SETTINGS_FILE):
 
 Other options:
   -y, --yes            Don't ask about the settings; use the saved or detected ones.
-  --skip-packages      Don't install packages (or NOCTURNE_SKIP_PACKAGES=1).
+  --skip-packages      Don't install packages (or PENUMBRA_SKIP_PACKAGES=1).
   --remove-legacy yes|no|ask
                        Whether to remove Waybar, Mako and swaybg if they are
-                       installed (or NOCTURNE_REMOVE_LEGACY=1/0). Default: ask.
+                       installed (or PENUMBRA_REMOVE_LEGACY=1/0). Default: ask.
   --user NAME          Desktop user for --system-only (default: \$SUDO_USER).
   -h, --help           Show this help.
 EOF
@@ -107,7 +107,7 @@ load_saved_settings() {
 save_settings() {
     mkdir -p "$(dirname "$SETTINGS_FILE")"
     {
-        echo '# Nocturne settings, written by install.sh.'
+        echo '# Penumbra settings, written by install.sh.'
         echo '# Edit them, then run ./install.sh --user-only to apply.'
         local key
         for key in "${SETTING_KEYS[@]}"; do printf '%s=%s\n' "$key" "${settings[$key]}"; done
@@ -253,7 +253,7 @@ remove_legacy_packages() {
     (( ${#installed[@]} )) || return 0
     case $REMOVE_LEGACY in
         yes) ;;
-        ask) ask "Remove packages Nocturne no longer uses (${installed[*]})?" || return 0 ;;
+        ask) ask "Remove packages Penumbra no longer uses (${installed[*]})?" || return 0 ;;
         *) return 0 ;;
     esac
     pacman -Q "${installed[@]}" > "$BACKUP/removed-packages.txt"
@@ -308,7 +308,7 @@ run_system_part() {
     [[ $EUID == 0 ]] || die 'The system part needs root: sudo ./install.sh --system-only'
     local user=${TARGET_USER:-${SUDO_USER:-}}
     [[ -n $user && $user != root ]] || die 'Name the desktop user with --user NAME.'
-    BACKUP=/var/lib/nocturne/backups/$STAMP
+    BACKUP=/var/lib/penumbra/backups/$STAMP
     mkdir -p "$BACKUP"
 
     step 'Installing packages'
@@ -331,13 +331,13 @@ run_system_part() {
 # ─── User part ───────────────────────────────────────────────────────────────
 
 install_wallpapers() {
-    local dir=$HOME/.local/share/nocturne wallpaper
+    local dir=$HOME/.local/share/penumbra wallpaper
     mkdir -p "$dir"
     for wallpaper in "$ROOT"/assets/wallpaper*.png; do
-        backup_file "$dir/${wallpaper##*/}" ".local/share/nocturne/${wallpaper##*/}"
+        backup_file "$dir/${wallpaper##*/}" ".local/share/penumbra/${wallpaper##*/}"
         cp "$wallpaper" "$dir/"
     done
-    # The lock screen follows the chosen wallpaper; nocturne-wallpaper repoints this link.
+    # The lock screen follows the chosen wallpaper; penumbra-wallpaper repoints this link.
     [[ -e $dir/lock.png ]] || ln -sfn "$dir/wallpaper-clean.png" "$dir/lock.png"
 }
 
@@ -358,13 +358,13 @@ apply_gtk_settings() {
     gsettings list-recursively org.gnome.desktop.interface > "$BACKUP/gsettings-interface.txt"
     gsettings set org.gnome.desktop.interface color-scheme prefer-dark
     gsettings set org.gnome.desktop.interface gtk-theme Breeze-Dark
-    gsettings set org.gnome.desktop.interface icon-theme Nocturne
-    gsettings set org.gnome.desktop.interface cursor-theme Nocturne-Cursors
+    gsettings set org.gnome.desktop.interface icon-theme Penumbra
+    gsettings set org.gnome.desktop.interface cursor-theme Penumbra-Cursors
     gsettings set org.gnome.desktop.interface cursor-size 28
     gsettings set org.gnome.desktop.interface font-name 'Inter 10'
 }
 
-# The Nocturne shell is the notification daemon; mask Dunst so it can't compete.
+# The Penumbra shell is the notification daemon; mask Dunst so it can't compete.
 disable_dunst() {
     systemctl --user cat dunst.service >/dev/null 2>&1 || return 0
     systemctl --user is-enabled dunst.service > "$BACKUP/dunst.enabled" 2>&1 || true
@@ -374,14 +374,14 @@ disable_dunst() {
 }
 
 run_user_part() {
-    BACKUP=$HOME/.local/state/nocturne/backups/$STAMP
+    BACKUP=$HOME/.local/state/penumbra/backups/$STAMP
     mkdir -p "$BACKUP"
 
     step 'Installing your configuration'
     install_tree "$ROOT/config" "$HOME/.config"
     install_tree "$ROOT/bin" "$HOME/.local/bin"
     install_tree "$ROOT/share" "$HOME/.local/share"
-    chmod +x "$HOME"/.local/bin/nocturne-*
+    chmod +x "$HOME"/.local/bin/penumbra-*
     install_wallpapers
     retire_legacy_desktop
 
@@ -391,10 +391,10 @@ run_user_part() {
     systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
     if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
         hyprctl reload
-        hyprctl dispatch "hl.dsp.exec_cmd('~/.local/bin/nocturne-session restart')"
+        hyprctl dispatch "hl.dsp.exec_cmd('~/.local/bin/penumbra-session restart')"
     fi
 
-    printf '\nNocturne installed. User backup: %s\n' "$BACKUP"
+    printf '\nPenumbra installed. User backup: %s\n' "$BACKUP"
     echo 'Log out when convenient to apply every environment setting.'
 }
 
@@ -414,8 +414,8 @@ run_system_part_with_sudo() {
 
 PART=all
 ASSUME_YES=0
-SKIP_PACKAGES=${NOCTURNE_SKIP_PACKAGES:-0}
-case ${NOCTURNE_REMOVE_LEGACY:-ask} in 1) REMOVE_LEGACY=yes ;; 0) REMOVE_LEGACY=no ;; *) REMOVE_LEGACY=ask ;; esac
+SKIP_PACKAGES=${PENUMBRA_SKIP_PACKAGES:-0}
+case ${PENUMBRA_REMOVE_LEGACY:-ask} in 1) REMOVE_LEGACY=yes ;; 0) REMOVE_LEGACY=no ;; *) REMOVE_LEGACY=ask ;; esac
 TARGET_USER=''
 
 while (( $# )); do

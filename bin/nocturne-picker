@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-# Pick any on-screen color; the hex value is copied to the clipboard.
-set -euo pipefail
-color=$(hyprpicker --autocopy --format=hex --no-fancy --quiet 2>/dev/null) || exit 0
-[[ -n "$color" ]] || exit 0
-notify-send -a Nocturne "Color copied · $color" "<span foreground='$color'>██████</span>  $color"

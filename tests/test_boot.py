@@ -104,7 +104,7 @@ class IntegrationTests(unittest.TestCase):
         if args[0] == 'mkinitcpio':
             Path(args[args.index('-U' if '-U' in args else '-g') + 1]).write_text('new image')
         elif args[0] == 'plymouth-set-default-theme':
-            self.write('/etc/plymouth/plymouthd.conf', '[Daemon]\nTheme=nocturne\n')
+            self.write('/etc/plymouth/plymouthd.conf', '[Daemon]\nTheme=penumbra\n')
 
     def fake_subprocess(self, args, **kwargs):
         if args == ['grub-mkconfig']:
@@ -113,7 +113,7 @@ class IntegrationTests(unittest.TestCase):
         return subprocess.CompletedProcess(args, 0)
 
     def test_success_stages_images_and_keeps_backup(self):
-        with patch.object(boot.shutil, 'which', return_value='/bin/mock'), patch.object(boot, 'run', side_effect=self.fake_run), patch.object(boot.subprocess, 'run', side_effect=self.fake_subprocess), patch.object(boot.subprocess, 'check_output', return_value='usr/bin/plymouth\nnocturne.plymouth'):
+        with patch.object(boot.shutil, 'which', return_value='/bin/mock'), patch.object(boot, 'run', side_effect=self.fake_run), patch.object(boot.subprocess, 'run', side_effect=self.fake_subprocess), patch.object(boot.subprocess, 'check_output', return_value='usr/bin/plymouth\npenumbra.plymouth'):
             boot.apply_plymouth()
         self.assertEqual((self.root / 'boot/initramfs-linux.img').read_text(), 'new image')
         self.assertIn('splash', (self.root / 'boot/grub/grub.cfg').read_text())
@@ -144,7 +144,7 @@ class IntegrationTests(unittest.TestCase):
             boot.apply_grub()
             first = (self.root / 'boot/grub/grub.cfg').read_text()
             self.assertTrue(first.startswith(text))
-            self.assertIn('set theme=($nocturne_root)/grub/themes/nocturne/theme.txt', first)
+            self.assertIn('set theme=($penumbra_root)/grub/themes/penumbra/theme.txt', first)
             boot.apply_grub()
             self.assertEqual((self.root / 'boot/grub/grub.cfg').read_text(), first)
             generate.assert_not_called()
@@ -227,7 +227,7 @@ class IntegrationTests(unittest.TestCase):
                 self.fake_run(*args)
         def section(image, name):
             return b'quiet splash' if name == '.cmdline' else b'initrd'
-        with patch.object(boot.shutil, 'which', return_value='/bin/mock'), patch.object(boot, 'check_uki'), patch.object(boot, 'uki_section', side_effect=section), patch.object(boot, 'run', side_effect=build), patch.object(boot, 'generate_grub') as generate, patch.object(boot.subprocess, 'check_output', return_value='usr/bin/plymouth\nnocturne.plymouth'):
+        with patch.object(boot.shutil, 'which', return_value='/bin/mock'), patch.object(boot, 'check_uki'), patch.object(boot, 'uki_section', side_effect=section), patch.object(boot, 'run', side_effect=build), patch.object(boot, 'generate_grub') as generate, patch.object(boot.subprocess, 'check_output', return_value='usr/bin/plymouth\npenumbra.plymouth'):
             boot.apply_plymouth()
             generate.assert_not_called()
         self.assertEqual((self.root / 'boot/EFI/Linux/arch-linux.efi').read_text(), 'new uki')

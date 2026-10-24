@@ -1,0 +1,137 @@
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Wayland
+
+// Full-screen session overlay. Destructive choices need a second press to confirm.
+PanelWindow {
+    id: root
+    screen: Ui.screen
+    anchors { top: true; bottom: true; left: true; right: true }
+    exclusionMode: ExclusionMode.Ignore
+    visible: Ui.sessionOpen || backdrop.opacity > 0
+    color: "transparent"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.namespace: "penumbra-session"
+    WlrLayershell.keyboardFocus: Ui.sessionOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+
+    readonly property var entries: [
+        { glyph: "󰌾", label: "Lock", command: "loginctl lock-session" },
+        { glyph: "󰤄", label: "Suspend", command: "systemctl suspend" },
+        { glyph: "󰍃", label: "Log out", command: "hyprctl dispatch 'hl.dsp.exit()'", confirm: true },
+        { glyph: "󰜉", label: "Restart", command: "systemctl reboot", confirm: true },
+        { glyph: "󰐥", label: "Shut down", command: "systemctl poweroff", confirm: true }
+    ]
+    property int selected: 0
+    property int armed: -1
+
+    Connections {
+        target: Ui
+        function onSessionOpenChanged() {
+            root.selected = 0;
+            root.armed = -1;
+        }
+    }
+
+    function choose(index) {
+        const entry = entries[index];
+        if (entry.confirm && armed !== index) {
+            armed = index;
+            selected = index;
+            return;
+        }
+        Ui.sessionOpen = false;
+        Ui.run(entry.command);
+    }
+
+    Rectangle {
+        id: backdrop
+        anchors.fill: parent
+        color: Qt.rgba(7 / 255, 7 / 255, 11 / 255, 0.62)
+        opacity: Ui.sessionOpen ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+
+        focus: Ui.sessionOpen
+        Keys.onEscapePressed: Ui.sessionOpen = false
+        Keys.onLeftPressed: { root.selected = (root.selected + 4) % 5; root.armed = -1; }
+        Keys.onRightPressed: { root.selected = (root.selected + 1) % 5; root.armed = -1; }
+        Keys.onTabPressed: { root.selected = (root.selected + 1) % 5; root.armed = -1; }
+        Keys.onReturnPressed: root.choose(root.selected)
+        Keys.onEnterPressed: root.choose(root.selected)
+        Keys.onSpacePressed: root.choose(root.selected)
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: Ui.sessionOpen = false
+        }
+
+        ColumnLayout {
+            anchors.centerIn: parent
+            spacing: 26
+            scale: Ui.sessionOpen ? 1 : 0.94
+            Behavior on scale { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
+
+            Label {
+                Layout.alignment: Qt.AlignHCenter
+                text: "S E S S I O N"
+                font.pixelSize: 12
+                color: Theme.violet
+            }
+
+            RowLayout {
+                spacing: 14
+                Repeater {
+                    model: root.entries
+                    delegate: Rectangle {
+                        id: tile
+                        required property var modelData
+                        required property int index
+                        readonly property bool current: root.selected === index
+                        readonly property bool isArmed: root.armed === index
+                        implicitWidth: 132
+                        implicitHeight: 140
+                        radius: Theme.radiusLarge
+                        color: isArmed ? Qt.rgba(239 / 255, 143 / 255, 164 / 255, 0.22) : current ? Theme.raised : Theme.glassStrong
+                        border.width: current ? 2 : 1
+                        border.color: isArmed ? Theme.rose : current ? Theme.violet : Theme.line
+                        scale: current ? 1.04 : 1
+                        Behavior on scale { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
+                        Behavior on color { ColorAnimation { duration: Theme.fast } }
+
+                        ColumnLayout {
+                            anchors.centerIn: parent
+                            spacing: 12
+                            Glyph {
+                                Layout.alignment: Qt.AlignHCenter
+                                text: tile.modelData.glyph
+                                size: 34
+                                color: tile.isArmed ? Theme.rose : tile.current ? Theme.violetBright : Theme.textSoft
+                            }
+                            Label {
+                                Layout.alignment: Qt.AlignHCenter
+                                text: tile.isArmed ? "Confirm" : tile.modelData.label
+                                font.pixelSize: 13
+                                font.weight: tile.current ? Font.DemiBold : Font.Normal
+                                color: tile.isArmed ? Theme.rose : Theme.text
+                            }
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onEntered: if (root.armed !== tile.index) { root.selected = tile.index; root.armed = -1; }
+                            onClicked: root.choose(tile.index)
+                        }
+                    }
+                }
+            }
+
+            Label {
+                Layout.alignment: Qt.AlignHCenter
+                text: root.armed >= 0 ? `Press again to ${root.entries[root.armed].label.toLowerCase()} · Esc to cancel` : "← → to choose · Enter to select · Esc to close"
+                font.pixelSize: 11
+                color: root.armed >= 0 ? Theme.rose : Theme.muted
+            }
+        }
+    }
+}

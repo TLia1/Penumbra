@@ -6,7 +6,7 @@ configuration {
  display-window: "WINDOWS";
  drun-display-format: "{name}";
  font: "Inter 12";
- icon-theme: "Nocturne";
+ icon-theme: "Penumbra";
  terminal: "kitty";
 }
-@theme "nocturne"
+@theme "penumbra"

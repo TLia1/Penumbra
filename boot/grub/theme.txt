@@ -1,4 +1,4 @@
-# Nocturne — original orbital artwork, using GRUB's bundled Unicode font.
+# Penumbra — original orbital artwork, using GRUB's bundled Unicode font.
 desktop-image: "background.png"
 desktop-image-scale-method: "crop"
 desktop-color: "#0d0a12"

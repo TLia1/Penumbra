@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# The Nocturne shell draws the launcher; this rofi menu is the fallback without it.
-quickshell -c nocturne ipc call launcher apps >/dev/null 2>&1 && exit
-exec rofi -show drun

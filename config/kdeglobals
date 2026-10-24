@@ -1,6 +1,6 @@
 [General]
-Name=Nocturne
-ColorScheme=Nocturne
+Name=Penumbra
+ColorScheme=Penumbra
 font=Inter,10,-1,5,50,0,0,0,0,0
 fixed=JetBrainsMono Nerd Font,10,-1,5,50,0,0,0,0,0
 
@@ -103,7 +103,7 @@ DecorationFocus=182,154,247
 DecorationHover=118,85,174
 
 [Icons]
-Theme=Nocturne
+Theme=Penumbra
 
 [KDE]
 LookAndFeelPackage=org.kde.breezedark.desktop
@@ -126,4 +126,4 @@ inactiveBackground=13,10,18
 inactiveForeground=139,124,156
 
 [UiSettings]
-ColorScheme=Nocturne
+ColorScheme=Penumbra

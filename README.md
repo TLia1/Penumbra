@@ -1,4 +1,4 @@
-# NOCTURNE
+# PENUMBRA
 
 An original black-and-violet Arch Linux desktop. Targets **Hyprland 0.56.2 with Lua configuration**, SDDM 0.21, Kitty 0.49, and Fish 4.9.
 
@@ -15,7 +15,7 @@ Run as your regular desktop user. Sudo prompts normally; no password is stored i
 
 ### Your settings
 
-Before changing anything, the installer shows the settings below and offers to change them. On the first run it detects the keyboard layout this machine already uses (`localectl status`, falling back to the console keymap, then `us`). Your answers are saved in `~/.config/nocturne/settings.conf` and reused by later runs; edit that file and run `./install.sh --user-only` to change them.
+Before changing anything, the installer shows the settings below and offers to change them. On the first run it detects the keyboard layout this machine already uses (`localectl status`, falling back to the console keymap, then `us`). Your answers are saved in `~/.config/penumbra/settings.conf` and reused by later runs; edit that file and run `./install.sh --user-only` to change them.
 
 | Setting | Option | Default |
 |---|---|---|
@@ -35,10 +35,10 @@ Log out through **Super+M → Log out → Confirm**, then sign in again when con
 | Component | Design / behavior |
 |---|---|
 | Hyprland | Lua, slowly rotating violet gradient borders, violet glow on the focused window, rounded windows, frosted-glass blur behind every shell surface and the launcher, soft window/workspace animations |
-| Nocturne shell | Quickshell (QML) bar of floating capsules, control center, notification popups and history, volume/brightness OSD, calendar, session overlay, app launcher, clipboard history, emoji and symbol picker, lock screen, polkit password dialog and screenshot overlay; see "Nocturne shell" below |
+| Penumbra shell | Quickshell (QML) bar of floating capsules, control center, notification popups and history, volume/brightness OSD, calendar, session overlay, app launcher, clipboard history, emoji and symbol picker, lock screen, polkit password dialog and screenshot overlay; see "Penumbra shell" below |
 | Rofi | Fallback launcher, clipboard history and session menu when the shell is not running |
 | Kitty + Fish | Violet ANSI palette, animated cursor trail, Starship prompt, custom Arch logo and grouped Fastfetch greeting |
-| Dolphin / Qt | Nocturne KDE and Qt palettes, Breeze widgets, Papirus violet folder overlay |
+| Dolphin / Qt | Penumbra KDE and Qt palettes, Breeze widgets, Papirus violet folder overlay |
 | GTK | Breeze Dark, near-black surfaces, violet selection/accent overrides |
 | GRUB | Optional orbital wallpaper, violet menu selection, keyboard hints and countdown |
 | Plymouth | Optional animated violet orbit, native password dialogs and update progress |
@@ -84,9 +84,9 @@ Bar: click the Arch logo for the launcher (right-click for the clipboard) and th
 
 - `config/` → `~/.config/` (all authored user configuration files).
 - `bin/` → `~/.local/bin/` (session, power, network, Bluetooth, screenshot, clipboard, color picker and wallpaper scripts).
-- `config/quickshell/nocturne/` → the Nocturne shell (QML), started by `nocturne-session`.
+- `config/quickshell/penumbra/` → the Penumbra shell (QML), started by `penumbra-session`.
 - `share/` → `~/.local/share/` (KDE color scheme and violet icon overlay).
-- `assets/wallpaper*.png` (night, dawn and eclipse, each with a wordmark-free variant) → `~/.local/share/nocturne/`; `lock.png` there links to the clean variant of the current scene. After editing a wallpaper SVG, run `tools/build-wallpapers.py` to re-render them and the SDDM copy; it also splits the dawn and eclipse scenes into the layers under `config/quickshell/nocturne/dawn/` and `eclipse/` that the animated wallpapers move, and compiles the aurora shader (needs `qt6-shadertools`).
+- `assets/wallpaper*.png` (night, dawn and eclipse, each with a wordmark-free variant) → `~/.local/share/penumbra/`; `lock.png` there links to the clean variant of the current scene. After editing a wallpaper SVG, run `tools/build-wallpapers.py` to re-render them and the SDDM copy; it also splits the dawn and eclipse scenes into the layers under `config/quickshell/penumbra/dawn/` and `eclipse/` that the animated wallpapers move, and compiles the aurora shader (needs `qt6-shadertools`).
 - `system/` mirrors absolute system paths: SDDM configuration and complete theme.
 - `CONFIGURATION.md` contains the full installer, helper scripts, every authored configuration, and wallpaper SVG in Markdown.
 - `previews/` contains real screenshots of the installed desktop, launcher, power menu, lock screen, and greeter test mode.
@@ -97,13 +97,13 @@ Bar: click the Arch logo for the launcher (right-click for the clipboard) and th
 ## What the installer changes
 
 1. Installs the packages listed explicitly in `install.sh`.
-2. Backs up existing managed system files under `/var/lib/nocturne/backups/TIMESTAMP` and deploys SDDM.
+2. Backs up existing managed system files under `/var/lib/penumbra/backups/TIMESTAMP` and deploys SDDM.
 3. Sets the target user's login shell to `/usr/bin/fish` (unless `--shell keep`) and the login screen's keyboard layout to yours.
 4. Enables NetworkManager and Bluetooth, and enables SDDM without restarting it.
-5. Backs up managed user files under `~/.local/state/nocturne/backups/TIMESTAMP` and copies this configuration.
+5. Backs up managed user files under `~/.local/state/penumbra/backups/TIMESTAMP` and copies this configuration.
 6. Applies GTK dark preference, font, cursor, and icon settings through GSettings.
 7. Masks Dunst if installed, avoiding competing notification daemons.
-8. Retires the previous Waybar/Mako/swaybg setup: asks whether to remove those packages (`NOCTURNE_REMOVE_LEGACY=1` or `0` answers in advance; removed versions are listed in the system backup), stops them, and moves `~/.config/waybar` and `~/.config/mako` into the user backup.
+8. Retires the previous Waybar/Mako/swaybg setup: asks whether to remove those packages (`PENUMBRA_REMOVE_LEGACY=1` or `0` answers in advance; removed versions are listed in the system backup), stops them, and moves `~/.config/waybar` and `~/.config/mako` into the user backup.
 9. Enables PipeWire sockets and WirePlumber; reloads Hyprland and starts the desktop components.
 
 ## Backups and rollback
@@ -111,8 +111,8 @@ Bar: click the Arch logo for the launcher (right-click for the clipboard) and th
 Initial backups on this VM:
 
 ```text
-~/.local/state/nocturne/backups/20261021-200558
-/var/lib/nocturne/backups/20261021-200558
+~/.local/state/penumbra/backups/20261021-200558
+/var/lib/penumbra/backups/20261021-200558
 ```
 
 Every subsequent installer run creates a new backup. `new-files.txt` records paths that did not exist before that run. To reverse one run, restore its copied files to their original locations and remove only its listed new files after reviewing that list. The original Hyprland and Dolphin files are also in `before/.config/`.
@@ -122,18 +122,18 @@ For a minimal return to the original Hyprland config and SDDM theme on this mach
 ```bash
 cp before/.config/hypr/hyprland.lua ~/.config/hypr/hyprland.lua
 cp before/.config/dolphinrc ~/.config/dolphinrc
-sudo rm /etc/sddm.conf.d/90-nocturne.conf
+sudo rm /etc/sddm.conf.d/90-penumbra.conf
 hyprctl reload
 ```
 
-This leaves installed packages and other theme settings in place. To change the login shell back, read `/var/lib/nocturne/backups/20261021-200558/previous-shell.txt` and run `sudo usermod -s /path/from/that/file "$USER"`. To use Dunst again: `systemctl --user unmask dunst.service`, then start Dunst with the Nocturne shell stopped (it is the notification daemon). GSettings values before installation are in `before/gsettings-interface.txt`. Do not restart SDDM from a session with unsaved work: that ends the session.
+This leaves installed packages and other theme settings in place. To change the login shell back, read `/var/lib/penumbra/backups/20261021-200558/previous-shell.txt` and run `sudo usermod -s /path/from/that/file "$USER"`. To use Dunst again: `systemctl --user unmask dunst.service`, then start Dunst with the Penumbra shell stopped (it is the notification daemon). GSettings values before installation are in `before/gsettings-interface.txt`. Do not restart SDDM from a session with unsaved work: that ends the session.
 
 ## Maintenance
 
 ```bash
 # Validate Hyprland and reload the shell components
 hyprctl configerrors
-~/.local/bin/nocturne-session restart
+~/.local/bin/penumbra-session restart
 
 # Reapply just the user files, without sudo or package installation
 ./install.sh --user-only
@@ -144,34 +144,34 @@ python tools/build-wallpapers.py
 
 # Inspect session logs
 journalctl --user -b
-cat ~/.local/state/nocturne/quickshell.log
-quickshell -c nocturne ipc show   # list the shell's IPC commands
+cat ~/.local/state/penumbra/quickshell.log
+quickshell -c penumbra ipc show   # list the shell's IPC commands
 
 # Preview SDDM without logging out; close preview when finished
-QT_QUICK_BACKEND=software sddm-greeter-qt6 --test-mode --theme /usr/share/sddm/themes/nocturne
+QT_QUICK_BACKEND=software sddm-greeter-qt6 --test-mode --theme /usr/share/sddm/themes/penumbra
 ```
 
 The greeter uses Qt Quick's software backend to be reliable on this VM. Kitty uses its native cursor trail, avoiding expensive always-running custom shaders. Keyboard layout and display scale are installer settings (see Your settings). Change the monitor rule in `config/hypr/hyprland.lua` if you want a particular resolution; this setup keeps the monitor's preferred mode.
 
 ## Sources and licensing
 
-The Nocturne QML, wallpaper, configurations, and helper scripts were created for this setup. The icon overlay redistributes unmodified violet Papirus folder SVGs from the installed package, under GPL-3.0; see `licenses/Papirus-GPL-3.0.txt` and the [Papirus source](https://github.com/PapirusDevelopmentTeam/papirus-icon-theme). It inherits the remaining icons from the installed Papirus theme.
+The Penumbra QML, wallpaper, configurations, and helper scripts were created for this setup. The icon overlay redistributes unmodified violet Papirus folder SVGs from the installed package, under GPL-3.0; see `licenses/Papirus-GPL-3.0.txt` and the [Papirus source](https://github.com/PapirusDevelopmentTeam/papirus-icon-theme). It inherits the remaining icons from the installed Papirus theme.
 
 Technical references: [Hyprland's Lua example](https://github.com/hyprwm/Hyprland/blob/main/example/hyprland.lua), the locally installed `/usr/share/hypr/stubs/hl.meta.lua`, [Kitty configuration](https://sw.kovidgoyal.net/kitty/conf/), [Qt6ct palette implementation](https://github.com/trialuser02/qt6ct/blob/master/src/qt6ct-common/qt6ct.cpp), [KDE color scheme manager](https://github.com/KDE/kcolorscheme/blob/master/src/kcolorschememanager.cpp), and [Hyprlock configuration implementation](https://github.com/hyprwm/hyprlock/blob/main/src/config/ConfigManager.cpp).
 
 ## Cursor follow-up
 
-The desktop now uses the original **Nocturne Cursors at 28 px**, with software cursor rendering for the QEMU virtual GPU. A user-level `share/icons/default/index.theme` fallback keeps Xcursor clients consistent. GTK and SDDM also use 28 px. The session startup script applies `hyprctl setcursor Nocturne-Cursors 28` at every login, and `breeze-cursors` is an explicit installer dependency. These settings are included in the installer and all configuration copies.
+The desktop now uses the original **Penumbra Cursors at 28 px**, with software cursor rendering for the QEMU virtual GPU. A user-level `share/icons/default/index.theme` fallback keeps Xcursor clients consistent. GTK and SDDM also use 28 px. The session startup script applies `hyprctl setcursor Penumbra-Cursors 28` at every login, and `breeze-cursors` is an explicit installer dependency. These settings are included in the installer and all configuration copies.
 
 On physical hardware, the software-rendering override can be removed from the `cursor` table in `hyprland.lua` if desired.
 
-## Original Nocturne cursor set
+## Original Penumbra cursor set
 
-Custom artwork drawn for this theme in a soft, rounded style: a sail-shaped arrow, chunky hands and split-arrowhead resize cursors with a moonlit lavender fill, midnight outlines and a light drop shadow. Violet badges mark copy/link/help/menu actions, a rose badge marks forbidden, and the busy cursor is a 24-frame violet arc that stretches as it circles a lavender ring. There are **22 original cursor designs**, **109 standard/legacy cursor names**, and sizes **24, 28, 32, 48, and 64 px**. The desktop, GTK applications, fallback theme, and SDDM select `Nocturne-Cursors`. Apps already open may retain their old cursor until reopened.
+Custom artwork drawn for this theme in a soft, rounded style: a sail-shaped arrow, chunky hands and split-arrowhead resize cursors with a moonlit lavender fill, midnight outlines and a light drop shadow. Violet badges mark copy/link/help/menu actions, a rose badge marks forbidden, and the busy cursor is a 24-frame violet arc that stretches as it circles a lavender ring. There are **22 original cursor designs**, **109 standard/legacy cursor names**, and sizes **24, 28, 32, 48, and 64 px**. The desktop, GTK applications, fallback theme, and SDDM select `Penumbra-Cursors`. Apps already open may retain their old cursor until reopened.
 
 - Editable SVGs: `assets/cursors/`.
 - Rebuild script: `tools/build-cursors.py`.
-- Ready-to-install files: `system/usr/share/icons/Nocturne-Cursors/`.
+- Ready-to-install files: `system/usr/share/icons/Penumbra-Cursors/`.
 - Visual catalogue: `previews/cursors.png` and `previews/cursors.svg`.
 - Binary validation report: `validation/cursors.json`.
 
@@ -183,7 +183,7 @@ python tools/build-cursors.py
 ./install.sh
 ```
 
-The cursor artwork and builder are original to Nocturne. Unlike the Papirus folder overlay, they do not derive from another cursor theme. Breeze is only a fallback for rare cursor names outside this set.
+The cursor artwork and builder are original to Penumbra. Unlike the Papirus folder overlay, they do not derive from another cursor theme. Breeze is only a fallback for rare cursor names outside this set.
 
 ## Floating bar refinement
 
@@ -191,21 +191,21 @@ Every bar module now has its own fully rounded capsule, with transparent space b
 
 Window titles are limited to 22 characters to preserve space for the system controls on this 1280-pixel display; the native window module retains its tooltip. The title capsule disappears on an empty desktop. The tray is one capsule containing the application tray icons. New screenshots: `previews/floating-bar.png` and `previews/floating-bar-empty.png`. Earlier preview images show the original layout.
 
-This Waybar layout has since been rebuilt in Quickshell; see "Nocturne shell".
+This Waybar layout has since been rebuilt in Quickshell; see "Penumbra shell".
 
 ## Terminal refinement
 
-Kitty now uses 0.8 background opacity with the existing Nocturne palette and compositor blur. Fish opens with a faceted violet Arch-style logo, system and hardware panels, and palette dots. The compact Arch prompt keeps the clock on the right. Terminals narrower than 95 columns omit the image.
+Kitty now uses 0.8 background opacity with the existing Penumbra palette and compositor blur. Fish opens with a faceted violet Arch-style logo, system and hardware panels, and palette dots. The compact Arch prompt keeps the clock on the right. Terminals narrower than 95 columns omit the image.
 
-Fastfetch configuration and editable logo: `config/fastfetch/`. Render logo changes with `rsvg-convert config/fastfetch/nocturne-arch.svg -o config/fastfetch/nocturne-arch.png`. Fastfetch is included in installer dependencies. The installed settings and bundle were both updated; the terminal preview is on workspace 3. Screenshot: `previews/terminal.png`.
+Fastfetch configuration and editable logo: `config/fastfetch/`. Render logo changes with `rsvg-convert config/fastfetch/penumbra-arch.svg -o config/fastfetch/penumbra-arch.png`. Fastfetch is included in installer dependencies. The installed settings and bundle were both updated; the terminal preview is on workspace 3. Screenshot: `previews/terminal.png`.
 
-Before-change backup: `~/.local/state/nocturne/backups/terminal-20261021-213128/` (installed files under `.config/`, source files under `bundle/`).
+Before-change backup: `~/.local/state/penumbra/backups/terminal-20261021-213128/` (installed files under `.config/`, source files under `bundle/`).
 
 ## Package updates
 
 A violet update capsule appears on the right only when pending updates are found. It checks official Arch packages, AUR packages through Paru or Yay (whichever is installed), and user/system Flatpak apps and runtimes every 15 minutes. Hover for counts; click to open Kitty and update. Normal password, package review and confirmation prompts remain interactive. The terminal closes on success, or waits for Enter after a failure. Repeated clicks do not start parallel update sessions. The bar refreshes after the update exits.
 
-The installer includes `pacman-contrib` for its safe `checkupdates` command and Flatpak. Install Yay or Paru separately for AUR support. Repository checks use a separate database; they never refresh the live pacman database on their own. Failed checks are logged to the shell log and do not count as available updates. The helper is `bin/nocturne-updates`.
+The installer includes `pacman-contrib` for its safe `checkupdates` command and Flatpak. Install Yay or Paru separately for AUR support. Repository checks use a separate database; they never refresh the live pacman database on their own. Failed checks are logged to the shell log and do not count as available updates. The helper is `bin/penumbra-updates`.
 
 ## Brightness, volume and battery
 
@@ -213,9 +213,9 @@ Hardware brightness and volume keys (including Fn+F2/F3/F6/F7 when those keys em
 
 The bar shows an automatically detected battery immediately before the power button, with its percentage, charging state, and low-battery colors. Machines without a battery omit this module. Scrolling the audio capsule also shows the volume popup. No new packages are required.
 
-## Nocturne shell
+## Penumbra shell
 
-The bar, notifications, volume/brightness popup, control center, calendar, session overlay, launcher, lock screen, polkit agent and screenshot overlay are one Quickshell configuration in `config/quickshell/nocturne/`, replacing Waybar, Mako, Rofi, Hyprlock and the KDE polkit agent (Rofi and Hyprlock stay as fallbacks). Every surface is a translucent layer Hyprland blurs (namespaces `nocturne-*`).
+The bar, notifications, volume/brightness popup, control center, calendar, session overlay, launcher, lock screen, polkit agent and screenshot overlay are one Quickshell configuration in `config/quickshell/penumbra/`, replacing Waybar, Mako, Rofi, Hyprlock and the KDE polkit agent (Rofi and Hyprlock stay as fallbacks). Every surface is a translucent layer Hyprland blurs (namespaces `penumbra-*`).
 
 - **Bar** keeps the floating-capsule layout. The active workspace pill widens; the title capsule shows the focused window only on the current workspace.
 - **Launcher** (Super+Space): type to search applications; often-launched ones rise to the top. Start with `>` to run a command (Shift+Enter runs it in Kitty). A sum such as `2*pi` or `=sqrt(2)` shows its result; Enter copies it. Tab switches to the **clipboard history**, with image thumbnails and swatches for copied colors: Enter copies, Shift+Delete forgets an entry, Super+Shift+V opens it directly. Tab again for **emoji**, then **symbols** (accented capitals, typographic quotes and dashes, currency, math, Greek, arrows, keys, shapes); Super+; opens emoji directly. Search by name, move with the arrows; Enter types the character into the focused window (wtype), Shift+Enter copies it. Often-picked ones come first.
@@ -230,7 +230,7 @@ The bar, notifications, volume/brightness popup, control center, calendar, sessi
 - **Updates**: the updates capsule opens a list of pending packages by source, with Check again and Update now.
 - **Wallpaper picker** (Super+Shift+W, or the wallpaper button in the control center): the three wallpapers side by side; click one to switch.
 - **Session overlay** (Super+M): arrow keys and Enter, or the mouse. Log out, Restart and Shut down ask for a second press.
-- **Scripts** reach it through IPC: `quickshell -c nocturne ipc call panel control|wifi|bluetooth|mixer|calendar|session|updates|wallpapers|close`, `launcher apps|clipboard|emoji|symbols`, `lock lock`, `shot open false`, `osd flash volume 40 false`, `notifications clear|dnd`, `updates refresh`. `nocturne-osd`, `nocturne-power`, `nocturne-launcher`, `nocturne-clipboard`, `nocturne-shot` and hypridle fall back to a plain notification, rofi, slurp and hyprlock when the shell is not running.
+- **Scripts** reach it through IPC: `quickshell -c penumbra ipc call panel control|wifi|bluetooth|mixer|calendar|session|updates|wallpapers|close`, `launcher apps|clipboard|emoji|symbols`, `lock lock`, `shot open false`, `osd flash volume 40 false`, `notifications clear|dnd`, `updates refresh`. `penumbra-osd`, `penumbra-power`, `penumbra-launcher`, `penumbra-clipboard`, `penumbra-shot` and hypridle fall back to a plain notification, rofi, slurp and hyprlock when the shell is not running.
 
 Edit the QML and Quickshell reloads it live. `Theme.qml` holds the palette, fonts, radii and animation timings.
 
@@ -249,16 +249,16 @@ The normal installer and `--system-only` also offer these prompts. `--user-only`
 3. Check whether the Plymouth package is installed. If missing, ask whether to install it with normal interactive `pacman -S --needed plymouth` prompts.
 4. Ask separately whether to apply the Plymouth theme. This adds `splash` to existing GRUB arguments, inserts `plymouth` after `udev` or `systemd` while retaining keyboard/encryption hooks, and rebuilds supported initramfs images. For supported UKIs, rebuild the EFI image instead, preserving its existing arguments and GRUB chainload entries. The installer backs up `/etc/kernel/cmdline`, appends `splash` if missing, and verifies that the rebuilt UKI embeds exactly those arguments. Explicit Plymouth-disable arguments require manual review.
 
-No GRUB installation, partition changes, EFI entry writes, boot-sector writes or automatic reboot are performed. Menu timeout, default entry and recovery settings remain yours. A hidden menu remains hidden. Plymouth uses its built-in `two-step` renderer, including native disk-unlock/password dialogs; Escape can show boot details. The assets are original Nocturne artwork, built with `python tools/build-boot-assets.py` (Pillow and the desktop's JetBrains Mono font required only for rebuilding artwork).
+No GRUB installation, partition changes, EFI entry writes, boot-sector writes or automatic reboot are performed. Menu timeout, default entry and recovery settings remain yours. A hidden menu remains hidden. Plymouth uses its built-in `two-step` renderer, including native disk-unlock/password dialogs; Escape can show boot details. The assets are original Penumbra artwork, built with `python tools/build-boot-assets.py` (Pillow and the desktop's JetBrains Mono font required only for rebuilding artwork).
 
 Automatic integration supports conventional Arch GRUB + mkinitcpio presets with existing `/boot/initramfs-*.img` and `/boot/vmlinuz-*` files. It also supports existing unsigned PE32+ UKIs in `/boot/EFI/Linux/*.efi` with Secure Boot disabled, a matching `/etc/kernel/cmdline`, and optional `--splash` bitmap / `-S autodetect` preset arguments. Disabled fallback preset assignments are allowed. UKI validation requires `objcopy` (binutils). It deliberately stops for unverified bootloaders, unconfirmed custom EFI chains, signed UKIs, custom UKI/signing settings, mixed UKI/initramfs outputs, dracut, custom preset options/config paths, mkinitcpio configuration drop-ins/post hooks, legacy Plymouth hooks, dynamic shell values and symlinked managed files. These layouts need manual integration using the included `boot/grub/` and `boot/plymouth/` assets. Installing the Plymouth package alone does not enable its splash. Existing package-manager hooks remain under pacman's control.
 
-Boot changes have separate backups in `/var/lib/nocturne/boot-backups/`. Before replacement, the themed GRUB configuration must pass `grub-script-check`; its existing menu and discovery commands are retained. For conventional initramfs Plymouth integration only, menu regeneration must also contain a Linux or chainloader entry and preserve kernel/initrd/chainloader command lines apart from `splash`. Kernel updates not yet reflected in the current GRUB menu will therefore cause a safe refusal; reconcile those independently first. Initramfs images and UKIs are built to temporary files and checked for Plymouth/theme contents before replacing existing images. UKIs also have their embedded command line checked against the intended command line (the original plus `splash` if missing). Errors or handled interruptions restore the transaction's saved files; power loss cannot be made transactional across multiple boot files.
+Boot changes have separate backups in `/var/lib/penumbra/boot-backups/`. Before replacement, the themed GRUB configuration must pass `grub-script-check`; its existing menu and discovery commands are retained. For conventional initramfs Plymouth integration only, menu regeneration must also contain a Linux or chainloader entry and preserve kernel/initrd/chainloader command lines apart from `splash`. Kernel updates not yet reflected in the current GRUB menu will therefore cause a safe refusal; reconcile those independently first. Initramfs images and UKIs are built to temporary files and checked for Plymouth/theme contents before replacing existing images. UKIs also have their embedded command line checked against the intended command line (the original plus `splash` if missing). Errors or handled interruptions restore the transaction's saved files; power loss cannot be made transactional across multiple boot files.
 
 To undo a boot transaction, use the exact directory printed by the installer:
 
 ```bash
-sudo python3 tools/install-boot.py --restore /var/lib/nocturne/boot-backups/EXACT-DIRECTORY
+sudo python3 tools/install-boot.py --restore /var/lib/penumbra/boot-backups/EXACT-DIRECTORY
 ```
 
 Restore newest first if undoing both Plymouth and GRUB. This restores saved configuration, theme files and initramfs images without regeneration; newly installed packages stay installed. Only restore backups matching your current kernels—do not restore an old initramfs after upgrading its kernel. Backups can also be recovered from Arch installation media after mounting the installed system. Keep the backups until you have verified a reboot.
@@ -290,18 +290,18 @@ and [systemd UKI resources](https://www.freedesktop.org/software/systemd/man/dev
 The mkinitcpio preset option `--splash /usr/share/systemd/bootctl/splash-arch.bmp`
 adds a separate static Arch logo to the UKI, displayed by systemd-stub before
 Plymouth runs. It is independent of the selected Plymouth theme. Applying
-Nocturne now removes this stock bitmap option from the UKI build and backs up
+Penumbra now removes this stock bitmap option from the UKI build and backs up
 and updates its preset so kernel updates do not reintroduce it. Custom bitmap
 paths are preserved. Rollback restores the preset alongside the original UKI.
-Nocturne also explicitly disables Plymouth's firmware-background mode.
+Penumbra also explicitly disables Plymouth's firmware-background mode.
 
 The machine's initial manufacturer/firmware logo can still appear before the
 OS boots. These changes do not control that firmware screen. A logo that
-reappears after Nocturne may need separate graphics-handoff investigation.
+reappears after Penumbra may need separate graphics-handoff investigation.
 
 ## Neovim coding workspace
 
-Neovim now has an original Nocturne colorscheme, a left file explorer, clickable
+Neovim now has an original Penumbra colorscheme, a left file explorer, clickable
 open-file tabs, fuzzy file/text search, Git change markers, a status bar and
 shortcut hints. Requires Neovim 0.11.3 or newer. Plugin versions are recorded in
 `config/nvim/lazy-lock.json`. Initial plugin installation needs GitHub access.

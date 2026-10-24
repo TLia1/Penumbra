@@ -1,4 +1,4 @@
-# NOCTURNE — screenshot annotation (Shift+Print)
+# PENUMBRA — screenshot annotation (Shift+Print)
 [general]
 initial-tool = "arrow"
 copy-command = "wl-copy"

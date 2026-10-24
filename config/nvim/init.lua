@@ -25,7 +25,7 @@ o.updatetime = 250
 o.timeoutlen = 400
 o.completeopt = { 'menu', 'menuone', 'noselect' }
 o.laststatus = 3
-vim.cmd.colorscheme('nocturne')
+vim.cmd.colorscheme('penumbra')
 local path = vim.fn.stdpath('data') .. '/lazy/lazy.nvim'
 if not vim.uv.fs_stat(path) then
   local result = vim.fn.system({ 'git', 'clone', '--filter=blob:none', '--branch=stable',
@@ -36,13 +36,13 @@ if not vim.uv.fs_stat(path) then
   end
 end
 vim.opt.rtp:prepend(path)
-require('lazy').setup('nocturne.plugins', {
+require('lazy').setup('penumbra.plugins', {
   change_detection = { notify = false },
   checker = { enabled = false },
   local_spec = false,
   ui = { border = 'rounded' },
 })
-require('nocturne.keys')
+require('penumbra.keys')
 vim.diagnostic.config({ virtual_text = false, float = { border = 'rounded' }, severity_sort = true })
 vim.api.nvim_create_autocmd('VimEnter', {
   callback = function()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build original boot artwork from Nocturne's existing wallpaper and palette."""
+"""Build original boot artwork from Penumbra's existing wallpaper and palette."""
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 import math
