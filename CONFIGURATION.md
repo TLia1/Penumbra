@@ -28,8 +28,8 @@ PACKAGES=(
     qt5ct qt6ct qt5-wayland qt5-quickcontrols2 ttf-jetbrains-mono-nerd inter-font
     # Hardware and services
     networkmanager bluez bluez-utils pipewire-pulse wireplumber brightnessctl playerctl cava
-    # Screenshots, clipboard and color picker
-    grim slurp satty hyprpicker cliphist wl-clipboard
+    # Screenshots, clipboard, color picker, emoji and symbols
+    grim slurp satty hyprpicker cliphist wl-clipboard wtype unicode-emoji noto-fonts-emoji
     # Used by the helper scripts and build tools
     pacman-contrib flatpak libnotify librsvg python-pillow xorg-xcursorgen
 )
@@ -1109,6 +1109,7 @@ exec("SUPER + L", "loginctl lock-session")
 exec("SUPER + N", "quickshell -c nocturne ipc call notifications clear")
 exec("SUPER + A", "quickshell -c nocturne ipc call panel control")
 exec("SUPER + SHIFT + V", "~/.local/bin/nocturne-clipboard")
+exec("SUPER + semicolon", "quickshell -c nocturne ipc call launcher emoji")
 exec("SUPER + SHIFT + C", "~/.local/bin/nocturne-picker")
 exec("SUPER + W", "~/.local/bin/nocturne-wallpaper next")
 exec("SUPER + SHIFT + W", "quickshell -c nocturne ipc call panel wallpapers")
@@ -1511,6 +1512,8 @@ ShellRoot {
         target: "launcher"
         function apps(): void { Ui.toggleLauncher("apps"); }
         function clipboard(): void { Ui.toggleLauncher("clipboard"); }
+        function emoji(): void { Ui.toggleLauncher("emoji"); }
+        function symbols(): void { Ui.toggleLauncher("symbols"); }
     }
 
     IpcHandler {
@@ -4338,7 +4341,7 @@ Singleton {
     property bool wallpapersOpen: false
     property bool sessionOpen: false
     property bool launcherOpen: false
-    property string launcherMode: "apps" // apps or clipboard
+    property string launcherMode: "apps" // apps, clipboard, emoji or symbols
     property bool shotOpen: false
     property bool caffeine: false
     property bool nightLight: false
@@ -4445,13 +4448,15 @@ Singleton {
     // Optional tools, found once at startup.
     property bool hasNightLight: false
     property bool hasVisualizer: false
+    property bool hasTyping: false // wtype types emoji and symbols into the focused window
     Process {
         running: true
-        command: ["bash", "-c", "command -v hyprsunset; command -v cava"]
+        command: ["bash", "-c", "command -v hyprsunset; command -v cava; command -v wtype"]
         stdout: StdioCollector {
             onStreamFinished: {
                 root.hasNightLight = text.includes("/hyprsunset");
                 root.hasVisualizer = text.includes("/cava");
+                root.hasTyping = text.includes("/wtype");
             }
         }
     }
@@ -5608,9 +5613,10 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Widgets
+import "symbols.js" as Symbols
 
-// Applications and clipboard history, over a dimmed screen. Type to search; `>` runs a command,
-// a sum (or `=`) is worked out and copied; Tab switches between applications and the clipboard.
+// Applications, clipboard history, emoji and symbols, over a dimmed screen. Type to search; `>` runs
+// a command, a sum (or `=`) is worked out and copied; Tab moves to the next mode.
 PanelWindow {
     id: root
     screen: Ui.screen
@@ -5622,11 +5628,22 @@ PanelWindow {
     WlrLayershell.namespace: "nocturne-launcher"
     WlrLayershell.keyboardFocus: Ui.launcherOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
+    readonly property var modes: [
+        { mode: "apps", label: "Apps", glyph: "󰀻" },
+        { mode: "clipboard", label: "Clipboard", glyph: "󰅍" },
+        { mode: "emoji", label: "Emoji", glyph: "󰇵" },
+        { mode: "symbols", label: "Symbols", glyph: "󰒠" }
+    ]
     readonly property bool clipboard: Ui.launcherMode === "clipboard"
+    // Emoji and symbols are a grid of characters.
+    readonly property bool characters: Ui.launcherMode === "emoji" || Ui.launcherMode === "symbols"
     readonly property var apps: DesktopEntries.applications.values.filter(e => !e.noDisplay)
+    readonly property var symbols: Symbols.groups.reduce((all, g) => all.concat(g[1].map(s => ({ char: s[0], name: s[1], group: g[0] }))), [])
+    property var emoji: []
     property var results: []
     property var clips: []
     property var usage: ({}) // desktop entry id → launches
+    property var picks: ({}) // emoji or symbol → times picked
 
     Connections {
         target: Ui
@@ -5647,7 +5664,13 @@ PanelWindow {
     function refresh() {
         const text = search.text, q = text.trim().toLowerCase();
         let list = [];
-        if (clipboard) {
+        if (characters) {
+            const terms = q.split(/\s+/).filter(t => t);
+            const pool = Ui.launcherMode === "emoji" ? emoji : symbols;
+            const scored = pool.map((c, i) => ({ c, i, score: charScore(c, terms) })).filter(s => s.score > 0);
+            scored.sort((a, b) => b.score - a.score || a.i - b.i);
+            list = scored.map(s => ({ kind: "char", char: s.c }));
+        } else if (clipboard) {
             list = clips.filter(c => !q || c.text.toLowerCase().includes(q)).map(c => ({ kind: "clip", clip: c }));
         } else if (text.startsWith(">")) {
             if (text.slice(1).trim())
@@ -5665,6 +5688,22 @@ PanelWindow {
         results = list;
         view.currentIndex = 0;
         view.positionViewAtBeginning();
+        grid.currentIndex = 0;
+        grid.positionViewAtBeginning();
+    }
+
+    // Every term in the name or group; names that start with the first term come first, and
+    // often-picked characters rise. Everything matches no terms, most picked first.
+    function charScore(c, terms) {
+        const boost = Math.min(40, picks[c.char] ?? 0);
+        if (!terms.length)
+            return 1 + boost;
+        const name = c.name.toLowerCase(), all = name + " " + c.group.toLowerCase();
+        if (!terms.every(t => all.includes(t)))
+            return 0;
+        const first = terms[0];
+        const s = name === terms.join(" ") ? 100 : name.startsWith(first) ? 60 : name.split(/[\s:\-]+/).some(w => w.startsWith(first)) ? 40 : 10;
+        return s + boost;
     }
 
     // Name matches first, then initials and scattered letters, then descriptions; often-launched
@@ -5747,6 +5786,13 @@ PanelWindow {
             Quickshell.execDetached(["wl-copy", String(item.value)]);
         } else if (item.kind === "clip") {
             Quickshell.execDetached(["bash", "-c", 'printf "%s" "$1" | cliphist decode | wl-copy', "_", item.clip.line]);
+        } else if (item.kind === "char") {
+            // Typed into the focused window once the launcher lets go of the keyboard, else copied.
+            Quickshell.execDetached(["bash", "-c",
+                'if [ "$2" = type ] && command -v wtype >/dev/null; then sleep 0.15; printf "%s" "$1" | wtype -; else printf "%s" "$1" | wl-copy; fi',
+                "_", item.char.char, alternate || !Ui.hasTyping ? "copy" : "type"]);
+            picks = Object.assign({}, picks, { [item.char.char]: (picks[item.char.char] ?? 0) + 1 });
+            picksFile.setText(JSON.stringify(picks));
         }
     }
     function launch(entry) {
@@ -5770,6 +5816,25 @@ PanelWindow {
         view.currentIndex = Math.min(keep, results.length - 1);
     }
 
+    function gridKey(key) {
+        const page = grid.columns * 4;
+        if (key === Qt.Key_Left)
+            grid.moveCurrentIndexLeft();
+        else if (key === Qt.Key_Right)
+            grid.moveCurrentIndexRight();
+        else if (key === Qt.Key_Up)
+            grid.moveCurrentIndexUp();
+        else if (key === Qt.Key_Down)
+            grid.moveCurrentIndexDown();
+        else if (key === Qt.Key_PageDown)
+            grid.currentIndex = Math.min(results.length - 1, grid.currentIndex + page);
+        else if (key === Qt.Key_PageUp)
+            grid.currentIndex = Math.max(0, grid.currentIndex - page);
+        else
+            return false;
+        return true;
+    }
+
     FileView {
         id: usageFile
         path: Quickshell.env("HOME") + "/.local/state/nocturne/launcher.json"
@@ -5780,6 +5845,43 @@ PanelWindow {
             } catch (e) {
                 root.usage = {};
             }
+        }
+    }
+
+    FileView {
+        id: picksFile
+        path: Quickshell.env("HOME") + "/.local/state/nocturne/characters.json"
+        printErrors: false
+        onLoaded: {
+            try {
+                root.picks = JSON.parse(text());
+            } catch (e) {
+                root.picks = {};
+            }
+        }
+    }
+
+    // Unicode's emoji list (the unicode-emoji package), one per line:
+    // "1F600 ; fully-qualified # 😀 E1.0 grinning face", under "# group: …" headings.
+    // Skin-tone variants are left out.
+    FileView {
+        path: "/usr/share/unicode/emoji/emoji-test.txt"
+        printErrors: false
+        onLoaded: {
+            let group = "";
+            const list = [];
+            for (const line of text().split("\n")) {
+                if (line.startsWith("# group: ")) {
+                    group = line.slice(9);
+                    continue;
+                }
+                const m = line.match(/; fully-qualified\s+# (\S+) E[\d.]+ (.+)$/);
+                if (m && !m[2].includes("skin tone"))
+                    list.push({ char: m[1], name: m[2], group });
+            }
+            root.emoji = list;
+            if (Ui.launcherOpen)
+                root.refresh();
         }
     }
 
@@ -5852,7 +5954,7 @@ PanelWindow {
                 Layout.preferredHeight: 48
                 spacing: 12
                 Glyph {
-                    text: root.clipboard ? "󰅍" : search.text.startsWith(">") ? "󰆍" : "󰍉"
+                    text: root.clipboard || root.characters ? root.modes.find(m => m.mode === Ui.launcherMode).glyph : search.text.startsWith(">") ? "󰆍" : "󰍉"
                     size: 20
                     color: Theme.violetBright
                 }
@@ -5870,7 +5972,8 @@ PanelWindow {
                     Label {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: !search.text
-                        text: root.clipboard ? "Search clipboard history…" : "Search applications, > run, = calculate…"
+                        text: ({ clipboard: "Search clipboard history…", emoji: "Search emoji…", symbols: "Search symbols…" })[Ui.launcherMode]
+                            ?? "Search applications, > run, = calculate…"
                         font.pixelSize: 17
                         color: Theme.dim
                     }
@@ -5878,6 +5981,8 @@ PanelWindow {
                         const ctrl = event.modifiers & Qt.ControlModifier;
                         if (event.key === Qt.Key_Escape) {
                             Ui.launcherOpen = false;
+                        } else if (root.characters && root.gridKey(event.key)) {
+                            // Arrows and pages move around the grid.
                         } else if (event.key === Qt.Key_Down || (ctrl && event.key === Qt.Key_N)) {
                             view.incrementCurrentIndex();
                         } else if (event.key === Qt.Key_Up || (ctrl && event.key === Qt.Key_P)) {
@@ -5887,9 +5992,10 @@ PanelWindow {
                         } else if (event.key === Qt.Key_PageUp) {
                             view.currentIndex = Math.max(0, view.currentIndex - 6);
                         } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
-                            Ui.launcherMode = root.clipboard ? "apps" : "clipboard";
+                            const at = root.modes.findIndex(m => m.mode === Ui.launcherMode), step = event.key === Qt.Key_Tab ? 1 : -1;
+                            Ui.launcherMode = root.modes[(at + step + root.modes.length) % root.modes.length].mode;
                         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                            root.activate(view.currentIndex, event.modifiers & Qt.ShiftModifier);
+                            root.activate(root.characters ? grid.currentIndex : view.currentIndex, event.modifiers & Qt.ShiftModifier);
                         } else if (event.key === Qt.Key_Delete && (event.modifiers & Qt.ShiftModifier)) {
                             root.forget(view.currentIndex);
                         } else {
@@ -5898,12 +6004,13 @@ PanelWindow {
                         event.accepted = true;
                     }
                 }
+                // Only the current mode shows its name; the others are icons.
                 Repeater {
-                    model: [{ mode: "apps", label: "Apps", glyph: "󰀻" }, { mode: "clipboard", label: "Clipboard", glyph: "󰅍" }]
+                    model: root.modes
                     delegate: Rectangle {
                         required property var modelData
                         readonly property bool current: Ui.launcherMode === modelData.mode
-                        implicitWidth: modeRow.implicitWidth + 22
+                        implicitWidth: current ? modeRow.implicitWidth + 22 : 30
                         implicitHeight: 30
                         radius: 15
                         color: current ? Theme.violet : modeArea.containsMouse ? Theme.hover : Theme.raised
@@ -5914,7 +6021,7 @@ PanelWindow {
                             anchors.centerIn: parent
                             spacing: 6
                             Glyph { text: modelData.glyph; size: 13; color: current ? Theme.violetInk : Theme.textSoft }
-                            Label { text: modelData.label; font.pixelSize: 11; font.weight: Font.DemiBold; color: current ? Theme.violetInk : Theme.text }
+                            Label { visible: current; text: modelData.label; font.pixelSize: 11; font.weight: Font.DemiBold; color: current ? Theme.violetInk : Theme.text }
                         }
                         MouseArea {
                             id: modeArea
@@ -5937,10 +6044,10 @@ PanelWindow {
                 id: view
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.min(contentHeight, 7 * 56)
-                visible: root.results.length > 0
+                visible: root.results.length > 0 && !root.characters
                 clip: true
                 spacing: 2
-                model: root.results
+                model: root.characters ? [] : root.results
                 boundsBehavior: Flickable.StopAtBounds
                 highlightMoveDuration: Theme.fast
                 highlight: Rectangle {
@@ -6068,6 +6175,67 @@ PanelWindow {
                 }
             }
 
+            GridView {
+                id: grid
+                readonly property int columns: 10
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(Math.ceil(count / columns), 5) * cellHeight
+                visible: root.results.length > 0 && root.characters
+                clip: true
+                cellWidth: Math.floor(width / columns)
+                cellHeight: 56
+                model: root.characters ? root.results : []
+                boundsBehavior: Flickable.StopAtBounds
+                highlightMoveDuration: Theme.fast
+                highlight: Rectangle {
+                    radius: Theme.radiusSmall
+                    color: Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.16)
+                    border.color: Theme.lineStrong
+                }
+                delegate: Item {
+                    id: cell
+                    required property var modelData
+                    required property int index
+                    width: grid.cellWidth
+                    height: grid.cellHeight
+                    Text {
+                        anchors.centerIn: parent
+                        text: cell.modelData.char?.char ?? ""
+                        font.family: Ui.launcherMode === "emoji" ? "Noto Color Emoji" : Theme.sans
+                        font.pixelSize: Ui.launcherMode === "emoji" ? 28 : 24
+                        color: Theme.text
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onEntered: grid.currentIndex = cell.index
+                        onClicked: mouse => root.activate(cell.index, mouse.modifiers & Qt.ShiftModifier)
+                    }
+                }
+            }
+
+            // The chosen character's name.
+            RowLayout {
+                readonly property var current: root.characters ? root.results[grid.currentIndex]?.char : null
+                Layout.fillWidth: true
+                Layout.leftMargin: 10
+                visible: !!current
+                spacing: 10
+                Label {
+                    text: parent.current?.name ?? ""
+                    font.pixelSize: 13
+                    font.weight: Font.DemiBold
+                    Layout.maximumWidth: 420
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: parent.current?.group ?? ""
+                    font.pixelSize: 11
+                    color: Theme.muted
+                }
+            }
+
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.topMargin: 14
@@ -6076,14 +6244,22 @@ PanelWindow {
                 spacing: 4
                 Glyph {
                     Layout.fillWidth: true
-                    text: root.clipboard ? "󰅍" : "󰍉"
+                    text: root.clipboard || root.characters ? root.modes.find(m => m.mode === Ui.launcherMode).glyph : "󰍉"
                     size: 26
                     color: Theme.dim
                 }
                 Label {
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignHCenter
-                    text: root.clipboard ? (search.text ? "Nothing copied matches" : "Nothing copied yet") : "Type to search"
+                    text: {
+                        if (root.clipboard)
+                            return search.text ? "Nothing copied matches" : "Nothing copied yet";
+                        if (Ui.launcherMode === "emoji" && root.emoji.length === 0)
+                            return "Install the unicode-emoji package for the emoji list";
+                        if (root.characters)
+                            return "Nothing matches";
+                        return "Type to search";
+                    }
                     color: Theme.muted
                 }
             }
@@ -6095,8 +6271,14 @@ PanelWindow {
                 Layout.rightMargin: 4
                 Label {
                     Layout.fillWidth: true
-                    text: root.clipboard ? "↑↓ choose · Enter copy · Shift+Del forget · Tab apps · Esc close"
-                        : "↑↓ choose · Enter open · Tab clipboard · Esc close"
+                    text: {
+                        if (root.clipboard)
+                            return "↑↓ choose · Enter copy · Shift+Del forget · Tab emoji · Esc close";
+                        if (root.characters)
+                            return (Ui.hasTyping ? "Arrows choose · Enter type · Shift+Enter copy" : "Arrows choose · Enter copy")
+                                + (Ui.launcherMode === "emoji" ? " · Tab symbols" : " · Tab apps") + " · Esc close";
+                        return "↑↓ choose · Enter open · Tab clipboard · Esc close";
+                    }
                     font.pixelSize: 11
                     color: Theme.dim
                 }
@@ -6113,6 +6295,125 @@ PanelWindow {
         }
     }
 }
+```
+
+## `config/quickshell/nocturne/symbols.js`
+
+```javascript
+.pragma library
+
+// Symbols for the launcher's Symbols mode: [character, name], grouped. The group name is searched too.
+var groups = [
+    ["Letters", [
+        ["É", "e acute capital"], ["È", "e grave capital"], ["Ê", "e circumflex capital"], ["Ë", "e diaeresis capital"],
+        ["À", "a grave capital"], ["Â", "a circumflex capital"], ["Ç", "c cedilla capital"], ["Ù", "u grave capital"],
+        ["Û", "u circumflex capital"], ["Ô", "o circumflex capital"], ["Î", "i circumflex capital"], ["Ï", "i diaeresis capital"],
+        ["Œ", "oe ligature capital"], ["œ", "oe ligature"], ["Æ", "ae ligature capital"], ["æ", "ae ligature"],
+        ["ß", "sharp s eszett"], ["ñ", "n tilde"], ["Ñ", "n tilde capital"], ["ø", "o stroke"], ["å", "a ring"],
+        ["ÿ", "y diaeresis"], ["ı", "dotless i"], ["ð", "eth"], ["þ", "thorn"]
+    ]],
+    ["Punctuation", [
+        ["«", "left guillemet quote"], ["»", "right guillemet quote"], ["“", "left double quote"], ["”", "right double quote"],
+        ["‘", "left single quote"], ["’", "right single quote apostrophe"], ["„", "low double quote"], ["‚", "low single quote"],
+        ["—", "em dash"], ["–", "en dash"], ["‑", "non-breaking hyphen"], ["…", "ellipsis"], ["•", "bullet"],
+        ["·", "middle dot interpunct"], ["‣", "triangular bullet"], ["¡", "inverted exclamation"], ["¿", "inverted question"],
+        ["‽", "interrobang"], ["§", "section"], ["¶", "pilcrow paragraph"], ["†", "dagger"], ["‡", "double dagger"],
+        ["※", "reference mark"], ["′", "prime minute foot"], ["″", "double prime second inch"], ["‰", "per mille"],
+        ["‱", "per ten thousand"], ["№", "numero number"], ["⁂", "asterism"], [" ", "non-breaking space nbsp"],
+        [" ", "narrow non-breaking space"]
+    ]],
+    ["Legal", [
+        ["©", "copyright"], ["®", "registered"], ["™", "trademark"], ["℠", "service mark"], ["℗", "sound recording copyright"]
+    ]],
+    ["Currency", [
+        ["€", "euro"], ["£", "pound sterling"], ["¥", "yen yuan"], ["¢", "cent"], ["₹", "indian rupee"], ["₽", "ruble"],
+        ["₩", "won"], ["₺", "turkish lira"], ["₴", "hryvnia"], ["₪", "shekel"], ["₫", "dong"], ["₿", "bitcoin"],
+        ["฿", "baht"], ["₱", "peso"], ["¤", "currency sign"]
+    ]],
+    ["Math", [
+        ["±", "plus minus"], ["∓", "minus plus"], ["×", "multiply times"], ["÷", "divide"], ["−", "minus"], ["≠", "not equal"],
+        ["≈", "approximately"], ["≡", "identical"], ["≤", "less or equal"], ["≥", "greater or equal"], ["≪", "much less"],
+        ["≫", "much greater"], ["∞", "infinity"], ["√", "square root"], ["∛", "cube root"], ["∑", "sum sigma"],
+        ["∏", "product"], ["∫", "integral"], ["∬", "double integral"], ["∮", "contour integral"], ["∂", "partial derivative"],
+        ["∇", "nabla del gradient"], ["∆", "increment delta"], ["∝", "proportional"], ["∅", "empty set"], ["∈", "element of"],
+        ["∉", "not element of"], ["∋", "contains"], ["⊂", "subset"], ["⊃", "superset"], ["⊆", "subset or equal"],
+        ["⊇", "superset or equal"], ["∪", "union"], ["∩", "intersection"], ["∀", "for all"], ["∃", "there exists"],
+        ["∄", "there does not exist"], ["¬", "not negation"], ["∧", "and conjunction"], ["∨", "or disjunction"],
+        ["⊕", "xor circled plus"], ["⊗", "tensor circled times"], ["⊥", "perpendicular bottom"], ["∥", "parallel"],
+        ["∠", "angle"], ["°", "degree"], ["℃", "degree celsius"], ["℉", "degree fahrenheit"],
+        ["ℕ", "natural numbers"], ["ℤ", "integers"], ["ℚ", "rationals"], ["ℝ", "real numbers"], ["ℂ", "complex numbers"],
+        ["ℵ", "aleph"], ["∴", "therefore"], ["∵", "because"], ["∘", "ring composition"], ["⋅", "dot operator"],
+        ["⌈", "left ceiling"], ["⌉", "right ceiling"], ["⌊", "left floor"], ["⌋", "right floor"], ["⟨", "left angle bracket"],
+        ["⟩", "right angle bracket"], ["µ", "micro"], ["‖", "double vertical norm"]
+    ]],
+    ["Fractions", [
+        ["½", "one half"], ["⅓", "one third"], ["⅔", "two thirds"], ["¼", "one quarter"], ["¾", "three quarters"],
+        ["⅕", "one fifth"], ["⅙", "one sixth"], ["⅛", "one eighth"], ["⅜", "three eighths"], ["⅝", "five eighths"],
+        ["⅞", "seven eighths"]
+    ]],
+    ["Superscript", [
+        ["⁰", "superscript zero"], ["¹", "superscript one"], ["²", "superscript two squared"], ["³", "superscript three cubed"],
+        ["⁴", "superscript four"], ["⁵", "superscript five"], ["⁶", "superscript six"], ["⁷", "superscript seven"],
+        ["⁸", "superscript eight"], ["⁹", "superscript nine"], ["⁺", "superscript plus"], ["⁻", "superscript minus"],
+        ["ⁿ", "superscript n"], ["ⁱ", "superscript i"], ["ᵉ", "superscript e"], ["ʳ", "superscript r"],
+        ["ᵃ", "superscript a"], ["ᵒ", "superscript o"]
+    ]],
+    ["Subscript", [
+        ["₀", "subscript zero"], ["₁", "subscript one"], ["₂", "subscript two"], ["₃", "subscript three"],
+        ["₄", "subscript four"], ["₅", "subscript five"], ["₆", "subscript six"], ["₇", "subscript seven"],
+        ["₈", "subscript eight"], ["₉", "subscript nine"], ["₊", "subscript plus"], ["₋", "subscript minus"],
+        ["ₓ", "subscript x"], ["ₙ", "subscript n"]
+    ]],
+    ["Greek", [
+        ["α", "alpha"], ["β", "beta"], ["γ", "gamma"], ["δ", "delta"], ["ε", "epsilon"], ["ζ", "zeta"], ["η", "eta"],
+        ["θ", "theta"], ["ι", "iota"], ["κ", "kappa"], ["λ", "lambda"], ["μ", "mu"], ["ν", "nu"], ["ξ", "xi"],
+        ["ο", "omicron"], ["π", "pi"], ["ρ", "rho"], ["σ", "sigma"], ["ς", "final sigma"], ["τ", "tau"], ["υ", "upsilon"],
+        ["φ", "phi"], ["χ", "chi"], ["ψ", "psi"], ["ω", "omega"], ["Γ", "gamma capital"], ["Δ", "delta capital"],
+        ["Θ", "theta capital"], ["Λ", "lambda capital"], ["Ξ", "xi capital"], ["Π", "pi capital"], ["Σ", "sigma capital"],
+        ["Φ", "phi capital"], ["Ψ", "psi capital"], ["Ω", "omega capital ohm"]
+    ]],
+    ["Arrows", [
+        ["←", "left arrow"], ["→", "right arrow"], ["↑", "up arrow"], ["↓", "down arrow"], ["↔", "left right arrow"],
+        ["↕", "up down arrow"], ["↖", "up left arrow"], ["↗", "up right arrow"], ["↘", "down right arrow"],
+        ["↙", "down left arrow"], ["⇐", "left double arrow"], ["⇒", "right double arrow implies"], ["⇑", "up double arrow"],
+        ["⇓", "down double arrow"], ["⇔", "left right double arrow iff"], ["⟵", "long left arrow"], ["⟶", "long right arrow"],
+        ["⟷", "long left right arrow"], ["⟹", "long right double arrow"], ["↦", "maps to"], ["↩", "return left hook arrow"],
+        ["↪", "right hook arrow"], ["↺", "counterclockwise arrow"], ["↻", "clockwise arrow"], ["⇄", "right left arrows"],
+        ["⇆", "left right arrows"], ["➜", "heavy right arrow"], ["➤", "arrowhead right"], ["⤴", "curve up arrow"],
+        ["⤵", "curve down arrow"]
+    ]],
+    ["Keys", [
+        ["⌘", "command key"], ["⌥", "option alt key"], ["⇧", "shift key"], ["⌃", "control key"], ["⇪", "caps lock key"],
+        ["⏎", "return enter key"], ["↵", "enter key"], ["⌫", "backspace key"], ["⌦", "delete key"], ["⎋", "escape key"],
+        ["⇥", "tab key"], ["⇤", "backtab key"], ["␣", "space key"], ["⏏", "eject"], ["⎙", "print screen"]
+    ]],
+    ["Shapes", [
+        ["■", "black square"], ["□", "white square"], ["▪", "small black square"], ["▫", "small white square"],
+        ["●", "black circle"], ["○", "white circle"], ["◉", "fisheye"], ["◎", "bullseye"], ["◆", "black diamond"],
+        ["◇", "white diamond"], ["▲", "black up triangle"], ["△", "white up triangle"], ["▼", "black down triangle"],
+        ["▽", "white down triangle"], ["◀", "black left triangle"], ["▶", "black right triangle play"], ["★", "black star"],
+        ["☆", "white star"], ["✦", "four pointed star"], ["✧", "white four pointed star"], ["✶", "six pointed star"],
+        ["❖", "diamond minus x"], ["♥", "heart suit"], ["♡", "white heart"], ["♦", "diamond suit"], ["♣", "club suit"],
+        ["♠", "spade suit"], ["✓", "check mark"], ["✔", "heavy check mark"], ["✗", "ballot x cross"], ["✘", "heavy ballot x"],
+        ["☐", "ballot box"], ["☑", "ballot box checked"], ["☒", "ballot box x"], ["█", "full block"], ["░", "light shade"],
+        ["▒", "medium shade"], ["▓", "dark shade"]
+    ]],
+    ["Box drawing", [
+        ["─", "box horizontal"], ["│", "box vertical"], ["┌", "box down right corner"], ["┐", "box down left corner"],
+        ["└", "box up right corner"], ["┘", "box up left corner"], ["├", "box vertical right tee"], ["┤", "box vertical left tee"],
+        ["┬", "box down tee"], ["┴", "box up tee"], ["┼", "box cross"], ["═", "box double horizontal"],
+        ["║", "box double vertical"], ["╭", "box rounded down right"], ["╮", "box rounded down left"],
+        ["╰", "box rounded up right"], ["╯", "box rounded up left"]
+    ]],
+    ["Miscellaneous", [
+        ["♪", "eighth note music"], ["♫", "beamed notes music"], ["♭", "flat"], ["♯", "sharp"], ["♮", "natural"],
+        ["☀", "sun"], ["☁", "cloud"], ["☂", "umbrella"], ["☃", "snowman"], ["❄", "snowflake"], ["☾", "moon crescent"],
+        ["⚡", "lightning high voltage"], ["☎", "telephone"], ["✉", "envelope"], ["✎", "pencil"], ["✂", "scissors"],
+        ["⚙", "gear"], ["⚠", "warning"], ["☢", "radioactive"], ["☣", "biohazard"], ["☮", "peace"], ["☯", "yin yang"],
+        ["♀", "female"], ["♂", "male"], ["⚧", "transgender"], ["☕", "hot beverage coffee"], ["⌛", "hourglass"],
+        ["⌚", "watch"], ["✝", "latin cross"], ["☠", "skull crossbones"], ["♻", "recycling"], ["⚓", "anchor"]
+    ]]
+];
 ```
 
 ## `config/quickshell/nocturne/HotCorners.qml`

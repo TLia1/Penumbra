@@ -60,6 +60,8 @@ ShellRoot {
         target: "launcher"
         function apps(): void { Ui.toggleLauncher("apps"); }
         function clipboard(): void { Ui.toggleLauncher("clipboard"); }
+        function emoji(): void { Ui.toggleLauncher("emoji"); }
+        function symbols(): void { Ui.toggleLauncher("symbols"); }
     }
 
     IpcHandler {

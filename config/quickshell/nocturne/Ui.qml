@@ -16,7 +16,7 @@ Singleton {
     property bool wallpapersOpen: false
     property bool sessionOpen: false
     property bool launcherOpen: false
-    property string launcherMode: "apps" // apps or clipboard
+    property string launcherMode: "apps" // apps, clipboard, emoji or symbols
     property bool shotOpen: false
     property bool caffeine: false
     property bool nightLight: false
@@ -123,13 +123,15 @@ Singleton {
     // Optional tools, found once at startup.
     property bool hasNightLight: false
     property bool hasVisualizer: false
+    property bool hasTyping: false // wtype types emoji and symbols into the focused window
     Process {
         running: true
-        command: ["bash", "-c", "command -v hyprsunset; command -v cava"]
+        command: ["bash", "-c", "command -v hyprsunset; command -v cava; command -v wtype"]
         stdout: StdioCollector {
             onStreamFinished: {
                 root.hasNightLight = text.includes("/hyprsunset");
                 root.hasVisualizer = text.includes("/cava");
+                root.hasTyping = text.includes("/wtype");
             }
         }
     }

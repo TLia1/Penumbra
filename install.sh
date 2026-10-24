@@ -21,8 +21,8 @@ PACKAGES=(
     qt5ct qt6ct qt5-wayland qt5-quickcontrols2 ttf-jetbrains-mono-nerd inter-font
     # Hardware and services
     networkmanager bluez bluez-utils pipewire-pulse wireplumber brightnessctl playerctl cava
-    # Screenshots, clipboard and color picker
-    grim slurp satty hyprpicker cliphist wl-clipboard
+    # Screenshots, clipboard, color picker, emoji and symbols
+    grim slurp satty hyprpicker cliphist wl-clipboard wtype unicode-emoji noto-fonts-emoji
     # Used by the helper scripts and build tools
     pacman-contrib flatpak libnotify librsvg python-pillow xorg-xcursorgen
 )

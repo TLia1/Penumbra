@@ -4,9 +4,10 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Widgets
+import "symbols.js" as Symbols
 
-// Applications and clipboard history, over a dimmed screen. Type to search; `>` runs a command,
-// a sum (or `=`) is worked out and copied; Tab switches between applications and the clipboard.
+// Applications, clipboard history, emoji and symbols, over a dimmed screen. Type to search; `>` runs
+// a command, a sum (or `=`) is worked out and copied; Tab moves to the next mode.
 PanelWindow {
     id: root
     screen: Ui.screen
@@ -18,11 +19,22 @@ PanelWindow {
     WlrLayershell.namespace: "nocturne-launcher"
     WlrLayershell.keyboardFocus: Ui.launcherOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
+    readonly property var modes: [
+        { mode: "apps", label: "Apps", glyph: "󰀻" },
+        { mode: "clipboard", label: "Clipboard", glyph: "󰅍" },
+        { mode: "emoji", label: "Emoji", glyph: "󰇵" },
+        { mode: "symbols", label: "Symbols", glyph: "󰒠" }
+    ]
     readonly property bool clipboard: Ui.launcherMode === "clipboard"
+    // Emoji and symbols are a grid of characters.
+    readonly property bool characters: Ui.launcherMode === "emoji" || Ui.launcherMode === "symbols"
     readonly property var apps: DesktopEntries.applications.values.filter(e => !e.noDisplay)
+    readonly property var symbols: Symbols.groups.reduce((all, g) => all.concat(g[1].map(s => ({ char: s[0], name: s[1], group: g[0] }))), [])
+    property var emoji: []
     property var results: []
     property var clips: []
     property var usage: ({}) // desktop entry id → launches
+    property var picks: ({}) // emoji or symbol → times picked
 
     Connections {
         target: Ui
@@ -43,7 +55,13 @@ PanelWindow {
     function refresh() {
         const text = search.text, q = text.trim().toLowerCase();
         let list = [];
-        if (clipboard) {
+        if (characters) {
+            const terms = q.split(/\s+/).filter(t => t);
+            const pool = Ui.launcherMode === "emoji" ? emoji : symbols;
+            const scored = pool.map((c, i) => ({ c, i, score: charScore(c, terms) })).filter(s => s.score > 0);
+            scored.sort((a, b) => b.score - a.score || a.i - b.i);
+            list = scored.map(s => ({ kind: "char", char: s.c }));
+        } else if (clipboard) {
             list = clips.filter(c => !q || c.text.toLowerCase().includes(q)).map(c => ({ kind: "clip", clip: c }));
         } else if (text.startsWith(">")) {
             if (text.slice(1).trim())
@@ -61,6 +79,22 @@ PanelWindow {
         results = list;
         view.currentIndex = 0;
         view.positionViewAtBeginning();
+        grid.currentIndex = 0;
+        grid.positionViewAtBeginning();
+    }
+
+    // Every term in the name or group; names that start with the first term come first, and
+    // often-picked characters rise. Everything matches no terms, most picked first.
+    function charScore(c, terms) {
+        const boost = Math.min(40, picks[c.char] ?? 0);
+        if (!terms.length)
+            return 1 + boost;
+        const name = c.name.toLowerCase(), all = name + " " + c.group.toLowerCase();
+        if (!terms.every(t => all.includes(t)))
+            return 0;
+        const first = terms[0];
+        const s = name === terms.join(" ") ? 100 : name.startsWith(first) ? 60 : name.split(/[\s:\-]+/).some(w => w.startsWith(first)) ? 40 : 10;
+        return s + boost;
     }
 
     // Name matches first, then initials and scattered letters, then descriptions; often-launched
@@ -143,6 +177,13 @@ PanelWindow {
             Quickshell.execDetached(["wl-copy", String(item.value)]);
         } else if (item.kind === "clip") {
             Quickshell.execDetached(["bash", "-c", 'printf "%s" "$1" | cliphist decode | wl-copy', "_", item.clip.line]);
+        } else if (item.kind === "char") {
+            // Typed into the focused window once the launcher lets go of the keyboard, else copied.
+            Quickshell.execDetached(["bash", "-c",
+                'if [ "$2" = type ] && command -v wtype >/dev/null; then sleep 0.15; printf "%s" "$1" | wtype -; else printf "%s" "$1" | wl-copy; fi',
+                "_", item.char.char, alternate || !Ui.hasTyping ? "copy" : "type"]);
+            picks = Object.assign({}, picks, { [item.char.char]: (picks[item.char.char] ?? 0) + 1 });
+            picksFile.setText(JSON.stringify(picks));
         }
     }
     function launch(entry) {
@@ -166,6 +207,25 @@ PanelWindow {
         view.currentIndex = Math.min(keep, results.length - 1);
     }
 
+    function gridKey(key) {
+        const page = grid.columns * 4;
+        if (key === Qt.Key_Left)
+            grid.moveCurrentIndexLeft();
+        else if (key === Qt.Key_Right)
+            grid.moveCurrentIndexRight();
+        else if (key === Qt.Key_Up)
+            grid.moveCurrentIndexUp();
+        else if (key === Qt.Key_Down)
+            grid.moveCurrentIndexDown();
+        else if (key === Qt.Key_PageDown)
+            grid.currentIndex = Math.min(results.length - 1, grid.currentIndex + page);
+        else if (key === Qt.Key_PageUp)
+            grid.currentIndex = Math.max(0, grid.currentIndex - page);
+        else
+            return false;
+        return true;
+    }
+
     FileView {
         id: usageFile
         path: Quickshell.env("HOME") + "/.local/state/nocturne/launcher.json"
@@ -176,6 +236,43 @@ PanelWindow {
             } catch (e) {
                 root.usage = {};
             }
+        }
+    }
+
+    FileView {
+        id: picksFile
+        path: Quickshell.env("HOME") + "/.local/state/nocturne/characters.json"
+        printErrors: false
+        onLoaded: {
+            try {
+                root.picks = JSON.parse(text());
+            } catch (e) {
+                root.picks = {};
+            }
+        }
+    }
+
+    // Unicode's emoji list (the unicode-emoji package), one per line:
+    // "1F600 ; fully-qualified # 😀 E1.0 grinning face", under "# group: …" headings.
+    // Skin-tone variants are left out.
+    FileView {
+        path: "/usr/share/unicode/emoji/emoji-test.txt"
+        printErrors: false
+        onLoaded: {
+            let group = "";
+            const list = [];
+            for (const line of text().split("\n")) {
+                if (line.startsWith("# group: ")) {
+                    group = line.slice(9);
+                    continue;
+                }
+                const m = line.match(/; fully-qualified\s+# (\S+) E[\d.]+ (.+)$/);
+                if (m && !m[2].includes("skin tone"))
+                    list.push({ char: m[1], name: m[2], group });
+            }
+            root.emoji = list;
+            if (Ui.launcherOpen)
+                root.refresh();
         }
     }
 
@@ -248,7 +345,7 @@ PanelWindow {
                 Layout.preferredHeight: 48
                 spacing: 12
                 Glyph {
-                    text: root.clipboard ? "󰅍" : search.text.startsWith(">") ? "󰆍" : "󰍉"
+                    text: root.clipboard || root.characters ? root.modes.find(m => m.mode === Ui.launcherMode).glyph : search.text.startsWith(">") ? "󰆍" : "󰍉"
                     size: 20
                     color: Theme.violetBright
                 }
@@ -266,7 +363,8 @@ PanelWindow {
                     Label {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: !search.text
-                        text: root.clipboard ? "Search clipboard history…" : "Search applications, > run, = calculate…"
+                        text: ({ clipboard: "Search clipboard history…", emoji: "Search emoji…", symbols: "Search symbols…" })[Ui.launcherMode]
+                            ?? "Search applications, > run, = calculate…"
                         font.pixelSize: 17
                         color: Theme.dim
                     }
@@ -274,6 +372,8 @@ PanelWindow {
                         const ctrl = event.modifiers & Qt.ControlModifier;
                         if (event.key === Qt.Key_Escape) {
                             Ui.launcherOpen = false;
+                        } else if (root.characters && root.gridKey(event.key)) {
+                            // Arrows and pages move around the grid.
                         } else if (event.key === Qt.Key_Down || (ctrl && event.key === Qt.Key_N)) {
                             view.incrementCurrentIndex();
                         } else if (event.key === Qt.Key_Up || (ctrl && event.key === Qt.Key_P)) {
@@ -283,9 +383,10 @@ PanelWindow {
                         } else if (event.key === Qt.Key_PageUp) {
                             view.currentIndex = Math.max(0, view.currentIndex - 6);
                         } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
-                            Ui.launcherMode = root.clipboard ? "apps" : "clipboard";
+                            const at = root.modes.findIndex(m => m.mode === Ui.launcherMode), step = event.key === Qt.Key_Tab ? 1 : -1;
+                            Ui.launcherMode = root.modes[(at + step + root.modes.length) % root.modes.length].mode;
                         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                            root.activate(view.currentIndex, event.modifiers & Qt.ShiftModifier);
+                            root.activate(root.characters ? grid.currentIndex : view.currentIndex, event.modifiers & Qt.ShiftModifier);
                         } else if (event.key === Qt.Key_Delete && (event.modifiers & Qt.ShiftModifier)) {
                             root.forget(view.currentIndex);
                         } else {
@@ -294,12 +395,13 @@ PanelWindow {
                         event.accepted = true;
                     }
                 }
+                // Only the current mode shows its name; the others are icons.
                 Repeater {
-                    model: [{ mode: "apps", label: "Apps", glyph: "󰀻" }, { mode: "clipboard", label: "Clipboard", glyph: "󰅍" }]
+                    model: root.modes
                     delegate: Rectangle {
                         required property var modelData
                         readonly property bool current: Ui.launcherMode === modelData.mode
-                        implicitWidth: modeRow.implicitWidth + 22
+                        implicitWidth: current ? modeRow.implicitWidth + 22 : 30
                         implicitHeight: 30
                         radius: 15
                         color: current ? Theme.violet : modeArea.containsMouse ? Theme.hover : Theme.raised
@@ -310,7 +412,7 @@ PanelWindow {
                             anchors.centerIn: parent
                             spacing: 6
                             Glyph { text: modelData.glyph; size: 13; color: current ? Theme.violetInk : Theme.textSoft }
-                            Label { text: modelData.label; font.pixelSize: 11; font.weight: Font.DemiBold; color: current ? Theme.violetInk : Theme.text }
+                            Label { visible: current; text: modelData.label; font.pixelSize: 11; font.weight: Font.DemiBold; color: current ? Theme.violetInk : Theme.text }
                         }
                         MouseArea {
                             id: modeArea
@@ -333,10 +435,10 @@ PanelWindow {
                 id: view
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.min(contentHeight, 7 * 56)
-                visible: root.results.length > 0
+                visible: root.results.length > 0 && !root.characters
                 clip: true
                 spacing: 2
-                model: root.results
+                model: root.characters ? [] : root.results
                 boundsBehavior: Flickable.StopAtBounds
                 highlightMoveDuration: Theme.fast
                 highlight: Rectangle {
@@ -464,6 +566,67 @@ PanelWindow {
                 }
             }
 
+            GridView {
+                id: grid
+                readonly property int columns: 10
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(Math.ceil(count / columns), 5) * cellHeight
+                visible: root.results.length > 0 && root.characters
+                clip: true
+                cellWidth: Math.floor(width / columns)
+                cellHeight: 56
+                model: root.characters ? root.results : []
+                boundsBehavior: Flickable.StopAtBounds
+                highlightMoveDuration: Theme.fast
+                highlight: Rectangle {
+                    radius: Theme.radiusSmall
+                    color: Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.16)
+                    border.color: Theme.lineStrong
+                }
+                delegate: Item {
+                    id: cell
+                    required property var modelData
+                    required property int index
+                    width: grid.cellWidth
+                    height: grid.cellHeight
+                    Text {
+                        anchors.centerIn: parent
+                        text: cell.modelData.char?.char ?? ""
+                        font.family: Ui.launcherMode === "emoji" ? "Noto Color Emoji" : Theme.sans
+                        font.pixelSize: Ui.launcherMode === "emoji" ? 28 : 24
+                        color: Theme.text
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onEntered: grid.currentIndex = cell.index
+                        onClicked: mouse => root.activate(cell.index, mouse.modifiers & Qt.ShiftModifier)
+                    }
+                }
+            }
+
+            // The chosen character's name.
+            RowLayout {
+                readonly property var current: root.characters ? root.results[grid.currentIndex]?.char : null
+                Layout.fillWidth: true
+                Layout.leftMargin: 10
+                visible: !!current
+                spacing: 10
+                Label {
+                    text: parent.current?.name ?? ""
+                    font.pixelSize: 13
+                    font.weight: Font.DemiBold
+                    Layout.maximumWidth: 420
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: parent.current?.group ?? ""
+                    font.pixelSize: 11
+                    color: Theme.muted
+                }
+            }
+
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.topMargin: 14
@@ -472,14 +635,22 @@ PanelWindow {
                 spacing: 4
                 Glyph {
                     Layout.fillWidth: true
-                    text: root.clipboard ? "󰅍" : "󰍉"
+                    text: root.clipboard || root.characters ? root.modes.find(m => m.mode === Ui.launcherMode).glyph : "󰍉"
                     size: 26
                     color: Theme.dim
                 }
                 Label {
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignHCenter
-                    text: root.clipboard ? (search.text ? "Nothing copied matches" : "Nothing copied yet") : "Type to search"
+                    text: {
+                        if (root.clipboard)
+                            return search.text ? "Nothing copied matches" : "Nothing copied yet";
+                        if (Ui.launcherMode === "emoji" && root.emoji.length === 0)
+                            return "Install the unicode-emoji package for the emoji list";
+                        if (root.characters)
+                            return "Nothing matches";
+                        return "Type to search";
+                    }
                     color: Theme.muted
                 }
             }
@@ -491,8 +662,14 @@ PanelWindow {
                 Layout.rightMargin: 4
                 Label {
                     Layout.fillWidth: true
-                    text: root.clipboard ? "↑↓ choose · Enter copy · Shift+Del forget · Tab apps · Esc close"
-                        : "↑↓ choose · Enter open · Tab clipboard · Esc close"
+                    text: {
+                        if (root.clipboard)
+                            return "↑↓ choose · Enter copy · Shift+Del forget · Tab emoji · Esc close";
+                        if (root.characters)
+                            return (Ui.hasTyping ? "Arrows choose · Enter type · Shift+Enter copy" : "Arrows choose · Enter copy")
+                                + (Ui.launcherMode === "emoji" ? " · Tab symbols" : " · Tab apps") + " · Esc close";
+                        return "↑↓ choose · Enter open · Tab clipboard · Esc close";
+                    }
                     font.pixelSize: 11
                     color: Theme.dim
                 }
