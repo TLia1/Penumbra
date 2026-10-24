@@ -8,6 +8,7 @@ Singleton {
     id: root
 
     property int cpu: 0
+    property int cores: 1
     property int memory: 0
     property string memoryDetail: ""
     property int brightness: -1 // -1 when the machine has no backlight
@@ -31,6 +32,7 @@ Singleton {
         id: stat
         path: "/proc/stat"
         onLoaded: {
+            root.cores = (text().match(/^cpu\d+ /gm) ?? []).length || 1;
             const f = text().split("\n")[0].trim().split(/\s+/).slice(1).map(Number);
             const idle = f[3] + f[4], total = f.reduce((a, b) => a + b, 0);
             if (root.lastCpu) {

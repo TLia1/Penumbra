@@ -124,19 +124,22 @@ PanelWindow {
         }
 
         Capsule {
+            id: monitor
             padding: 12
             spacing: 12
+            active: Ui.monitorOpen
             tip: `CPU ${Sys.cpu}% · Memory ${Sys.memoryDetail}`
-            onClicked: Ui.run("kitty --class nocturne-monitor htop")
+            onClicked: m => m.button === Qt.RightButton ? Ui.run("kitty --class nocturne-monitor htop") : Ui.toggleMonitor()
+            readonly property color tint: Ui.monitorOpen ? Theme.violetInk : "#aaa0bb"
             RowLayout {
                 spacing: 5
-                Glyph { text: "󰻠"; size: 12; color: "#aaa0bb" }
-                Label { text: Sys.cpu + "%"; font.pixelSize: 11; color: "#aaa0bb"; font.family: Theme.mono }
+                Glyph { text: "󰻠"; size: 12; color: monitor.tint }
+                Label { text: Sys.cpu + "%"; font.pixelSize: 11; color: monitor.tint; font.family: Theme.mono }
             }
             RowLayout {
                 spacing: 5
-                Glyph { text: "󰍛"; size: 12; color: "#aaa0bb" }
-                Label { text: Sys.memory + "%"; font.pixelSize: 11; color: "#aaa0bb"; font.family: Theme.mono }
+                Glyph { text: "󰍛"; size: 12; color: monitor.tint }
+                Label { text: Sys.memory + "%"; font.pixelSize: 11; color: monitor.tint; font.family: Theme.mono }
             }
         }
 

@@ -10,6 +10,7 @@ Singleton {
     property bool controlOpen: false
     property string controlPage: "main" // main, wifi or bluetooth
     property bool calendarOpen: false
+    property bool monitorOpen: false
     property bool sessionOpen: false
     property bool caffeine: false
 
@@ -24,6 +25,7 @@ Singleton {
     function close() {
         controlOpen = false;
         calendarOpen = false;
+        monitorOpen = false;
     }
     // A click outside a panel closes it; ignore that same click reopening it from the bar.
     property double closedAt: 0
@@ -47,6 +49,11 @@ Singleton {
         const reopen = !calendarOpen && Date.now() - closedAt > 250;
         close();
         calendarOpen = reopen;
+    }
+    function toggleMonitor() {
+        const reopen = !monitorOpen && Date.now() - closedAt > 250;
+        close();
+        monitorOpen = reopen;
     }
     function openSession() {
         close();

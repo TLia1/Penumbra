@@ -14,6 +14,7 @@ ShellRoot {
 
     ControlCenter {}
     CalendarPanel {}
+    ProcessPanel {}
     NotificationPopups {}
     Osd {}
     SessionMenu {}
@@ -31,6 +32,7 @@ ShellRoot {
         function wifi(): void { Ui.openControl("wifi"); }
         function bluetooth(): void { Ui.openControl("bluetooth"); }
         function calendar(): void { Ui.toggleCalendar(); }
+        function monitor(): void { Ui.toggleMonitor(); }
         function session(): void { Ui.openSession(); }
         function close(): void { Ui.close(); Ui.sessionOpen = false; }
     }
