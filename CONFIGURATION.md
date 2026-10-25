@@ -3164,6 +3164,7 @@ XCURSOR_SIZE=28
     },
     {
       "type": "custom",
+      "outputColor": "#59446a",
       "format": "╭────────────────────────────────────────────────╮"
     },
     {
@@ -3205,6 +3206,7 @@ XCURSOR_SIZE=28
     },
     {
       "type": "custom",
+      "outputColor": "#59446a",
       "format": "╰────────────────────────────────────────────────╯"
     },
     "break",
@@ -3216,6 +3218,7 @@ XCURSOR_SIZE=28
     },
     {
       "type": "custom",
+      "outputColor": "#59446a",
       "format": "╭────────────────────────────────────────────────╮"
     },
     {
@@ -3252,6 +3255,7 @@ XCURSOR_SIZE=28
     },
     {
       "type": "custom",
+      "outputColor": "#59446a",
       "format": "╰────────────────────────────────────────────────╯"
     },
     {
@@ -4180,6 +4184,59 @@ menus_have_icons=true
 toolbutton_style=4
 ```
 
+## `config/quickshell/penumbra/Avatar.qml`
+
+```qml
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import Quickshell.Widgets
+
+// Your ~/.face when there is one, else your initial on a violet disc. The control center and
+// the lock screen show the same one.
+ClippingRectangle {
+    id: root
+
+    property int size: 42
+    property bool ring: false
+
+    implicitWidth: size
+    implicitHeight: size
+    radius: Theme.corner(size / 2)
+    border.width: ring ? 2 : 0
+    border.color: Theme.violet
+
+    Rectangle {
+        anchors.fill: parent
+        gradient: Gradient {
+            GradientStop { position: 0; color: Theme.violet }
+            GradientStop { position: 1; color: Theme.violetDeep }
+        }
+    }
+    Label {
+        anchors.centerIn: parent
+        visible: face.status !== Image.Ready
+        text: Quickshell.env("USER").charAt(0).toUpperCase()
+        font.family: Theme.display
+        font.pixelSize: Math.round(root.size * 0.4)
+        font.weight: Font.Bold
+        color: Theme.violetInk
+    }
+    Image {
+        id: face
+        anchors.fill: parent
+        fillMode: Image.PreserveAspectCrop
+        sourceSize: Qt.size(root.size * 2, root.size * 2)
+        asynchronous: true
+    }
+    FileView {
+        path: Quickshell.env("HOME") + "/.face"
+        printErrors: false
+        onLoaded: face.source = "file://" + path
+    }
+}
+```
+
 ## `config/quickshell/penumbra/Bar.qml`
 
 ```qml
@@ -4239,7 +4296,7 @@ PanelWindow {
             onClicked: Ui.toggleCalendar()
             Label {
                 text: Qt.formatDateTime(Clock.date, "HH:mm")
-                font.pixelSize: 14
+                font.pixelSize: Theme.textLarge
                 font.weight: Font.Bold
                 color: Ui.calendarOpen ? Theme.violetInk : Theme.text
             }
@@ -4247,7 +4304,7 @@ PanelWindow {
 
         // What's playing, with cava's spectrum when it is installed; hidden while paused.
         Capsule {
-            visible: !!Media.playing
+            shown: !!Media.playing
             padding: 14
             spacing: 10
             tip: Media.player ? [Media.player.trackTitle, Media.player.trackArtist].filter(t => t).join(" · ") + "\nMiddle-click to pause · scroll to skip" : ""
@@ -4257,13 +4314,14 @@ PanelWindow {
                 visible: Ui.hasVisualizer
                 spacing: 2
                 Layout.preferredHeight: 18
+                // Centred pills that stretch both ways, so a quiet passage is a row of short dashes.
                 Repeater {
                     model: Media.bars
                     delegate: Rectangle {
                         required property real modelData
-                        anchors.bottom: parent?.bottom
+                        anchors.verticalCenter: parent?.verticalCenter
                         width: 3
-                        height: 3 + modelData * 15
+                        height: 5 + modelData * 13
                         radius: Theme.corner(1.5)
                         color: Theme.violetBright
                         Behavior on height { NumberAnimation { duration: 60 } }
@@ -4272,7 +4330,7 @@ PanelWindow {
             }
             Glyph { visible: !Ui.hasVisualizer; text: "󰎆"; color: Theme.violetBright }
             Label {
-                text: Media.player?.trackTitle || Media.player?.identity || ""
+                text: Media.player?.trackTitle || Media.appName(Media.player)
                 Layout.maximumWidth: 170
                 color: Theme.textSoft
             }
@@ -4280,7 +4338,10 @@ PanelWindow {
     }
 
     // ── Center ──────────────────────────────────────────────────────
+    // The workspaces hold the exact center, so switching windows never moves them; the focused
+    // window's title grows to their right.
     RowLayout {
+        id: workspaces
         anchors.centerIn: parent
         spacing: Theme.gap
 
@@ -4311,8 +4372,7 @@ PanelWindow {
                     Label {
                         text: workspace.modelData.name
                         color: workspace.current || workspace.modelData.urgent ? Theme.violetInk : workspace.hovered ? Theme.text : Theme.subtle
-                        font.family: Theme.mono
-                        font.weight: workspace.current ? Font.Bold : Font.Normal
+                        font.weight: workspace.current ? Font.Bold : Font.DemiBold
                     }
                     Repeater {
                         model: workspace.icons.slice(0, 3)
@@ -4327,41 +4387,64 @@ PanelWindow {
                                 asynchronous: true
                                 visible: false
                             }
-                            // Muted like the tray until the workspace is current or hovered.
+                            // Tinted violet like the tray until the workspace is current or hovered.
                             MultiEffect {
+                                readonly property bool lit: workspace.current || workspace.hovered
                                 anchors.fill: parent
                                 source: appIcon
-                                saturation: workspace.current || workspace.hovered ? 0 : -0.7
-                                opacity: workspace.current || workspace.hovered ? 1 : 0.8
+                                saturation: lit ? 0 : -1
+                                colorization: lit ? 0 : 0.35
+                                colorizationColor: Theme.violet
+                                brightness: lit ? 0 : 0.1
+                                opacity: lit ? 1 : 0.85
                                 Behavior on saturation { NumberAnimation { duration: Theme.fast } }
+                                Behavior on colorization { NumberAnimation { duration: Theme.fast } }
                             }
                         }
                     }
                     Label {
                         visible: workspace.icons.length > 3
                         text: "+" + (workspace.icons.length - 3)
-                        font.pixelSize: 10
-                        font.family: Theme.mono
+                        font.pixelSize: Theme.textTiny
                         color: workspace.current ? Theme.violetInk : Theme.muted
                     }
                 }
             }
         }
+    }
 
+    RowLayout {
+        anchors { left: workspaces.right; leftMargin: Theme.gap; verticalCenter: parent.verticalCenter }
         Capsule {
             id: title
             // The Wayland toplevel protocol knows the focused window from startup; nothing is
             // activated on an empty workspace. Show it on the bar of the screen it is on.
             readonly property var client: ToplevelManager.activeToplevel
-            readonly property bool shown: !!client && client.activated && client.title !== "" && client.screens.some(s => s.name === bar.screen.name)
-            visible: shown
+            readonly property var entry: client ? DesktopEntries.heuristicLookup(client.appId) : null
+            // Most windows end their title with the app's name ("… — Mozilla Firefox"); the icon says that.
+            readonly property string text: {
+                const t = client?.title ?? "";
+                const m = t.match(/^(.+)\s[—–-]\s(.+)$/);
+                const names = [entry?.name, client?.appId].filter(n => n).map(n => n.toLowerCase());
+                return m && names.some(n => m[2].toLowerCase().includes(n)) ? m[1] : t;
+            }
+            // While a window plays, the media capsule already shows its title.
+            readonly property bool repeatsMedia: !!Media.playing && !!Media.playing.trackTitle && (client?.title ?? "").startsWith(Media.playing.trackTitle)
+            shown: !!client && client.activated && text !== "" && !repeatsMedia && client.screens.some(s => s.name === bar.screen.name)
             interactive: false
-            padding: 16
+            padding: 15
+            spacing: 8
             tip: shown ? client.title : ""
+            IconImage {
+                visible: source !== ""
+                implicitSize: 15
+                source: title.entry?.icon ? Quickshell.iconPath(title.entry.icon, true) : ""
+                asynchronous: true
+            }
             Label {
-                text: title.shown ? title.client.title : ""
-                Layout.maximumWidth: 260
-                font.family: Theme.mono
+                text: title.text
+                // As wide as the room before the status capsules allows, up to a point.
+                Layout.maximumWidth: Math.max(60, Math.min(300, rightSide.x - workspaces.x - workspaces.width - 3 * Theme.gap - 60))
                 color: Theme.textSoft
             }
         }
@@ -4369,22 +4452,23 @@ PanelWindow {
 
     // ── Right ───────────────────────────────────────────────────────
     RowLayout {
+        id: rightSide
         anchors { right: parent.right; verticalCenter: parent.verticalCenter }
         spacing: Theme.gap
 
         // A capture's timer counting down; click to cancel.
         Capsule {
-            visible: Recorder.countdown > 0
+            shown: Recorder.countdown > 0
             padding: 14
             tip: "Click to cancel"
             onClicked: Recorder.cancel()
             Glyph { text: "󰔛"; color: Theme.amber }
-            Label { text: Recorder.countdown; font.family: Theme.mono; font.weight: Font.Bold; color: Theme.amber }
+            Label { text: Recorder.countdown; font.weight: Font.Bold; color: Theme.amber }
         }
 
         // A screen recording and how long it has run; click to stop.
         Capsule {
-            visible: Recorder.recording
+            shown: Recorder.recording
             padding: 14
             tip: "Recording · click to stop (or Ctrl+Print)"
             color: hovered ? Theme.alpha(Theme.rose, 0.3) : Theme.alpha(Theme.rose, 0.16)
@@ -4402,20 +4486,20 @@ PanelWindow {
                     NumberAnimation { to: 1; duration: 700; easing.type: Easing.InOutSine }
                 }
             }
-            Label { text: Recorder.elapsedText; font.family: Theme.mono; font.weight: Font.Bold; color: Theme.rose }
+            Label { text: Recorder.elapsedText; font.weight: Font.Bold; color: Theme.rose }
         }
 
         Capsule {
-            visible: Devices.layouts.length > 1
+            shown: Devices.layouts.length > 1
             padding: 14
             tip: `${Devices.layoutName} · click to switch`
             onClicked: Devices.nextLayout()
             Glyph { text: "󰌌"; color: Theme.textSoft }
-            Label { text: Devices.layoutCode; font.family: Theme.mono; font.weight: Font.Bold; color: Theme.textSoft }
+            Label { text: Devices.layoutCode; font.weight: Font.Bold; color: Theme.textSoft }
         }
 
         Capsule {
-            visible: Sys.updates > 0
+            shown: Sys.updates > 0
             padding: 12
             active: Ui.updatesOpen
             tip: Sys.updatesDetail
@@ -4432,15 +4516,20 @@ PanelWindow {
             tip: `CPU ${Sys.cpu}% · Memory ${Sys.memoryDetail}`
             onClicked: m => m.button === Qt.RightButton ? Ui.run("kitty --class penumbra-monitor htop") : Ui.toggleMonitor()
             readonly property color tint: Ui.monitorOpen ? Theme.violetInk : Theme.subtle
-            RowLayout {
-                spacing: 5
-                Glyph { text: "󰻠"; size: 12; color: monitor.tint }
-                Label { text: Sys.cpu + "%"; font.pixelSize: 11; color: monitor.tint; font.family: Theme.mono }
-            }
-            RowLayout {
-                spacing: 5
-                Glyph { text: "󰍛"; size: 12; color: monitor.tint }
-                Label { text: Sys.memory + "%"; font.pixelSize: 11; color: monitor.tint; font.family: Theme.mono }
+            Repeater {
+                model: [{ name: "CPU", value: Sys.cpu }, { name: "RAM", value: Sys.memory }]
+                delegate: RowLayout {
+                    required property var modelData
+                    spacing: 5
+                    Label {
+                        text: modelData.name
+                        font.pixelSize: Theme.textTiny
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 0.6
+                        color: Ui.monitorOpen ? Theme.violetInk : Theme.dim
+                    }
+                    Label { text: modelData.value + "%"; color: monitor.tint }
+                }
             }
         }
 
@@ -4449,7 +4538,7 @@ PanelWindow {
             // but the control center replaces their tray icons.
             readonly property var items: SystemTray.items.values.filter(i => !["nm-applet", "blueman"].includes(i.id))
             id: tray
-            visible: items.length > 0
+            shown: items.length > 0
             interactive: false
             padding: 12
             spacing: 10
@@ -4520,7 +4609,6 @@ PanelWindow {
                 Label {
                     visible: !Devices.muted
                     text: Devices.volume + "%"
-                    font.family: Theme.mono
                     color: controls.tint
                 }
             }
@@ -4528,7 +4616,7 @@ PanelWindow {
                 visible: Devices.hasBattery
                 spacing: 5
                 Glyph { text: Devices.batteryGlyph; color: Ui.controlOpen ? Theme.violetInk : Devices.batteryColor }
-                Label { text: Devices.batteryPercent + "%"; font.family: Theme.mono; color: Ui.controlOpen ? Theme.violetInk : Devices.batteryColor }
+                Label { text: Devices.batteryPercent + "%"; color: Ui.controlOpen ? Theme.violetInk : Devices.batteryColor }
             }
             Item {
                 implicitWidth: bell.implicitWidth
@@ -4681,13 +4769,9 @@ ColumnLayout {
         onToggled: root.adapter.enabled = !root.adapter.enabled
     }
 
-    component SectionTitle: Label {
+    component SectionTitle: Overline {
         Layout.fillWidth: true
         Layout.topMargin: 2
-        font.pixelSize: 11
-        font.letterSpacing: 1.2
-        font.capitalization: Font.AllUppercase
-        color: Theme.muted
     }
 
     Flickable {
@@ -4801,7 +4885,7 @@ ColumnLayout {
         Layout.alignment: Qt.AlignRight
         visible: !!root.adapter
         text: "Advanced Bluetooth settings"
-        font.pixelSize: 11
+        font.pixelSize: Theme.textSmall
         color: advancedArea.containsMouse ? Theme.violetBright : Theme.muted
         MouseArea {
             id: advancedArea
@@ -4826,7 +4910,7 @@ import QtQuick.Layouts
 Panel {
     id: root
     anchors { top: true; left: true }
-    margins.left: Theme.edge
+    margins.left: Theme.edge - shadowRoom
     sheetWidth: 320
     open: Ui.calendarOpen
     onDismissed: Ui.dismiss()
@@ -4847,16 +4931,14 @@ Panel {
         width: root.sheetWidth - 36
         spacing: 10
 
-        Label {
+        Overline {
             text: Qt.formatDate(root.today, "dddd")
-            font.pixelSize: 11
-            font.letterSpacing: 1.2
-            font.capitalization: Font.AllUppercase
             color: Theme.violet
         }
         Label {
             text: Qt.formatDate(root.today, "d MMMM yyyy")
-            font.pixelSize: 20
+            font.family: Theme.display
+            font.pixelSize: Theme.textHeading
             font.weight: Font.DemiBold
         }
 
@@ -4896,7 +4978,7 @@ Panel {
                 required property string shortName
                 text: shortName.slice(0, 2)
                 horizontalAlignment: Text.AlignHCenter
-                font.pixelSize: 10
+                font.pixelSize: Theme.textTiny
                 color: Theme.dim
             }
         }
@@ -4945,6 +5027,14 @@ Rectangle {
     property bool interactive: true
     property bool active: false
     readonly property bool hovered: mouse.containsMouse
+    // Set instead of `visible`: the capsule fades and narrows away, and its neighbours glide.
+    property bool shown: true
+    property real reveal: shown ? 1 : 0
+    Behavior on reveal { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+    visible: reveal > 0
+    opacity: reveal
+    Layout.preferredWidth: Math.round(implicitWidth * reveal)
+    clip: reveal < 1
 
     signal clicked(var mouse)
     // One step per wheel notch: +1 up, -1 down. Touchpads send many small deltas, which add up
@@ -5033,7 +5123,7 @@ import Quickshell.Widgets
 Panel {
     id: root
     anchors { top: true; right: true }
-    margins.right: Theme.edge
+    margins.right: Theme.edge - shadowRoom
     sheetWidth: 400
     open: Ui.controlOpen
     onDismissed: Ui.dismiss()
@@ -5102,27 +5192,12 @@ Panel {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 12
-                Rectangle {
-                    implicitWidth: 42
-                    implicitHeight: 42
-                    radius: Theme.corner(21)
-                    gradient: Gradient {
-                        GradientStop { position: 0; color: Theme.violet }
-                        GradientStop { position: 1; color: Theme.violetDeep }
-                    }
-                    Label {
-                        anchors.centerIn: parent
-                        text: Quickshell.env("USER").charAt(0).toUpperCase()
-                        font.pixelSize: 17
-                        font.weight: Font.Bold
-                        color: Theme.violetInk
-                    }
-                }
+                Avatar { size: 42 }
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 1
-                    Label { text: Quickshell.env("USER"); font.pixelSize: 14; font.weight: Font.DemiBold }
-                    Label { text: root.uptime; font.pixelSize: 11; color: Theme.muted }
+                    Label { text: Quickshell.env("USER"); font.pixelSize: Theme.textLarge; font.weight: Font.DemiBold }
+                    Label { text: root.uptime; font.pixelSize: Theme.textSmall; color: Theme.muted }
                 }
                 Repeater {
                     model: [
@@ -5305,11 +5380,6 @@ Panel {
                     running: root.open && !!root.player?.isPlaying
                     onTriggered: root.player.positionChanged()
                 }
-                function time(seconds) {
-                    const s = Math.max(0, Math.floor(seconds));
-                    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-                }
-
                 ColumnLayout {
                     id: mediaColumn
                     anchors { left: parent.left; right: parent.right; top: parent.top; margins: 10 }
@@ -5339,8 +5409,30 @@ Panel {
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 2
-                            Label { Layout.fillWidth: true; text: root.player?.trackTitle || root.player?.identity || ""; font.weight: Font.DemiBold }
-                            Label { Layout.fillWidth: true; text: root.player?.trackArtist || root.player?.identity || ""; font.pixelSize: 11; color: Theme.textSoft }
+                            Label { Layout.fillWidth: true; text: root.player?.trackTitle || Media.appName(root.player); font.weight: Font.DemiBold }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                // A live stream has nothing to seek through; say so instead.
+                                Rectangle {
+                                    visible: Media.isLive(root.player)
+                                    implicitWidth: liveLabel.implicitWidth + 12
+                                    implicitHeight: 16
+                                    radius: Theme.corner(8)
+                                    color: Theme.alpha(Theme.rose, 0.18)
+                                    border.color: Theme.alpha(Theme.rose, 0.5)
+                                    Label {
+                                        id: liveLabel
+                                        anchors.centerIn: parent
+                                        text: "LIVE"
+                                        font.pixelSize: Theme.textTiny
+                                        font.weight: Font.Bold
+                                        font.letterSpacing: 0.8
+                                        color: Theme.rose
+                                    }
+                                }
+                                Label { Layout.fillWidth: true; text: root.player?.trackArtist || Media.appName(root.player); font.pixelSize: Theme.textSmall; color: Theme.textSoft }
+                            }
                         }
                         Repeater {
                             model: [
@@ -5369,12 +5461,11 @@ Panel {
                     }
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: (root.player?.lengthSupported ?? false) && root.player.length > 0
+                        visible: Media.hasLength(root.player)
                         spacing: 10
                         Label {
-                            text: media.time(root.player?.position ?? 0)
-                            font.family: Theme.mono
-                            font.pixelSize: 10
+                            text: Media.time(root.player?.position ?? 0)
+                            font.pixelSize: Theme.textTiny
                             color: Theme.textSoft
                         }
                         Item {
@@ -5409,9 +5500,8 @@ Panel {
                             }
                         }
                         Label {
-                            text: media.time(root.player?.length ?? 0)
-                            font.family: Theme.mono
-                            font.pixelSize: 10
+                            text: Media.time(root.player?.length ?? 0)
+                            font.pixelSize: Theme.textTiny
                             color: Theme.textSoft
                         }
                     }
@@ -5422,18 +5512,14 @@ Panel {
             RowLayout {
                 Layout.fillWidth: true
                 Layout.topMargin: 2
-                Label {
+                Overline {
                     Layout.fillWidth: true
                     text: Notifs.count ? `Notifications · ${Notifs.count}` : "Notifications"
-                    font.pixelSize: 11
-                    font.letterSpacing: 1.2
-                    font.capitalization: Font.AllUppercase
-                    color: Theme.muted
                 }
                 Label {
                     visible: Notifs.count > 0
                     text: "Clear all"
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.textSmall
                     color: clearArea.containsMouse ? Theme.violetBright : Theme.violet
                     MouseArea {
                         id: clearArea
@@ -5469,14 +5555,14 @@ Panel {
                         Label {
                             Layout.fillWidth: true
                             text: group.modelData.app + (group.modelData.items.length > 1 ? ` · ${group.modelData.items.length}` : "")
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.textSmall
                             font.weight: Font.DemiBold
                             color: Theme.textSoft
                         }
                         Label {
                             visible: group.modelData.items.length > 1
                             text: group.expanded ? "Show less" : "Show all"
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.textSmall
                             color: expandArea.containsMouse ? Theme.violetBright : Theme.violet
                             MouseArea {
                                 id: expandArea
@@ -5943,6 +6029,52 @@ WallpaperScene {
 }
 ```
 
+## `config/quickshell/penumbra/GlassEdge.qml`
+
+```qml
+import QtQuick
+import QtQuick.Effects
+
+// The lit top edge of a glass surface: a hairline bright at the top that fades out halfway down,
+// over the surface's own border. It is what makes frosted glass read as glass. Fill the surface.
+Item {
+    id: root
+
+    property real radius: 0
+    property real strength: 0.22
+
+    anchors.fill: parent
+
+    Rectangle {
+        id: light
+        anchors.fill: parent
+        visible: false
+        gradient: Gradient {
+            GradientStop { position: 0; color: Qt.rgba(1, 1, 1, root.strength) }
+            GradientStop { position: 0.5; color: Qt.rgba(1, 1, 1, 0) }
+        }
+    }
+    Rectangle {
+        id: ring
+        anchors.fill: parent
+        visible: false
+        layer.enabled: true
+        radius: root.radius
+        color: "transparent"
+        border.width: 1
+        border.color: "white"
+    }
+    MultiEffect {
+        anchors.fill: parent
+        source: light
+        maskEnabled: true
+        maskSource: ring
+        maskThresholdMin: 0.25
+        maskSpreadAtMin: 0.25
+    }
+}
+```
+
 ## `config/quickshell/penumbra/Glyph.qml`
 
 ```qml
@@ -6011,7 +6143,7 @@ import QtQuick
 Text {
     color: Theme.text
     font.family: Theme.sans
-    font.pixelSize: 12
+    font.pixelSize: Theme.textBody
     font.features: { "tnum": 1 }
     verticalAlignment: Text.AlignVCenter
     elide: Text.ElideRight
@@ -6334,6 +6466,7 @@ PanelWindow {
         }
     }
 
+    Shadow { target: card }
     Rectangle {
         id: card
         width: 640
@@ -6379,7 +6512,7 @@ PanelWindow {
                     selectionColor: Theme.violetDeep
                     selectedTextColor: Theme.text
                     font.family: Theme.sans
-                    font.pixelSize: 17
+                    font.pixelSize: Theme.textTitle
                     clip: true
                     focus: true
                     onTextChanged: root.refresh()
@@ -6388,7 +6521,7 @@ PanelWindow {
                         visible: !search.text
                         text: ({ clipboard: "Search clipboard history…", emoji: "Search emoji…", symbols: "Search symbols…" })[Ui.launcherMode]
                             ?? "Search applications, > run, = calculate…"
-                        font.pixelSize: 17
+                        font.pixelSize: Theme.textTitle
                         color: Theme.dim
                     }
                     Keys.onPressed: event => {
@@ -6435,7 +6568,7 @@ PanelWindow {
                             anchors.centerIn: parent
                             spacing: 6
                             Glyph { text: modelData.glyph; size: 13; color: current ? Theme.violetInk : Theme.textSoft }
-                            Label { visible: current; text: modelData.label; font.pixelSize: 11; font.weight: Font.DemiBold; color: current ? Theme.violetInk : Theme.text }
+                            Label { visible: current; text: modelData.label; font.pixelSize: Theme.textSmall; font.weight: Font.DemiBold; color: current ? Theme.violetInk : Theme.text }
                         }
                         MouseArea {
                             id: modeArea
@@ -6574,7 +6707,7 @@ PanelWindow {
                                         return "Enter copies the result";
                                     return "";
                                 }
-                                font.pixelSize: 11
+                                font.pixelSize: Theme.textSmall
                                 color: Theme.muted
                             }
                         }
@@ -6638,14 +6771,14 @@ PanelWindow {
                 spacing: 10
                 Label {
                     text: parent.current?.name ?? ""
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.textMedium
                     font.weight: Font.DemiBold
                     Layout.maximumWidth: 420
                 }
                 Label {
                     Layout.fillWidth: true
                     text: parent.current?.group ?? ""
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.textSmall
                     color: Theme.muted
                 }
             }
@@ -6695,7 +6828,7 @@ PanelWindow {
                                 + (Ui.launcherMode === "emoji" ? " · Tab symbols" : " · Tab apps") + " · Esc close";
                         return "↑↓ choose · Enter open · Tab clipboard · Esc close";
                     }
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.textSmall
                     color: Theme.dim
                 }
                 PillButton {
@@ -6709,6 +6842,12 @@ PanelWindow {
                 }
             }
         }
+    }
+    GlassEdge {
+        anchors.fill: card
+        radius: card.radius
+        opacity: card.opacity
+        scale: card.scale
     }
 }
 ```
@@ -6772,7 +6911,7 @@ Rectangle {
                     Layout.fillWidth: true
                     visible: text !== ""
                     text: root.subtitle
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.textSmall
                     color: root.danger ? Theme.rose : root.highlighted ? Theme.violet : Theme.muted
                 }
             }
@@ -6884,7 +7023,7 @@ Rectangle {
                 visible: Devices.hasBattery
                 spacing: 6
                 Glyph { text: Devices.batteryGlyph; size: 16; color: Devices.batteryColor }
-                Label { text: Devices.batteryPercent + "%"; font.family: Theme.mono; color: Devices.batteryColor }
+                Label { text: Devices.batteryPercent + "%"; color: Devices.batteryColor }
             }
         }
 
@@ -6895,15 +7034,16 @@ Rectangle {
             Label {
                 Layout.alignment: Qt.AlignHCenter
                 text: Qt.formatDateTime(Clock.date, "HH:mm")
-                font.pixelSize: 124
+                font.family: Theme.display
+                font.pixelSize: Theme.textDisplay
                 font.weight: Font.Light
-                font.letterSpacing: -3
+                font.letterSpacing: -1
                 color: Theme.text
             }
             Label {
                 Layout.alignment: Qt.AlignHCenter
                 text: Qt.formatDateTime(Clock.date, "dddd d MMMM")
-                font.pixelSize: 15
+                font.pixelSize: Theme.textLarge
                 font.letterSpacing: 3
                 font.capitalization: Font.AllUppercase
                 color: Theme.violet
@@ -6916,45 +7056,15 @@ Rectangle {
             y: Math.round(parent.height * 0.58)
             spacing: 14
 
-            // ~/.face when there is one, else the initial the control center shows.
-            ClippingRectangle {
+            Avatar {
                 Layout.alignment: Qt.AlignHCenter
-                implicitWidth: 76
-                implicitHeight: 76
-                radius: Theme.corner(38)
-                border.width: 2
-                border.color: Theme.violet
-                Rectangle {
-                    anchors.fill: parent
-                    gradient: Gradient {
-                        GradientStop { position: 0; color: Theme.violet }
-                        GradientStop { position: 1; color: Theme.violetDeep }
-                    }
-                }
-                Label {
-                    anchors.centerIn: parent
-                    visible: face.status !== Image.Ready
-                    text: Quickshell.env("USER").charAt(0).toUpperCase()
-                    font.pixelSize: 30
-                    font.weight: Font.Bold
-                    color: Theme.violetInk
-                }
-                Image {
-                    id: face
-                    anchors.fill: parent
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: true
-                }
-                FileView {
-                    path: Quickshell.env("HOME") + "/.face"
-                    printErrors: false
-                    onLoaded: face.source = "file://" + path
-                }
+                size: 76
+                ring: true
             }
             Label {
                 Layout.alignment: Qt.AlignHCenter
                 text: Quickshell.env("USER")
-                font.pixelSize: 15
+                font.pixelSize: Theme.textLarge
                 font.weight: Font.DemiBold
             }
 
@@ -7000,7 +7110,7 @@ Rectangle {
                     visible: surface.lock.password === "" && !surface.lock.busy
                     text: "Enter password"
                     color: Theme.dim
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.textMedium
                 }
                 Row {
                     anchors.centerIn: parent
@@ -7049,7 +7159,7 @@ Rectangle {
                     anchors.centerIn: parent
                     spacing: 6
                     Glyph { text: "󰌌"; size: 13; color: Theme.textSoft }
-                    Label { text: Devices.layoutCode; font.family: Theme.mono; font.weight: Font.Bold; color: Theme.textSoft }
+                    Label { text: Devices.layoutCode; font.weight: Font.Bold; color: Theme.textSoft }
                 }
                 MouseArea {
                     id: layoutArea
@@ -7064,7 +7174,7 @@ Rectangle {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.preferredHeight: 16
                 text: surface.lock.message || (surface.lock.capsLock ? "Caps Lock is on" : "")
-                font.pixelSize: 12
+                font.pixelSize: Theme.textBody
                 color: surface.lock.message ? Theme.rose : Theme.amber
             }
         }
@@ -7092,12 +7202,19 @@ Rectangle {
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                     }
+                    Glyph {
+                        anchors.centerIn: parent
+                        visible: !surface.player?.trackArtUrl
+                        text: "󰎆"
+                        size: 19
+                        color: Theme.violetBright
+                    }
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 1
-                    Label { Layout.fillWidth: true; text: surface.player?.trackTitle || surface.player?.identity || ""; font.weight: Font.DemiBold }
-                    Label { Layout.fillWidth: true; text: surface.player?.trackArtist ?? ""; font.pixelSize: 11; color: Theme.muted }
+                    Label { Layout.fillWidth: true; text: surface.player?.trackTitle || Media.appName(surface.player); font.weight: Font.DemiBold }
+                    Label { Layout.fillWidth: true; text: surface.player?.trackArtist || Media.appName(surface.player); font.pixelSize: Theme.textSmall; color: Theme.muted }
                 }
                 Repeater {
                     model: [
@@ -7271,6 +7388,26 @@ Singleton {
     readonly property int count: 8
     property var bars: new Array(count).fill(0)
 
+    // The app's own name ("Firefox"), not its MPRIS identity ("Mozilla firefox").
+    function appName(p) {
+        if (!p)
+            return "";
+        return DesktopEntries.heuristicLookup(p.desktopEntry || p.identity)?.name || p.identity;
+    }
+    // Live streams have no real length: Firefox reports an endless one (about 292,000 years).
+    function isLive(p) {
+        return !!p && p.lengthSupported && p.length > 100 * 3600;
+    }
+    function hasLength(p) {
+        return !!p && p.lengthSupported && p.length > 0 && !isLive(p);
+    }
+    // 4:05, or 1:02:03 past an hour.
+    function time(seconds) {
+        const s = Math.max(0, Math.floor(seconds)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+        const ss = String(s % 60).padStart(2, "0");
+        return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+    }
+
     readonly property string config: [
         "[general]", `bars = ${count}`, "framerate = 30", "sleep_timer = 2",
         "[input]", "method = pipewire",
@@ -7361,7 +7498,11 @@ ColumnLayout {
 
     property bool active: false
     readonly property var audioNodes: Pipewire.nodes.values.filter(n => n.audio)
-    readonly property var outputs: audioNodes.filter(n => n.isSink && !n.isStream)
+    // A laptop's HDMI and DisplayPort outputs exist even with nothing plugged in; list them only
+    // while an external screen is connected, or while one is in use.
+    readonly property bool externalScreen: Quickshell.screens.some(s => !/^(eDP|LVDS|DSI)/.test(s.name))
+    readonly property var outputs: audioNodes.filter(n => n.isSink && !n.isStream
+        && (externalScreen || !isDisplayOutput(n) || n === Pipewire.defaultAudioSink))
     readonly property var inputs: audioNodes.filter(n => !n.isSink && !n.isStream)
     // Apps playing sound. Quickshell flags playback streams as sinks (AudioOutStream =
     // Audio | Sink | Stream); recording streams are sources and are left out.
@@ -7374,9 +7515,14 @@ ColumnLayout {
         objects: root.active ? [...root.outputs, ...root.inputs, ...root.streams] : []
     }
 
-    // The port ("Speaker", "HDMI / DisplayPort 1 Output") tells a card's devices apart;
-    // Bluetooth devices go by their own name.
+    function isDisplayOutput(node) {
+        return /hdmi|displayport/i.test(node.name + " " + node.description);
+    }
+    // The port ("Speaker") tells a card's devices apart, a display output goes by its short name
+    // ("HDMI 1"), and Bluetooth devices by their own name.
     function deviceName(node) {
+        if (isDisplayOutput(node) && node.nickname)
+            return node.nickname;
         const port = node.name.startsWith("bluez") ? "" : node.properties["device.profile.description"];
         return port || node.description || node.nickname || node.name;
     }
@@ -7406,14 +7552,10 @@ ColumnLayout {
         onBack: Ui.controlPage = "main"
     }
 
-    Label {
+    Overline {
         Layout.fillWidth: true
         Layout.topMargin: 2
         text: "Output"
-        font.pixelSize: 11
-        font.letterSpacing: 1.2
-        font.capitalization: Font.AllUppercase
-        color: Theme.muted
     }
     Repeater {
         model: root.outputs
@@ -7428,15 +7570,11 @@ ColumnLayout {
         }
     }
 
-    Label {
+    Overline {
         Layout.fillWidth: true
         Layout.topMargin: 2
         visible: root.inputs.length > 0
         text: "Input"
-        font.pixelSize: 11
-        font.letterSpacing: 1.2
-        font.capitalization: Font.AllUppercase
-        color: Theme.muted
     }
     Repeater {
         model: root.inputs
@@ -7451,14 +7589,10 @@ ColumnLayout {
         }
     }
 
-    Label {
+    Overline {
         Layout.fillWidth: true
         Layout.topMargin: 2
         text: "Applications"
-        font.pixelSize: 11
-        font.letterSpacing: 1.2
-        font.capitalization: Font.AllUppercase
-        color: Theme.muted
     }
     Repeater {
         model: root.streams
@@ -7471,7 +7605,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 Layout.leftMargin: 46
                 text: root.appName(stream.modelData) + (stream.modelData.properties["media.name"] ? " · " + stream.modelData.properties["media.name"] : "")
-                font.pixelSize: 11
+                font.pixelSize: Theme.textSmall
                 color: Theme.textSoft
             }
             SliderRow {
@@ -7501,7 +7635,7 @@ ColumnLayout {
     Label {
         Layout.alignment: Qt.AlignRight
         text: "Advanced sound settings"
-        font.pixelSize: 11
+        font.pixelSize: Theme.textSmall
         color: advancedArea.containsMouse ? Theme.violetBright : Theme.muted
         MouseArea {
             id: advancedArea
@@ -7553,6 +7687,19 @@ Rectangle {
     color: compact ? (area.containsMouse ? Theme.hover : Theme.raised) : Theme.glassStrong
     border.color: critical ? Theme.rose : compact ? Theme.line : Theme.lineStrong
     Behavior on color { ColorAnimation { duration: Theme.fast } }
+
+    Shadow {
+        z: -1
+        target: root
+        visible: !root.compact
+        // A child already takes the card's fade and scale.
+        opacity: 1
+        scale: 1
+    }
+    GlassEdge {
+        visible: !root.compact
+        radius: root.radius
+    }
 
     MouseArea {
         id: area
@@ -7610,14 +7757,14 @@ Rectangle {
                 Label {
                     Layout.fillWidth: true
                     text: root.notification?.appName || "Notification"
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.textTiny
                     font.letterSpacing: 1.2
                     font.capitalization: Font.AllUppercase
                     color: root.critical ? Theme.rose : Theme.violet
                 }
                 Label {
                     text: Notifs.age(root.notification, Clock.date.getTime())
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.textTiny
                     color: Theme.dim
                 }
                 Glyph {
@@ -7637,7 +7784,7 @@ Rectangle {
             Label {
                 Layout.fillWidth: true
                 text: root.notification?.summary ?? ""
-                font.pixelSize: 13
+                font.pixelSize: Theme.textMedium
                 font.weight: Font.DemiBold
             }
             Label {
@@ -7681,7 +7828,7 @@ Rectangle {
                     verticalAlignment: TextInput.AlignVCenter
                     color: Theme.text
                     font.family: Theme.sans
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.textBody
                     selectionColor: Theme.violetDeep
                     clip: true
                     function send() {
@@ -7696,7 +7843,7 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: !reply.text
                         text: root.notification?.inlineReplyPlaceholder || "Reply…"
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.textBody
                         color: Theme.dim
                     }
                 }
@@ -7733,7 +7880,7 @@ Rectangle {
                             id: actionLabel
                             anchors.centerIn: parent
                             text: modelData.text
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.textSmall
                             color: actionArea.containsMouse ? Theme.violetInk : Theme.text
                         }
                         MouseArea {
@@ -7766,10 +7913,12 @@ PanelWindow {
     id: root
     screen: Ui.screen
     anchors { top: true; right: true }
-    margins { top: Theme.barHeight + 10 + Theme.gap; right: Theme.edge }
+    // Room around the cards for their shadows.
+    readonly property int shadowRoom: Theme.edge
+    margins { top: Theme.barHeight + 10 + Theme.gap - shadowRoom; right: Theme.edge - shadowRoom }
     exclusionMode: ExclusionMode.Ignore
-    implicitWidth: 360
-    implicitHeight: Math.max(1, column.height)
+    implicitWidth: 360 + 2 * shadowRoom
+    implicitHeight: Math.max(1, column.height + 2 * shadowRoom)
     visible: Notifs.popups.length > 0 && !Ui.controlOpen
     color: "transparent"
     WlrLayershell.layer: WlrLayer.Overlay
@@ -7781,7 +7930,9 @@ PanelWindow {
 
     Column {
         id: column
-        width: parent.width
+        x: root.shadowRoom
+        y: root.shadowRoom
+        width: parent.width - 2 * root.shadowRoom
         spacing: 8
         move: Transition { NumberAnimation { property: "y"; duration: Theme.normal; easing.type: Easing.OutCubic } }
 
@@ -7925,10 +8076,12 @@ PanelWindow {
     id: root
     screen: Ui.screen
     anchors.bottom: true
-    margins.bottom: 80
+    // Room around the pill for its shadow.
+    readonly property int shadowRoom: 16
+    margins.bottom: 80 - shadowRoom
     exclusionMode: ExclusionMode.Ignore
-    implicitWidth: 300
-    implicitHeight: 58
+    implicitWidth: 300 + 2 * shadowRoom
+    implicitHeight: 58 + 2 * shadowRoom
     visible: Ui.osdVisible || pill.opacity > 0
     color: "transparent"
     mask: Region {}
@@ -7943,9 +8096,10 @@ PanelWindow {
         return Ui.osdMuted ? "󰝟" : Ui.osdValue > 60 ? "󰕾" : Ui.osdValue > 25 ? "󰖀" : "󰕿";
     }
 
+    Shadow { target: pill }
     Rectangle {
         id: pill
-        anchors.fill: parent
+        anchors { fill: parent; margins: root.shadowRoom }
         radius: Theme.corner(height / 2)
         color: Theme.glassStrong
         border.color: Theme.line
@@ -7953,6 +8107,8 @@ PanelWindow {
         scale: Ui.osdVisible ? 1 : 0.92
         Behavior on opacity { NumberAnimation { duration: Theme.normal } }
         Behavior on scale { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutBack } }
+
+        GlassEdge { radius: pill.radius }
 
         RowLayout {
             anchors { fill: parent; leftMargin: 20; rightMargin: 20 }
@@ -7984,12 +8140,26 @@ PanelWindow {
                 Layout.preferredWidth: 38
                 horizontalAlignment: Text.AlignRight
                 text: Ui.osdMuted ? "Muted" : Ui.osdValue + "%"
-                font.family: Theme.mono
-                font.pixelSize: 11
+                font.pixelSize: Theme.textSmall
                 color: Theme.textSoft
             }
         }
     }
+}
+```
+
+## `config/quickshell/penumbra/Overline.qml`
+
+```qml
+import QtQuick
+
+// Small spaced capitals heading a section: "Notifications", "Output".
+Label {
+    font.pixelSize: Theme.textSmall
+    font.weight: Font.Medium
+    font.letterSpacing: 1.2
+    font.capitalization: Font.AllUppercase
+    color: Theme.muted
 }
 ```
 
@@ -8031,8 +8201,8 @@ RowLayout {
         Layout.fillWidth: true
         spacing: 0
         // fillWidth on the labels lets the column (and so the row) stretch to the switch.
-        Label { Layout.fillWidth: true; text: root.title; font.pixelSize: 15; font.weight: Font.DemiBold }
-        Label { Layout.fillWidth: true; visible: text !== ""; text: root.status; font.pixelSize: 11; color: Theme.muted }
+        Label { Layout.fillWidth: true; text: root.title; font.pixelSize: Theme.textLarge; font.weight: Font.DemiBold }
+        Label { Layout.fillWidth: true; visible: text !== ""; text: root.status; font.pixelSize: Theme.textSmall; color: Theme.muted }
     }
     Switch {
         visible: root.showSwitch
@@ -8060,15 +8230,19 @@ PanelWindow {
     property alias sheet: sheet
     signal dismissed()
 
+    // Room around the sheet for its shadow; panels anchor with Theme.edge - shadowRoom, so the
+    // sheet itself still sits Theme.edge from the screen's edge.
+    readonly property int shadowRoom: Theme.edge
+
     screen: Ui.screen
     visible: open || sheet.opacity > 0
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
-    implicitWidth: sheetWidth
+    implicitWidth: sheetWidth + 2 * shadowRoom
     // A fixed-height surface; only the sheet takes input, so it can grow and shrink smoothly.
     implicitHeight: (screen?.height ?? 1080) - margins.top - Theme.edge
     mask: Region { item: sheet }
-    margins.top: Theme.barHeight + 10 + Theme.gap
+    margins.top: Theme.barHeight + 10 + Theme.gap - shadowRoom
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "penumbra-panel"
     WlrLayershell.keyboardFocus: open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
@@ -8079,9 +8253,12 @@ PanelWindow {
         onCleared: panel.dismissed()
     }
 
+    Shadow { target: sheet }
+
     Rectangle {
         id: sheet
-        width: parent.width
+        x: panel.shadowRoom
+        width: panel.sheetWidth
         // Content sits at x/y = 18; keep the same padding below it.
         implicitHeight: childrenRect.y + childrenRect.height + 18
         height: implicitHeight
@@ -8090,12 +8267,18 @@ PanelWindow {
         color: Theme.glassStrong
         border.color: Theme.line
         opacity: panel.open ? 1 : 0
-        y: panel.open ? 0 : -14
+        y: panel.shadowRoom + (panel.open ? 0 : -14)
         focus: panel.open
         Keys.onEscapePressed: panel.dismissed()
         Behavior on opacity { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
         Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
         Behavior on height { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+    }
+    // Over the sheet rather than inside it, where it would count towards the sheet's height.
+    GlassEdge {
+        anchors.fill: sheet
+        radius: sheet.radius
+        opacity: sheet.opacity
     }
 }
 ```
@@ -8127,7 +8310,7 @@ Rectangle {
         id: label
         anchors.centerIn: parent
         text: root.text
-        font.pixelSize: 11
+        font.pixelSize: Theme.textSmall
         font.weight: Font.DemiBold
         color: root.primary ? Theme.violetInk : root.danger ? Theme.rose : Theme.text
     }
@@ -8212,6 +8395,7 @@ Scope {
             opacity: card.opacity
         }
 
+        Shadow { target: card }
         Rectangle {
             id: card
             width: 420
@@ -8224,6 +8408,8 @@ Scope {
             scale: root.shown ? 1 : 0.94
             Behavior on opacity { NumberAnimation { duration: Theme.normal } }
             Behavior on scale { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
+
+            GlassEdge { radius: card.radius }
 
             SequentialAnimation {
                 id: shake
@@ -8257,13 +8443,13 @@ Scope {
                         spacing: 2
                         Label {
                             text: "A U T H E N T I C A T E"
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.textTiny
                             color: Theme.violet
                         }
                         Label {
                             Layout.fillWidth: true
                             text: "Administrator rights needed"
-                            font.pixelSize: 16
+                            font.pixelSize: Theme.textLarge
                             font.weight: Font.DemiBold
                         }
                     }
@@ -8280,7 +8466,7 @@ Scope {
                     visible: text !== ""
                     text: root.flow?.actionId ?? ""
                     font.family: Theme.mono
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.textTiny
                     color: Theme.dim
                 }
 
@@ -8302,7 +8488,7 @@ Scope {
                         passwordCharacter: "•"
                         color: Theme.text
                         font.family: Theme.sans
-                        font.pixelSize: 15
+                        font.pixelSize: Theme.textLarge
                         font.letterSpacing: echoMode === TextInput.Password ? 2 : 0
                         selectionColor: Theme.violetDeep
                         enabled: !!root.flow?.isResponseRequired
@@ -8316,7 +8502,7 @@ Scope {
                             visible: !input.text
                             text: (root.flow?.inputPrompt ?? "").replace(/:\s*$/, "") || "Password"
                             color: Theme.dim
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.textMedium
                         }
                     }
                     Glyph {
@@ -8332,7 +8518,7 @@ Scope {
                     visible: text !== ""
                     text: root.error || (root.flow?.supplementaryMessage ?? "")
                     wrapMode: Text.Wrap
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.textBody
                     color: root.error || root.flow?.supplementaryIsError ? Theme.rose : Theme.muted
                 }
 
@@ -8375,7 +8561,7 @@ import Quickshell.Widgets
 Panel {
     id: root
     anchors { top: true; right: true }
-    margins.right: Theme.edge
+    margins.right: Theme.edge - shadowRoom
     sheetWidth: 400
     open: Ui.monitorOpen
     onDismissed: Ui.dismiss()
@@ -8514,8 +8700,8 @@ Panel {
             RowLayout {
                 spacing: 7
                 Glyph { text: stat.glyph; size: 13; color: Theme.violetBright }
-                Label { Layout.fillWidth: true; text: stat.title; font.pixelSize: 11; color: Theme.muted }
-                Label { text: stat.value + "%"; font.pixelSize: 18; font.weight: Font.DemiBold; font.family: Theme.mono }
+                Label { Layout.fillWidth: true; text: stat.title; font.pixelSize: Theme.textSmall; color: Theme.muted }
+                Label { text: stat.value + "%"; font.pixelSize: Theme.textTitle; font.weight: Font.DemiBold }
             }
             Rectangle {
                 Layout.fillWidth: true
@@ -8531,20 +8717,17 @@ Panel {
                     Behavior on color { ColorAnimation { duration: Theme.fast } }
                 }
             }
-            Label { Layout.fillWidth: true; text: stat.detail; font.pixelSize: 11; color: Theme.muted }
+            Label { Layout.fillWidth: true; text: stat.detail; font.pixelSize: Theme.textSmall; color: Theme.muted }
         }
     }
 
     // A column title that sorts the list.
-    component SortHeader: Label {
+    component SortHeader: Overline {
         id: header
         property string mode
         readonly property bool current: root.sortBy === mode
         horizontalAlignment: Text.AlignRight
-        font.pixelSize: 11
-        font.letterSpacing: 1.2
-        font.capitalization: Font.AllUppercase
-        font.weight: current ? Font.DemiBold : Font.Normal
+        font.weight: current ? Font.DemiBold : Font.Medium
         color: current ? Theme.violetBright : headerArea.containsMouse ? Theme.textSoft : Theme.muted
         MouseArea {
             id: headerArea
@@ -8585,13 +8768,9 @@ Panel {
             Layout.leftMargin: 10
             Layout.rightMargin: 10
             spacing: 0
-            Label {
+            Overline {
                 Layout.fillWidth: true
                 text: "Apps & processes"
-                font.pixelSize: 11
-                font.letterSpacing: 1.2
-                font.capitalization: Font.AllUppercase
-                color: Theme.muted
             }
             SortHeader { Layout.preferredWidth: 56; text: "CPU"; mode: "cpu" }
             SortHeader { Layout.preferredWidth: 76; text: "Memory"; mode: "memory" }
@@ -8674,7 +8853,7 @@ Panel {
                                 Label {
                                     Layout.fillWidth: true
                                     text: (row.count > 1 ? `${row.count} processes` : `PID ${row.pids}`) + (row.user && !row.mine ? ` · ${row.user}` : "")
-                                    font.pixelSize: 11
+                                    font.pixelSize: Theme.textSmall
                                     color: Theme.muted
                                 }
                             }
@@ -8682,16 +8861,14 @@ Panel {
                                 Layout.preferredWidth: 56
                                 horizontalAlignment: Text.AlignRight
                                 text: root.percent(row.cpu)
-                                font.family: Theme.mono
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.textBody
                                 color: root.sortBy === "cpu" ? Theme.text : Theme.muted
                             }
                             Label {
                                 Layout.preferredWidth: 76
                                 horizontalAlignment: Text.AlignRight
                                 text: root.size(row.mem)
-                                font.family: Theme.mono
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.textBody
                                 color: root.sortBy === "memory" ? Theme.text : Theme.muted
                             }
                         }
@@ -8704,7 +8881,7 @@ Panel {
                             Label {
                                 Layout.fillWidth: true
                                 text: row.mine ? `Running as ${row.user}` : row.key === "kernel" ? "Kernel threads" : "Owned by another user"
-                                font.pixelSize: 11
+                                font.pixelSize: Theme.textSmall
                                 color: Theme.dim
                             }
                             PillButton {
@@ -8730,7 +8907,7 @@ Panel {
             Label {
                 Layout.fillWidth: true
                 text: "Updates every 2 s"
-                font.pixelSize: 11
+                font.pixelSize: Theme.textSmall
                 color: Theme.dim
             }
             PillButton {
@@ -9040,8 +9217,7 @@ PanelWindow {
                     id: size
                     anchors.centerIn: parent
                     text: `${Math.round(root.target.width)} × ${Math.round(root.target.height)}`
-                    font.family: Theme.mono
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.textTiny
                     color: Theme.textSoft
                 }
             }
@@ -9210,7 +9386,7 @@ PanelWindow {
                 + (root.record ? " · records until you click the bar's red capsule or press Ctrl+Print"
                     : root.annotate ? " · opens in Satty" : " · saved and copied")
                 + (root.delay ? ` · starts after ${root.delay} s` : "") + " · Esc to cancel"
-            font.pixelSize: 11
+            font.pixelSize: Theme.textSmall
             color: Theme.textSoft
         }
     }
@@ -9296,7 +9472,7 @@ PanelWindow {
             Label {
                 Layout.alignment: Qt.AlignHCenter
                 text: "S E S S I O N"
-                font.pixelSize: 12
+                font.pixelSize: Theme.textBody
                 color: Theme.violet
             }
 
@@ -9332,7 +9508,7 @@ PanelWindow {
                             Label {
                                 Layout.alignment: Qt.AlignHCenter
                                 text: tile.isArmed ? "Confirm" : tile.modelData.label
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.textMedium
                                 font.weight: tile.current ? Font.DemiBold : Font.Normal
                                 color: tile.isArmed ? Theme.rose : Theme.text
                             }
@@ -9351,7 +9527,7 @@ PanelWindow {
             Label {
                 Layout.alignment: Qt.AlignHCenter
                 text: root.armed >= 0 ? `Press again to ${root.entries[root.armed].label.toLowerCase()} · Esc to cancel` : "← → to choose · Enter to select · Esc to close"
-                font.pixelSize: 11
+                font.pixelSize: Theme.textSmall
                 color: root.armed >= 0 ? Theme.rose : Theme.muted
             }
         }
@@ -9408,13 +9584,9 @@ ColumnLayout {
 
     spacing: 12
 
-    component Section: Label {
+    component Section: Overline {
         Layout.fillWidth: true
         Layout.topMargin: 2
-        font.pixelSize: 11
-        font.letterSpacing: 1.2
-        font.capitalization: Font.AllUppercase
-        color: Theme.muted
     }
 
     // A labelled on/off switch; the whole row toggles.
@@ -9447,7 +9619,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 0
                 Label { Layout.fillWidth: true; text: row.title }
-                Label { Layout.fillWidth: true; text: row.subtitle; font.pixelSize: 11; color: Theme.muted }
+                Label { Layout.fillWidth: true; text: row.subtitle; font.pixelSize: Theme.textSmall; color: Theme.muted }
             }
             Switch {
                 checked: row.checked
@@ -9548,7 +9720,7 @@ ColumnLayout {
     Label {
         Layout.fillWidth: true
         text: "The shell, windows, launcher and lock screen follow it"
-        font.pixelSize: 11
+        font.pixelSize: Theme.textSmall
         color: Theme.dim
     }
 
@@ -9580,6 +9752,28 @@ ColumnLayout {
             onToggled: Settings.hotCorner = !Settings.hotCorner
         }
     }
+}
+```
+
+## `config/quickshell/penumbra/Shadow.qml`
+
+```qml
+import QtQuick
+import QtQuick.Effects
+
+// The soft shadow under a floating surface. Hyprland only shadows windows, so shell surfaces
+// draw their own. Declare it just before the surface it lies under.
+RectangularShadow {
+    required property Item target
+
+    anchors.fill: target
+    radius: target.radius
+    offset.y: 6
+    blur: 26
+    spread: -4
+    color: Qt.rgba(0, 0, 0, 0.55)
+    opacity: target.opacity
+    scale: target.scale
 }
 ```
 
@@ -9676,8 +9870,7 @@ RowLayout {
         Layout.preferredWidth: 34
         horizontalAlignment: Text.AlignRight
         text: Math.round(root.value) + "%"
-        font.family: Theme.mono
-        font.pixelSize: 11
+        font.pixelSize: Theme.textSmall
         color: Theme.muted
     }
 }
@@ -9972,7 +10165,19 @@ Singleton {
     }
 
     readonly property string sans: "Inter"
+    // Inter's optical size for large text: tighter spacing and finer detail from about 20 px up.
+    readonly property string display: "Inter Display"
     readonly property string mono: "JetBrainsMono Nerd Font"
+
+    // The type scale. Every text size in the shell is one of these.
+    readonly property int textTiny: 10     // badges, timestamps
+    readonly property int textSmall: 11    // subtitles, section labels
+    readonly property int textBody: 12     // the default
+    readonly property int textMedium: 13   // notification titles, emphasized rows
+    readonly property int textLarge: 15    // page titles, the bar clock
+    readonly property int textTitle: 18    // the launcher's search, big figures
+    readonly property int textHeading: 22  // panel headlines, in the display face
+    readonly property int textDisplay: 124 // the lock screen clock
 
     // Rounded or sharp corners, as penumbra-corners records them. Every radius goes through
     // corner(), so the whole shell follows the choice at once.
@@ -10021,8 +10226,9 @@ Rectangle {
 
     implicitHeight: 62
     radius: Theme.radius
-    color: on ? Theme.violet : body.containsMouse ? Theme.hover : Theme.raised
-    border.color: on ? Theme.violetBright : Theme.line
+    // On is a violet tint with the accent on the icon's disc; a solid fill outweighed the panel.
+    color: on ? Theme.alpha(Theme.violet, body.containsMouse ? 0.3 : 0.22) : body.containsMouse ? Theme.hover : Theme.raised
+    border.color: on ? Theme.alpha(Theme.violetBright, 0.55) : Theme.line
     opacity: available ? 1 : 0.45
     Behavior on color { ColorAnimation { duration: Theme.fast } }
 
@@ -10036,12 +10242,20 @@ Rectangle {
     }
 
     RowLayout {
-        anchors { fill: parent; leftMargin: 14; rightMargin: root.hasMore ? 6 : 14 }
+        anchors { fill: parent; leftMargin: 12; rightMargin: root.hasMore ? 6 : 14 }
         spacing: 11
-        Glyph {
-            text: root.glyph
-            size: 19
-            color: root.on ? Theme.violetInk : Theme.violetBright
+        Rectangle {
+            implicitWidth: 36
+            implicitHeight: 36
+            radius: Theme.corner(18)
+            color: root.on ? Theme.violet : Theme.alpha(Theme.violet, 0.12)
+            Behavior on color { ColorAnimation { duration: Theme.fast } }
+            Glyph {
+                anchors.centerIn: parent
+                text: root.glyph
+                size: 17
+                color: root.on ? Theme.violetInk : Theme.violetBright
+            }
         }
         ColumnLayout {
             Layout.fillWidth: true
@@ -10050,13 +10264,13 @@ Rectangle {
                 Layout.fillWidth: true
                 text: root.title
                 font.weight: Font.DemiBold
-                color: root.on ? Theme.violetInk : Theme.text
+                color: Theme.text
             }
             Label {
                 Layout.fillWidth: true
                 text: root.subtitle
-                font.pixelSize: 11
-                color: root.on ? Theme.alpha(Theme.violetInk, 0.7) : Theme.muted
+                font.pixelSize: Theme.textSmall
+                color: root.on ? Theme.violetBright : Theme.muted
             }
         }
         Rectangle {
@@ -10064,11 +10278,11 @@ Rectangle {
             implicitWidth: 30
             implicitHeight: 44
             radius: Theme.radiusSmall
-            color: more.containsMouse ? Qt.rgba(1, 1, 1, 0.1) : "transparent"
+            color: more.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
             Glyph {
                 anchors.centerIn: parent
                 text: "󰅂"
-                color: root.on ? Theme.violetInk : Theme.muted
+                color: root.on ? Theme.violetBright : Theme.muted
             }
             MouseArea {
                 id: more
@@ -10257,7 +10471,7 @@ import QtQuick.Layouts
 Panel {
     id: root
     anchors { top: true; right: true }
-    margins.right: Theme.edge
+    margins.right: Theme.edge - shadowRoom
     sheetWidth: 400
     open: Ui.updatesOpen
     onDismissed: Ui.dismiss()
@@ -10286,12 +10500,12 @@ Panel {
                 spacing: 1
                 Label {
                     text: Sys.updates === 1 ? "1 update" : `${Sys.updates} updates`
-                    font.pixelSize: 15
+                    font.pixelSize: Theme.textLarge
                     font.weight: Font.DemiBold
                 }
                 Label {
                     text: Sys.checkingUpdates ? "Checking…" : "Checked every 15 minutes"
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.textSmall
                     color: Theme.muted
                 }
             }
@@ -10317,15 +10531,11 @@ Panel {
                         Layout.fillWidth: true
                         spacing: 2
 
-                        Label {
+                        Overline {
                             Layout.fillWidth: true
                             Layout.topMargin: 4
                             Layout.bottomMargin: 2
                             text: `${source.modelData.name} · ${source.modelData.packages.length}`
-                            font.pixelSize: 11
-                            font.letterSpacing: 1.2
-                            font.capitalization: Font.AllUppercase
-                            color: Theme.muted
                         }
                         Repeater {
                             model: source.modelData.packages
@@ -10340,14 +10550,14 @@ Panel {
                                     Layout.fillWidth: true
                                     text: parent.parts ? parent.parts[1] : parent.modelData
                                     font.family: Theme.mono
-                                    font.pixelSize: 11
+                                    font.pixelSize: Theme.textSmall
                                 }
                                 Label {
                                     visible: !!parent.parts
                                     text: parent.parts ? `${parent.parts[2]} → ${parent.parts[3]}` : ""
                                     Layout.maximumWidth: 190
                                     font.family: Theme.mono
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.textTiny
                                     color: Theme.violet
                                 }
                             }
@@ -10496,7 +10706,7 @@ import Quickshell.Widgets
 Panel {
     id: root
     anchors { top: true; right: true }
-    margins.right: Theme.edge
+    margins.right: Theme.edge - shadowRoom
     sheetWidth: 620
     open: Ui.wallpapersOpen
     onDismissed: Ui.dismiss()
@@ -10515,7 +10725,7 @@ Panel {
 
         Label {
             text: "Wallpaper"
-            font.pixelSize: 15
+            font.pixelSize: Theme.textLarge
             font.weight: Font.DemiBold
         }
 
@@ -10561,7 +10771,7 @@ Panel {
                                 id: badge
                                 anchors.centerIn: parent
                                 text: "Animated"
-                                font.pixelSize: 9
+                                font.pixelSize: Theme.textTiny
                                 font.weight: Font.DemiBold
                                 color: Theme.violetBright
                             }
@@ -10600,7 +10810,7 @@ Panel {
         Label {
             Layout.fillWidth: true
             text: "Super+W cycles through them · the lock screen follows your choice"
-            font.pixelSize: 11
+            font.pixelSize: Theme.textSmall
             color: Theme.dim
         }
     }
@@ -10701,15 +10911,11 @@ ColumnLayout {
         highlighted: true
     }
 
-    Label {
+    Overline {
         Layout.fillWidth: true
         Layout.topMargin: 2
         visible: !!root.device && Networking.wifiEnabled
         text: root.networks.length ? "Networks" : "Searching for networks…"
-        font.pixelSize: 11
-        font.letterSpacing: 1.2
-        font.capitalization: Font.AllUppercase
-        color: Theme.muted
     }
 
     ListView {
@@ -10789,7 +10995,7 @@ ColumnLayout {
                     selectionColor: Theme.violet
                     selectedTextColor: Theme.violetInk
                     font.family: Theme.sans
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.textBody
                     leftPadding: 12
                     rightPadding: 34
                     background: Rectangle {
@@ -10866,7 +11072,7 @@ ColumnLayout {
     Label {
         Layout.alignment: Qt.AlignRight
         text: "Advanced network settings"
-        font.pixelSize: 11
+        font.pixelSize: Theme.textSmall
         color: advancedArea.containsMouse ? Theme.violetBright : Theme.muted
         MouseArea {
             id: advancedArea
@@ -11576,55 +11782,111 @@ import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import "palette.js" as P
 
+// The sign-in screen. It is laid out like the shell's lock screen (the clock high in the centre,
+// you and the password field below), so signing in and unlocking look like one place.
 Rectangle {
  id: root
  width: 1280; height: 800; color: P.shade
  // Every size is designed for a 1280×800 screen and grows with larger ones.
  readonly property real u: Math.max(1, Math.min(width / 1280, height / 800))
- property string clockText: Qt.formatTime(new Date(), "HH:mm")
+ property date now: new Date()
  property bool busy: false
- function login() { if (!busy && username.text.length) { busy = true; status.text = "Signing in…"; sddm.login(username.text, password.text, session.currentIndex); } }
+ property string error: ""
+ function login() { if (!busy && username.text.length) { busy = true; error = ""; sddm.login(username.text, password.text, session.currentIndex); } }
  // #rrggbb with an alpha, as #aarrggbb.
  function alpha(color, a) { return "#" + ("0" + Math.round(a * 255).toString(16)).slice(-2) + color.slice(1); }
+
  Image { anchors.fill: parent; source: "wallpaper.png"; fillMode: Image.PreserveAspectCrop }
- Rectangle { anchors.fill: parent; color: root.alpha(P.shade, 0.12) }
- Timer { interval: 1000; repeat: true; running: true; onTriggered: root.clockText = Qt.formatTime(new Date(), "HH:mm") }
- Text { anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 46 * root.u; text: root.clockText; color: P.text; font.family: "Inter"; font.pixelSize: 36 * root.u }
+ // Darker toward the bottom, where the password field sits, as on the lock screen.
  Rectangle {
-  id: card
-  width: 380 * root.u; height: column.implicitHeight + 87 * root.u; x: Math.max(36, parent.width * 0.09); anchors.verticalCenter: parent.verticalCenter
-  radius: 24 * root.u; color: root.alpha(P.surface, 0.93); border.color: P.light; border.width: 1
+  anchors.fill: parent
+  gradient: Gradient {
+   GradientStop { position: 0; color: root.alpha(P.base, 0.25) }
+   GradientStop { position: 0.55; color: root.alpha(P.base, 0.35) }
+   GradientStop { position: 1; color: root.alpha(P.base, 0.78) }
+  }
+ }
+ Timer { interval: 1000; repeat: true; running: true; onTriggered: root.now = new Date() }
+
+ Item {
+  id: content
+  anchors.fill: parent
   opacity: 0
   Component.onCompleted: entrance.start()
-  NumberAnimation { id: entrance; target: card; property: "opacity"; from: 0; to: 1; duration: 700; easing.type: Easing.OutCubic }
-  Rectangle { width: 42 * root.u; height: 3 * root.u; radius: 2; x: 32 * root.u; y: 32 * root.u; color: P.violet
-   SequentialAnimation on opacity { loops: Animation.Infinite; NumberAnimation {to: 0.4; duration: 2200} NumberAnimation {to: 1; duration: 2200} }
-  }
+  NumberAnimation { id: entrance; target: content; property: "opacity"; from: 0; to: 1; duration: 840; easing.type: Easing.OutCubic }
+
+  // ── Clock ──
   ColumnLayout {
-   id: column
-   anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
-   anchors.margins: 32 * root.u; anchors.topMargin: 55 * root.u; spacing: 14 * root.u
-   Text { text: "P E N U M B R A"; color: P.violet; font.family: "Inter"; font.pixelSize: 11 * root.u; font.bold: true }
-   Text { text: "Welcome back."; color: P.text; font.family: "Inter"; font.pixelSize: 28 * root.u; Layout.topMargin: 6 * root.u }
-   Text { text: "Your space, after dark."; color: P.muted; font.family: "Inter"; font.pixelSize: 12 * root.u; Layout.bottomMargin: 10 * root.u }
+   anchors.horizontalCenter: parent.horizontalCenter
+   y: Math.round(parent.height * 0.2)
+   spacing: 0
+   Text {
+    Layout.alignment: Qt.AlignHCenter
+    text: Qt.formatTime(root.now, "HH:mm")
+    color: P.text; font.family: "Inter Display"; font.weight: Font.Light; font.pixelSize: 112 * root.u; font.letterSpacing: -1
+    font.features: { "tnum": 1 }
+   }
+   Text {
+    Layout.alignment: Qt.AlignHCenter
+    text: Qt.formatDate(root.now, "dddd d MMMM")
+    color: P.violet; font.family: "Inter"; font.pixelSize: 14 * root.u; font.letterSpacing: 3 * root.u; font.capitalization: Font.AllUppercase
+   }
+  }
+
+  // ── You and your password ──
+  ColumnLayout {
+   anchors.horizontalCenter: parent.horizontalCenter
+   y: Math.round(parent.height * 0.56)
+   spacing: 14 * root.u
+
+   // The initial of whoever signs in, on the violet disc the lock screen shows.
+   Rectangle {
+    Layout.alignment: Qt.AlignHCenter
+    width: 76 * root.u; height: width; radius: width / 2
+    border.width: 2; border.color: P.violet
+    gradient: Gradient { GradientStop { position: 0; color: P.violet } GradientStop { position: 1; color: P.violetDeep } }
+    Text {
+     anchors.centerIn: parent
+     text: username.text.charAt(0).toUpperCase()
+     color: P.violetInk; font.family: "Inter Display"; font.bold: true; font.pixelSize: 30 * root.u
+    }
+   }
    TextField {
-    id: username; Layout.fillWidth: true; implicitHeight: 46 * root.u; text: userModel.lastUser; placeholderText: "Username"
-    color: P.text; placeholderTextColor: P.muted; font.family: "Inter"; font.pixelSize: 14 * root.u; leftPadding: 14 * root.u
-    background: Rectangle {color: P.raised; radius: 10 * root.u; border.color: username.activeFocus ? P.violet : P.border}
+    id: username
+    Layout.alignment: Qt.AlignHCenter
+    implicitWidth: 240 * root.u; implicitHeight: 34 * root.u
+    text: userModel.lastUser; placeholderText: "Username"; horizontalAlignment: TextInput.AlignHCenter
+    color: P.text; placeholderTextColor: P.muted; font.family: "Inter"; font.pixelSize: 15 * root.u; font.weight: Font.DemiBold
+    background: Rectangle {
+     radius: height / 2
+     color: username.activeFocus || username.hovered ? root.alpha(P.surface, 0.7) : "transparent"
+     border.color: username.activeFocus ? P.violet : "transparent"
+    }
     onAccepted: password.forceActiveFocus()
    }
    TextField {
-    id: password; Layout.fillWidth: true; implicitHeight: 46 * root.u; placeholderText: "Password"; echoMode: TextInput.Password
-    color: P.text; placeholderTextColor: P.muted; font.family: "Inter"; font.pixelSize: 14 * root.u; leftPadding: 14 * root.u
-    rightPadding: layoutButton.visible ? layoutButton.width + 10 * root.u : 14 * root.u
-    background: Rectangle {color: P.raised; radius: 10 * root.u; border.color: password.activeFocus ? P.violet : P.border}
+    id: password
+    Layout.alignment: Qt.AlignHCenter
+    Layout.topMargin: 4 * root.u
+    implicitWidth: 320 * root.u; implicitHeight: 52 * root.u
+    placeholderText: "Password"; echoMode: TextInput.Password; passwordCharacter: "●"; horizontalAlignment: TextInput.AlignHCenter
+    color: P.text; placeholderTextColor: P.muted; font.family: "Inter"; font.pixelSize: 15 * root.u
+    leftPadding: rightPadding
+    rightPadding: (layoutButton.visible ? layoutButton.width + 10 * root.u : 0) + 54 * root.u
+    enabled: !root.busy
+    background: Rectangle {
+     radius: height / 2
+     color: root.alpha(P.surface, 0.88)
+     border.width: password.activeFocus ? 2 : 1
+     border.color: root.error !== "" ? P.rose : password.activeFocus ? P.violet : root.alpha(P.violet, 0.34)
+    }
     onAccepted: root.login()
     // With several keyboard layouts, the one the password is typed in; click to switch.
     Rectangle {
      id: layoutButton
      visible: keyboard.layouts.length > 1
-     anchors.right: parent.right; anchors.rightMargin: 8 * root.u; anchors.verticalCenter: parent.verticalCenter
-     width: layoutText.implicitWidth + 16 * root.u; height: 26 * root.u; radius: 6 * root.u
+     anchors.right: submit.left; anchors.rightMargin: 8 * root.u; anchors.verticalCenter: parent.verticalCenter
+     width: layoutText.implicitWidth + 16 * root.u; height: 26 * root.u; radius: height / 2
      color: layoutArea.containsMouse ? P.hover : "transparent"; border.color: P.border
      Text {
       id: layoutText; anchors.centerIn: parent
@@ -11636,45 +11898,73 @@ Rectangle {
       onClicked: { keyboard.currentLayout = (keyboard.currentLayout + 1) % keyboard.layouts.length; password.forceActiveFocus(); }
      }
     }
+    // Sign in.
+    Rectangle {
+     id: submit
+     anchors.right: parent.right; anchors.rightMargin: 6 * root.u; anchors.verticalCenter: parent.verticalCenter
+     width: 40 * root.u; height: width; radius: width / 2
+     color: submitArea.containsMouse ? P.violetBright : P.violet
+     opacity: root.busy ? 0.5 : 1
+     Behavior on color { ColorAnimation { duration: 160 } }
+     Text { anchors.centerIn: parent; text: "→"; color: P.violetInk; font.family: "Inter"; font.bold: true; font.pixelSize: 18 * root.u }
+     MouseArea { id: submitArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.login() }
+    }
    }
+   // Signing in, a sign-in error, else a Caps Lock warning.
+   Text {
+    Layout.alignment: Qt.AlignHCenter
+    Layout.minimumHeight: 16 * root.u
+    text: root.busy ? "Signing in…" : root.error !== "" ? root.error : keyboard.capsLock ? "Caps Lock is on" : ""
+    color: root.busy ? P.textSoft : root.error !== "" ? P.rose : P.amber
+    font.family: "Inter"; font.pixelSize: 12 * root.u
+   }
+  }
+
+  // ── Footer: the wordmark, the session, and power ──
+  Text {
+   anchors.left: parent.left; anchors.bottom: parent.bottom; anchors.margins: 32 * root.u
+   text: "PENUMBRA"
+   color: root.alpha(P.violet, 0.8); font.family: "Inter"; font.pixelSize: 11 * root.u; font.weight: Font.DemiBold; font.letterSpacing: 5 * root.u
+  }
+  RowLayout {
+   anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 24 * root.u
+   spacing: 6 * root.u
    ComboBox {
-    id: session; Layout.fillWidth: true; implicitHeight: 38 * root.u; model: sessionModel; textRole: "name"; currentIndex: sessionModel.lastIndex
-    palette.button: P.raised; palette.buttonText: P.textSoft; palette.text: P.text; palette.base: P.raised; palette.highlight: P.selection; palette.highlightedText: P.selectionText; font.family: "Inter"; font.pixelSize: 11 * root.u
-    background: Rectangle {color: P.raised; radius: 8 * root.u; border.color: P.border}
+    id: session; implicitHeight: 34 * root.u; implicitWidth: 220 * root.u
+    model: sessionModel; textRole: "name"; currentIndex: sessionModel.lastIndex
+    palette.button: P.raised; palette.buttonText: P.textSoft; palette.text: P.text; palette.base: P.raised; palette.highlight: P.selection; palette.highlightedText: P.selectionText; palette.window: P.surfaceAlt
+    font.family: "Inter"; font.pixelSize: 12 * root.u
+    background: Rectangle { color: session.hovered ? root.alpha(P.hover, 0.8) : root.alpha(P.surface, 0.6); radius: height / 2; border.color: root.alpha(P.violet, 0.16) }
    }
-   Button {
-    Layout.fillWidth: true; implicitHeight: 46 * root.u; text: root.busy ? "Signing in…" : "Sign in  →"; enabled: !root.busy
-    contentItem: Text {text: parent.text; color: P.violetInk; font.family: "Inter"; font.pixelSize: 14 * root.u; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter}
-    background: Rectangle {color: parent.hovered ? P.violetBright : P.violet; radius: 10 * root.u; Behavior on color { ColorAnimation {duration: 160} }}
-    onClicked: root.login()
-   }
-   // Sign-in errors, else a Caps Lock warning.
-   Text {
-    id: status; text: ""; color: P.rose; font.family: "Inter"; font.pixelSize: 11 * root.u; Layout.fillWidth: true; wrapMode: Text.Wrap; Layout.minimumHeight: 16 * root.u
-    visible: text !== ""
-   }
-   Text {
-    visible: status.text === ""; text: keyboard.capsLock ? "Caps Lock is on" : ""
-    color: P.amber; font.family: "Inter"; font.pixelSize: 11 * root.u; Layout.fillWidth: true; Layout.minimumHeight: 16 * root.u
-   }
-   RowLayout {
-    Layout.alignment: Qt.AlignHCenter; spacing: 22 * root.u
-    Button { visible: sddm.canSuspend; text: "Suspend"; flat: true; palette.buttonText: P.muted; font.family: "Inter"; font.pixelSize: 12 * root.u; onClicked: sddm.suspend() }
-    Button { text: "Restart"; flat: true; palette.buttonText: P.muted; font.family: "Inter"; font.pixelSize: 12 * root.u; onClicked: {powerDialog.action = "restart"; powerDialog.open()} }
-    Button { text: "Shut down"; flat: true; palette.buttonText: P.muted; font.family: "Inter"; font.pixelSize: 12 * root.u; onClicked: {powerDialog.action = "shutdown"; powerDialog.open()} }
+   Repeater {
+    model: [
+     { label: "Suspend", show: sddm.canSuspend, run: function() { sddm.suspend() } },
+     { label: "Restart", show: true, run: function() { powerDialog.action = "restart"; powerDialog.open() } },
+     { label: "Shut down", show: true, run: function() { powerDialog.action = "shutdown"; powerDialog.open() } }
+    ]
+    delegate: Rectangle {
+     visible: modelData.show
+     implicitWidth: powerText.implicitWidth + 28 * root.u; implicitHeight: 34 * root.u; radius: height / 2
+     color: powerArea.containsMouse ? root.alpha(P.hover, 0.8) : "transparent"
+     Text { id: powerText; anchors.centerIn: parent; text: modelData.label; color: powerArea.containsMouse ? P.text : P.muted; font.family: "Inter"; font.pixelSize: 12 * root.u }
+     MouseArea { id: powerArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: modelData.run() }
+    }
    }
   }
  }
+
+ MouseArea { anchors.fill: parent; z: -1; onClicked: password.forceActiveFocus() }
+
  Dialog {
   id: powerDialog; property string action: ""; anchors.centerIn: parent; title: action === "restart" ? "Restart computer?" : "Shut down computer?"; modal: true
-  standardButtons: Dialog.Ok | Dialog.Cancel; font.pixelSize: 13 * root.u
+  standardButtons: Dialog.Ok | Dialog.Cancel; font.family: "Inter"; font.pixelSize: 13 * root.u
   palette.window: P.surfaceAlt; palette.windowText: P.text; palette.button: P.hover; palette.buttonText: P.violet
   onAccepted: { if (action === "restart") sddm.reboot(); else sddm.powerOff(); }
  }
  Connections {
   target: sddm
-  function onLoginFailed() { root.busy = false; password.text = ""; status.text = "Sign-in failed. Please try again."; password.forceActiveFocus(); }
-  function onLoginSucceeded() { status.text = ""; }
+  function onLoginFailed() { root.busy = false; password.text = ""; root.error = "Sign-in failed. Please try again."; password.forceActiveFocus(); }
+  function onLoginSucceeded() { root.error = ""; }
  }
  Component.onCompleted: { if (username.text.length) password.forceActiveFocus(); else username.forceActiveFocus(); }
 }

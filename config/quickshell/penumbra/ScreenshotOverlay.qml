@@ -159,8 +159,7 @@ PanelWindow {
                     id: size
                     anchors.centerIn: parent
                     text: `${Math.round(root.target.width)} × ${Math.round(root.target.height)}`
-                    font.family: Theme.mono
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.textTiny
                     color: Theme.textSoft
                 }
             }
@@ -329,7 +328,7 @@ PanelWindow {
                 + (root.record ? " · records until you click the bar's red capsule or press Ctrl+Print"
                     : root.annotate ? " · opens in Satty" : " · saved and copied")
                 + (root.delay ? ` · starts after ${root.delay} s` : "") + " · Esc to cancel"
-            font.pixelSize: 11
+            font.pixelSize: Theme.textSmall
             color: Theme.textSoft
         }
     }

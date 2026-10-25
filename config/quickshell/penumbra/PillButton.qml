@@ -22,7 +22,7 @@ Rectangle {
         id: label
         anchors.centerIn: parent
         text: root.text
-        font.pixelSize: 11
+        font.pixelSize: Theme.textSmall
         font.weight: Font.DemiBold
         color: root.primary ? Theme.violetInk : root.danger ? Theme.rose : Theme.text
     }

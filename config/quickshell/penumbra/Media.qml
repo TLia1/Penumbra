@@ -16,6 +16,26 @@ Singleton {
     readonly property int count: 8
     property var bars: new Array(count).fill(0)
 
+    // The app's own name ("Firefox"), not its MPRIS identity ("Mozilla firefox").
+    function appName(p) {
+        if (!p)
+            return "";
+        return DesktopEntries.heuristicLookup(p.desktopEntry || p.identity)?.name || p.identity;
+    }
+    // Live streams have no real length: Firefox reports an endless one (about 292,000 years).
+    function isLive(p) {
+        return !!p && p.lengthSupported && p.length > 100 * 3600;
+    }
+    function hasLength(p) {
+        return !!p && p.lengthSupported && p.length > 0 && !isLive(p);
+    }
+    // 4:05, or 1:02:03 past an hour.
+    function time(seconds) {
+        const s = Math.max(0, Math.floor(seconds)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+        const ss = String(s % 60).padStart(2, "0");
+        return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+    }
+
     readonly property string config: [
         "[general]", `bars = ${count}`, "framerate = 30", "sleep_timer = 2",
         "[input]", "method = pipewire",

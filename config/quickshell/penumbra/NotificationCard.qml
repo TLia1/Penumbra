@@ -34,6 +34,19 @@ Rectangle {
     border.color: critical ? Theme.rose : compact ? Theme.line : Theme.lineStrong
     Behavior on color { ColorAnimation { duration: Theme.fast } }
 
+    Shadow {
+        z: -1
+        target: root
+        visible: !root.compact
+        // A child already takes the card's fade and scale.
+        opacity: 1
+        scale: 1
+    }
+    GlassEdge {
+        visible: !root.compact
+        radius: root.radius
+    }
+
     MouseArea {
         id: area
         anchors.fill: parent
@@ -90,14 +103,14 @@ Rectangle {
                 Label {
                     Layout.fillWidth: true
                     text: root.notification?.appName || "Notification"
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.textTiny
                     font.letterSpacing: 1.2
                     font.capitalization: Font.AllUppercase
                     color: root.critical ? Theme.rose : Theme.violet
                 }
                 Label {
                     text: Notifs.age(root.notification, Clock.date.getTime())
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.textTiny
                     color: Theme.dim
                 }
                 Glyph {
@@ -117,7 +130,7 @@ Rectangle {
             Label {
                 Layout.fillWidth: true
                 text: root.notification?.summary ?? ""
-                font.pixelSize: 13
+                font.pixelSize: Theme.textMedium
                 font.weight: Font.DemiBold
             }
             Label {
@@ -161,7 +174,7 @@ Rectangle {
                     verticalAlignment: TextInput.AlignVCenter
                     color: Theme.text
                     font.family: Theme.sans
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.textBody
                     selectionColor: Theme.violetDeep
                     clip: true
                     function send() {
@@ -176,7 +189,7 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: !reply.text
                         text: root.notification?.inlineReplyPlaceholder || "Reply…"
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.textBody
                         color: Theme.dim
                     }
                 }
@@ -213,7 +226,7 @@ Rectangle {
                             id: actionLabel
                             anchors.centerIn: parent
                             text: modelData.text
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.textSmall
                             color: actionArea.containsMouse ? Theme.violetInk : Theme.text
                         }
                         MouseArea {

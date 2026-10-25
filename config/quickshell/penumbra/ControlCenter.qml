@@ -11,7 +11,7 @@ import Quickshell.Widgets
 Panel {
     id: root
     anchors { top: true; right: true }
-    margins.right: Theme.edge
+    margins.right: Theme.edge - shadowRoom
     sheetWidth: 400
     open: Ui.controlOpen
     onDismissed: Ui.dismiss()
@@ -80,27 +80,12 @@ Panel {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 12
-                Rectangle {
-                    implicitWidth: 42
-                    implicitHeight: 42
-                    radius: Theme.corner(21)
-                    gradient: Gradient {
-                        GradientStop { position: 0; color: Theme.violet }
-                        GradientStop { position: 1; color: Theme.violetDeep }
-                    }
-                    Label {
-                        anchors.centerIn: parent
-                        text: Quickshell.env("USER").charAt(0).toUpperCase()
-                        font.pixelSize: 17
-                        font.weight: Font.Bold
-                        color: Theme.violetInk
-                    }
-                }
+                Avatar { size: 42 }
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 1
-                    Label { text: Quickshell.env("USER"); font.pixelSize: 14; font.weight: Font.DemiBold }
-                    Label { text: root.uptime; font.pixelSize: 11; color: Theme.muted }
+                    Label { text: Quickshell.env("USER"); font.pixelSize: Theme.textLarge; font.weight: Font.DemiBold }
+                    Label { text: root.uptime; font.pixelSize: Theme.textSmall; color: Theme.muted }
                 }
                 Repeater {
                     model: [
@@ -283,11 +268,6 @@ Panel {
                     running: root.open && !!root.player?.isPlaying
                     onTriggered: root.player.positionChanged()
                 }
-                function time(seconds) {
-                    const s = Math.max(0, Math.floor(seconds));
-                    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-                }
-
                 ColumnLayout {
                     id: mediaColumn
                     anchors { left: parent.left; right: parent.right; top: parent.top; margins: 10 }
@@ -317,8 +297,30 @@ Panel {
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 2
-                            Label { Layout.fillWidth: true; text: root.player?.trackTitle || root.player?.identity || ""; font.weight: Font.DemiBold }
-                            Label { Layout.fillWidth: true; text: root.player?.trackArtist || root.player?.identity || ""; font.pixelSize: 11; color: Theme.textSoft }
+                            Label { Layout.fillWidth: true; text: root.player?.trackTitle || Media.appName(root.player); font.weight: Font.DemiBold }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                // A live stream has nothing to seek through; say so instead.
+                                Rectangle {
+                                    visible: Media.isLive(root.player)
+                                    implicitWidth: liveLabel.implicitWidth + 12
+                                    implicitHeight: 16
+                                    radius: Theme.corner(8)
+                                    color: Theme.alpha(Theme.rose, 0.18)
+                                    border.color: Theme.alpha(Theme.rose, 0.5)
+                                    Label {
+                                        id: liveLabel
+                                        anchors.centerIn: parent
+                                        text: "LIVE"
+                                        font.pixelSize: Theme.textTiny
+                                        font.weight: Font.Bold
+                                        font.letterSpacing: 0.8
+                                        color: Theme.rose
+                                    }
+                                }
+                                Label { Layout.fillWidth: true; text: root.player?.trackArtist || Media.appName(root.player); font.pixelSize: Theme.textSmall; color: Theme.textSoft }
+                            }
                         }
                         Repeater {
                             model: [
@@ -347,12 +349,11 @@ Panel {
                     }
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: (root.player?.lengthSupported ?? false) && root.player.length > 0
+                        visible: Media.hasLength(root.player)
                         spacing: 10
                         Label {
-                            text: media.time(root.player?.position ?? 0)
-                            font.family: Theme.mono
-                            font.pixelSize: 10
+                            text: Media.time(root.player?.position ?? 0)
+                            font.pixelSize: Theme.textTiny
                             color: Theme.textSoft
                         }
                         Item {
@@ -387,9 +388,8 @@ Panel {
                             }
                         }
                         Label {
-                            text: media.time(root.player?.length ?? 0)
-                            font.family: Theme.mono
-                            font.pixelSize: 10
+                            text: Media.time(root.player?.length ?? 0)
+                            font.pixelSize: Theme.textTiny
                             color: Theme.textSoft
                         }
                     }
@@ -400,18 +400,14 @@ Panel {
             RowLayout {
                 Layout.fillWidth: true
                 Layout.topMargin: 2
-                Label {
+                Overline {
                     Layout.fillWidth: true
                     text: Notifs.count ? `Notifications · ${Notifs.count}` : "Notifications"
-                    font.pixelSize: 11
-                    font.letterSpacing: 1.2
-                    font.capitalization: Font.AllUppercase
-                    color: Theme.muted
                 }
                 Label {
                     visible: Notifs.count > 0
                     text: "Clear all"
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.textSmall
                     color: clearArea.containsMouse ? Theme.violetBright : Theme.violet
                     MouseArea {
                         id: clearArea
@@ -447,14 +443,14 @@ Panel {
                         Label {
                             Layout.fillWidth: true
                             text: group.modelData.app + (group.modelData.items.length > 1 ? ` · ${group.modelData.items.length}` : "")
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.textSmall
                             font.weight: Font.DemiBold
                             color: Theme.textSoft
                         }
                         Label {
                             visible: group.modelData.items.length > 1
                             text: group.expanded ? "Show less" : "Show all"
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.textSmall
                             color: expandArea.containsMouse ? Theme.violetBright : Theme.violet
                             MouseArea {
                                 id: expandArea

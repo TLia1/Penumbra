@@ -6,7 +6,7 @@ import Quickshell.Widgets
 Panel {
     id: root
     anchors { top: true; right: true }
-    margins.right: Theme.edge
+    margins.right: Theme.edge - shadowRoom
     sheetWidth: 620
     open: Ui.wallpapersOpen
     onDismissed: Ui.dismiss()
@@ -25,7 +25,7 @@ Panel {
 
         Label {
             text: "Wallpaper"
-            font.pixelSize: 15
+            font.pixelSize: Theme.textLarge
             font.weight: Font.DemiBold
         }
 
@@ -71,7 +71,7 @@ Panel {
                                 id: badge
                                 anchors.centerIn: parent
                                 text: "Animated"
-                                font.pixelSize: 9
+                                font.pixelSize: Theme.textTiny
                                 font.weight: Font.DemiBold
                                 color: Theme.violetBright
                             }
@@ -110,7 +110,7 @@ Panel {
         Label {
             Layout.fillWidth: true
             text: "Super+W cycles through them · the lock screen follows your choice"
-            font.pixelSize: 11
+            font.pixelSize: Theme.textSmall
             color: Theme.dim
         }
     }

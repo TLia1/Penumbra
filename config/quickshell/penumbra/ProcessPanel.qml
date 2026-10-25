@@ -8,7 +8,7 @@ import Quickshell.Widgets
 Panel {
     id: root
     anchors { top: true; right: true }
-    margins.right: Theme.edge
+    margins.right: Theme.edge - shadowRoom
     sheetWidth: 400
     open: Ui.monitorOpen
     onDismissed: Ui.dismiss()
@@ -147,8 +147,8 @@ Panel {
             RowLayout {
                 spacing: 7
                 Glyph { text: stat.glyph; size: 13; color: Theme.violetBright }
-                Label { Layout.fillWidth: true; text: stat.title; font.pixelSize: 11; color: Theme.muted }
-                Label { text: stat.value + "%"; font.pixelSize: 18; font.weight: Font.DemiBold; font.family: Theme.mono }
+                Label { Layout.fillWidth: true; text: stat.title; font.pixelSize: Theme.textSmall; color: Theme.muted }
+                Label { text: stat.value + "%"; font.pixelSize: Theme.textTitle; font.weight: Font.DemiBold }
             }
             Rectangle {
                 Layout.fillWidth: true
@@ -164,20 +164,17 @@ Panel {
                     Behavior on color { ColorAnimation { duration: Theme.fast } }
                 }
             }
-            Label { Layout.fillWidth: true; text: stat.detail; font.pixelSize: 11; color: Theme.muted }
+            Label { Layout.fillWidth: true; text: stat.detail; font.pixelSize: Theme.textSmall; color: Theme.muted }
         }
     }
 
     // A column title that sorts the list.
-    component SortHeader: Label {
+    component SortHeader: Overline {
         id: header
         property string mode
         readonly property bool current: root.sortBy === mode
         horizontalAlignment: Text.AlignRight
-        font.pixelSize: 11
-        font.letterSpacing: 1.2
-        font.capitalization: Font.AllUppercase
-        font.weight: current ? Font.DemiBold : Font.Normal
+        font.weight: current ? Font.DemiBold : Font.Medium
         color: current ? Theme.violetBright : headerArea.containsMouse ? Theme.textSoft : Theme.muted
         MouseArea {
             id: headerArea
@@ -218,13 +215,9 @@ Panel {
             Layout.leftMargin: 10
             Layout.rightMargin: 10
             spacing: 0
-            Label {
+            Overline {
                 Layout.fillWidth: true
                 text: "Apps & processes"
-                font.pixelSize: 11
-                font.letterSpacing: 1.2
-                font.capitalization: Font.AllUppercase
-                color: Theme.muted
             }
             SortHeader { Layout.preferredWidth: 56; text: "CPU"; mode: "cpu" }
             SortHeader { Layout.preferredWidth: 76; text: "Memory"; mode: "memory" }
@@ -307,7 +300,7 @@ Panel {
                                 Label {
                                     Layout.fillWidth: true
                                     text: (row.count > 1 ? `${row.count} processes` : `PID ${row.pids}`) + (row.user && !row.mine ? ` · ${row.user}` : "")
-                                    font.pixelSize: 11
+                                    font.pixelSize: Theme.textSmall
                                     color: Theme.muted
                                 }
                             }
@@ -315,16 +308,14 @@ Panel {
                                 Layout.preferredWidth: 56
                                 horizontalAlignment: Text.AlignRight
                                 text: root.percent(row.cpu)
-                                font.family: Theme.mono
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.textBody
                                 color: root.sortBy === "cpu" ? Theme.text : Theme.muted
                             }
                             Label {
                                 Layout.preferredWidth: 76
                                 horizontalAlignment: Text.AlignRight
                                 text: root.size(row.mem)
-                                font.family: Theme.mono
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.textBody
                                 color: root.sortBy === "memory" ? Theme.text : Theme.muted
                             }
                         }
@@ -337,7 +328,7 @@ Panel {
                             Label {
                                 Layout.fillWidth: true
                                 text: row.mine ? `Running as ${row.user}` : row.key === "kernel" ? "Kernel threads" : "Owned by another user"
-                                font.pixelSize: 11
+                                font.pixelSize: Theme.textSmall
                                 color: Theme.dim
                             }
                             PillButton {
@@ -363,7 +354,7 @@ Panel {
             Label {
                 Layout.fillWidth: true
                 text: "Updates every 2 s"
-                font.pixelSize: 11
+                font.pixelSize: Theme.textSmall
                 color: Theme.dim
             }
             PillButton {

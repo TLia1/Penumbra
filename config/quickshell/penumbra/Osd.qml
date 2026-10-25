@@ -8,10 +8,12 @@ PanelWindow {
     id: root
     screen: Ui.screen
     anchors.bottom: true
-    margins.bottom: 80
+    // Room around the pill for its shadow.
+    readonly property int shadowRoom: 16
+    margins.bottom: 80 - shadowRoom
     exclusionMode: ExclusionMode.Ignore
-    implicitWidth: 300
-    implicitHeight: 58
+    implicitWidth: 300 + 2 * shadowRoom
+    implicitHeight: 58 + 2 * shadowRoom
     visible: Ui.osdVisible || pill.opacity > 0
     color: "transparent"
     mask: Region {}
@@ -26,9 +28,10 @@ PanelWindow {
         return Ui.osdMuted ? "󰝟" : Ui.osdValue > 60 ? "󰕾" : Ui.osdValue > 25 ? "󰖀" : "󰕿";
     }
 
+    Shadow { target: pill }
     Rectangle {
         id: pill
-        anchors.fill: parent
+        anchors { fill: parent; margins: root.shadowRoom }
         radius: Theme.corner(height / 2)
         color: Theme.glassStrong
         border.color: Theme.line
@@ -36,6 +39,8 @@ PanelWindow {
         scale: Ui.osdVisible ? 1 : 0.92
         Behavior on opacity { NumberAnimation { duration: Theme.normal } }
         Behavior on scale { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutBack } }
+
+        GlassEdge { radius: pill.radius }
 
         RowLayout {
             anchors { fill: parent; leftMargin: 20; rightMargin: 20 }
@@ -67,8 +72,7 @@ PanelWindow {
                 Layout.preferredWidth: 38
                 horizontalAlignment: Text.AlignRight
                 text: Ui.osdMuted ? "Muted" : Ui.osdValue + "%"
-                font.family: Theme.mono
-                font.pixelSize: 11
+                font.pixelSize: Theme.textSmall
                 color: Theme.textSoft
             }
         }

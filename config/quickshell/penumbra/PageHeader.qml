@@ -33,8 +33,8 @@ RowLayout {
         Layout.fillWidth: true
         spacing: 0
         // fillWidth on the labels lets the column (and so the row) stretch to the switch.
-        Label { Layout.fillWidth: true; text: root.title; font.pixelSize: 15; font.weight: Font.DemiBold }
-        Label { Layout.fillWidth: true; visible: text !== ""; text: root.status; font.pixelSize: 11; color: Theme.muted }
+        Label { Layout.fillWidth: true; text: root.title; font.pixelSize: Theme.textLarge; font.weight: Font.DemiBold }
+        Label { Layout.fillWidth: true; visible: text !== ""; text: root.status; font.pixelSize: Theme.textSmall; color: Theme.muted }
     }
     Switch {
         visible: root.showSwitch

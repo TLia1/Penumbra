@@ -88,8 +88,7 @@ RowLayout {
         Layout.preferredWidth: 34
         horizontalAlignment: Text.AlignRight
         text: Math.round(root.value) + "%"
-        font.family: Theme.mono
-        font.pixelSize: 11
+        font.pixelSize: Theme.textSmall
         color: Theme.muted
     }
 }

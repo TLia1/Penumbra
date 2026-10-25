@@ -12,6 +12,14 @@ Rectangle {
     property bool interactive: true
     property bool active: false
     readonly property bool hovered: mouse.containsMouse
+    // Set instead of `visible`: the capsule fades and narrows away, and its neighbours glide.
+    property bool shown: true
+    property real reveal: shown ? 1 : 0
+    Behavior on reveal { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+    visible: reveal > 0
+    opacity: reveal
+    Layout.preferredWidth: Math.round(implicitWidth * reveal)
+    clip: reveal < 1
 
     signal clicked(var mouse)
     // One step per wheel notch: +1 up, -1 down. Touchpads send many small deltas, which add up

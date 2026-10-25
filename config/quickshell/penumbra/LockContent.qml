@@ -77,7 +77,7 @@ Rectangle {
                 visible: Devices.hasBattery
                 spacing: 6
                 Glyph { text: Devices.batteryGlyph; size: 16; color: Devices.batteryColor }
-                Label { text: Devices.batteryPercent + "%"; font.family: Theme.mono; color: Devices.batteryColor }
+                Label { text: Devices.batteryPercent + "%"; color: Devices.batteryColor }
             }
         }
 
@@ -88,15 +88,16 @@ Rectangle {
             Label {
                 Layout.alignment: Qt.AlignHCenter
                 text: Qt.formatDateTime(Clock.date, "HH:mm")
-                font.pixelSize: 124
+                font.family: Theme.display
+                font.pixelSize: Theme.textDisplay
                 font.weight: Font.Light
-                font.letterSpacing: -3
+                font.letterSpacing: -1
                 color: Theme.text
             }
             Label {
                 Layout.alignment: Qt.AlignHCenter
                 text: Qt.formatDateTime(Clock.date, "dddd d MMMM")
-                font.pixelSize: 15
+                font.pixelSize: Theme.textLarge
                 font.letterSpacing: 3
                 font.capitalization: Font.AllUppercase
                 color: Theme.violet
@@ -109,45 +110,15 @@ Rectangle {
             y: Math.round(parent.height * 0.58)
             spacing: 14
 
-            // ~/.face when there is one, else the initial the control center shows.
-            ClippingRectangle {
+            Avatar {
                 Layout.alignment: Qt.AlignHCenter
-                implicitWidth: 76
-                implicitHeight: 76
-                radius: Theme.corner(38)
-                border.width: 2
-                border.color: Theme.violet
-                Rectangle {
-                    anchors.fill: parent
-                    gradient: Gradient {
-                        GradientStop { position: 0; color: Theme.violet }
-                        GradientStop { position: 1; color: Theme.violetDeep }
-                    }
-                }
-                Label {
-                    anchors.centerIn: parent
-                    visible: face.status !== Image.Ready
-                    text: Quickshell.env("USER").charAt(0).toUpperCase()
-                    font.pixelSize: 30
-                    font.weight: Font.Bold
-                    color: Theme.violetInk
-                }
-                Image {
-                    id: face
-                    anchors.fill: parent
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: true
-                }
-                FileView {
-                    path: Quickshell.env("HOME") + "/.face"
-                    printErrors: false
-                    onLoaded: face.source = "file://" + path
-                }
+                size: 76
+                ring: true
             }
             Label {
                 Layout.alignment: Qt.AlignHCenter
                 text: Quickshell.env("USER")
-                font.pixelSize: 15
+                font.pixelSize: Theme.textLarge
                 font.weight: Font.DemiBold
             }
 
@@ -193,7 +164,7 @@ Rectangle {
                     visible: surface.lock.password === "" && !surface.lock.busy
                     text: "Enter password"
                     color: Theme.dim
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.textMedium
                 }
                 Row {
                     anchors.centerIn: parent
@@ -242,7 +213,7 @@ Rectangle {
                     anchors.centerIn: parent
                     spacing: 6
                     Glyph { text: "󰌌"; size: 13; color: Theme.textSoft }
-                    Label { text: Devices.layoutCode; font.family: Theme.mono; font.weight: Font.Bold; color: Theme.textSoft }
+                    Label { text: Devices.layoutCode; font.weight: Font.Bold; color: Theme.textSoft }
                 }
                 MouseArea {
                     id: layoutArea
@@ -257,7 +228,7 @@ Rectangle {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.preferredHeight: 16
                 text: surface.lock.message || (surface.lock.capsLock ? "Caps Lock is on" : "")
-                font.pixelSize: 12
+                font.pixelSize: Theme.textBody
                 color: surface.lock.message ? Theme.rose : Theme.amber
             }
         }
@@ -285,12 +256,19 @@ Rectangle {
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                     }
+                    Glyph {
+                        anchors.centerIn: parent
+                        visible: !surface.player?.trackArtUrl
+                        text: "󰎆"
+                        size: 19
+                        color: Theme.violetBright
+                    }
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 1
-                    Label { Layout.fillWidth: true; text: surface.player?.trackTitle || surface.player?.identity || ""; font.weight: Font.DemiBold }
-                    Label { Layout.fillWidth: true; text: surface.player?.trackArtist ?? ""; font.pixelSize: 11; color: Theme.muted }
+                    Label { Layout.fillWidth: true; text: surface.player?.trackTitle || Media.appName(surface.player); font.weight: Font.DemiBold }
+                    Label { Layout.fillWidth: true; text: surface.player?.trackArtist || Media.appName(surface.player); font.pixelSize: Theme.textSmall; color: Theme.muted }
                 }
                 Repeater {
                     model: [

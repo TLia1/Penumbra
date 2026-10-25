@@ -310,6 +310,7 @@ PanelWindow {
         }
     }
 
+    Shadow { target: card }
     Rectangle {
         id: card
         width: 640
@@ -355,7 +356,7 @@ PanelWindow {
                     selectionColor: Theme.violetDeep
                     selectedTextColor: Theme.text
                     font.family: Theme.sans
-                    font.pixelSize: 17
+                    font.pixelSize: Theme.textTitle
                     clip: true
                     focus: true
                     onTextChanged: root.refresh()
@@ -364,7 +365,7 @@ PanelWindow {
                         visible: !search.text
                         text: ({ clipboard: "Search clipboard history…", emoji: "Search emoji…", symbols: "Search symbols…" })[Ui.launcherMode]
                             ?? "Search applications, > run, = calculate…"
-                        font.pixelSize: 17
+                        font.pixelSize: Theme.textTitle
                         color: Theme.dim
                     }
                     Keys.onPressed: event => {
@@ -411,7 +412,7 @@ PanelWindow {
                             anchors.centerIn: parent
                             spacing: 6
                             Glyph { text: modelData.glyph; size: 13; color: current ? Theme.violetInk : Theme.textSoft }
-                            Label { visible: current; text: modelData.label; font.pixelSize: 11; font.weight: Font.DemiBold; color: current ? Theme.violetInk : Theme.text }
+                            Label { visible: current; text: modelData.label; font.pixelSize: Theme.textSmall; font.weight: Font.DemiBold; color: current ? Theme.violetInk : Theme.text }
                         }
                         MouseArea {
                             id: modeArea
@@ -550,7 +551,7 @@ PanelWindow {
                                         return "Enter copies the result";
                                     return "";
                                 }
-                                font.pixelSize: 11
+                                font.pixelSize: Theme.textSmall
                                 color: Theme.muted
                             }
                         }
@@ -614,14 +615,14 @@ PanelWindow {
                 spacing: 10
                 Label {
                     text: parent.current?.name ?? ""
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.textMedium
                     font.weight: Font.DemiBold
                     Layout.maximumWidth: 420
                 }
                 Label {
                     Layout.fillWidth: true
                     text: parent.current?.group ?? ""
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.textSmall
                     color: Theme.muted
                 }
             }
@@ -671,7 +672,7 @@ PanelWindow {
                                 + (Ui.launcherMode === "emoji" ? " · Tab symbols" : " · Tab apps") + " · Esc close";
                         return "↑↓ choose · Enter open · Tab clipboard · Esc close";
                     }
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.textSmall
                     color: Theme.dim
                 }
                 PillButton {
@@ -685,5 +686,11 @@ PanelWindow {
                 }
             }
         }
+    }
+    GlassEdge {
+        anchors.fill: card
+        radius: card.radius
+        opacity: card.opacity
+        scale: card.scale
     }
 }

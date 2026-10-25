@@ -65,6 +65,7 @@ Scope {
             opacity: card.opacity
         }
 
+        Shadow { target: card }
         Rectangle {
             id: card
             width: 420
@@ -77,6 +78,8 @@ Scope {
             scale: root.shown ? 1 : 0.94
             Behavior on opacity { NumberAnimation { duration: Theme.normal } }
             Behavior on scale { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
+
+            GlassEdge { radius: card.radius }
 
             SequentialAnimation {
                 id: shake
@@ -110,13 +113,13 @@ Scope {
                         spacing: 2
                         Label {
                             text: "A U T H E N T I C A T E"
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.textTiny
                             color: Theme.violet
                         }
                         Label {
                             Layout.fillWidth: true
                             text: "Administrator rights needed"
-                            font.pixelSize: 16
+                            font.pixelSize: Theme.textLarge
                             font.weight: Font.DemiBold
                         }
                     }
@@ -133,7 +136,7 @@ Scope {
                     visible: text !== ""
                     text: root.flow?.actionId ?? ""
                     font.family: Theme.mono
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.textTiny
                     color: Theme.dim
                 }
 
@@ -155,7 +158,7 @@ Scope {
                         passwordCharacter: "•"
                         color: Theme.text
                         font.family: Theme.sans
-                        font.pixelSize: 15
+                        font.pixelSize: Theme.textLarge
                         font.letterSpacing: echoMode === TextInput.Password ? 2 : 0
                         selectionColor: Theme.violetDeep
                         enabled: !!root.flow?.isResponseRequired
@@ -169,7 +172,7 @@ Scope {
                             visible: !input.text
                             text: (root.flow?.inputPrompt ?? "").replace(/:\s*$/, "") || "Password"
                             color: Theme.dim
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.textMedium
                         }
                     }
                     Glyph {
@@ -185,7 +188,7 @@ Scope {
                     visible: text !== ""
                     text: root.error || (root.flow?.supplementaryMessage ?? "")
                     wrapMode: Text.Wrap
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.textBody
                     color: root.error || root.flow?.supplementaryIsError ? Theme.rose : Theme.muted
                 }
 

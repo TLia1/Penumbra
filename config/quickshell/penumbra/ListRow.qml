@@ -54,7 +54,7 @@ Rectangle {
                     Layout.fillWidth: true
                     visible: text !== ""
                     text: root.subtitle
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.textSmall
                     color: root.danger ? Theme.rose : root.highlighted ? Theme.violet : Theme.muted
                 }
             }

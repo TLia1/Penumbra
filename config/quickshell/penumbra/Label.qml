@@ -3,7 +3,7 @@ import QtQuick
 Text {
     color: Theme.text
     font.family: Theme.sans
-    font.pixelSize: 12
+    font.pixelSize: Theme.textBody
     font.features: { "tnum": 1 }
     verticalAlignment: Text.AlignVCenter
     elide: Text.ElideRight

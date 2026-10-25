@@ -7,10 +7,12 @@ PanelWindow {
     id: root
     screen: Ui.screen
     anchors { top: true; right: true }
-    margins { top: Theme.barHeight + 10 + Theme.gap; right: Theme.edge }
+    // Room around the cards for their shadows.
+    readonly property int shadowRoom: Theme.edge
+    margins { top: Theme.barHeight + 10 + Theme.gap - shadowRoom; right: Theme.edge - shadowRoom }
     exclusionMode: ExclusionMode.Ignore
-    implicitWidth: 360
-    implicitHeight: Math.max(1, column.height)
+    implicitWidth: 360 + 2 * shadowRoom
+    implicitHeight: Math.max(1, column.height + 2 * shadowRoom)
     visible: Notifs.popups.length > 0 && !Ui.controlOpen
     color: "transparent"
     WlrLayershell.layer: WlrLayer.Overlay
@@ -22,7 +24,9 @@ PanelWindow {
 
     Column {
         id: column
-        width: parent.width
+        x: root.shadowRoom
+        y: root.shadowRoom
+        width: parent.width - 2 * root.shadowRoom
         spacing: 8
         move: Transition { NumberAnimation { property: "y"; duration: Theme.normal; easing.type: Easing.OutCubic } }
 

@@ -5,7 +5,7 @@ import QtQuick.Layouts
 Panel {
     id: root
     anchors { top: true; right: true }
-    margins.right: Theme.edge
+    margins.right: Theme.edge - shadowRoom
     sheetWidth: 400
     open: Ui.updatesOpen
     onDismissed: Ui.dismiss()
@@ -34,12 +34,12 @@ Panel {
                 spacing: 1
                 Label {
                     text: Sys.updates === 1 ? "1 update" : `${Sys.updates} updates`
-                    font.pixelSize: 15
+                    font.pixelSize: Theme.textLarge
                     font.weight: Font.DemiBold
                 }
                 Label {
                     text: Sys.checkingUpdates ? "Checking…" : "Checked every 15 minutes"
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.textSmall
                     color: Theme.muted
                 }
             }
@@ -65,15 +65,11 @@ Panel {
                         Layout.fillWidth: true
                         spacing: 2
 
-                        Label {
+                        Overline {
                             Layout.fillWidth: true
                             Layout.topMargin: 4
                             Layout.bottomMargin: 2
                             text: `${source.modelData.name} · ${source.modelData.packages.length}`
-                            font.pixelSize: 11
-                            font.letterSpacing: 1.2
-                            font.capitalization: Font.AllUppercase
-                            color: Theme.muted
                         }
                         Repeater {
                             model: source.modelData.packages
@@ -88,14 +84,14 @@ Panel {
                                     Layout.fillWidth: true
                                     text: parent.parts ? parent.parts[1] : parent.modelData
                                     font.family: Theme.mono
-                                    font.pixelSize: 11
+                                    font.pixelSize: Theme.textSmall
                                 }
                                 Label {
                                     visible: !!parent.parts
                                     text: parent.parts ? `${parent.parts[2]} → ${parent.parts[3]}` : ""
                                     Layout.maximumWidth: 190
                                     font.family: Theme.mono
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.textTiny
                                     color: Theme.violet
                                 }
                             }

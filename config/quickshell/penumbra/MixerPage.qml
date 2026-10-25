@@ -9,7 +9,11 @@ ColumnLayout {
 
     property bool active: false
     readonly property var audioNodes: Pipewire.nodes.values.filter(n => n.audio)
-    readonly property var outputs: audioNodes.filter(n => n.isSink && !n.isStream)
+    // A laptop's HDMI and DisplayPort outputs exist even with nothing plugged in; list them only
+    // while an external screen is connected, or while one is in use.
+    readonly property bool externalScreen: Quickshell.screens.some(s => !/^(eDP|LVDS|DSI)/.test(s.name))
+    readonly property var outputs: audioNodes.filter(n => n.isSink && !n.isStream
+        && (externalScreen || !isDisplayOutput(n) || n === Pipewire.defaultAudioSink))
     readonly property var inputs: audioNodes.filter(n => !n.isSink && !n.isStream)
     // Apps playing sound. Quickshell flags playback streams as sinks (AudioOutStream =
     // Audio | Sink | Stream); recording streams are sources and are left out.
@@ -22,9 +26,14 @@ ColumnLayout {
         objects: root.active ? [...root.outputs, ...root.inputs, ...root.streams] : []
     }
 
-    // The port ("Speaker", "HDMI / DisplayPort 1 Output") tells a card's devices apart;
-    // Bluetooth devices go by their own name.
+    function isDisplayOutput(node) {
+        return /hdmi|displayport/i.test(node.name + " " + node.description);
+    }
+    // The port ("Speaker") tells a card's devices apart, a display output goes by its short name
+    // ("HDMI 1"), and Bluetooth devices by their own name.
     function deviceName(node) {
+        if (isDisplayOutput(node) && node.nickname)
+            return node.nickname;
         const port = node.name.startsWith("bluez") ? "" : node.properties["device.profile.description"];
         return port || node.description || node.nickname || node.name;
     }
@@ -54,14 +63,10 @@ ColumnLayout {
         onBack: Ui.controlPage = "main"
     }
 
-    Label {
+    Overline {
         Layout.fillWidth: true
         Layout.topMargin: 2
         text: "Output"
-        font.pixelSize: 11
-        font.letterSpacing: 1.2
-        font.capitalization: Font.AllUppercase
-        color: Theme.muted
     }
     Repeater {
         model: root.outputs
@@ -76,15 +81,11 @@ ColumnLayout {
         }
     }
 
-    Label {
+    Overline {
         Layout.fillWidth: true
         Layout.topMargin: 2
         visible: root.inputs.length > 0
         text: "Input"
-        font.pixelSize: 11
-        font.letterSpacing: 1.2
-        font.capitalization: Font.AllUppercase
-        color: Theme.muted
     }
     Repeater {
         model: root.inputs
@@ -99,14 +100,10 @@ ColumnLayout {
         }
     }
 
-    Label {
+    Overline {
         Layout.fillWidth: true
         Layout.topMargin: 2
         text: "Applications"
-        font.pixelSize: 11
-        font.letterSpacing: 1.2
-        font.capitalization: Font.AllUppercase
-        color: Theme.muted
     }
     Repeater {
         model: root.streams
@@ -119,7 +116,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 Layout.leftMargin: 46
                 text: root.appName(stream.modelData) + (stream.modelData.properties["media.name"] ? " · " + stream.modelData.properties["media.name"] : "")
-                font.pixelSize: 11
+                font.pixelSize: Theme.textSmall
                 color: Theme.textSoft
             }
             SliderRow {
@@ -149,7 +146,7 @@ ColumnLayout {
     Label {
         Layout.alignment: Qt.AlignRight
         text: "Advanced sound settings"
-        font.pixelSize: 11
+        font.pixelSize: Theme.textSmall
         color: advancedArea.containsMouse ? Theme.violetBright : Theme.muted
         MouseArea {
             id: advancedArea

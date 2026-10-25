@@ -58,15 +58,11 @@ ColumnLayout {
         highlighted: true
     }
 
-    Label {
+    Overline {
         Layout.fillWidth: true
         Layout.topMargin: 2
         visible: !!root.device && Networking.wifiEnabled
         text: root.networks.length ? "Networks" : "Searching for networks…"
-        font.pixelSize: 11
-        font.letterSpacing: 1.2
-        font.capitalization: Font.AllUppercase
-        color: Theme.muted
     }
 
     ListView {
@@ -146,7 +142,7 @@ ColumnLayout {
                     selectionColor: Theme.violet
                     selectedTextColor: Theme.violetInk
                     font.family: Theme.sans
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.textBody
                     leftPadding: 12
                     rightPadding: 34
                     background: Rectangle {
@@ -223,7 +219,7 @@ ColumnLayout {
     Label {
         Layout.alignment: Qt.AlignRight
         text: "Advanced network settings"
-        font.pixelSize: 11
+        font.pixelSize: Theme.textSmall
         color: advancedArea.containsMouse ? Theme.violetBright : Theme.muted
         MouseArea {
             id: advancedArea

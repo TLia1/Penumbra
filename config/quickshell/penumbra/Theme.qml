@@ -40,7 +40,19 @@ Singleton {
     }
 
     readonly property string sans: "Inter"
+    // Inter's optical size for large text: tighter spacing and finer detail from about 20 px up.
+    readonly property string display: "Inter Display"
     readonly property string mono: "JetBrainsMono Nerd Font"
+
+    // The type scale. Every text size in the shell is one of these.
+    readonly property int textTiny: 10     // badges, timestamps
+    readonly property int textSmall: 11    // subtitles, section labels
+    readonly property int textBody: 12     // the default
+    readonly property int textMedium: 13   // notification titles, emphasized rows
+    readonly property int textLarge: 15    // page titles, the bar clock
+    readonly property int textTitle: 18    // the launcher's search, big figures
+    readonly property int textHeading: 22  // panel headlines, in the display face
+    readonly property int textDisplay: 124 // the lock screen clock
 
     // Rounded or sharp corners, as penumbra-corners records them. Every radius goes through
     // corner(), so the whole shell follows the choice at once.

@@ -54,7 +54,7 @@ PanelWindow {
             onClicked: Ui.toggleCalendar()
             Label {
                 text: Qt.formatDateTime(Clock.date, "HH:mm")
-                font.pixelSize: 14
+                font.pixelSize: Theme.textLarge
                 font.weight: Font.Bold
                 color: Ui.calendarOpen ? Theme.violetInk : Theme.text
             }
@@ -62,7 +62,7 @@ PanelWindow {
 
         // What's playing, with cava's spectrum when it is installed; hidden while paused.
         Capsule {
-            visible: !!Media.playing
+            shown: !!Media.playing
             padding: 14
             spacing: 10
             tip: Media.player ? [Media.player.trackTitle, Media.player.trackArtist].filter(t => t).join(" · ") + "\nMiddle-click to pause · scroll to skip" : ""
@@ -72,13 +72,14 @@ PanelWindow {
                 visible: Ui.hasVisualizer
                 spacing: 2
                 Layout.preferredHeight: 18
+                // Centred pills that stretch both ways, so a quiet passage is a row of short dashes.
                 Repeater {
                     model: Media.bars
                     delegate: Rectangle {
                         required property real modelData
-                        anchors.bottom: parent?.bottom
+                        anchors.verticalCenter: parent?.verticalCenter
                         width: 3
-                        height: 3 + modelData * 15
+                        height: 5 + modelData * 13
                         radius: Theme.corner(1.5)
                         color: Theme.violetBright
                         Behavior on height { NumberAnimation { duration: 60 } }
@@ -87,7 +88,7 @@ PanelWindow {
             }
             Glyph { visible: !Ui.hasVisualizer; text: "󰎆"; color: Theme.violetBright }
             Label {
-                text: Media.player?.trackTitle || Media.player?.identity || ""
+                text: Media.player?.trackTitle || Media.appName(Media.player)
                 Layout.maximumWidth: 170
                 color: Theme.textSoft
             }
@@ -95,7 +96,10 @@ PanelWindow {
     }
 
     // ── Center ──────────────────────────────────────────────────────
+    // The workspaces hold the exact center, so switching windows never moves them; the focused
+    // window's title grows to their right.
     RowLayout {
+        id: workspaces
         anchors.centerIn: parent
         spacing: Theme.gap
 
@@ -126,8 +130,7 @@ PanelWindow {
                     Label {
                         text: workspace.modelData.name
                         color: workspace.current || workspace.modelData.urgent ? Theme.violetInk : workspace.hovered ? Theme.text : Theme.subtle
-                        font.family: Theme.mono
-                        font.weight: workspace.current ? Font.Bold : Font.Normal
+                        font.weight: workspace.current ? Font.Bold : Font.DemiBold
                     }
                     Repeater {
                         model: workspace.icons.slice(0, 3)
@@ -142,41 +145,64 @@ PanelWindow {
                                 asynchronous: true
                                 visible: false
                             }
-                            // Muted like the tray until the workspace is current or hovered.
+                            // Tinted violet like the tray until the workspace is current or hovered.
                             MultiEffect {
+                                readonly property bool lit: workspace.current || workspace.hovered
                                 anchors.fill: parent
                                 source: appIcon
-                                saturation: workspace.current || workspace.hovered ? 0 : -0.7
-                                opacity: workspace.current || workspace.hovered ? 1 : 0.8
+                                saturation: lit ? 0 : -1
+                                colorization: lit ? 0 : 0.35
+                                colorizationColor: Theme.violet
+                                brightness: lit ? 0 : 0.1
+                                opacity: lit ? 1 : 0.85
                                 Behavior on saturation { NumberAnimation { duration: Theme.fast } }
+                                Behavior on colorization { NumberAnimation { duration: Theme.fast } }
                             }
                         }
                     }
                     Label {
                         visible: workspace.icons.length > 3
                         text: "+" + (workspace.icons.length - 3)
-                        font.pixelSize: 10
-                        font.family: Theme.mono
+                        font.pixelSize: Theme.textTiny
                         color: workspace.current ? Theme.violetInk : Theme.muted
                     }
                 }
             }
         }
+    }
 
+    RowLayout {
+        anchors { left: workspaces.right; leftMargin: Theme.gap; verticalCenter: parent.verticalCenter }
         Capsule {
             id: title
             // The Wayland toplevel protocol knows the focused window from startup; nothing is
             // activated on an empty workspace. Show it on the bar of the screen it is on.
             readonly property var client: ToplevelManager.activeToplevel
-            readonly property bool shown: !!client && client.activated && client.title !== "" && client.screens.some(s => s.name === bar.screen.name)
-            visible: shown
+            readonly property var entry: client ? DesktopEntries.heuristicLookup(client.appId) : null
+            // Most windows end their title with the app's name ("… — Mozilla Firefox"); the icon says that.
+            readonly property string text: {
+                const t = client?.title ?? "";
+                const m = t.match(/^(.+)\s[—–-]\s(.+)$/);
+                const names = [entry?.name, client?.appId].filter(n => n).map(n => n.toLowerCase());
+                return m && names.some(n => m[2].toLowerCase().includes(n)) ? m[1] : t;
+            }
+            // While a window plays, the media capsule already shows its title.
+            readonly property bool repeatsMedia: !!Media.playing && !!Media.playing.trackTitle && (client?.title ?? "").startsWith(Media.playing.trackTitle)
+            shown: !!client && client.activated && text !== "" && !repeatsMedia && client.screens.some(s => s.name === bar.screen.name)
             interactive: false
-            padding: 16
+            padding: 15
+            spacing: 8
             tip: shown ? client.title : ""
+            IconImage {
+                visible: source !== ""
+                implicitSize: 15
+                source: title.entry?.icon ? Quickshell.iconPath(title.entry.icon, true) : ""
+                asynchronous: true
+            }
             Label {
-                text: title.shown ? title.client.title : ""
-                Layout.maximumWidth: 260
-                font.family: Theme.mono
+                text: title.text
+                // As wide as the room before the status capsules allows, up to a point.
+                Layout.maximumWidth: Math.max(60, Math.min(300, rightSide.x - workspaces.x - workspaces.width - 3 * Theme.gap - 60))
                 color: Theme.textSoft
             }
         }
@@ -184,22 +210,23 @@ PanelWindow {
 
     // ── Right ───────────────────────────────────────────────────────
     RowLayout {
+        id: rightSide
         anchors { right: parent.right; verticalCenter: parent.verticalCenter }
         spacing: Theme.gap
 
         // A capture's timer counting down; click to cancel.
         Capsule {
-            visible: Recorder.countdown > 0
+            shown: Recorder.countdown > 0
             padding: 14
             tip: "Click to cancel"
             onClicked: Recorder.cancel()
             Glyph { text: "󰔛"; color: Theme.amber }
-            Label { text: Recorder.countdown; font.family: Theme.mono; font.weight: Font.Bold; color: Theme.amber }
+            Label { text: Recorder.countdown; font.weight: Font.Bold; color: Theme.amber }
         }
 
         // A screen recording and how long it has run; click to stop.
         Capsule {
-            visible: Recorder.recording
+            shown: Recorder.recording
             padding: 14
             tip: "Recording · click to stop (or Ctrl+Print)"
             color: hovered ? Theme.alpha(Theme.rose, 0.3) : Theme.alpha(Theme.rose, 0.16)
@@ -217,20 +244,20 @@ PanelWindow {
                     NumberAnimation { to: 1; duration: 700; easing.type: Easing.InOutSine }
                 }
             }
-            Label { text: Recorder.elapsedText; font.family: Theme.mono; font.weight: Font.Bold; color: Theme.rose }
+            Label { text: Recorder.elapsedText; font.weight: Font.Bold; color: Theme.rose }
         }
 
         Capsule {
-            visible: Devices.layouts.length > 1
+            shown: Devices.layouts.length > 1
             padding: 14
             tip: `${Devices.layoutName} · click to switch`
             onClicked: Devices.nextLayout()
             Glyph { text: "󰌌"; color: Theme.textSoft }
-            Label { text: Devices.layoutCode; font.family: Theme.mono; font.weight: Font.Bold; color: Theme.textSoft }
+            Label { text: Devices.layoutCode; font.weight: Font.Bold; color: Theme.textSoft }
         }
 
         Capsule {
-            visible: Sys.updates > 0
+            shown: Sys.updates > 0
             padding: 12
             active: Ui.updatesOpen
             tip: Sys.updatesDetail
@@ -247,15 +274,20 @@ PanelWindow {
             tip: `CPU ${Sys.cpu}% · Memory ${Sys.memoryDetail}`
             onClicked: m => m.button === Qt.RightButton ? Ui.run("kitty --class penumbra-monitor htop") : Ui.toggleMonitor()
             readonly property color tint: Ui.monitorOpen ? Theme.violetInk : Theme.subtle
-            RowLayout {
-                spacing: 5
-                Glyph { text: "󰻠"; size: 12; color: monitor.tint }
-                Label { text: Sys.cpu + "%"; font.pixelSize: 11; color: monitor.tint; font.family: Theme.mono }
-            }
-            RowLayout {
-                spacing: 5
-                Glyph { text: "󰍛"; size: 12; color: monitor.tint }
-                Label { text: Sys.memory + "%"; font.pixelSize: 11; color: monitor.tint; font.family: Theme.mono }
+            Repeater {
+                model: [{ name: "CPU", value: Sys.cpu }, { name: "RAM", value: Sys.memory }]
+                delegate: RowLayout {
+                    required property var modelData
+                    spacing: 5
+                    Label {
+                        text: modelData.name
+                        font.pixelSize: Theme.textTiny
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 0.6
+                        color: Ui.monitorOpen ? Theme.violetInk : Theme.dim
+                    }
+                    Label { text: modelData.value + "%"; color: monitor.tint }
+                }
             }
         }
 
@@ -264,7 +296,7 @@ PanelWindow {
             // but the control center replaces their tray icons.
             readonly property var items: SystemTray.items.values.filter(i => !["nm-applet", "blueman"].includes(i.id))
             id: tray
-            visible: items.length > 0
+            shown: items.length > 0
             interactive: false
             padding: 12
             spacing: 10
@@ -335,7 +367,6 @@ PanelWindow {
                 Label {
                     visible: !Devices.muted
                     text: Devices.volume + "%"
-                    font.family: Theme.mono
                     color: controls.tint
                 }
             }
@@ -343,7 +374,7 @@ PanelWindow {
                 visible: Devices.hasBattery
                 spacing: 5
                 Glyph { text: Devices.batteryGlyph; color: Ui.controlOpen ? Theme.violetInk : Devices.batteryColor }
-                Label { text: Devices.batteryPercent + "%"; font.family: Theme.mono; color: Ui.controlOpen ? Theme.violetInk : Devices.batteryColor }
+                Label { text: Devices.batteryPercent + "%"; color: Ui.controlOpen ? Theme.violetInk : Devices.batteryColor }
             }
             Item {
                 implicitWidth: bell.implicitWidth

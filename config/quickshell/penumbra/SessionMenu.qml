@@ -74,7 +74,7 @@ PanelWindow {
             Label {
                 Layout.alignment: Qt.AlignHCenter
                 text: "S E S S I O N"
-                font.pixelSize: 12
+                font.pixelSize: Theme.textBody
                 color: Theme.violet
             }
 
@@ -110,7 +110,7 @@ PanelWindow {
                             Label {
                                 Layout.alignment: Qt.AlignHCenter
                                 text: tile.isArmed ? "Confirm" : tile.modelData.label
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.textMedium
                                 font.weight: tile.current ? Font.DemiBold : Font.Normal
                                 color: tile.isArmed ? Theme.rose : Theme.text
                             }
@@ -129,7 +129,7 @@ PanelWindow {
             Label {
                 Layout.alignment: Qt.AlignHCenter
                 text: root.armed >= 0 ? `Press again to ${root.entries[root.armed].label.toLowerCase()} · Esc to cancel` : "← → to choose · Enter to select · Esc to close"
-                font.pixelSize: 11
+                font.pixelSize: Theme.textSmall
                 color: root.armed >= 0 ? Theme.rose : Theme.muted
             }
         }

@@ -6,7 +6,7 @@ import QtQuick.Layouts
 Panel {
     id: root
     anchors { top: true; left: true }
-    margins.left: Theme.edge
+    margins.left: Theme.edge - shadowRoom
     sheetWidth: 320
     open: Ui.calendarOpen
     onDismissed: Ui.dismiss()
@@ -27,16 +27,14 @@ Panel {
         width: root.sheetWidth - 36
         spacing: 10
 
-        Label {
+        Overline {
             text: Qt.formatDate(root.today, "dddd")
-            font.pixelSize: 11
-            font.letterSpacing: 1.2
-            font.capitalization: Font.AllUppercase
             color: Theme.violet
         }
         Label {
             text: Qt.formatDate(root.today, "d MMMM yyyy")
-            font.pixelSize: 20
+            font.family: Theme.display
+            font.pixelSize: Theme.textHeading
             font.weight: Font.DemiBold
         }
 
@@ -76,7 +74,7 @@ Panel {
                 required property string shortName
                 text: shortName.slice(0, 2)
                 horizontalAlignment: Text.AlignHCenter
-                font.pixelSize: 10
+                font.pixelSize: Theme.textTiny
                 color: Theme.dim
             }
         }

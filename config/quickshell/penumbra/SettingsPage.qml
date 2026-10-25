@@ -9,13 +9,9 @@ ColumnLayout {
 
     spacing: 12
 
-    component Section: Label {
+    component Section: Overline {
         Layout.fillWidth: true
         Layout.topMargin: 2
-        font.pixelSize: 11
-        font.letterSpacing: 1.2
-        font.capitalization: Font.AllUppercase
-        color: Theme.muted
     }
 
     // A labelled on/off switch; the whole row toggles.
@@ -48,7 +44,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 0
                 Label { Layout.fillWidth: true; text: row.title }
-                Label { Layout.fillWidth: true; text: row.subtitle; font.pixelSize: 11; color: Theme.muted }
+                Label { Layout.fillWidth: true; text: row.subtitle; font.pixelSize: Theme.textSmall; color: Theme.muted }
             }
             Switch {
                 checked: row.checked
@@ -149,7 +145,7 @@ ColumnLayout {
     Label {
         Layout.fillWidth: true
         text: "The shell, windows, launcher and lock screen follow it"
-        font.pixelSize: 11
+        font.pixelSize: Theme.textSmall
         color: Theme.dim
     }
 

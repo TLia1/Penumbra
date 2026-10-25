@@ -16,8 +16,9 @@ Rectangle {
 
     implicitHeight: 62
     radius: Theme.radius
-    color: on ? Theme.violet : body.containsMouse ? Theme.hover : Theme.raised
-    border.color: on ? Theme.violetBright : Theme.line
+    // On is a violet tint with the accent on the icon's disc; a solid fill outweighed the panel.
+    color: on ? Theme.alpha(Theme.violet, body.containsMouse ? 0.3 : 0.22) : body.containsMouse ? Theme.hover : Theme.raised
+    border.color: on ? Theme.alpha(Theme.violetBright, 0.55) : Theme.line
     opacity: available ? 1 : 0.45
     Behavior on color { ColorAnimation { duration: Theme.fast } }
 
@@ -31,12 +32,20 @@ Rectangle {
     }
 
     RowLayout {
-        anchors { fill: parent; leftMargin: 14; rightMargin: root.hasMore ? 6 : 14 }
+        anchors { fill: parent; leftMargin: 12; rightMargin: root.hasMore ? 6 : 14 }
         spacing: 11
-        Glyph {
-            text: root.glyph
-            size: 19
-            color: root.on ? Theme.violetInk : Theme.violetBright
+        Rectangle {
+            implicitWidth: 36
+            implicitHeight: 36
+            radius: Theme.corner(18)
+            color: root.on ? Theme.violet : Theme.alpha(Theme.violet, 0.12)
+            Behavior on color { ColorAnimation { duration: Theme.fast } }
+            Glyph {
+                anchors.centerIn: parent
+                text: root.glyph
+                size: 17
+                color: root.on ? Theme.violetInk : Theme.violetBright
+            }
         }
         ColumnLayout {
             Layout.fillWidth: true
@@ -45,13 +54,13 @@ Rectangle {
                 Layout.fillWidth: true
                 text: root.title
                 font.weight: Font.DemiBold
-                color: root.on ? Theme.violetInk : Theme.text
+                color: Theme.text
             }
             Label {
                 Layout.fillWidth: true
                 text: root.subtitle
-                font.pixelSize: 11
-                color: root.on ? Theme.alpha(Theme.violetInk, 0.7) : Theme.muted
+                font.pixelSize: Theme.textSmall
+                color: root.on ? Theme.violetBright : Theme.muted
             }
         }
         Rectangle {
@@ -59,11 +68,11 @@ Rectangle {
             implicitWidth: 30
             implicitHeight: 44
             radius: Theme.radiusSmall
-            color: more.containsMouse ? Qt.rgba(1, 1, 1, 0.1) : "transparent"
+            color: more.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
             Glyph {
                 anchors.centerIn: parent
                 text: "󰅂"
-                color: root.on ? Theme.violetInk : Theme.muted
+                color: root.on ? Theme.violetBright : Theme.muted
             }
             MouseArea {
                 id: more

@@ -67,13 +67,9 @@ ColumnLayout {
         onToggled: root.adapter.enabled = !root.adapter.enabled
     }
 
-    component SectionTitle: Label {
+    component SectionTitle: Overline {
         Layout.fillWidth: true
         Layout.topMargin: 2
-        font.pixelSize: 11
-        font.letterSpacing: 1.2
-        font.capitalization: Font.AllUppercase
-        color: Theme.muted
     }
 
     Flickable {
@@ -187,7 +183,7 @@ ColumnLayout {
         Layout.alignment: Qt.AlignRight
         visible: !!root.adapter
         text: "Advanced Bluetooth settings"
-        font.pixelSize: 11
+        font.pixelSize: Theme.textSmall
         color: advancedArea.containsMouse ? Theme.violetBright : Theme.muted
         MouseArea {
             id: advancedArea
