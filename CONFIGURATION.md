@@ -45,7 +45,7 @@ Parts (default: all of them):
   --user-only          Only copy your configuration; no sudo, no packages.
   --system-only        Only the system part: packages, login screen, services.
                        Needs root; normally started by the full install.
-  --boot-only          Only the optional GRUB and Plymouth themes.
+  --boot-only          Only the optional GRUB, Limine and Plymouth themes.
 
 Settings (detected on the first run, then remembered in $SETTINGS_FILE):
   --layout LAYOUT      Keyboard layout, e.g. us, gb, fr, de, or "us,fr" for several.

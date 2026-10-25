@@ -56,6 +56,40 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(boot.without_stock_splash(custom), custom)
         self.assertEqual(len(stock), 4)
 
+    def test_limine_theme_leads_and_is_idempotent(self):
+        text = ('timeout: 3\nwallpaper: boot():/old.png\nTERM_PALETTE: 000000\n\n'
+                '/Arch Linux\n    protocol: linux\n    cmdline: quiet\n')
+        themed = boot.limine_theme(text, 'boot():/limine/penumbra/background.png')
+        self.assertTrue(themed.startswith(boot.LIMINE_BEGIN + '\n'))
+        self.assertIn('wallpaper: boot():/limine/penumbra/background.png\n', themed)
+        # The user's copies stay visible but no longer override the block.
+        self.assertIn(boot.LIMINE_OFF + 'wallpaper: boot():/old.png\n', themed)
+        self.assertIn(boot.LIMINE_OFF + 'TERM_PALETTE: 000000\n', themed)
+        rest = text.replace('wallpaper', boot.LIMINE_OFF + 'wallpaper').replace('TERM_PALETTE', boot.LIMINE_OFF + 'TERM_PALETTE')
+        self.assertEqual(themed.split(boot.LIMINE_END + '\n\n', 1)[1], rest)
+        self.assertEqual(boot.limine_theme(themed, 'boot():/limine/penumbra/background.png'), themed)
+        moved = themed.replace(boot.LIMINE_BEGIN + '\n', '', 1) + boot.LIMINE_BEGIN + '\n'
+        with self.assertRaises(ValueError):
+            boot.limine_theme(moved, 'boot():/x.png')
+
+    def test_limine_splash_only_touches_linux_entries(self):
+        text = ('timeout: 5\n/Arch Linux\n    protocol: linux\n    cmdline: root=UUID=x rw quiet\n'
+                '/+Tools\n//Memtest\n    protocol: efi\n    path: boot():/memtest.efi\n'
+                '/Other kernel\n    PROTOCOL: Linux\n    kernel_cmdline: root=UUID=y splash\r\n')
+        updated = boot.limine_splash(text)
+        self.assertIn('    cmdline: root=UUID=x rw quiet splash\n', updated)
+        self.assertIn('kernel_cmdline: root=UUID=y splash\r\n', updated)
+        self.assertEqual(updated.replace(' splash\n', '\n'), text.replace(' splash\n', '\n'))
+        self.assertEqual(boot.limine_splash(updated), updated)
+        for bad in ('/A\n protocol: linux\n cmdline: ${ARGS}\n', '/A\n protocol: linux\n cmdline: quiet nosplash\n',
+                    '/A\n protocol: linux\n path: boot():/vmlinuz\n'):
+            with self.assertRaises(ValueError):
+                boot.limine_splash(bad)
+        uki = '/Arch\n protocol: efi\n path: boot():/EFI/Linux/arch.efi\n cmdline: quiet\n'
+        with self.assertRaises(ValueError):
+            boot.limine_splash(uki, uki=True)
+        self.assertEqual(boot.limine_splash(uki.replace('quiet', 'quiet splash'), uki=True), uki.replace('quiet', 'quiet splash'))
+
     def test_noninteractive_defaults_no(self):
         with patch.object(boot.os, 'isatty', return_value=False), patch('builtins.input') as read:
             self.assertFalse(boot.ask('Apply?'))
@@ -257,6 +291,73 @@ class IntegrationTests(unittest.TestCase):
             info.write_bytes(b'\x07\0\0\0' + 'systemd-boot\0'.encode('utf-16-le'))
             ask.return_value = True
             self.assertFalse(boot.grub_detected())
+
+    def limine_fixture(self, entries='/Arch Linux\n    protocol: linux\n    path: boot():/vmlinuz-linux\n    cmdline: root=UUID=x rw quiet\n    module_path: boot():/initramfs-linux.img\n'):
+        self.write('/boot/limine/limine.conf', 'timeout: 5\n\n' + entries)
+        self.write('/boot/limine/limine-bios.sys', 'stage\0Limine 12.9.4 (x86-64, BIOS)\0')
+        (self.root / 'boot/grub/grub.cfg').unlink()
+        (self.root / 'etc/default/grub').unlink()
+        self.original = self.snapshot()
+        return self.root / 'boot/limine/limine.conf'
+
+    def limine_patches(self):
+        return (patch.object(boot.shutil, 'which', side_effect=lambda c: None if c == 'limine-entry-tool' else '/bin/mock'),
+                patch.object(boot, 'boot_volumes', return_value=[self.root / 'boot']),
+                patch.object(boot, 'mount_of', return_value=self.root / 'boot'))
+
+    def test_limine_detection_needs_version_single_config_and_confirmation(self):
+        config = self.limine_fixture()
+        which, volumes, mount = self.limine_patches()
+        with which, volumes, mount, patch.object(boot, 'ask', return_value=True) as ask:
+            self.assertEqual(boot.limine_detected(), config)
+            ask.assert_called_once()
+            ask.return_value = False
+            self.assertIsNone(boot.limine_detected())
+            ask.return_value = True
+            self.write('/boot/limine/limine-bios.sys', 'stage\0Limine 11.4.1 (x86-64, BIOS)\0')
+            self.assertIsNone(boot.limine_detected())
+            self.write('/boot/limine/limine-bios.sys', 'stage\0Limine 12.0.0 (x86-64, BIOS)\0')
+            self.write('/boot/limine.conf', 'timeout: 1\n')
+            self.assertIsNone(boot.limine_detected())
+
+    def test_limine_theme_success_and_restore(self):
+        config = self.limine_fixture()
+        which, volumes, mount = self.limine_patches()
+        with which, volumes, mount:
+            boot.apply_limine(config)
+            first = config.read_text()
+            self.assertIn('wallpaper: boot():/limine/penumbra/background.png\n', first)
+            self.assertTrue((self.root / 'boot/limine/penumbra/background.png').is_file())
+            self.assertTrue(first.endswith(self.original['boot/limine/limine.conf'].decode()))
+            boot.apply_limine(config)
+            self.assertEqual(config.read_text(), first)
+        for backup in sorted((self.root / 'backups').iterdir(), key=lambda p: p.stat().st_mtime_ns, reverse=True):
+            boot.restore(backup)
+        self.assertEqual(self.snapshot(), self.original)
+        self.assertFalse((self.root / 'boot/limine/penumbra').exists())
+
+    def test_limine_plymouth_adds_splash_without_grub(self):
+        config = self.limine_fixture()
+        which, volumes, mount = self.limine_patches()
+        with which, volumes, mount, patch.object(boot, 'run', side_effect=self.fake_run), patch.object(boot, 'generate_grub') as generate, patch.object(boot.subprocess, 'check_output', return_value='usr/bin/plymouth\npenumbra.plymouth'):
+            boot.apply_plymouth(config)
+            generate.assert_not_called()
+        self.assertIn('cmdline: root=UUID=x rw quiet splash\n', config.read_text())
+        self.assertEqual((self.root / 'boot/initramfs-linux.img').read_text(), 'new image')
+        self.assertFalse((self.root / 'etc/default/grub').exists())
+        boot.restore(next((self.root / 'backups').iterdir()))
+        self.assertEqual(self.snapshot(), self.original)
+
+    def test_limine_entry_tool_needs_its_own_cmdline(self):
+        config = self.limine_fixture()
+        self.write('/etc/default/limine', 'KERNEL_CMDLINE[default]="quiet"\n')
+        before = self.snapshot()
+        _, volumes, mount = self.limine_patches()
+        with patch.object(boot.shutil, 'which', return_value='/bin/mock'), volumes, mount, patch.object(boot, 'run') as run:
+            with self.assertRaisesRegex(ValueError, 'KERNEL_CMDLINE'):
+                boot.apply_plymouth(config)
+            run.assert_not_called()
+        self.assertEqual(self.snapshot(), before)
 
     def test_combined_uki_and_initramfs_preset_is_rejected(self):
         with (self.root / 'etc/mkinitcpio.d/linux.preset').open('a') as f:

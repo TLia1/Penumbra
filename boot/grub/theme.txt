@@ -11,7 +11,7 @@ terminal-font: "Unifont Regular 16"
     top = 18%
     width = 60%
     height = 32
-    text = "N O C T U R N E"
+    text = "P E N U M B R A"
     font = "Unifont Regular 16"
     color = "#b69af7"
 }

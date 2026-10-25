@@ -1,28 +1,38 @@
 [Plymouth Theme]
 Name=Penumbra
-Description=A quieter orbit. Original violet orbital animation and native password dialogs.
+Description=A quieter orbit. The wallpaper's ringed planet with a moonlet, native password dialogs and update progress.
 ModuleName=two-step
 
 [two-step]
-Font=Sans 12
-TitleFont=Sans 24
-MonospaceFont=monospace 12
+# Arch's mkinitcpio hook copies the file behind Font into the initramfs; the other labels reuse it.
+Font=Inter Variable 12
+TitleFont=Inter Variable 20
+MonospaceFont=monospace 11
 ImageDir=/usr/share/plymouth/themes/penumbra
-DialogHorizontalAlignment=.5
-DialogVerticalAlignment=.38
-TitleHorizontalAlignment=.5
-TitleVerticalAlignment=.38
+# The planet and the password card share one spot; update titles sit above it.
 HorizontalAlignment=.5
-VerticalAlignment=.55
+VerticalAlignment=.45
+DialogHorizontalAlignment=.5
+DialogVerticalAlignment=.45
+TitleHorizontalAlignment=.5
+TitleVerticalAlignment=.2
 WatermarkHorizontalAlignment=.5
-WatermarkVerticalAlignment=.85
+WatermarkVerticalAlignment=.9
+MessageBelowAnimation=true
 Transition=none
 TransitionDuration=0.0
-BackgroundStartColor=0x0d0a12
-BackgroundEndColor=0x0d0a12
-ProgressBarBackgroundColor=0x352348
+# background.png is the sky glow; it is stretched to the screen over this edge colour.
+ScaleBackgroundImage=true
+BackgroundStartColor=0x07070b
+BackgroundEndColor=0x07070b
+ProgressBarBackgroundColor=0x231a31
 ProgressBarForegroundColor=0xb69af7
-MessageBelowAnimation=true
+ProgressBarWidth=320
+ProgressBarHeight=4
+ProgressBarHorizontalAlignment=.5
+ProgressBarVerticalAlignment=.64
+ConsoleLogBackgroundColor=0x0d0a12
+ConsoleLogTextColor=0xe4dced
 
 [boot-up]
 UseEndAnimation=false
@@ -37,7 +47,37 @@ UseEndAnimation=false
 UseFirmwareBackground=false
 
 [updates]
+SuppressMessages=true
 UseProgressBar=true
 ProgressBarShowPercentComplete=true
+UseEndAnimation=false
+UseFirmwareBackground=false
 Title=Installing updates
+SubTitle=Do not turn off your computer
+
+[system-upgrade]
+SuppressMessages=true
+UseProgressBar=true
+ProgressBarShowPercentComplete=true
+UseEndAnimation=false
+UseFirmwareBackground=false
+Title=Upgrading the system
+SubTitle=Do not turn off your computer
+
+[firmware-upgrade]
+SuppressMessages=true
+UseProgressBar=true
+ProgressBarShowPercentComplete=true
+UseEndAnimation=false
+UseFirmwareBackground=false
+Title=Upgrading firmware
+SubTitle=Do not turn off your computer
+
+[system-reset]
+SuppressMessages=true
+UseProgressBar=true
+ProgressBarShowPercentComplete=true
+UseEndAnimation=false
+UseFirmwareBackground=false
+Title=Resetting the system
 SubTitle=Do not turn off your computer

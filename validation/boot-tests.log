@@ -1,33 +1,71 @@
 test_ambiguous_hooks_rejected (test_boot.ConfigTests.test_ambiguous_hooks_rejected) ... ok
 test_dynamic_or_disabled_cmdline_rejected (test_boot.ConfigTests.test_dynamic_or_disabled_cmdline_rejected) ... ok
 test_hook_order_and_idempotence (test_boot.ConfigTests.test_hook_order_and_idempotence) ... ok
+test_limine_splash_only_touches_linux_entries (test_boot.ConfigTests.test_limine_splash_only_touches_linux_entries) ... ok
+test_limine_theme_leads_and_is_idempotent (test_boot.ConfigTests.test_limine_theme_leads_and_is_idempotent) ... ok
 test_noninteractive_defaults_no (test_boot.ConfigTests.test_noninteractive_defaults_no) ... ok
+test_remove_only_stock_uki_splash (test_boot.ConfigTests.test_remove_only_stock_uki_splash) ... ok
 test_splash_preserves_arguments_and_is_idempotent (test_boot.ConfigTests.test_splash_preserves_arguments_and_is_idempotent) ... ok
+test_uki_splash_preserves_quoted_arguments (test_boot.ConfigTests.test_uki_splash_preserves_quoted_arguments) ... ok
 test_build_failure_rolls_back_everything (test_boot.IntegrationTests.test_build_failure_rolls_back_everything) ... Apply? [y/N] — skipped (noninteractive)
-Boot backup: /tmp/tmp8p2jvh87/backups/20261022-175209-plymouth-rsimy3bb
+Boot backup: /tmp/tmp50rejrbw/backups/20261025-142356-plymouth-hgqex47f
 Boot theme failed; restoring previous files.
 ok
-test_changed_kernel_command_rejected_and_rolled_back (test_boot.IntegrationTests.test_changed_kernel_command_rejected_and_rolled_back) ... Restored files from /tmp/tmp8p2jvh87/backups/20261022-175209-plymouth-rsimy3bb. Installed packages were retained.
-Boot backup: /tmp/tmpojbc036u/backups/20261022-175209-grub-wc1t77p9
-Boot theme failed; restoring previous files.
-ok
+test_combined_uki_and_initramfs_preset_is_rejected (test_boot.IntegrationTests.test_combined_uki_and_initramfs_preset_is_rejected) ... ok
 test_dropin_is_rejected_before_changes (test_boot.IntegrationTests.test_dropin_is_rejected_before_changes) ... ok
-test_grub_success_and_restore (test_boot.IntegrationTests.test_grub_success_and_restore) ... Restored files from /tmp/tmpojbc036u/backups/20261022-175209-grub-wc1t77p9. Installed packages were retained.
-Boot backup: /tmp/tmptjeyvhc9/backups/20261022-175209-grub-lpreqx55
+test_fallback_grub_requires_loader_evidence_and_confirmation (test_boot.IntegrationTests.test_fallback_grub_requires_loader_evidence_and_confirmation) ... ok
+test_grub_preserves_dynamic_uki_menu_and_is_idempotent (test_boot.IntegrationTests.test_grub_preserves_dynamic_uki_menu_and_is_idempotent) ... Restored files from /tmp/tmp50rejrbw/backups/20261025-142356-plymouth-hgqex47f. Installed packages were retained.
+Firmware reports GRUB 2.16; EFI entry uses a fallback/custom path.
+Firmware reports GRUB 2.16; EFI entry uses a fallback/custom path.
+Active EFI entry is not clearly GRUB and firmware LoaderInfo does not identify GRUB.
+Boot backup: /tmp/tmpnrbm3uo0/backups/20261025-142356-grub-q5nlek4x
+Penumbra GRUB theme applied. Boot installation and timeout were preserved.
+Boot backup: /tmp/tmpnrbm3uo0/backups/20261025-142356-grub-vx6zpdof
+ok
+test_grub_success_and_restore (test_boot.IntegrationTests.test_grub_success_and_restore) ... Penumbra GRUB theme applied. Boot installation and timeout were preserved.
+Restored files from /tmp/tmpnrbm3uo0/backups/20261025-142356-grub-vx6zpdof. Installed packages were retained.
+Restored files from /tmp/tmpnrbm3uo0/backups/20261025-142356-grub-q5nlek4x. Installed packages were retained.
+Boot backup: /tmp/tmp45m75_xg/backups/20261025-142356-grub-8fjdr7ye
 ok
 test_grub_syntax_failure_restores_original (test_boot.IntegrationTests.test_grub_syntax_failure_restores_original) ... Penumbra GRUB theme applied. Boot installation and timeout were preserved.
-Restored files from /tmp/tmptjeyvhc9/backups/20261022-175209-grub-lpreqx55. Installed packages were retained.
-Boot backup: /tmp/tmp6w3xjboy/backups/20261022-175209-grub-r5jcyq5p
+Restored files from /tmp/tmp45m75_xg/backups/20261025-142356-grub-8fjdr7ye. Installed packages were retained.
+Boot backup: /tmp/tmpil7t663x/backups/20261025-142356-grub-6_0b7onc
 Boot theme failed; restoring previous files.
 ok
-test_success_stages_images_and_keeps_backup (test_boot.IntegrationTests.test_success_stages_images_and_keeps_backup) ... Restored files from /tmp/tmp6w3xjboy/backups/20261022-175209-grub-r5jcyq5p. Installed packages were retained.
-Boot backup: /tmp/tmp_u9x06ge/backups/20261022-175209-plymouth-gbdufgca
+test_limine_detection_needs_version_single_config_and_confirmation (test_boot.IntegrationTests.test_limine_detection_needs_version_single_config_and_confirmation) ... ok
+test_limine_entry_tool_needs_its_own_cmdline (test_boot.IntegrationTests.test_limine_entry_tool_needs_its_own_cmdline) ... ok
+test_limine_plymouth_adds_splash_without_grub (test_boot.IntegrationTests.test_limine_plymouth_adds_splash_without_grub) ... Restored files from /tmp/tmpil7t663x/backups/20261025-142356-grub-6_0b7onc. Installed packages were retained.
+Limine 12.9 configuration found: /tmp/tmpazs_fnqt/boot/limine/limine.conf
+Limine 12.9 configuration found: /tmp/tmpazs_fnqt/boot/limine/limine.conf
+Limine 12 or newer is required for its theme (deploy the updated Limine files first).
+Several limine.conf files found; which one Limine reads needs manual review: /tmp/tmpazs_fnqt/boot/limine/limine.conf, /tmp/tmpazs_fnqt/boot/limine.conf
+Boot backup: /tmp/tmpfqfhxma_/backups/20261025-142356-plymouth-3kqckiyc
 ok
-test_uki_preset_is_rejected_before_changes (test_boot.IntegrationTests.test_uki_preset_is_rejected_before_changes) ... ok
+test_limine_theme_success_and_restore (test_boot.IntegrationTests.test_limine_theme_success_and_restore) ... Penumbra Plymouth theme applied and initramfs rebuilt. Reboot when convenient.
+Restored files from /tmp/tmpfqfhxma_/backups/20261025-142356-plymouth-3kqckiyc. Installed packages were retained.
+Boot backup: /tmp/tmp2foc6twx/backups/20261025-142356-limine-krexdw61
+Penumbra Limine theme applied. Entries, timeout and default entry were preserved.
+Boot backup: /tmp/tmp2foc6twx/backups/20261025-142356-limine-oxvms6jk
+ok
+test_success_stages_images_and_keeps_backup (test_boot.IntegrationTests.test_success_stages_images_and_keeps_backup) ... Penumbra Limine theme applied. Entries, timeout and default entry were preserved.
+Restored files from /tmp/tmp2foc6twx/backups/20261025-142356-limine-oxvms6jk. Installed packages were retained.
+Restored files from /tmp/tmp2foc6twx/backups/20261025-142356-limine-krexdw61. Installed packages were retained.
+Boot backup: /tmp/tmpr6tlnlpp/backups/20261025-142356-plymouth-xc1icvpy
+ok
+test_uki_commandline_change_rolls_back (test_boot.IntegrationTests.test_uki_commandline_change_rolls_back) ... Penumbra Plymouth theme applied and initramfs rebuilt. Reboot when convenient.
+Restored files from /tmp/tmpr6tlnlpp/backups/20261025-142356-plymouth-xc1icvpy. Installed packages were retained.
+Boot backup: /tmp/tmpuvb61mqd/backups/20261025-142356-plymouth-6n_89wcp
+Boot theme failed; restoring previous files.
+ok
+test_uki_preflight_rejects_signature_and_changed_arguments (test_boot.IntegrationTests.test_uki_preflight_rejects_signature_and_changed_arguments) ... ok
+test_uki_preset_accepts_disabled_fallback_and_splash (test_boot.IntegrationTests.test_uki_preset_accepts_disabled_fallback_and_splash) ... ok
+test_uki_success_preserves_grub_and_restores (test_boot.IntegrationTests.test_uki_success_preserves_grub_and_restores) ... Restored files from /tmp/tmpuvb61mqd/backups/20261025-142356-plymouth-6n_89wcp. Installed packages were retained.
+Boot backup: /tmp/tmpvf7qtnr9/backups/20261025-142356-plymouth-m73os1tx
+ok
 
 ----------------------------------------------------------------------
-Ran 12 tests in 0.030s
+Ran 25 tests in 0.098s
 
 OK
 Penumbra Plymouth theme applied and initramfs rebuilt. Reboot when convenient.
-Restored files from /tmp/tmp_u9x06ge/backups/20261022-175209-plymouth-gbdufgca. Installed packages were retained.
+Restored files from /tmp/tmpvf7qtnr9/backups/20261025-142356-plymouth-m73os1tx. Installed packages were retained.

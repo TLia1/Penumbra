@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opt-in boot themes. Never installs GRUB or writes boot sectors/EFI entries."""
+"""Opt-in boot themes. Never installs GRUB or Limine, or writes boot sectors/EFI entries."""
 import argparse
 import datetime
 import fcntl
@@ -133,6 +133,15 @@ def preset_jobs(directory):
     return jobs
 
 
+def loader_info():
+    """The Boot Loader Interface name of the UEFI loader that ran, e.g. 'Limine 12.9.4'."""
+    info = Path('/sys/firmware/efi/efivars/LoaderInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f')
+    try:
+        return info.read_bytes()[4:].decode('utf-16-le').rstrip('\0')
+    except (OSError, UnicodeError):
+        return ''
+
+
 def grub_detected():
     required = ('grub-mkconfig', 'grub-script-check', 'grub-probe', 'grub-mkrelpath', 'findmnt')
     if not all(shutil.which(c) for c in required):
@@ -158,11 +167,7 @@ def grub_detected():
         if not entry or not re.search(r'grub[^\\/\s]*\.efi', entry[1], re.I):
             # Firmware fallback entries often name only the physical disk.
             # LoaderInfo identifies the loader that ran, independently of its filename.
-            info = Path('/sys/firmware/efi/efivars/LoaderInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f')
-            try:
-                loader = info.read_bytes()[4:].decode('utf-16-le').rstrip('\0')
-            except (OSError, UnicodeError):
-                loader = ''
+            loader = loader_info()
             if not loader.startswith('GRUB '):
                 print('Active EFI entry is not clearly GRUB and firmware LoaderInfo does not identify GRUB.')
                 return False
@@ -238,7 +243,10 @@ def restore(directory):
 
 def deploy(tx, source, dest):
     tx.save(dest)
-    shutil.copytree(source, dest, dirs_exist_ok=True)
+    # Replace rather than merge, so files a previous version shipped do not linger.
+    if dest.is_dir():
+        shutil.rmtree(dest)
+    shutil.copytree(source, dest)
 
 
 def generate_grub(tx):
@@ -334,6 +342,196 @@ def apply_grub():
     print('Penumbra GRUB theme applied. Boot installation and timeout were preserved.')
 
 
+LIMINE_BEGIN = '# BEGIN PENUMBRA LIMINE'
+LIMINE_END = '# END PENUMBRA LIMINE'
+# Prefix for the user's own copies of the options the block sets: Limine reads the first
+# copy of an option, and picks a random wallpaper when there are several.
+LIMINE_OFF = '#penumbra-off# '
+LIMINE_KEYS = {'wallpaper', 'wallpaper_style', 'backdrop', 'interface_branding',
+               'interface_branding_colour', 'interface_branding_color', 'interface_help_colour',
+               'interface_help_color', 'interface_help_colour_bright', 'interface_help_color_bright',
+               'term_palette', 'term_palette_bright', 'term_background', 'term_foreground',
+               'term_background_bright', 'term_foreground_bright', 'term_margin', 'term_margin_gradient'}
+# Where Limine looks for its configuration on each volume, in its own order.
+LIMINE_CONFIGS = ('boot/limine/limine.conf', 'boot/limine.conf', 'limine/limine.conf', 'limine.conf')
+LIMINE_EFI_CONFIGS = ('EFI/BOOT/limine.conf', 'EFI/limine/limine.conf')
+LIMINE_BIOS_STAGE = ('limine-bios.sys', 'limine/limine-bios.sys', 'boot/limine-bios.sys', 'boot/limine/limine-bios.sys')
+
+
+def boot_volumes():
+    """Mounted FAT volumes where Limine's configuration and artwork can live."""
+    volumes = []
+    for mount in ('/boot', '/efi', '/boot/efi'):
+        result = subprocess.run(['findmnt', '--noheadings', '--output', 'FSTYPE', '--mountpoint', mount],
+                                text=True, capture_output=True)
+        if result.returncode == 0 and result.stdout.strip() == 'vfat':
+            volumes.append(Path(mount))
+    return volumes
+
+
+def mount_of(path):
+    return Path(subprocess.check_output(['findmnt', '--noheadings', '--output', 'TARGET', '--target', str(path)], text=True).strip())
+
+
+def limine_version(volume):
+    """Version of the deployed Limine: firmware LoaderInfo on UEFI, the stage file on BIOS."""
+    if Path('/sys/firmware/efi').exists():
+        match = re.fullmatch(r'Limine (\d+)\.(\d+)\S*', loader_info())
+        return (int(match[1]), int(match[2])) if match else None
+    for name in LIMINE_BIOS_STAGE:
+        stage = volume / name
+        if stage.is_file():
+            match = re.search(rb'Limine (\d+)\.(\d+)\.\d+', stage.read_bytes())
+            return (int(match[1]), int(match[2])) if match else None
+    return None
+
+
+def limine_detected():
+    """Return the limine.conf of a confirmed Limine 12+ boot, else None."""
+    if not shutil.which('findmnt'):
+        return None
+    efi = Path('/sys/firmware/efi').exists()
+    if efi and not loader_info().startswith('Limine '):
+        return None
+    names = (LIMINE_EFI_CONFIGS if efi else ()) + LIMINE_CONFIGS
+    found = []
+    for volume in boot_volumes():
+        for name in names:
+            path = volume / name
+            # FAT names are case-insensitive, so one file can show up under two spellings.
+            if path.is_file() and not any(os.path.samefile(path, other) for other in found):
+                found.append(path)
+    if not found:
+        return None
+    if len(found) > 1:
+        print('Several limine.conf files found; which one Limine reads needs manual review: '
+              + ', '.join(map(str, found)))
+        return None
+    config = found[0]
+    if config.is_symlink():
+        return None
+    version = limine_version(mount_of(config))
+    if version is None or version < (12, 0):
+        # Limine 12 takes RRGGBB interface colours; older releases took a 0-7 index.
+        print('Limine 12 or newer is required for its theme (deploy the updated Limine files first).')
+        return None
+    print(f'Limine {version[0]}.{version[1]} configuration found: {config}')
+    if not ask(f'Confirm this machine boots with Limine and reads {config}'):
+        return None
+    return config
+
+
+def limine_theme(text, wallpaper):
+    """Put the managed appearance block first; switch off other copies of its options."""
+    lines = text.splitlines(keepends=True)
+    begins = [i for i, line in enumerate(lines) if line.rstrip('\r\n') == LIMINE_BEGIN]
+    ends = [i for i, line in enumerate(lines) if line.rstrip('\r\n') == LIMINE_END]
+    if begins or ends:
+        # Only replace our own leading block; never remove intervening user edits.
+        if begins != [0] or len(ends) != 1:
+            raise ValueError('Penumbra Limine block was edited/moved; review manually.')
+        lines = lines[ends[0] + 1:]
+        if lines and not lines[0].strip():
+            lines = lines[1:]
+    for index, line in enumerate(lines):
+        match = re.match(r'\s*([A-Za-z_]+)\s*:', line)
+        if match and match[1].lower() in LIMINE_KEYS:
+            lines[index] = LIMINE_OFF + line
+    block = f"""{LIMINE_BEGIN}
+# Appearance only: entries, timeout and default entry are unchanged.
+wallpaper: {wallpaper}
+wallpaper_style: centered
+backdrop: 07070b
+interface_branding: P E N U M B R A
+interface_branding_colour: b8a4cf
+interface_help_colour: b69af7
+interface_help_colour_bright: dac5ff
+term_palette: 0d0a12;ef8fa4;a5ccb3;e5c89a;a1a5e9;b69af7;9ccbd2;ded5e8
+term_palette_bright: 71637f;f7a3b6;b9e0c6;f4dab0;b8bdf5;ceb4ff;b4e0e5;faf5ff
+term_foreground: c8bbde
+term_foreground_bright: f3eaff
+term_background: ff000000
+term_background_bright: ff000000
+term_margin: 0
+term_margin_gradient: 0
+{LIMINE_END}
+
+"""
+    return block + ''.join(lines)
+
+
+def limine_entries(text):
+    """Yield (protocol, [line indexes of cmdline options]) for each menu entry."""
+    lines = text.splitlines(keepends=True)
+    starts = [i for i, line in enumerate(lines) if re.match(r'\s*/', line)] + [len(lines)]
+    for start, stop in zip(starts, starts[1:]):
+        protocol, cmdlines = None, []
+        for index in range(start + 1, stop):
+            match = re.match(r'\s*([A-Za-z_]+)\s*:\s*(.*?)\s*$', lines[index])
+            if not match:
+                continue
+            key = match[1].lower()
+            if key == 'protocol':
+                protocol = match[2].lower()
+            elif key in ('cmdline', 'kernel_cmdline'):
+                cmdlines.append(index)
+        yield protocol, cmdlines
+
+
+def limine_splash(text, uki=False):
+    """Append splash to every Linux entry's command line; other entries stay as they are."""
+    lines = text.splitlines(keepends=True)
+    for protocol, cmdlines in limine_entries(text):
+        if uki:
+            # Limine hands an EFI entry's cmdline to the UKI, which then ignores its own.
+            if protocol in ('efi', 'uefi', 'efi_chainload') and any('splash' not in lines[i].split(':', 1)[1].split() for i in cmdlines):
+                raise ValueError('A Limine EFI entry passes its own command line without splash; add it there manually.')
+            continue
+        if protocol != 'linux':
+            continue
+        if not cmdlines:
+            raise ValueError('A Limine Linux entry has no cmdline; add splash manually.')
+        for index in cmdlines:
+            key, value = lines[index].split(':', 1)
+            ending = value[len(value.rstrip('\r\n')):]
+            words = value.split()
+            if '${' in value:
+                raise ValueError('Limine command lines built from macros require manual setup.')
+            if any(w in ('plymouth.enable=0', 'rd.plymouth=0', 'nosplash') for w in words):
+                raise ValueError('Plymouth is explicitly disabled in a Limine command line.')
+            if 'splash' not in words:
+                lines[index] = key + ':' + value.rstrip() + ' splash' + ending
+    return ''.join(lines)
+
+
+def limine_entry_tool():
+    # limine-entry-tool (limine-mkinitcpio-hook, limine-snapper-sync) rewrites entries from
+    # /etc/default/limine, so command lines belong there rather than in limine.conf.
+    return Path('/etc/default/limine').exists() or bool(shutil.which('limine-entry-tool'))
+
+
+def replace_text(tx, destination, text):
+    """Swap in new contents through a staged file, so a failed write leaves the original."""
+    tx.save(destination)
+    staged = tx.stage(destination)
+    staged.write_text(text)
+    os.replace(staged, destination)
+
+
+def apply_limine(config):
+    volume = mount_of(config)
+    artwork = config.parent / 'penumbra'
+    wallpaper = 'boot():/' + str((artwork / 'background.png').relative_to(volume))
+    if not re.fullmatch(r'boot\(\):/[A-Za-z0-9_./-]+', wallpaper):
+        raise ValueError('Unsupported Limine artwork path.')
+    with Transaction('limine') as tx:
+        deploy(tx, ROOT / 'boot/limine', artwork)
+        replace_text(tx, config, limine_theme(config.read_text(), wallpaper))
+    print('Penumbra Limine theme applied. Entries, timeout and default entry were preserved.')
+    if limine_entry_tool():
+        print('limine-entry-tool keeps global options; if an update drops the theme, run --boot-only again.')
+
+
 def uki_section(image, section):
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / 'section'
@@ -412,7 +610,8 @@ def stock_splash_preset_updates(directory):
     return updates
 
 
-def apply_plymouth():
+def apply_plymouth(limine=None):
+    """Install the splash; `limine` is the confirmed limine.conf, otherwise GRUB boots."""
     if not shutil.which('mkinitcpio') or not Path('/usr/lib/initcpio/install/plymouth').is_file():
         raise ValueError('Supported mkinitcpio Plymouth hook is missing.')
     if not Path('/usr/lib/plymouth/two-step.so').is_file():
@@ -422,7 +621,8 @@ def apply_plymouth():
     if list(Path('/etc/mkinitcpio.conf.d').glob('*.conf')):
         raise ValueError('mkinitcpio drop-ins require manual setup; no hooks changed.')
     config = Path('/etc/mkinitcpio.conf')
-    defaults = Path('/etc/default/grub')
+    # The boot loader's own copy of the kernel command line, which gains splash.
+    defaults = limine or Path('/etc/default/grub')
     hooks = plymouth_hooks(config.read_text())
     jobs = preset_jobs(Path('/etc/mkinitcpio.d'))
     uki_jobs = [job for job in jobs if job[1].suffix == '.efi']
@@ -431,7 +631,15 @@ def apply_plymouth():
     for _, image, _ in uki_jobs:
         check_uki(image)
     source = Path('/etc/kernel/cmdline')
-    cmdline = uki_splash_cmdline(source.read_text()) if uki_jobs else splash_defaults(defaults.read_text())
+    if uki_jobs:
+        cmdline = uki_splash_cmdline(source.read_text())
+    elif not limine:
+        cmdline = splash_defaults(defaults.read_text())
+    if limine:
+        entries = limine_splash(defaults.read_text(), uki=bool(uki_jobs))
+        if entries != defaults.read_text() and limine_entry_tool():
+            raise ValueError('limine-entry-tool manages these entries: add splash to KERNEL_CMDLINE '
+                             'in /etc/default/limine, regenerate them, then retry.')
     preset_updates = stock_splash_preset_updates(Path('/etc/mkinitcpio.d')) if uki_jobs else {}
     if uki_jobs:
         jobs = [(kernel, image, without_stock_splash(options)) for kernel, image, options in jobs]
@@ -454,9 +662,18 @@ def apply_plymouth():
         for path, updated in preset_updates.items():
             tx.save(path)
             path.write_text(updated)
-        deploy(tx, ROOT / 'boot/plymouth', Path('/usr/share/plymouth/themes/penumbra'))
+        theme = Path('/usr/share/plymouth/themes/penumbra')
+        deploy(tx, ROOT / 'boot/plymouth', theme)
+        # Keyboard layout names are drawn from a sprite sheet whose offsets are compiled into
+        # Plymouth, so only the packaged sheet can match; without one the layout is not shown.
+        keymaps = Path('/usr/share/plymouth/themes/spinner/keymap-render.png')
+        if keymaps.is_file():
+            shutil.copy2(keymaps, theme / 'keymap-render.png')
         config.write_text(hooks)
-        if not uki_jobs:
+        if limine:
+            if entries != defaults.read_text():
+                replace_text(tx, defaults, entries)
+        elif not uki_jobs:
             defaults.write_text(cmdline)
         run('plymouth-set-default-theme', 'penumbra')
         staged_images = []
@@ -479,7 +696,8 @@ def apply_plymouth():
             os.chmod(stage, image.stat().st_mode & 0o777)
             staged_images.append((stage, image))
         # UKIs carry their command line and initrd; keep their existing GRUB chainload entries.
-        if not uki_jobs:
+        # Limine entries name the images directly, so they need no regeneration.
+        if not uki_jobs and not limine:
             generate_grub(tx)
         for stage, image in staged_images:
             os.replace(stage, image)
@@ -500,8 +718,13 @@ def main():
                 parser.error('Choose a backup directory under ' + str(BACKUPS))
             restore(directory)
             return
-        available = grub_detected()
-        print('GRUB: ' + ('verified/confirmed.' if available else 'not verified; boot configuration will be skipped.'))
+        limine = limine_detected()
+        print('Limine: ' + ('verified/confirmed.' if limine else 'not verified; its theme will be skipped.'))
+        # A confirmed Limine boot settles which loader ran; GRUB files may still be installed.
+        available = not limine and grub_detected()
+        print('GRUB: ' + ('verified/confirmed.' if available else 'not in use or not verified; its theme will be skipped.'))
+        if limine and ask('Apply the Penumbra Limine theme (back up limine.conf; entries unchanged)'):
+            apply_limine(limine)
         if available and ask('Apply the Penumbra GRUB theme (back up and preserve existing menu)'):
             apply_grub()
         installed = subprocess.run(['pacman', '-Qq', 'plymouth'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
@@ -509,10 +732,10 @@ def main():
         if not installed and ask('Install Plymouth from the configured Arch repositories'):
             run('pacman', '-S', '--needed', 'plymouth')
             installed = True
-        if installed and available and ask('Apply Penumbra to Plymouth (add splash/hook and rebuild initramfs)'):
-            apply_plymouth()
-        elif installed and not available:
-            print('Plymouth theme is in boot/plymouth; boot integration requires a verified supported GRUB setup.')
+        if installed and (available or limine) and ask('Apply Penumbra to Plymouth (add splash/hook and rebuild initramfs)'):
+            apply_plymouth(limine)
+        elif installed and not (available or limine):
+            print('Plymouth theme is in boot/plymouth; boot integration requires a verified GRUB or Limine setup.')
 
 
 if __name__ == '__main__':
