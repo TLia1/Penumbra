@@ -56,6 +56,25 @@ Rectangle {
         onExited: root.wheelRest = 0
     }
 
+    // An active capsule takes the focused window's border: violet shading towards violetDeep.
+    Rectangle {
+        anchors.fill: parent
+        radius: root.radius
+        opacity: root.active ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: Theme.fast } }
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0; color: Theme.violetBright }
+            GradientStop { position: 1; color: Qt.tint(Theme.violet, Theme.alpha(Theme.violetDeep, 0.4)) }
+        }
+    }
+    // The lit top edge the panels have, so the bar reads as the same glass.
+    GlassEdge {
+        radius: root.radius
+        strength: root.active ? 0.55 : 0.2
+    }
+
     RowLayout {
         id: row
         anchors.centerIn: parent

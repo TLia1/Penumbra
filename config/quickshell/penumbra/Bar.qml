@@ -107,65 +107,20 @@ PanelWindow {
             model: Hyprland.workspaces.values
                 .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
                 .sort((a, b) => a.id - b.id)
-            // The number, then the icons of the apps open there (three at most).
             delegate: Capsule {
                 id: workspace
                 required property var modelData
                 readonly property bool current: modelData.active && modelData.monitor?.name === bar.screen.name
-                readonly property var icons: {
-                    const ids = modelData.toplevels.values.map(t => t.wayland?.appId || t.lastIpcObject?.class || "");
-                    return [...new Set(ids.filter(id => id))]
-                        .map(id => Quickshell.iconPath(DesktopEntries.heuristicLookup(id)?.icon ?? id, true))
-                        .filter(icon => icon !== "");
-                }
-                implicitWidth: Math.max(current ? 52 : Theme.barHeight, workspaceRow.implicitWidth + 26)
+                implicitWidth: Math.max(current ? 52 : Theme.barHeight, workspaceLabel.implicitWidth + 26)
                 padding: 0
                 active: current
                 color: current ? Theme.violet : modelData.urgent ? Theme.rose : (hovered ? Theme.hover : Theme.glass)
-                tip: icons.length > 3 ? `${modelData.toplevels.values.length} windows` : ""
                 onClicked: modelData.activate()
-                RowLayout {
-                    id: workspaceRow
-                    spacing: 6
-                    Label {
-                        text: workspace.modelData.name
-                        color: workspace.current || workspace.modelData.urgent ? Theme.violetInk : workspace.hovered ? Theme.text : Theme.subtle
-                        font.weight: workspace.current ? Font.Bold : Font.DemiBold
-                    }
-                    Repeater {
-                        model: workspace.icons.slice(0, 3)
-                        delegate: Item {
-                            required property string modelData
-                            implicitWidth: 15
-                            implicitHeight: 15
-                            IconImage {
-                                id: appIcon
-                                anchors.fill: parent
-                                source: parent.modelData
-                                asynchronous: true
-                                visible: false
-                            }
-                            // Tinted violet like the tray until the workspace is current or hovered.
-                            MultiEffect {
-                                readonly property bool lit: workspace.current || workspace.hovered
-                                anchors.fill: parent
-                                source: appIcon
-                                saturation: lit ? 0 : -1
-                                colorization: lit ? 0 : 0.35
-                                colorizationColor: Theme.violet
-                                brightness: lit ? 0 : 0.1
-                                opacity: lit ? 1 : 0.85
-                                Behavior on saturation { NumberAnimation { duration: Theme.fast } }
-                                Behavior on colorization { NumberAnimation { duration: Theme.fast } }
-                            }
-                        }
-                    }
-                    Label {
-                        visible: workspace.icons.length > 3
-                        text: "+" + (workspace.icons.length - 3)
-                        font.pixelSize: Theme.textTiny
-                        color: workspace.current ? Theme.violetInk : Theme.muted
-                    }
+                Label {
+                    id: workspaceLabel
+                    text: workspace.modelData.name
+                    color: workspace.current || workspace.modelData.urgent ? Theme.violetInk : workspace.hovered ? Theme.text : Theme.subtle
+                    font.weight: workspace.current ? Font.Bold : Font.DemiBold
                 }
             }
         }
