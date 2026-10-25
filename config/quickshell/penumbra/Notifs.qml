@@ -9,6 +9,10 @@ Singleton {
 
     property bool dnd: false
     property var popups: []
+    // The history keeps this many notifications; older ones expire.
+    readonly property int limit: 50
+    // When each notification arrived (Date.now()), by id.
+    property var received: ({})
     // Newest first.
     readonly property var history: server.trackedNotifications.values.slice().reverse()
     readonly property int count: history.length
@@ -37,6 +41,26 @@ Singleton {
     function hidePopup(n) {
         popups = popups.filter(p => p !== n);
     }
+    // A popup timed out: transient notifications go away instead of into the history.
+    function retire(n) {
+        hidePopup(n);
+        if (n.transient)
+            n.expire();
+    }
+    // "now", "5 min", "2 h", "yesterday" or the date; `now` is passed in so callers update with the clock.
+    function age(n, now) {
+        const at = received[n.id];
+        if (!at)
+            return "";
+        const minutes = Math.floor((now - at) / 60000);
+        if (minutes < 1)
+            return "now";
+        if (minutes < 60)
+            return `${minutes} min`;
+        if (minutes < 24 * 60)
+            return `${Math.floor(minutes / 60)} h`;
+        return minutes < 48 * 60 ? "yesterday" : Qt.formatDate(new Date(at), "d MMM");
+    }
     // Milliseconds a popup stays up (expireTimeout is already in ms); critical ones wait for the user.
     function timeout(n) {
         if (n.urgency === NotificationUrgency.Critical)
@@ -56,9 +80,17 @@ Singleton {
 
         onNotification: n => {
             n.tracked = true;
+            root.received = Object.assign({}, root.received, { [n.id]: Date.now() });
             n.closed.connect(() => root.hidePopup(n));
-            if (!root.dnd || n.urgency === NotificationUrgency.Critical)
+            const shown = !root.dnd || n.urgency === NotificationUrgency.Critical;
+            if (shown)
                 root.popups = [n, ...root.popups].slice(0, 4);
+            else if (n.transient)
+                Qt.callLater(() => n.expire());
+            // Oldest first; keep the newest `limit`.
+            const all = server.trackedNotifications.values;
+            for (const old of all.slice(0, Math.max(0, all.length - root.limit)))
+                old.expire();
         }
     }
 }

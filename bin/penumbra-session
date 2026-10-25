@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
+# Start the Penumbra desktop components when Hyprland starts; `restart` restarts the shell.
 set -u
-export QT_QPA_PLATFORMTHEME=qt6ct GTK_THEME=Breeze-Dark XCURSOR_THEME=Penumbra-Cursors XCURSOR_SIZE=28
+export QT_QPA_PLATFORMTHEME=qt6ct XCURSOR_THEME=Penumbra-Cursors XCURSOR_SIZE=28
 mkdir -p "$HOME/.local/state/penumbra"
 exec 9>"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/penumbra-session.lock"
 flock -n 9 || exit 0
+# The shell runs as a systemd user service, so it needs this session's environment. PATH lets
+# commands from the launcher find ~/.local/bin.
+dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP \
+ HYPRLAND_INSTANCE_SIGNATURE PATH QT_QPA_PLATFORMTHEME XCURSOR_THEME XCURSOR_SIZE
+# Older Penumbra versions exported GTK_THEME, which breaks libadwaita apps.
+systemctl --user unset-environment GTK_THEME
+# A shell started by hand (or by an older Penumbra) would hold the notification and polkit names.
+pkill -u "$UID" -f '^quickshell -c penumbra$' || true
 if [[ ${1:-} = restart ]]; then
-    pkill -x quickshell || true
-    for attempt in {1..20}; do
-        pgrep -u "$UID" -x quickshell >/dev/null || break
-        sleep 0.1
-    done
+ systemctl --user reset-failed penumbra-shell.service 2>/dev/null
+ systemctl --user restart penumbra-shell.service
+ exit
 fi
 start() {
  local process=$1; shift
@@ -17,13 +24,14 @@ start() {
   nohup "$@" >"$HOME/.local/state/penumbra/$process.log" 2>&1 9>&- &
  fi
 }
-dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP QT_QPA_PLATFORMTHEME GTK_THEME XCURSOR_THEME XCURSOR_SIZE
 hyprctl setcursor Penumbra-Cursors 28 >/dev/null
 start awww-daemon awww-daemon
 # The shell is the polkit agent too; an older KDE agent would hold the registration.
 pkill -u "$UID" -f '^/usr/lib/polkit-kde-authentication-agent-1' || true
-# Bar, notifications, OSD, control center, launcher, overlays, lock screen and polkit agent.
-start quickshell quickshell -c penumbra
+# Bar, notifications, OSD, control center, launcher, overlays, lock screen and polkit agent;
+# systemd restarts it if it dies (see ~/.config/systemd/user/penumbra-shell.service).
+systemctl --user reset-failed penumbra-shell.service 2>/dev/null
+systemctl --user restart penumbra-shell.service
 start hypridle hypridle
 # Clipboard history for text and images.
 if ! pgrep -u "$UID" -f "^wl-paste --type text --watch cliphist store" >/dev/null; then

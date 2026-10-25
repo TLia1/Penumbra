@@ -73,8 +73,7 @@ PanelWindow {
             const scored = apps.map(e => ({ entry: e, score: score(e, q) })).filter(s => s.score > 0);
             scored.sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name));
             list = list.concat(scored.slice(0, 60).map(s => ({ kind: "app", entry: s.entry })));
-            if (q && list.length === 0)
-                list.push({ kind: "run", command: text.trim() });
+            // Nothing runs unless asked for with `>`: a typo like "reboot" must not reboot.
         }
         results = list;
         view.currentIndex = 0;
@@ -172,14 +171,14 @@ PanelWindow {
         if (item.kind === "app") {
             launch(item.entry);
         } else if (item.kind === "run") {
-            Quickshell.execDetached(alternate ? ["kitty", "--hold", "bash", "-c", item.command] : ["bash", "-c", item.command]);
+            Ui.spawn(alternate ? ["kitty", "--hold", "bash", "-c", item.command] : ["bash", "-c", item.command]);
         } else if (item.kind === "calc") {
-            Quickshell.execDetached(["wl-copy", String(item.value)]);
+            Ui.spawn(["wl-copy", String(item.value)]);
         } else if (item.kind === "clip") {
-            Quickshell.execDetached(["bash", "-c", 'printf "%s" "$1" | cliphist decode | wl-copy', "_", item.clip.line]);
+            Ui.spawn(["bash", "-c", 'printf "%s" "$1" | cliphist decode | wl-copy', "_", item.clip.line]);
         } else if (item.kind === "char") {
             // Typed into the focused window once the launcher lets go of the keyboard, else copied.
-            Quickshell.execDetached(["bash", "-c",
+            Ui.spawn(["bash", "-c",
                 'if [ "$2" = type ] && command -v wtype >/dev/null; then sleep 0.15; printf "%s" "$1" | wtype -; else printf "%s" "$1" | wl-copy; fi',
                 "_", item.char.char, alternate || !Ui.hasTyping ? "copy" : "type"]);
             picks = Object.assign({}, picks, { [item.char.char]: (picks[item.char.char] ?? 0) + 1 });
@@ -189,7 +188,7 @@ PanelWindow {
     function launch(entry) {
         // Field codes (%u, %F…) stand for files and URLs; there are none to pass.
         const command = entry.command.filter(arg => !/^%[a-zA-Z]$/.test(arg));
-        Quickshell.execDetached({
+        Ui.spawn({
             command: entry.runInTerminal ? ["kitty", "--", ...command] : command,
             workingDirectory: entry.workingDirectory || Quickshell.env("HOME")
         });
@@ -303,7 +302,7 @@ PanelWindow {
     // Faint enough that the glass rule leaves it unblurred; only the card is frosted.
     Rectangle {
         anchors.fill: parent
-        color: Qt.rgba(7 / 255, 7 / 255, 11 / 255, 0.26)
+        color: Theme.alpha(Theme.scrim, 0.26)
         opacity: card.opacity
         MouseArea {
             anchors.fill: parent
@@ -443,7 +442,7 @@ PanelWindow {
                 highlightMoveDuration: Theme.fast
                 highlight: Rectangle {
                     radius: Theme.radiusSmall
-                    color: Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.16)
+                    color: Theme.line
                     border.color: Theme.lineStrong
                 }
                 delegate: Item {
@@ -580,7 +579,7 @@ PanelWindow {
                 highlightMoveDuration: Theme.fast
                 highlight: Rectangle {
                     radius: Theme.radiusSmall
-                    color: Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.16)
+                    color: Theme.line
                     border.color: Theme.lineStrong
                 }
                 delegate: Item {
@@ -649,6 +648,8 @@ PanelWindow {
                             return "Install the unicode-emoji package for the emoji list";
                         if (root.characters)
                             return "Nothing matches";
+                        if (search.text.trim() && !search.text.startsWith(">"))
+                            return "No application matches · start with > to run it as a command";
                         return "Type to search";
                     }
                     color: Theme.muted

@@ -87,7 +87,7 @@ ColumnLayout {
                 Layout.preferredWidth: 1 // equal halves
                 implicitHeight: 118
                 radius: Theme.radius
-                color: current ? Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.12) : area.containsMouse ? Theme.hover : Theme.raised
+                color: current ? Theme.alpha(Theme.violet, 0.12) : area.containsMouse ? Theme.hover : Theme.raised
                 border.width: current ? 2 : 1
                 border.color: current ? Theme.violet : Theme.line
                 Behavior on color { ColorAnimation { duration: Theme.fast } }

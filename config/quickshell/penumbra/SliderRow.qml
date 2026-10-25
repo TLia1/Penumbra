@@ -77,7 +77,7 @@ RowLayout {
             width: slider.pressed ? 18 : 16
             height: width
             radius: Theme.corner(width / 2)
-            color: "#f3edff"
+            color: Theme.white
             border.color: Theme.violet
             border.width: 2
             Behavior on width { NumberAnimation { duration: Theme.fast } }

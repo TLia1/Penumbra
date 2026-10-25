@@ -71,6 +71,30 @@ Singleton {
     function refreshBrightness() {
         backlight.running = true;
     }
+    // Brightness keys: 5% steps, never down to black; the popup shows the result.
+    Process {
+        id: brightnessStep
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const parts = text.trim().split(",");
+                if (parts.length < 4)
+                    return;
+                root.brightness = parseInt(parts[3]);
+                Ui.showOsd("brightness", root.brightness, false);
+            }
+        }
+    }
+    function stepBrightness(action) {
+        if (root.brightness < 0)
+            return false;
+        if (action === "current") {
+            Ui.showOsd("brightness", root.brightness, false);
+            return true;
+        }
+        brightnessStep.command = ["brightnessctl", "-m", "--class=backlight", "--min-value=1", "set", action === "up" ? "5%+" : "5%-"];
+        brightnessStep.running = true;
+        return true;
+    }
     function setBrightness(percent) {
         root.brightness = Math.max(1, Math.round(percent));
         brightnessDebounce.restart();

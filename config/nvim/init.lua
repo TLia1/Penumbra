@@ -54,3 +54,6 @@ vim.api.nvim_create_autocmd('VimEnter', {
     end
   end,
 })
+-- Your own settings: ~/.config/nvim/lua/user.lua runs last and survives ./install.sh.
+local user = vim.fn.stdpath('config') .. '/lua/user.lua'
+if vim.uv.fs_stat(user) then dofile(user) end

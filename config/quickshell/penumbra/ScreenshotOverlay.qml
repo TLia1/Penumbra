@@ -108,7 +108,7 @@ PanelWindow {
 
         // Dim everything but the target: above, below, left and right of it.
         component Shade: Rectangle {
-            color: Qt.rgba(7 / 255, 7 / 255, 11 / 255, 0.5)
+            color: Theme.alpha(Theme.scrim, 0.5)
         }
         Shade { width: root.width; height: Math.max(0, root.target.y) }
         Shade {
@@ -240,7 +240,7 @@ PanelWindow {
                     implicitWidth: editRow.implicitWidth + 24
                     implicitHeight: 38
                     radius: Theme.corner(19)
-                    color: root.annotate ? Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.2) : editArea.containsMouse ? Theme.hover : "transparent"
+                    color: root.annotate ? Theme.alpha(Theme.violet, 0.2) : editArea.containsMouse ? Theme.hover : "transparent"
                     border.color: root.annotate ? Theme.violet : "transparent"
                     RowLayout {
                         id: editRow

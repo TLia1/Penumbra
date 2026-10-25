@@ -40,6 +40,11 @@ ShellRoot {
         function flash(kind: string, value: int, muted: bool): void {
             Ui.showOsd(kind, value, muted);
         }
+        // What the volume, microphone and brightness keys do: penumbra-osd calls this first.
+        // `action` is up, down, mute or current (just show the popup).
+        function adjust(control: string, action: string): bool {
+            return control === "brightness" ? Sys.stepBrightness(action) : Devices.adjust(control, action);
+        }
     }
 
     IpcHandler {

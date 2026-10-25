@@ -42,7 +42,7 @@ PanelWindow {
                 Timer {
                     interval: Notifs.timeout(card.modelData)
                     running: interval > 0 && !card.hoveredCard
-                    onTriggered: Notifs.hidePopup(card.modelData)
+                    onTriggered: Notifs.retire(card.modelData)
                 }
                 readonly property bool hoveredCard: hover.hovered
                 HoverHandler { id: hover }

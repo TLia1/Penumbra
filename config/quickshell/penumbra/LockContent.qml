@@ -49,9 +49,9 @@ Rectangle {
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
-            GradientStop { position: 0; color: Qt.rgba(13 / 255, 10 / 255, 18 / 255, 0.25) }
-            GradientStop { position: 0.55; color: Qt.rgba(13 / 255, 10 / 255, 18 / 255, 0.35) }
-            GradientStop { position: 1; color: Qt.rgba(13 / 255, 10 / 255, 18 / 255, 0.78) }
+            GradientStop { position: 0; color: Theme.alpha(Theme.base, 0.25) }
+            GradientStop { position: 0.55; color: Theme.alpha(Theme.base, 0.35) }
+            GradientStop { position: 1; color: Theme.alpha(Theme.base, 0.78) }
         }
     }
 
@@ -225,6 +225,31 @@ Rectangle {
                     NumberAnimation { target: field; property: "Layout.leftMargin"; to: -14; duration: 70 }
                     NumberAnimation { target: field; property: "Layout.leftMargin"; to: 10; duration: 60 }
                     NumberAnimation { target: field; property: "Layout.leftMargin"; to: 0; duration: 60 }
+                }
+            }
+
+            // With several keyboard layouts, the one the password is typed in; click to switch.
+            Rectangle {
+                Layout.alignment: Qt.AlignHCenter
+                visible: Devices.layouts.length > 1
+                implicitWidth: layoutRow.implicitWidth + 24
+                implicitHeight: 28
+                radius: Theme.corner(14)
+                color: layoutArea.containsMouse ? Theme.hover : Theme.glass
+                border.color: Theme.line
+                RowLayout {
+                    id: layoutRow
+                    anchors.centerIn: parent
+                    spacing: 6
+                    Glyph { text: "󰌌"; size: 13; color: Theme.textSoft }
+                    Label { text: Devices.layoutCode; font.family: Theme.mono; font.weight: Font.Bold; color: Theme.textSoft }
+                }
+                MouseArea {
+                    id: layoutArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { Devices.nextLayout(); input.forceActiveFocus(); }
                 }
             }
 

@@ -18,7 +18,7 @@ Rectangle {
 
     implicitHeight: column.implicitHeight + 16
     radius: Theme.radiusSmall
-    color: highlighted ? Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.16) : area.containsMouse || expanded ? Theme.raised : "transparent"
+    color: highlighted ? Theme.line : area.containsMouse || expanded ? Theme.raised : "transparent"
     border.color: highlighted ? Theme.lineStrong : expanded ? Theme.line : "transparent"
     Behavior on color { ColorAnimation { duration: Theme.fast } }
     Behavior on implicitHeight { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }

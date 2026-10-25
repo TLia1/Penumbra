@@ -47,15 +47,15 @@ PanelWindow {
     Rectangle {
         id: backdrop
         anchors.fill: parent
-        color: Qt.rgba(7 / 255, 7 / 255, 11 / 255, 0.62)
+        color: Theme.alpha(Theme.scrim, 0.62)
         opacity: Ui.sessionOpen ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.normal } }
 
         focus: Ui.sessionOpen
         Keys.onEscapePressed: Ui.sessionOpen = false
-        Keys.onLeftPressed: { root.selected = (root.selected + 4) % 5; root.armed = -1; }
-        Keys.onRightPressed: { root.selected = (root.selected + 1) % 5; root.armed = -1; }
-        Keys.onTabPressed: { root.selected = (root.selected + 1) % 5; root.armed = -1; }
+        Keys.onLeftPressed: { root.selected = (root.selected + root.entries.length - 1) % root.entries.length; root.armed = -1; }
+        Keys.onRightPressed: { root.selected = (root.selected + 1) % root.entries.length; root.armed = -1; }
+        Keys.onTabPressed: { root.selected = (root.selected + 1) % root.entries.length; root.armed = -1; }
         Keys.onReturnPressed: root.choose(root.selected)
         Keys.onEnterPressed: root.choose(root.selected)
         Keys.onSpacePressed: root.choose(root.selected)
@@ -91,7 +91,7 @@ PanelWindow {
                         implicitWidth: 132
                         implicitHeight: 140
                         radius: Theme.radiusLarge
-                        color: isArmed ? Qt.rgba(239 / 255, 143 / 255, 164 / 255, 0.22) : current ? Theme.raised : Theme.glassStrong
+                        color: isArmed ? Theme.alpha(Theme.rose, 0.22) : current ? Theme.raised : Theme.glassStrong
                         border.width: current ? 2 : 1
                         border.color: isArmed ? Theme.rose : current ? Theme.violet : Theme.line
                         scale: current ? 1.04 : 1

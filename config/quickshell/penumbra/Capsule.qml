@@ -14,7 +14,10 @@ Rectangle {
     readonly property bool hovered: mouse.containsMouse
 
     signal clicked(var mouse)
-    signal scrolled(int delta)
+    // One step per wheel notch: +1 up, -1 down. Touchpads send many small deltas, which add up
+    // to a notch (120) before anything happens.
+    signal scrolled(int step)
+    property int wheelRest: 0
 
     implicitHeight: Theme.barHeight
     implicitWidth: row.implicitWidth + padding * 2
@@ -34,7 +37,15 @@ Rectangle {
         acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
         cursorShape: root.interactive ? Qt.PointingHandCursor : Qt.ArrowCursor
         onClicked: m => root.clicked(m)
-        onWheel: w => root.scrolled(w.angleDelta.y)
+        onWheel: w => {
+            root.wheelRest += w.angleDelta.y;
+            while (Math.abs(root.wheelRest) >= 120) {
+                const step = root.wheelRest > 0 ? 1 : -1;
+                root.wheelRest -= step * 120;
+                root.scrolled(step);
+            }
+        }
+        onExited: root.wheelRest = 0
     }
 
     RowLayout {

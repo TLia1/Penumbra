@@ -21,15 +21,30 @@ return {
     options = { diagnostics = 'nvim_lsp', separator_style = 'thin',
       offsets = { { filetype = 'NvimTree', text = 'PENUMBRA · Files', text_align = 'center' } } },
   } },
-  { 'nvim-lualine/lualine.nvim', opts = {
-    options = { theme = {
-      normal = { a = { fg = '#0d0a12', bg = '#b69af7', gui = 'bold' }, b = { fg = '#e4dced', bg = '#292035' }, c = { fg = '#8f809f', bg = '#100d18' } },
-      insert = { a = { fg = '#0d0a12', bg = '#a6d4bc' } },
-      visual = { a = { fg = '#0d0a12', bg = '#d5a4dc' } },
-      replace = { a = { fg = '#0d0a12', bg = '#ed9cad' } },
-      inactive = { a = { fg = '#8f809f', bg = '#100d18' }, b = { fg = '#8f809f', bg = '#100d18' }, c = { fg = '#8f809f', bg = '#100d18' } },
-    }, globalstatus = true },
-  } },
+  { 'nvim-lualine/lualine.nvim', opts = function()
+    local c = require('penumbra.palette')
+    return { options = { theme = {
+      normal = { a = { fg = c.bg, bg = c.violet, gui = 'bold' }, b = { fg = c.fg, bg = c.raised }, c = { fg = c.muted, bg = c.panel } },
+      insert = { a = { fg = c.bg, bg = c.green } },
+      visual = { a = { fg = c.bg, bg = c.pink } },
+      replace = { a = { fg = c.bg, bg = c.rose } },
+      inactive = { a = { fg = c.muted, bg = c.panel }, b = { fg = c.muted, bg = c.panel }, c = { fg = c.muted, bg = c.panel } },
+    }, globalstatus = true } }
+  end },
+  -- Treesitter parsers, so code is coloured by its structure. Building them needs tree-sitter-cli
+  -- and a C compiler (both installed by ./install.sh); `:TSInstall LANGUAGE` adds more.
+  { 'nvim-treesitter/nvim-treesitter', branch = 'main', lazy = false, build = ':TSUpdate', config = function()
+    if vim.fn.executable('tree-sitter') == 1 then
+      require('nvim-treesitter').install({ 'bash', 'c', 'css', 'go', 'html', 'javascript', 'json', 'lua',
+        'markdown', 'markdown_inline', 'python', 'qmljs', 'rust', 'toml', 'typescript', 'yaml' })
+    end
+    vim.api.nvim_create_autocmd('FileType', { callback = function(ev)
+      -- Treesitter colours and indents wherever a parser is installed; Vim's syntax files elsewhere.
+      if pcall(vim.treesitter.start, ev.buf) then
+        vim.bo[ev.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+      end
+    end })
+  end },
   { 'lewis6991/gitsigns.nvim', opts = {} },
   { 'windwp/nvim-autopairs', opts = {} },
   { 'mason-org/mason.nvim', opts = { ui = { border = 'rounded' } } },

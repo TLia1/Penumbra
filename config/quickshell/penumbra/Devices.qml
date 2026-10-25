@@ -28,6 +28,29 @@ Singleton {
         sink.volume = Math.max(0, Math.min(100, percent)) / 100;
     }
 
+    // Volume and microphone keys: 5% steps between 0 and 100% ("up", "down"), "mute" toggles,
+    // "current" only shows the popup. Held keys repeat faster than PipeWire reports back, so each
+    // step starts from the last one asked for while it is recent.
+    property var targets: ({})
+    function adjust(control, action) {
+        const node = control === "microphone" ? source : sink;
+        if (!node)
+            return false;
+        const recent = targets[control] && Date.now() - targets[control].at < 600;
+        let volume = recent ? targets[control].volume : node.volume;
+        let muted = node.muted;
+        if (action === "mute") {
+            muted = !muted;
+            node.muted = muted;
+        } else if (action === "up" || action === "down") {
+            volume = Math.max(0, Math.min(1, Math.round(volume * 20 + (action === "up" ? 1 : -1)) / 20));
+            node.volume = volume;
+        }
+        targets = Object.assign({}, targets, { [control]: { volume, at: Date.now() } });
+        Ui.showOsd(control, Math.round(volume * 100), muted);
+        return true;
+    }
+
     readonly property var wifiDevice: Networking.devices.values.find(d => d.type === DeviceType.Wifi) ?? null
     readonly property var wiredDevice: Networking.devices.values.find(d => d.type === DeviceType.Wired) ?? null
     readonly property var wifiNetwork: wifiDevice?.networks.values.find(n => n.connected) ?? null

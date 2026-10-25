@@ -1,25 +1,30 @@
 -- PENUMBRA / Hyprland 0.56 Lua configuration
--- Keyboard, Num Lock and scale come from ~/.config/penumbra/settings.conf (see ./install.sh --help).
+-- Keyboard, Num Lock, scale and the cursor mode come from ~/.config/penumbra/settings.conf (see
+-- ./install.sh --help). Put your own settings in ~/.config/hypr/user.lua, which is read last and
+-- survives ./install.sh.
+local home = os.getenv("HOME")
+-- Colours come from palette/palette.toml (tools/build-palette.py).
+local c = dofile(home .. "/.config/hypr/colors.lua")
 hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "@@SCALE@@" })
 hl.env("XCURSOR_THEME", "Penumbra-Cursors")
 hl.env("XCURSOR_SIZE", "28")
 hl.env("HYPRCURSOR_SIZE", "28")
 hl.env("QT_QPA_PLATFORMTHEME", "qt6ct")
-hl.env("GTK_THEME", "Breeze-Dark")
 -- Rounded or sharp corners, as penumbra-corners records them.
-local corners = io.open(os.getenv("HOME") .. "/.local/state/penumbra/corners")
+local corners = io.open(home .. "/.local/state/penumbra/corners")
 local sharp = corners ~= nil and corners:read("l") == "sharp"
 if corners then corners:close() end
 hl.config({
  xwayland = {
     force_zero_scaling = true
  },
- cursor = { no_hardware_cursors = 1, enable_hyprcursor = false },
+ -- Software cursors in virtual machines, where hardware cursors often draw wrongly; automatic elsewhere.
+ cursor = { no_hardware_cursors = @@SOFTWARE_CURSOR@@, enable_hyprcursor = false },
  general = { gaps_in = 6, gaps_out = 14, border_size = 2, resize_on_border = true, layout = "dwindle",
-  col = { active_border = {colors = {"rgba(a78bfaee)", "rgba(6d28d9bb)"}, angle = 45}, inactive_border = "rgba(282333ff)" } },
+  col = { active_border = {colors = {"rgba(" .. c.violet .. "ee)", "rgba(" .. c.violetDeep .. "bb)"}, angle = 45}, inactive_border = "rgba(" .. c.black .. "ff)" } },
  decoration = { rounding = sharp and 0 or 16, rounding_power = 2, active_opacity = 1, inactive_opacity = 0.97,
-  shadow = {enabled = true, range = 28, render_power = 3, color = "rgba(1a0b2e88)", color_inactive = "rgba(00000055)"},
-  glow = {enabled = true, range = 18, render_power = 3, color = "rgba(7c3aed40)", color_inactive = "rgba(00000000)"},
+  shadow = {enabled = true, range = 28, render_power = 3, color = "rgba(" .. c.violetInk .. "88)", color_inactive = "rgba(00000055)"},
+  glow = {enabled = true, range = 18, render_power = 3, color = "rgba(" .. c.violetDeep .. "40)", color_inactive = "rgba(00000000)"},
   blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = 0.9, popups = true} },
  animations = {enabled = true},
  dwindle = {preserve_split = true},
@@ -44,7 +49,8 @@ exec("SUPER + Q", "kitty")
 exec("SUPER + E", "dolphin")
 exec("SUPER + R", "~/.local/bin/penumbra-launcher")
 exec("SUPER + space", "~/.local/bin/penumbra-launcher")
-exec("SUPER + B", "firefox")
+-- Your default web browser (xdg-settings set default-web-browser NAME.desktop to change it).
+exec("SUPER + B", "gtk-launch \"$(xdg-settings get default-web-browser)\"")
 exec("SUPER + M", "~/.local/bin/penumbra-power")
 exec("SUPER + L", "loginctl lock-session")
 exec("SUPER + N", "quickshell -c penumbra ipc call notifications clear")
@@ -72,14 +78,18 @@ hl.bind("SUPER + mouse:272", hl.dsp.window.drag(), {mouse=true})
 hl.bind("SUPER + mouse:273", hl.dsp.window.resize(), {mouse=true})
 hl.bind("SUPER + mouse_down", hl.dsp.focus({workspace="e+1"}))
 hl.bind("SUPER + mouse_up", hl.dsp.focus({workspace="e-1"}))
+-- Volume and brightness repeat while held; toggles (mute, play/pause) fire once per press.
 for key,cmd in pairs({
  XF86AudioRaiseVolume="~/.local/bin/penumbra-osd volume up",
  XF86AudioLowerVolume="~/.local/bin/penumbra-osd volume down",
+ XF86MonBrightnessUp="~/.local/bin/penumbra-osd brightness up", XF86MonBrightnessDown="~/.local/bin/penumbra-osd brightness down"
+}) do hl.bind(key, hl.dsp.exec_cmd(cmd), {locked=true, repeating=true}) end
+for key,cmd in pairs({
  XF86AudioMute="~/.local/bin/penumbra-osd volume mute",
  XF86AudioMicMute="~/.local/bin/penumbra-osd microphone mute",
- XF86MonBrightnessUp="~/.local/bin/penumbra-osd brightness up", XF86MonBrightnessDown="~/.local/bin/penumbra-osd brightness down",
- XF86AudioPlay="playerctl play-pause", XF86AudioNext="playerctl next", XF86AudioPrev="playerctl previous"
-}) do hl.bind(key, hl.dsp.exec_cmd(cmd), {locked=true, repeating=true}) end
+ XF86AudioPlay="playerctl play-pause", XF86AudioPause="playerctl pause",
+ XF86AudioNext="playerctl next", XF86AudioPrev="playerctl previous"
+}) do hl.bind(key, hl.dsp.exec_cmd(cmd), {locked=true}) end
 hl.window_rule({name="settings", match={class="^(org.pulseaudio.pavucontrol|pavucontrol|blueman-manager|nm-connection-editor|qt6ct)$"}, float=true, size="820 540", center=true})
 hl.window_rule({name="annotate", match={class="^(com.gabm.satty)$"}, float=true, center=true})
 -- Frosted glass behind every Penumbra shell surface and the launcher.
@@ -88,3 +98,6 @@ hl.layer_rule({name="glass", match={namespace="^(penumbra-.*|rofi)$"}, blur=true
 hl.layer_rule({name="shot", match={namespace="^penumbra-shot$"}, no_anim=true})
 hl.window_rule({name="suppress-maximize", match={class=".*"}, suppress_event="maximize"})
 hl.on("hyprland.start", function() hl.exec_cmd("~/.local/bin/penumbra-session") end)
+-- Your own settings, if any, override everything above.
+local user = io.open(home .. "/.config/hypr/user.lua")
+if user then user:close(); dofile(home .. "/.config/hypr/user.lua") end

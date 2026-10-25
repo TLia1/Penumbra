@@ -142,8 +142,18 @@ Singleton {
         command: ["hyprsunset", "--temperature", String(root.nightTemperature)]
     }
 
+    // Start a program in its own systemd scope (under app.slice), so it outlives the shell: the
+    // shell runs as penumbra-shell.service, and restarting it must not take the apps along.
+    // `command` is an argument list, or { command, workingDirectory }.
+    function spawn(command) {
+        const scope = ["systemd-run", "--user", "--scope", "--slice=app.slice", "--collect", "--quiet", "--"];
+        if (Array.isArray(command))
+            Quickshell.execDetached(scope.concat(command));
+        else
+            Quickshell.execDetached({ command: scope.concat(command.command), workingDirectory: command.workingDirectory });
+    }
     function run(command) {
-        Quickshell.execDetached(["bash", "-c", command]);
+        spawn(["bash", "-c", command]);
     }
     readonly property string bin: Quickshell.env("HOME") + "/.local/bin/"
 }

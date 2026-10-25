@@ -271,8 +271,8 @@ Panel {
                     anchors.fill: parent
                     gradient: Gradient {
                         orientation: Gradient.Horizontal
-                        GradientStop { position: 0; color: Qt.rgba(16 / 255, 13 / 255, 24 / 255, 0.55) }
-                        GradientStop { position: 1; color: Qt.rgba(16 / 255, 13 / 255, 24 / 255, 0.15) }
+                        GradientStop { position: 0; color: Theme.alpha(Theme.surface, 0.55) }
+                        GradientStop { position: 1; color: Theme.alpha(Theme.surface, 0.15) }
                     }
                 }
 

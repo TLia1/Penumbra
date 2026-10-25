@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-if nmcli -t -f TYPE device | grep -qx wifi; then
- exec kitty --class penumbra-network -e nmtui
-else
- notify-send 'Network settings' 'Ethernet is available. No Wi-Fi adapter is attached to this VM.'
- exec nm-connection-editor
-fi

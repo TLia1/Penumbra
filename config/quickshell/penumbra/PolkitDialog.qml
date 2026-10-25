@@ -61,7 +61,7 @@ Scope {
 
         Rectangle {
             anchors.fill: parent
-            color: Qt.rgba(7 / 255, 7 / 255, 11 / 255, 0.62)
+            color: Theme.alpha(Theme.scrim, 0.62)
             opacity: card.opacity
         }
 

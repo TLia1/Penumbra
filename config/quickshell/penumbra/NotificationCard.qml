@@ -95,6 +95,11 @@ Rectangle {
                     font.capitalization: Font.AllUppercase
                     color: root.critical ? Theme.rose : Theme.violet
                 }
+                Label {
+                    text: Notifs.age(root.notification, Clock.date.getTime())
+                    font.pixelSize: 10
+                    color: Theme.dim
+                }
                 Glyph {
                     text: "󰅖"
                     size: 13

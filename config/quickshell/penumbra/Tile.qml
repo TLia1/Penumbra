@@ -51,7 +51,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: root.subtitle
                 font.pixelSize: 11
-                color: root.on ? Qt.rgba(16 / 255, 11 / 255, 27 / 255, 0.7) : Theme.muted
+                color: root.on ? Theme.alpha(Theme.violetInk, 0.7) : Theme.muted
             }
         }
         Rectangle {

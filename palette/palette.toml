@@ -1,0 +1,61 @@
+# PENUMBRA palette: the one place the desktop's colours are defined.
+# After changing a colour, run `python tools/build-palette.py` to rewrite every generated
+# colour file (the templates are in palette/templates/), then `./install.sh --user-only`.
+
+[colors]
+# Surfaces, darkest first.
+shade = "#07070b"         # screen dimming behind overlays, the greeter's backdrop
+base = "#0d0a12"          # desktop, terminal and editor background
+surface = "#100d18"       # windows, panels and glass
+viewAlt = "#140f1c"       # alternate list rows
+surfaceAlt = "#16111f"    # header bars, tooltips
+raised = "#1c1528"        # fields and buttons on a surface
+button = "#1f182b"        # Qt/KDE buttons
+buttonAlt = "#271e34"
+glassRaised = "#281e3a"   # the shell's raised glass, used translucent
+border = "#33263f"        # borders on solid surfaces
+hover = "#38264f"         # hovered and selected rows
+light = "#42344f"         # bevel light, the greeter's card edge
+mid = "#59446a"           # bevel mid-tone
+
+# Selection.
+textSelection = "#563b7e" # selected text in the terminal and editor
+selectionAlt = "#7655ae"
+selection = "#916dcf"     # selected items, with selectionText on top
+selectionText = "#ffffff"
+
+# The accent.
+violetInk = "#100b1b"     # text on a violet fill
+violetDeep = "#6d28d9"
+violetSoft = "#9c87c6"    # visited links
+violet = "#b69af7"
+violetBright = "#c4a5ff"
+
+# Text, brightest first.
+white = "#faf5ff"
+text = "#e9e1f5"
+textSoft = "#c8bbde"
+subtle = "#aa9cbd"        # quiet labels on the bar
+muted = "#8f809f"
+dim = "#71637f"
+
+# Signal and ANSI colours.
+black = "#231d2e"
+rose = "#ef8fa4"
+green = "#a5ccb3"
+amber = "#e5c89a"
+blue = "#a1a5e9"
+pink = "#d5a4dc"
+cyan = "#9ccbd2"
+silver = "#ded5e8"
+roseBright = "#f7a3b6"
+greenBright = "#b9e0c6"
+amberBright = "#f4dab0"
+blueBright = "#b8bdf5"
+cyanBright = "#b4e0e5"
+
+# Editor diff backgrounds.
+diffAdd = "#1c3029"
+diffDelete = "#38202d"
+diffChange = "#27243f"
+diffText = "#403457"

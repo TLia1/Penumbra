@@ -20,9 +20,11 @@ Scope {
         if (sessionLock.locked)
             return;
         Ui.closeOverlays();
+        capsLeds.running = true;
         password = "";
         message = "";
         checkCaps();
+        lockState.setText("locked\n");
         sessionLock.locked = true;
     }
     function submit() {
@@ -32,8 +34,10 @@ Scope {
         message = "";
         pam.start();
     }
+    // Re-reads the Caps Lock LEDs; cheap enough for every keypress.
     function checkCaps() {
-        caps.running = true;
+        for (const led of leds.instances)
+            led.reload();
     }
 
     // The default "login" PAM stack, the same one hyprlock includes.
@@ -50,6 +54,7 @@ Scope {
             root.password = "";
             if (result === PamResult.Success) {
                 sessionLock.locked = false;
+                lockState.setText("");
                 return;
             }
             if (result === PamResult.MaxTries)
@@ -66,12 +71,35 @@ Scope {
         }
     }
 
-    // Caps Lock lights an LED on every keyboard that has one.
+    // Whether the screen is locked, kept outside the shell: if the shell dies while locked,
+    // systemd starts it again (penumbra-shell.service) and it locks straight away. The runtime
+    // directory is emptied at logout, so a stale "locked" never outlives the session.
+    FileView {
+        id: lockState
+        path: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/penumbra-locked"
+        printErrors: false
+        onLoaded: if (text().trim() === "locked") root.lock()
+    }
+
+    // Caps Lock lights an LED on every keyboard that has one. The LEDs are listed when locking
+    // (a keyboard may have been plugged in since), then read directly.
+    property var capsPaths: []
     Process {
-        id: caps
-        command: ["bash", "-c", "cat /sys/class/leds/*::capslock/brightness 2>/dev/null"]
+        id: capsLeds
+        running: true
+        command: ["bash", "-c", "printf '%s\\n' /sys/class/leds/*::capslock/brightness"]
         stdout: StdioCollector {
-            onStreamFinished: root.capsLock = text.split("\n").some(v => parseInt(v) > 0)
+            onStreamFinished: root.capsPaths = text.split("\n").filter(p => p.startsWith("/") && !p.includes("*"))
+        }
+    }
+    Variants {
+        id: leds
+        model: root.capsPaths
+        delegate: FileView {
+            required property string modelData
+            path: modelData
+            printErrors: false
+            onLoaded: root.capsLock = leds.instances.some(led => led.loaded && parseInt(led.text()) > 0)
         }
     }
 

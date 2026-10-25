@@ -17,6 +17,17 @@ def main():
     control, action = sys.argv[1:]
     if control == 'brightness' and action == 'mute':
         sys.exit('Brightness cannot be muted')
+    # The Penumbra shell changes the value and draws the popup itself; the rest of this script
+    # is the fallback for when it isn't running. `quickshell ipc` exits 0 even when the call
+    # fails, so only a printed "true" counts; it also reads a "show" argument as its own word.
+    try:
+        answer = subprocess.run(['quickshell', '-c', 'penumbra', 'ipc', 'call', 'osd', 'adjust', control,
+                                 'current' if action == 'show' else action],
+                                capture_output=True, text=True).stdout.strip()
+        if answer == 'true':
+            return
+    except OSError:
+        pass
     directory = Path(os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')) / 'penumbra'
     directory.mkdir(parents=True, exist_ok=True)
     # Serialize repeat events so the last popup always reflects the latest value.

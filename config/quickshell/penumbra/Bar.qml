@@ -56,7 +56,7 @@ PanelWindow {
                 text: Qt.formatDateTime(Clock.date, "HH:mm")
                 font.pixelSize: 14
                 font.weight: Font.Bold
-                color: Ui.calendarOpen ? Theme.violetInk : "#eee8ff"
+                color: Ui.calendarOpen ? Theme.violetInk : Theme.text
             }
         }
 
@@ -67,7 +67,7 @@ PanelWindow {
             spacing: 10
             tip: Media.player ? [Media.player.trackTitle, Media.player.trackArtist].filter(t => t).join(" · ") + "\nMiddle-click to pause · scroll to skip" : ""
             onClicked: m => m.button === Qt.MiddleButton ? Media.player.togglePlaying() : Ui.toggleControl()
-            onScrolled: delta => delta > 0 ? Media.player.previous() : Media.player.next()
+            onScrolled: step => step > 0 ? Media.player.previous() : Media.player.next()
             Row {
                 visible: Ui.hasVisualizer
                 spacing: 2
@@ -89,7 +89,7 @@ PanelWindow {
             Label {
                 text: Media.player?.trackTitle || Media.player?.identity || ""
                 Layout.maximumWidth: 170
-                color: "#c8b8dc"
+                color: Theme.textSoft
             }
         }
     }
@@ -103,19 +103,62 @@ PanelWindow {
             model: Hyprland.workspaces.values
                 .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
                 .sort((a, b) => a.id - b.id)
+            // The number, then the icons of the apps open there (three at most).
             delegate: Capsule {
+                id: workspace
                 required property var modelData
                 readonly property bool current: modelData.active && modelData.monitor?.name === bar.screen.name
-                implicitWidth: current ? 52 : Theme.barHeight
+                readonly property var icons: {
+                    const ids = modelData.toplevels.values.map(t => t.wayland?.appId || t.lastIpcObject?.class || "");
+                    return [...new Set(ids.filter(id => id))]
+                        .map(id => Quickshell.iconPath(DesktopEntries.heuristicLookup(id)?.icon ?? id, true))
+                        .filter(icon => icon !== "");
+                }
+                implicitWidth: Math.max(current ? 52 : Theme.barHeight, workspaceRow.implicitWidth + 26)
                 padding: 0
                 active: current
                 color: current ? Theme.violet : modelData.urgent ? Theme.rose : (hovered ? Theme.hover : Theme.glass)
+                tip: icons.length > 3 ? `${modelData.toplevels.values.length} windows` : ""
                 onClicked: modelData.activate()
-                Label {
-                    text: modelData.name
-                    color: current || modelData.urgent ? Theme.violetInk : hovered ? "#eee8ff" : "#aa97bf"
-                    font.family: Theme.mono
-                    font.weight: current ? Font.Bold : Font.Normal
+                RowLayout {
+                    id: workspaceRow
+                    spacing: 6
+                    Label {
+                        text: workspace.modelData.name
+                        color: workspace.current || workspace.modelData.urgent ? Theme.violetInk : workspace.hovered ? Theme.text : Theme.subtle
+                        font.family: Theme.mono
+                        font.weight: workspace.current ? Font.Bold : Font.Normal
+                    }
+                    Repeater {
+                        model: workspace.icons.slice(0, 3)
+                        delegate: Item {
+                            required property string modelData
+                            implicitWidth: 15
+                            implicitHeight: 15
+                            IconImage {
+                                id: appIcon
+                                anchors.fill: parent
+                                source: parent.modelData
+                                asynchronous: true
+                                visible: false
+                            }
+                            // Muted like the tray until the workspace is current or hovered.
+                            MultiEffect {
+                                anchors.fill: parent
+                                source: appIcon
+                                saturation: workspace.current || workspace.hovered ? 0 : -0.7
+                                opacity: workspace.current || workspace.hovered ? 1 : 0.8
+                                Behavior on saturation { NumberAnimation { duration: Theme.fast } }
+                            }
+                        }
+                    }
+                    Label {
+                        visible: workspace.icons.length > 3
+                        text: "+" + (workspace.icons.length - 3)
+                        font.pixelSize: 10
+                        font.family: Theme.mono
+                        color: workspace.current ? Theme.violetInk : Theme.muted
+                    }
                 }
             }
         }
@@ -134,7 +177,7 @@ PanelWindow {
                 text: title.shown ? title.client.title : ""
                 Layout.maximumWidth: 260
                 font.family: Theme.mono
-                color: "#c8b8dc"
+                color: Theme.textSoft
             }
         }
     }
@@ -170,7 +213,7 @@ PanelWindow {
             active: Ui.monitorOpen
             tip: `CPU ${Sys.cpu}% · Memory ${Sys.memoryDetail}`
             onClicked: m => m.button === Qt.RightButton ? Ui.run("kitty --class penumbra-monitor htop") : Ui.toggleMonitor()
-            readonly property color tint: Ui.monitorOpen ? Theme.violetInk : "#aaa0bb"
+            readonly property color tint: Ui.monitorOpen ? Theme.violetInk : Theme.subtle
             RowLayout {
                 spacing: 5
                 Glyph { text: "󰻠"; size: 12; color: monitor.tint }
@@ -248,7 +291,7 @@ PanelWindow {
             active: Ui.controlOpen
             tip: `${Devices.networkName} · Bluetooth ${Devices.bluetoothName}` + (Devices.hasBattery ? `\n${Devices.batteryDetail}` : "")
             onClicked: m => m.button === Qt.RightButton ? Ui.run("pavucontrol") : Ui.toggleControl()
-            onScrolled: delta => Ui.run(Ui.bin + "penumbra-osd volume " + (delta > 0 ? "up" : "down"))
+            onScrolled: step => Devices.adjust("volume", step > 0 ? "up" : "down")
             readonly property color tint: Ui.controlOpen ? Theme.violetInk : Theme.textSoft
 
             Glyph { text: Devices.networkGlyph; color: Devices.networkName === "Offline" && !Ui.controlOpen ? Theme.dim : controls.tint }
@@ -340,7 +383,7 @@ PanelWindow {
                 id: tipText
                 anchors.centerIn: parent
                 text: bar.tipTarget?.tip ?? ""
-                color: "#e8e1f3"
+                color: Theme.text
                 elide: Text.ElideNone
             }
         }

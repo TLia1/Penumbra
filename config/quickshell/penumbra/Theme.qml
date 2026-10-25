@@ -2,30 +2,42 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "palette.js" as P
 
 // PENUMBRA palette, type and geometry, shared by every shell surface.
 Singleton {
     id: root
 
-    readonly property color base: "#0d0a12"
-    readonly property color surface: "#100d18"
-    readonly property color glass: Qt.rgba(16 / 255, 13 / 255, 24 / 255, 0.72)
-    readonly property color glassStrong: Qt.rgba(16 / 255, 13 / 255, 24 / 255, 0.88)
-    readonly property color raised: Qt.rgba(40 / 255, 30 / 255, 58 / 255, 0.55)
-    readonly property color hover: "#38264f"
-    readonly property color line: Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.16)
-    readonly property color lineStrong: Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.34)
-    readonly property color violet: "#b69af7"
-    readonly property color violetBright: "#c4a5ff"
-    readonly property color violetDeep: "#6d28d9"
-    readonly property color violetInk: "#100b1b"
-    readonly property color text: "#e9e1f5"
-    readonly property color textSoft: "#c8bbde"
-    readonly property color muted: "#8f809f"
-    readonly property color dim: "#6c627b"
-    readonly property color rose: "#ef8fa4"
-    readonly property color green: "#a5ccb3"
-    readonly property color amber: "#e5c89a"
+    // Colours come from palette.js, which tools/build-palette.py writes from palette/palette.toml.
+    readonly property color base: P.base
+    readonly property color surface: P.surface
+    readonly property color glass: alpha(P.surface, 0.72)
+    readonly property color glassStrong: alpha(P.surface, 0.88)
+    readonly property color raised: alpha(P.glassRaised, 0.55)
+    readonly property color hover: P.hover
+    readonly property color line: alpha(P.violet, 0.16)
+    readonly property color lineStrong: alpha(P.violet, 0.34)
+    // Behind full-screen overlays (launcher, session menu, polkit, screenshots).
+    readonly property color scrim: P.shade
+    readonly property color violet: P.violet
+    readonly property color violetBright: P.violetBright
+    readonly property color violetDeep: P.violetDeep
+    readonly property color violetInk: P.violetInk
+    readonly property color white: P.white
+    readonly property color text: P.text
+    readonly property color textSoft: P.textSoft
+    readonly property color subtle: P.subtle
+    readonly property color muted: P.muted
+    readonly property color dim: P.dim
+    readonly property color rose: P.rose
+    readonly property color green: P.green
+    readonly property color amber: P.amber
+
+    // A palette colour made translucent.
+    function alpha(c, a) {
+        const q = Qt.lighter(c, 1);
+        return Qt.rgba(q.r, q.g, q.b, a);
+    }
 
     readonly property string sans: "Inter"
     readonly property string mono: "JetBrainsMono Nerd Font"
