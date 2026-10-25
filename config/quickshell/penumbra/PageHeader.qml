@@ -17,7 +17,7 @@ RowLayout {
     Rectangle {
         implicitWidth: 34
         implicitHeight: 34
-        radius: 17
+        radius: Theme.corner(17)
         color: backArea.containsMouse ? Theme.hover : Theme.raised
         border.color: Theme.line
         Glyph { anchors.centerIn: parent; text: "󰁍"; size: 15; color: Theme.textSoft }

@@ -48,6 +48,7 @@ ShellRoot {
         function wifi(): void { Ui.openControl("wifi"); }
         function bluetooth(): void { Ui.openControl("bluetooth"); }
         function mixer(): void { Ui.openControl("mixer"); }
+        function settings(): void { Ui.openControl("settings"); }
         function calendar(): void { Ui.toggleCalendar(); }
         function monitor(): void { Ui.toggleMonitor(); }
         function session(): void { Ui.openSession(); }

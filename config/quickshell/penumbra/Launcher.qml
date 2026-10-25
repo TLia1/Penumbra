@@ -403,7 +403,7 @@ PanelWindow {
                         readonly property bool current: Ui.launcherMode === modelData.mode
                         implicitWidth: current ? modeRow.implicitWidth + 22 : 30
                         implicitHeight: 30
-                        radius: 15
+                        radius: Theme.corner(15)
                         color: current ? Theme.violet : modeArea.containsMouse ? Theme.hover : Theme.raised
                         border.color: current ? Theme.violetBright : Theme.line
                         Behavior on color { ColorAnimation { duration: Theme.fast } }
@@ -483,7 +483,7 @@ PanelWindow {
                                 readonly property bool swatch: row.modelData.kind === "clip" && /^#[0-9a-fA-F]{6}$/.test(row.modelData.clip.text)
                                 anchors.fill: parent
                                 visible: row.modelData.kind !== "app"
-                                radius: 10
+                                radius: Theme.corner(10)
                                 color: swatch ? row.modelData.clip.text : Theme.raised
                                 border.color: swatch ? Theme.lineStrong : "transparent"
                                 Glyph {
@@ -501,7 +501,7 @@ PanelWindow {
                             visible: row.isImage
                             implicitWidth: 112
                             implicitHeight: 68
-                            radius: 10
+                            radius: Theme.corner(10)
                             color: Theme.raised
                             Image {
                                 id: thumb

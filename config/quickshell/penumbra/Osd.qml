@@ -29,7 +29,7 @@ PanelWindow {
     Rectangle {
         id: pill
         anchors.fill: parent
-        radius: height / 2
+        radius: Theme.corner(height / 2)
         color: Theme.glassStrong
         border.color: Theme.line
         opacity: Ui.osdVisible ? 1 : 0
@@ -49,12 +49,12 @@ PanelWindow {
             Rectangle {
                 Layout.fillWidth: true
                 implicitHeight: 8
-                radius: 4
+                radius: Theme.corner(4)
                 color: Theme.raised
                 Rectangle {
                     width: parent.width * (Ui.osdMuted ? 0 : Ui.osdValue / 100)
                     height: parent.height
-                    radius: 4
+                    radius: Theme.corner(4)
                     gradient: Gradient {
                         orientation: Gradient.Horizontal
                         GradientStop { position: 0; color: Theme.violetDeep }

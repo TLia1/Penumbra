@@ -83,7 +83,7 @@ PanelWindow {
                         anchors.bottom: parent?.bottom
                         width: 3
                         height: 3 + modelData * 15
-                        radius: 1.5
+                        radius: Theme.corner(1.5)
                         color: Theme.violetBright
                         Behavior on height { NumberAnimation { duration: 60 } }
                     }
@@ -283,7 +283,7 @@ PanelWindow {
                 }
                 Rectangle {
                     visible: Notifs.count > 0 && !Notifs.dnd
-                    width: 6; height: 6; radius: 3
+                    width: 6; height: 6; radius: Theme.corner(3)
                     color: Ui.controlOpen ? Theme.violetInk : Theme.violetBright
                     anchors { right: bell.right; top: bell.top; rightMargin: -2; topMargin: 1 }
                 }

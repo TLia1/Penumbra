@@ -55,7 +55,7 @@ Panel {
                     required property var modelData
                     implicitWidth: 28
                     implicitHeight: 28
-                    radius: 14
+                    radius: Theme.corner(14)
                     color: navArea.containsMouse ? Theme.hover : "transparent"
                     Glyph { anchors.centerIn: parent; text: modelData.glyph; color: Theme.textSoft }
                     MouseArea {
@@ -94,7 +94,7 @@ Panel {
                 readonly property bool isToday: model.today
                 implicitWidth: 34
                 implicitHeight: 34
-                radius: 17
+                radius: Theme.corner(17)
                 color: isToday ? Theme.violet : "transparent"
                 Label {
                     anchors.centerIn: parent

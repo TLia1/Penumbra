@@ -9,7 +9,7 @@ Rectangle {
 
     implicitWidth: 44
     implicitHeight: 24
-    radius: 12
+    radius: Theme.corner(12)
     color: checked ? Theme.violet : Theme.raised
     border.color: checked ? Theme.violetBright : Theme.lineStrong
     Behavior on color { ColorAnimation { duration: Theme.fast } }
@@ -17,7 +17,7 @@ Rectangle {
     Rectangle {
         width: 18
         height: 18
-        radius: 9
+        radius: Theme.corner(9)
         y: 3
         x: root.checked ? root.width - width - 3 : 3
         color: root.checked ? Theme.violetInk : Theme.textSoft

@@ -153,12 +153,12 @@ Panel {
             Rectangle {
                 Layout.fillWidth: true
                 implicitHeight: 6
-                radius: 3
+                radius: Theme.corner(3)
                 color: Theme.hover
                 Rectangle {
                     width: parent.width * Math.min(stat.value, 100) / 100
                     height: parent.height
-                    radius: 3
+                    radius: Theme.corner(3)
                     color: stat.value >= 90 ? Theme.rose : stat.value >= 70 ? Theme.amber : Theme.violet
                     Behavior on width { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
                     Behavior on color { ColorAnimation { duration: Theme.fast } }

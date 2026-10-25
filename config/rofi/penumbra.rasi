@@ -14,3 +14,5 @@ mode-switcher { spacing: 10px; }
 button { padding: 8px; border-radius: 8px; text-color: @muted; font: "Inter 10"; }
 button selected { text-color: @violet; background-color: #20172e99; }
 message { padding: 10px; }
+/* Corner style: penumbra-corners rewrites this to square everything off. */
+@import "corners"

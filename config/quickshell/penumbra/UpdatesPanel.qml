@@ -22,7 +22,7 @@ Panel {
             Rectangle {
                 implicitWidth: 42
                 implicitHeight: 42
-                radius: 21
+                radius: Theme.corner(21)
                 gradient: Gradient {
                     GradientStop { position: 0; color: Theme.violet }
                     GradientStop { position: 1; color: Theme.violetDeep }

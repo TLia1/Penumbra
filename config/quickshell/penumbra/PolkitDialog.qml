@@ -98,7 +98,7 @@ Scope {
                     Rectangle {
                         implicitWidth: 48
                         implicitHeight: 48
-                        radius: 24
+                        radius: Theme.corner(24)
                         gradient: Gradient {
                             GradientStop { position: 0; color: Theme.violet }
                             GradientStop { position: 1; color: Theme.violetDeep }
@@ -141,7 +141,7 @@ Scope {
                     Layout.fillWidth: true
                     Layout.topMargin: 4
                     implicitHeight: 48
-                    radius: 24
+                    radius: Theme.corner(24)
                     color: Theme.raised
                     border.width: input.activeFocus ? 2 : 1
                     border.color: root.error ? Theme.rose : input.activeFocus ? Theme.violet : Theme.lineStrong

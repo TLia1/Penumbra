@@ -119,7 +119,7 @@ Rectangle {
                 Layout.alignment: Qt.AlignHCenter
                 implicitWidth: 76
                 implicitHeight: 76
-                radius: 38
+                radius: Theme.corner(38)
                 border.width: 2
                 border.color: Theme.violet
                 Rectangle {
@@ -163,7 +163,7 @@ Rectangle {
                 Layout.topMargin: 4
                 implicitWidth: 320
                 implicitHeight: 52
-                radius: 26
+                radius: Theme.corner(26)
                 color: Theme.glassStrong
                 border.width: input.activeFocus ? 2 : 1
                 border.color: surface.lock.message && !surface.lock.busy ? Theme.rose : input.activeFocus ? Theme.violet : Theme.lineStrong
@@ -208,7 +208,7 @@ Rectangle {
                         delegate: Rectangle {
                             width: 9
                             height: 9
-                            radius: 4.5
+                            radius: Theme.corner(4.5)
                             color: Theme.violetBright
                             scale: 0
                             Component.onCompleted: scale = 1
@@ -248,7 +248,7 @@ Rectangle {
             visible: !!surface.player
             implicitWidth: 360
             implicitHeight: 64
-            radius: 32
+            radius: Theme.corner(32)
             color: Theme.glassStrong
             border.color: Theme.line
             RowLayout {
@@ -257,7 +257,7 @@ Rectangle {
                 ClippingRectangle {
                     implicitWidth: 48
                     implicitHeight: 48
-                    radius: 24
+                    radius: Theme.corner(24)
                     color: Theme.raised
                     Image {
                         anchors.fill: parent
@@ -282,7 +282,7 @@ Rectangle {
                         required property var modelData
                         implicitWidth: modelData.main ? 36 : 28
                         implicitHeight: implicitWidth
-                        radius: implicitWidth / 2
+                        radius: Theme.corner(implicitWidth / 2)
                         color: modelData.main ? Theme.violet : lockMedia.containsMouse ? Theme.hover : "transparent"
                         Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 15; color: modelData.main ? Theme.violetInk : Theme.text }
                         MouseArea {

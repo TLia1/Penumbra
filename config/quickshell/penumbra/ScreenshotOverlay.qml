@@ -134,7 +134,7 @@ PanelWindow {
             width: root.target.width + 4
             height: root.target.height + 4
             color: "transparent"
-            radius: 4
+            radius: Theme.corner(4)
             border.width: 2
             border.color: Theme.violet
             Rectangle {
@@ -142,7 +142,7 @@ PanelWindow {
                 visible: parent.width > 60
                 implicitWidth: size.implicitWidth + 16
                 implicitHeight: 22
-                radius: 11
+                radius: Theme.corner(11)
                 color: Theme.glassStrong
                 Label {
                     id: size
@@ -188,7 +188,7 @@ PanelWindow {
             visible: !root.dragging
             implicitWidth: tools.implicitWidth + 16
             implicitHeight: 52
-            radius: 26
+            radius: Theme.corner(26)
             color: Theme.glassStrong
             border.color: Theme.lineStrong
 
@@ -210,7 +210,7 @@ PanelWindow {
                         readonly property bool current: root.mode === modelData.mode
                         implicitWidth: toolRow.implicitWidth + 24
                         implicitHeight: 38
-                        radius: 19
+                        radius: Theme.corner(19)
                         color: current ? Theme.violet : toolArea.containsMouse ? Theme.hover : "transparent"
                         Behavior on color { ColorAnimation { duration: Theme.fast } }
                         RowLayout {
@@ -239,7 +239,7 @@ PanelWindow {
                 Rectangle {
                     implicitWidth: editRow.implicitWidth + 24
                     implicitHeight: 38
-                    radius: 19
+                    radius: Theme.corner(19)
                     color: root.annotate ? Qt.rgba(182 / 255, 154 / 255, 247 / 255, 0.2) : editArea.containsMouse ? Theme.hover : "transparent"
                     border.color: root.annotate ? Theme.violet : "transparent"
                     RowLayout {
@@ -260,7 +260,7 @@ PanelWindow {
                 Rectangle {
                     implicitWidth: 38
                     implicitHeight: 38
-                    radius: 19
+                    radius: Theme.corner(19)
                     color: closeArea.containsMouse ? Theme.hover : "transparent"
                     Glyph { anchors.centerIn: parent; text: "󰅖"; size: 15; color: Theme.textSoft }
                     MouseArea {

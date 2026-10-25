@@ -19,7 +19,7 @@ RowLayout {
     Rectangle {
         implicitWidth: 36
         implicitHeight: 36
-        radius: 18
+        radius: Theme.corner(18)
         color: button.containsMouse ? Theme.hover : Theme.raised
         Glyph {
             anchors.centerIn: parent
@@ -58,12 +58,12 @@ RowLayout {
             y: slider.topPadding + slider.availableHeight / 2 - height / 2
             width: slider.availableWidth
             height: 8
-            radius: 4
+            radius: Theme.corner(4)
             color: Theme.raised
             Rectangle {
                 width: slider.visualPosition * parent.width
                 height: parent.height
-                radius: 4
+                radius: Theme.corner(4)
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
                     GradientStop { position: 0; color: Theme.violetDeep }
@@ -76,7 +76,7 @@ RowLayout {
             y: slider.topPadding + slider.availableHeight / 2 - height / 2
             width: slider.pressed ? 18 : 16
             height: width
-            radius: width / 2
+            radius: Theme.corner(width / 2)
             color: "#f3edff"
             border.color: Theme.violet
             border.width: 2

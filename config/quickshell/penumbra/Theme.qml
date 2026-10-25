@@ -1,9 +1,12 @@
 pragma Singleton
 import QtQuick
 import Quickshell
+import Quickshell.Io
 
 // PENUMBRA palette, type and geometry, shared by every shell surface.
 Singleton {
+    id: root
+
     readonly property color base: "#0d0a12"
     readonly property color surface: "#100d18"
     readonly property color glass: Qt.rgba(16 / 255, 13 / 255, 24 / 255, 0.72)
@@ -27,9 +30,22 @@ Singleton {
     readonly property string sans: "Inter"
     readonly property string mono: "JetBrainsMono Nerd Font"
 
-    readonly property int radiusLarge: 22
-    readonly property int radius: 16
-    readonly property int radiusSmall: 12
+    // Rounded or sharp corners, as penumbra-corners records them. Every radius goes through
+    // corner(), so the whole shell follows the choice at once.
+    property string corners: "rounded"
+    readonly property bool sharp: corners === "sharp"
+    function corner(px) { return sharp ? 0 : px; }
+    FileView {
+        path: Quickshell.env("HOME") + "/.local/state/penumbra/corners"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: root.corners = text().trim() || "rounded"
+    }
+
+    readonly property int radiusLarge: corner(22)
+    readonly property int radius: corner(16)
+    readonly property int radiusSmall: corner(12)
     readonly property int barHeight: 40
     readonly property int gap: 8
     readonly property int edge: 14

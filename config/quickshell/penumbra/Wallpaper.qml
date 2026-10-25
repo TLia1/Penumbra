@@ -6,13 +6,15 @@ import Quickshell.Wayland
 
 // Animated wallpapers. Each scene sits on the bottom layer over awww's still copy of the same
 // image, so fading it in or out changes nothing at rest; night has no animated scene.
-// penumbra-wallpaper says when the wallpaper changes.
+// penumbra-wallpaper says when the wallpaper changes; the settings page can keep them still.
 Scope {
     id: root
 
     readonly property var scenes: ["wallpaper-dawn", "wallpaper-eclipse"]
-    // The animated scene that should be up, and the one loaded now; they differ while one fades out.
-    property string target: ""
+    // The chosen wallpaper; the animated scene that should be up, and the one loaded now (they
+    // differ while one fades out).
+    property string chosen: ""
+    readonly property string target: Settings.animatedWallpapers && scenes.includes(chosen) ? chosen : ""
     property string scene: ""
     // awww's transition is still running.
     property bool waiting: false
@@ -25,7 +27,7 @@ Scope {
 
     // Wait out awww's transition before covering it.
     function show(name, delay) {
-        target = scenes.includes(name) ? name : "";
+        chosen = name;
         waiting = delay > 0;
         if (waiting) {
             reveal.interval = delay;

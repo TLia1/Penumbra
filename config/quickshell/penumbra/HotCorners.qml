@@ -4,7 +4,8 @@ import Quickshell.Hyprland
 import Quickshell.Wayland
 
 // Push the pointer into the top-right corner for the control center. A short dwell keeps a
-// passing pointer from opening it; the corner rests while a window is fullscreen.
+// passing pointer from opening it; the corner rests while a window is fullscreen, or when it's
+// turned off in settings.
 Variants {
     model: Quickshell.screens
 
@@ -12,7 +13,7 @@ Variants {
         id: corner
         required property var modelData
         screen: modelData
-        visible: !(Hyprland.monitorFor(modelData)?.activeWorkspace?.hasFullscreen ?? false)
+        visible: Settings.hotCorner && !(Hyprland.monitorFor(modelData)?.activeWorkspace?.hasFullscreen ?? false)
         anchors { top: true; right: true }
         exclusionMode: ExclusionMode.Ignore
         implicitWidth: 3

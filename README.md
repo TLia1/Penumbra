@@ -34,7 +34,7 @@ Log out through **Super+M → Log out → Confirm**, then sign in again when con
 
 | Component | Design / behavior |
 |---|---|
-| Hyprland | Lua, slowly rotating violet gradient borders, violet glow on the focused window, rounded windows, frosted-glass blur behind every shell surface and the launcher, soft window/workspace animations |
+| Hyprland | Lua, slowly rotating violet gradient borders, violet glow on the focused window, rounded or sharp windows, frosted-glass blur behind every shell surface and the launcher, soft window/workspace animations |
 | Penumbra shell | Quickshell (QML) bar of floating capsules, control center, notification popups and history, volume/brightness OSD, calendar, session overlay, app launcher, clipboard history, emoji and symbol picker, lock screen, polkit password dialog and screenshot overlay; see "Penumbra shell" below |
 | Rofi | Fallback launcher, clipboard history and session menu when the shell is not running |
 | Kitty + Fish | Violet ANSI palette, animated cursor trail, Starship prompt, custom Arch logo and grouped Fastfetch greeting |
@@ -66,6 +66,7 @@ Near-black `#0d0a12`, surface `#100d18`, violet `#b69af7`, text `#e4dced`, muted
 | Super+J | Toggle split direction |
 | Super+M | Session overlay |
 | Super+A | Control center |
+| Super+, | Settings (corner style, wallpaper, animations, hot corner) |
 | Super+L | Lock |
 | Super+N | Clear notifications |
 | Super+Shift+V | Clipboard history |
@@ -219,7 +220,9 @@ The bar, notifications, volume/brightness popup, control center, calendar, sessi
 
 - **Bar** keeps the floating-capsule layout. The active workspace pill widens; the title capsule shows the focused window only on the current workspace.
 - **Launcher** (Super+Space): type to search applications; often-launched ones rise to the top. Start with `>` to run a command (Shift+Enter runs it in Kitty). A sum such as `2*pi` or `=sqrt(2)` shows its result; Enter copies it. Tab switches to the **clipboard history**, with image thumbnails and swatches for copied colors: Enter copies, Shift+Delete forgets an entry, Super+Shift+V opens it directly. Tab again for **emoji**, then **symbols** (accented capitals, typographic quotes and dashes, currency, math, Greek, arrows, keys, shapes); Super+; opens emoji directly. Search by name, move with the arrows; Enter types the character into the focused window (wtype), Shift+Enter copies it. Often-picked ones come first.
-- **Control center** (Super+A, or click the status capsule): Wi-Fi and Bluetooth toggles, Do not disturb, Stay awake (pauses idle locking), Night light (hyprsunset, 4500 K) and Screenshot, volume, microphone and brightness sliders, the current media player with its cover art and a seek bar, and notification history grouped by app with Clear all. Shortcuts for the wallpaper picker, lock and the session overlay sit in its header. Escape or a click outside closes it.
+- **Control center** (Super+A, or click the status capsule): Wi-Fi and Bluetooth toggles, Do not disturb, Stay awake (pauses idle locking), Night light (hyprsunset, 4500 K) and Screenshot, volume, microphone and brightness sliders, the current media player with its cover art and a seek bar, and notification history grouped by app with Clear all. Shortcuts for settings, the wallpaper picker, lock and the session overlay sit in its header. Escape or a click outside closes it.
+- **Settings page** (Super+,, the gear in the control center header, or `ipc call panel settings`): rounded or sharp corners, the wallpaper, whether dawn and eclipse animate, and the top-right hot corner. The animation and hot corner choices are kept in `~/.config/penumbra/shell.json`.
+- **Corners**: `penumbra-corners rounded|sharp|toggle` switches the whole desktop at once: every shell surface, Hyprland's windows, the rofi fallback, hyprlock, Satty and the Fastfetch box. The choice is kept in `~/.local/state/penumbra/corners`; Hyprland reads it on every load and `./install.sh` puts it back after copying the (rounded) configs. The SDDM greeter stays rounded.
 - **Sound page** opens from the chevron beside the volume slider (or `ipc call panel mixer`): pick the output and input device, and set each app's own volume and mute.
 - **Wi-Fi and Bluetooth pages** open from the chevron on each tile (or `ipc call panel wifi|bluetooth`). Wi-Fi lists nearby networks while the page is open: click a saved or open network to connect, type the password inline for a new secured one, and expand the connected or saved network to Disconnect or Forget it. Bluetooth lists your devices (one click connects; expand to Disconnect or Forget) and discovers new ones while open; click one to pair, trust and connect it. "Advanced settings" links still reach nm-connection-editor and Blueman for anything else (static IPs, enterprise Wi-Fi).
 - **Tray**: nm-applet and Blueman keep running in the background for password and pairing prompts, but their tray icons are hidden since the control center covers them.
@@ -230,7 +233,7 @@ The bar, notifications, volume/brightness popup, control center, calendar, sessi
 - **Updates**: the updates capsule opens a list of pending packages by source, with Check again and Update now.
 - **Wallpaper picker** (Super+Shift+W, or the wallpaper button in the control center): the three wallpapers side by side; click one to switch.
 - **Session overlay** (Super+M): arrow keys and Enter, or the mouse. Log out, Restart and Shut down ask for a second press.
-- **Scripts** reach it through IPC: `quickshell -c penumbra ipc call panel control|wifi|bluetooth|mixer|calendar|session|updates|wallpapers|close`, `launcher apps|clipboard|emoji|symbols`, `lock lock`, `shot open false`, `osd flash volume 40 false`, `notifications clear|dnd`, `updates refresh`. `penumbra-osd`, `penumbra-power`, `penumbra-launcher`, `penumbra-clipboard`, `penumbra-shot` and hypridle fall back to a plain notification, rofi, slurp and hyprlock when the shell is not running.
+- **Scripts** reach it through IPC: `quickshell -c penumbra ipc call panel control|wifi|bluetooth|mixer|settings|calendar|session|updates|wallpapers|close`, `launcher apps|clipboard|emoji|symbols`, `lock lock`, `shot open false`, `osd flash volume 40 false`, `notifications clear|dnd`, `updates refresh`. `penumbra-osd`, `penumbra-power`, `penumbra-launcher`, `penumbra-clipboard`, `penumbra-shot` and hypridle fall back to a plain notification, rofi, slurp and hyprlock when the shell is not running.
 
 Edit the QML and Quickshell reloads it live. `Theme.qml` holds the palette, fonts, radii and animation timings.
 

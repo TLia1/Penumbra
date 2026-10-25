@@ -382,6 +382,8 @@ run_user_part() {
     install_tree "$ROOT/bin" "$HOME/.local/bin"
     install_tree "$ROOT/share" "$HOME/.local/share"
     chmod +x "$HOME"/.local/bin/penumbra-*
+    # The configs above come rounded; put back sharp corners if that was the choice.
+    "$HOME/.local/bin/penumbra-corners" restore
     install_wallpapers
     retire_legacy_desktop
 

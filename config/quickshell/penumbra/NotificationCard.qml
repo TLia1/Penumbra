@@ -59,7 +59,7 @@ Rectangle {
             implicitHeight: 36
             ClippingRectangle {
                 anchors.fill: parent
-                radius: 10
+                radius: Theme.corner(10)
                 color: Theme.raised
                 visible: root.iconSource !== ""
                 IconImage {
@@ -69,7 +69,7 @@ Rectangle {
             }
             Rectangle {
                 anchors.fill: parent
-                radius: 10
+                radius: Theme.corner(10)
                 color: Theme.raised
                 visible: root.iconSource === ""
                 Glyph {
@@ -131,7 +131,7 @@ Rectangle {
                 Layout.topMargin: 6
                 Layout.preferredHeight: Math.min(root.compact ? 120 : 180, width * probe.implicitHeight / Math.max(1, probe.implicitWidth))
                 visible: root.largeImage
-                radius: 10
+                radius: Theme.corner(10)
                 color: Theme.raised
                 Image {
                     anchors.fill: parent
@@ -147,7 +147,7 @@ Rectangle {
                 Layout.topMargin: 6
                 visible: root.notification?.hasInlineReply ?? false
                 implicitHeight: 34
-                radius: 17
+                radius: Theme.corner(17)
                 color: Theme.raised
                 border.color: reply.activeFocus ? Theme.violet : Theme.line
                 TextInput {
@@ -179,7 +179,7 @@ Rectangle {
                     anchors { right: parent.right; rightMargin: 3; verticalCenter: parent.verticalCenter }
                     width: 28
                     height: 28
-                    radius: 14
+                    radius: Theme.corner(14)
                     color: reply.text ? Theme.violet : "transparent"
                     Glyph { anchors.centerIn: parent; text: "󰒊"; size: 13; color: reply.text ? Theme.violetInk : Theme.dim }
                     MouseArea {
@@ -201,7 +201,7 @@ Rectangle {
                         required property var modelData
                         implicitWidth: actionLabel.implicitWidth + 24
                         implicitHeight: 28
-                        radius: 14
+                        radius: Theme.corner(14)
                         color: actionArea.containsMouse ? Theme.violet : Theme.raised
                         border.color: Theme.line
                         Label {

@@ -6,6 +6,10 @@ hl.env("XCURSOR_SIZE", "28")
 hl.env("HYPRCURSOR_SIZE", "28")
 hl.env("QT_QPA_PLATFORMTHEME", "qt6ct")
 hl.env("GTK_THEME", "Breeze-Dark")
+-- Rounded or sharp corners, as penumbra-corners records them.
+local corners = io.open(os.getenv("HOME") .. "/.local/state/penumbra/corners")
+local sharp = corners ~= nil and corners:read("l") == "sharp"
+if corners then corners:close() end
 hl.config({
  xwayland = {
     force_zero_scaling = true
@@ -13,7 +17,7 @@ hl.config({
  cursor = { no_hardware_cursors = 1, enable_hyprcursor = false },
  general = { gaps_in = 6, gaps_out = 14, border_size = 2, resize_on_border = true, layout = "dwindle",
   col = { active_border = {colors = {"rgba(a78bfaee)", "rgba(6d28d9bb)"}, angle = 45}, inactive_border = "rgba(282333ff)" } },
- decoration = { rounding = 16, rounding_power = 2, active_opacity = 1, inactive_opacity = 0.97,
+ decoration = { rounding = sharp and 0 or 16, rounding_power = 2, active_opacity = 1, inactive_opacity = 0.97,
   shadow = {enabled = true, range = 28, render_power = 3, color = "rgba(1a0b2e88)", color_inactive = "rgba(00000055)"},
   glow = {enabled = true, range = 18, render_power = 3, color = "rgba(7c3aed40)", color_inactive = "rgba(00000000)"},
   blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = 0.9, popups = true} },
@@ -45,6 +49,7 @@ exec("SUPER + M", "~/.local/bin/penumbra-power")
 exec("SUPER + L", "loginctl lock-session")
 exec("SUPER + N", "quickshell -c penumbra ipc call notifications clear")
 exec("SUPER + A", "quickshell -c penumbra ipc call panel control")
+exec("SUPER + comma", "quickshell -c penumbra ipc call panel settings")
 exec("SUPER + SHIFT + V", "~/.local/bin/penumbra-clipboard")
 exec("SUPER + semicolon", "quickshell -c penumbra ipc call launcher emoji")
 exec("SUPER + SHIFT + C", "~/.local/bin/penumbra-picker")

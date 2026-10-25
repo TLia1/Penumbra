@@ -65,7 +65,7 @@ Panel {
                             anchors { left: parent.left; top: parent.top; margins: 8 }
                             implicitWidth: badge.implicitWidth + 14
                             implicitHeight: 20
-                            radius: 10
+                            radius: Theme.corner(10)
                             color: Theme.glassStrong
                             Label {
                                 id: badge
@@ -94,7 +94,7 @@ Panel {
                             visible: choice.current
                             implicitWidth: 6
                             implicitHeight: 6
-                            radius: 3
+                            radius: Theme.corner(3)
                             color: Theme.violet
                         }
                         Label {

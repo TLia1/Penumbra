@@ -18,7 +18,7 @@ Rectangle {
 
     implicitHeight: Theme.barHeight
     implicitWidth: row.implicitWidth + padding * 2
-    radius: height / 2
+    radius: Theme.corner(height / 2)
     color: active ? Theme.violet : (interactive && hovered ? Theme.hover : Theme.glass)
     border.width: 1
     border.color: active ? Theme.violetBright : Theme.line

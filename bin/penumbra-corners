@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Switch Penumbra between rounded and sharp corners: the shell, windows, rofi, hyprlock, Satty
+# and the Fastfetch greeting. The shell and Hyprland read the choice back on their next start.
+set -euo pipefail
+state="$HOME/.local/state/penumbra/corners"
+config=${XDG_CONFIG_HOME:-$HOME/.config}
+current=$(cat "$state" 2>/dev/null || echo rounded)
+[[ $current = sharp ]] || current=rounded
+case "${1:-toggle}" in
+ toggle) [[ $current = sharp ]] && current=rounded || current=sharp;;
+ rounded|sharp) current=$1;;
+ restore) ;;
+ get) echo "$current"; exit 0;;
+ *) echo "Usage: penumbra-corners [toggle|rounded|sharp|restore|get]" >&2; exit 2;;
+esac
+mkdir -p "${state%/*}"
+printf '%s\n' "$current" > "$state"
+
+if [[ $current = sharp ]]; then
+ window=0 lock=0 annotate=0
+ boxes='s/╭/┌/g; s/╮/┐/g; s/╰/└/g; s/╯/┘/g'
+else
+ window=16 lock=14 annotate=12
+ boxes='s/┌/╭/g; s/┐/╮/g; s/└/╰/g; s/┘/╯/g'
+fi
+
+# Windows, at once; hyprland.lua reads the same file when it loads.
+if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
+ hyprctl eval "hl.config({decoration = {rounding = $window}})" >/dev/null 2>&1 || true
+fi
+# Rofi imports corners.rasi after its own theme.
+if [[ -d $config/rofi ]]; then
+ if [[ $current = sharp ]]; then
+  echo 'window, inputbar, element, button { border-radius: 0; }' > "$config/rofi/corners.rasi"
+ else
+  echo '/* Rounded: penumbra.rasi as it is. Written by penumbra-corners. */' > "$config/rofi/corners.rasi"
+ fi
+fi
+edit() { [[ -f $1 ]] && sed -i "$2" "$1" || true; }
+edit "$config/hypr/hyprlock.conf" "s/^\(\s*rounding = \).*/\1$lock/"
+edit "$config/satty/config.toml" "s/^corner-roundness = .*/corner-roundness = $annotate/"
+edit "$config/fastfetch/config.jsonc" "$boxes"

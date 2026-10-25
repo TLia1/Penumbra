@@ -12,7 +12,7 @@ Rectangle {
 
     implicitWidth: label.implicitWidth + 26
     implicitHeight: 30
-    radius: height / 2
+    radius: Theme.corner(height / 2)
     opacity: available ? 1 : 0.45
     color: primary ? (area.containsMouse ? Theme.violetBright : Theme.violet) : area.containsMouse ? Theme.hover : Theme.raised
     border.color: danger ? Qt.rgba(239 / 255, 143 / 255, 164 / 255, 0.5) : primary ? Theme.violetBright : Theme.line

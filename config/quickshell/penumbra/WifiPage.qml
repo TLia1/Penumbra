@@ -151,7 +151,7 @@ ColumnLayout {
                     rightPadding: 34
                     background: Rectangle {
                         implicitHeight: 32
-                        radius: 10
+                        radius: Theme.corner(10)
                         color: Theme.glassStrong
                         border.color: password.activeFocus ? Theme.violet : Theme.lineStrong
                     }

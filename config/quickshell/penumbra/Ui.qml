@@ -9,7 +9,7 @@ Singleton {
     id: root
 
     property bool controlOpen: false
-    property string controlPage: "main" // main, wifi, bluetooth or mixer
+    property string controlPage: "main" // main, wifi, bluetooth, mixer or settings
     property bool calendarOpen: false
     property bool monitorOpen: false
     property bool updatesOpen: false

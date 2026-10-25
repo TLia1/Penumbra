@@ -30,7 +30,7 @@ Panel {
         }
     }
 
-    // One page at a time: the main view, or Wi-Fi, Bluetooth or sound settings.
+    // One page at a time: the main view, or Wi-Fi, Bluetooth, sound or shell settings.
     ColumnLayout {
         id: pages
         x: 18
@@ -66,6 +66,11 @@ Panel {
             active: root.open && visible
         }
 
+        SettingsPage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "settings"
+        }
+
         ColumnLayout {
             Layout.fillWidth: true
             visible: Ui.controlPage === "main"
@@ -78,7 +83,7 @@ Panel {
                 Rectangle {
                     implicitWidth: 42
                     implicitHeight: 42
-                    radius: 21
+                    radius: Theme.corner(21)
                     gradient: Gradient {
                         GradientStop { position: 0; color: Theme.violet }
                         GradientStop { position: 1; color: Theme.violetDeep }
@@ -99,6 +104,7 @@ Panel {
                 }
                 Repeater {
                     model: [
+                        { glyph: "󰒓", tip: "Settings", run: () => Ui.controlPage = "settings" },
                         { glyph: "󰸉", tip: "Wallpaper", run: () => Ui.toggleWallpapers() },
                         { glyph: "󰌾", tip: "Lock", run: () => { Ui.close(); Ui.run("loginctl lock-session"); } },
                         { glyph: "󰐥", tip: "Session", run: () => Ui.openSession() }
@@ -107,7 +113,7 @@ Panel {
                         required property var modelData
                         implicitWidth: 36
                         implicitHeight: 36
-                        radius: 18
+                        radius: Theme.corner(18)
                         color: headerArea.containsMouse ? Theme.hover : Theme.raised
                         border.color: Theme.line
                         Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 15; color: Theme.violetBright }
@@ -292,7 +298,7 @@ Panel {
                         ClippingRectangle {
                             implicitWidth: 56
                             implicitHeight: 56
-                            radius: 12
+                            radius: Theme.corner(12)
                             color: Theme.hover
                             Image {
                                 anchors.fill: parent
@@ -324,7 +330,7 @@ Panel {
                                 required property var modelData
                                 implicitWidth: modelData.main ? 38 : 30
                                 implicitHeight: implicitWidth
-                                radius: implicitWidth / 2
+                                radius: Theme.corner(implicitWidth / 2)
                                 opacity: modelData.ok ? 1 : 0.4
                                 color: modelData.main ? Theme.violet : mediaArea.containsMouse ? Theme.hover : "transparent"
                                 Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 16; color: modelData.main ? Theme.violetInk : Theme.text }
@@ -357,13 +363,13 @@ Panel {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width
                                 height: seekArea.containsMouse ? 6 : 4
-                                radius: height / 2
+                                radius: Theme.corner(height / 2)
                                 color: Qt.rgba(1, 1, 1, 0.12)
                                 Behavior on height { NumberAnimation { duration: Theme.fast } }
                                 Rectangle {
                                     width: parent.width * parent.parent.progress
                                     height: parent.height
-                                    radius: height / 2
+                                    radius: Theme.corner(height / 2)
                                     color: Theme.violet
                                 }
                             }
