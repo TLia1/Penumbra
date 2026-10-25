@@ -32,6 +32,8 @@ In a virtual machine (`systemd-detect-virt --vm`), the installer also turns on s
 
 Log out through **Super+M → Log out → Confirm**, then sign in again when convenient. The running desktop has already been configured; a fresh login applies the environment to every application and displays the new greeter. Existing applications may need reopening to pick up fonts, colors, and icons. Applications that enforce their own theme still use their own appearance setting.
 
+The keyring unlocks with the password you sign in with, so it stays locked (and asks for its password the first time an app needs it) after an automatic login, or after you change your password some way other than `passwd`.
+
 ### Your own settings
 
 `./install.sh` replaces Penumbra's configuration files on every run (keeping the old ones in a backup), so put your own changes in these files, which it creates once and never replaces:
@@ -68,7 +70,8 @@ This undoes every install run, newest first, from the backups the runs left: fil
 | Lock screen | The shell's own: the current wallpaper without its wordmark (dawn and eclipse keep moving), clock, password field with keyboard layout and Caps Lock indicators, and media controls; locks after ten idle minutes and before suspend. Hyprlock takes over when the shell is not running |
 | Wallpaper | Three original SVG scenes, night, dawn and eclipse, plus pre-rendered PNGs and wordmark-free variants for the lock screen and greeter (`tools/build-wallpapers.py`); awww switches them with a transition that grows out of the planet. The shell animates dawn (twinkling stars, a breathing glow and rim light, a moonlet riding the ring, the odd shooting star) and eclipse (a drifting nebula, glinting stars, a swaying corona and diamond-ring flare, two backlit moons that pass in front of and behind the eclipse, an aurora on the near world's horizon, a blinking satellite, shooting stars); both pause under fullscreen windows |
 | Neovim | Penumbra colour scheme with Treesitter highlighting, file tree, tabs, fuzzy search, Git markers; see "Neovim coding workspace" |
-| Tools | Clipboard history (cliphist), color picker (hyprpicker), screenshot annotation (Satty), night light (hyprsunset), audio visualizer (cava) |
+| Passwords | gnome-keyring keeps the passwords apps save (browsers, editors, Git credential helpers, Flatpak apps through the portal) and unlocks with your password when you sign in through SDDM; Seahorse ("Passwords and Keys") manages them |
+| Tools | Screen recording (wf-recorder), clipboard history (cliphist), color picker (hyprpicker), screenshot annotation (Satty), night light (hyprsunset), audio visualizer (cava) |
 
 ### Palette
 
@@ -105,6 +108,7 @@ Fonts: Inter and JetBrainsMono Nerd Font.
 | Super+Shift+R | Restart the shell |
 | Print | Screenshot a region, window or the whole screen; save to `~/Pictures/Screenshots` and copy it |
 | Shift+Print | The same, then annotate it in Satty |
+| Ctrl+Print | Record a region, window or the whole screen to `~/Videos/Screencasts`; press again to stop |
 | Audio / media / brightness keys | Volume and brightness (repeat while held), mute, playback, where hardware supports it |
 
 Bar: click the Arch logo for the launcher (right-click for the clipboard) and the clock for a calendar. Each workspace pill shows the icons of the apps open there. While something plays, a capsule shows it with a small spectrum: click for the control center, middle-click to pause, scroll to skip. CPU/RAM open the process monitor (right-click for htop). With several keyboard layouts, a capsule shows the current one; click it to switch. Click the network/Bluetooth/audio/battery capsule (or press Super+A) for the control center; right-click it for pavucontrol, scroll it for volume. Tray icons are tinted violet until hovered; right-click for their menu. Hover any capsule for details. Push the pointer into the top-right corner for the control center. Destructive session actions require a second press to confirm.
@@ -112,7 +116,7 @@ Bar: click the Arch logo for the launcher (right-click for the clipboard) and th
 ## Files and destinations
 
 - `config/` → `~/.config/` (all authored user configuration files, including the shell's systemd unit in `config/systemd/user/`).
-- `bin/` → `~/.local/bin/` (session, power, screenshot, clipboard, color picker, OSD, update and wallpaper scripts).
+- `bin/` → `~/.local/bin/` (session, power, screenshot, screen recording, clipboard, color picker, OSD, update and wallpaper scripts).
 - `config/quickshell/penumbra/` → the Penumbra shell (QML), run by `penumbra-shell.service`.
 - `share/` → `~/.local/share/` (KDE color scheme and violet icon overlay).
 - `assets/wallpaper*.png` (night, dawn and eclipse, each with a wordmark-free variant) → `~/.local/share/penumbra/`; `lock.png` there links to the clean variant of the current scene. After editing a wallpaper SVG, run `tools/build-wallpapers.py` to re-render them and the SDDM copy; it also splits the dawn and eclipse scenes into the layers under `config/quickshell/penumbra/dawn/` and `eclipse/` that the animated wallpapers move, and compiles the aurora shader (needs `qt6-shadertools`).
@@ -131,7 +135,7 @@ Bar: click the Arch logo for the launcher (right-click for the clipboard) and th
 3. Sets the target user's login shell to `/usr/bin/fish` (unless `--shell keep`) and the login screen's keyboard layout to yours.
 4. Enables NetworkManager and Bluetooth, and enables SDDM without restarting it.
 5. Backs up managed user files under `~/.local/state/penumbra/backups/TIMESTAMP` and copies this configuration. Files Penumbra no longer ships are removed from the folders it owns outright (`~/.config/quickshell/penumbra`, `~/.config/nvim/lua/penumbra`, `~/.local/bin/penumbra-*`), so a renamed shell component never lingers; they are in the backup too. Creates the starter files for your own settings if they are missing.
-6. Applies GTK dark preference, font, cursor, icon and title-bar button settings through GSettings.
+6. Applies GTK dark preference, font, cursor, icon and title-bar button settings through GSettings. Sets up gnome-keyring: makes sure SDDM's PAM file unlocks it at sign-in (Arch's already does; the installer adds the two optional lines if they are missing), routes the Secret portal to it, and tells KWallet (which comes with Dolphin) not to claim the same Secret Service name.
 7. Masks Dunst if installed, avoiding competing notification daemons.
 8. Retires the previous Waybar/Mako/swaybg setup: asks whether to remove those packages (`PENUMBRA_REMOVE_LEGACY=1` or `0` answers in advance; removed versions are listed in the system backup), stops them, and moves `~/.config/waybar` and `~/.config/mako` into the user backup.
 9. Enables PipeWire sockets and WirePlumber; reloads Hyprland and restarts the desktop components.
@@ -190,11 +194,11 @@ It runs as the systemd user service `penumbra-shell.service`, which `penumbra-se
 - **Volume and brightness**: the hardware keys (including Fn+F2/F3/F6/F7 when those keys emit the corresponding media events) show a popup at the bottom center with the current percentage and a progress bar; it disappears after 1.5 seconds, and holding a key updates the same popup. The shell changes the value itself (`ipc call osd adjust volume up`), so held keys respond at once; `penumbra-osd` does it with wpctl and brightnessctl, and a plain notification, when the shell is not running. Mute and microphone mute show their status too. Brightness stays above zero. The bar shows an automatically detected battery immediately before the power button, with its percentage, charging state, and low-battery colors; machines without a battery omit it.
 - **Lock screen** (Super+L, after ten idle minutes and before suspend): the clock over the current wallpaper without its wordmark, still animating, your `~/.face` (or initial), and the password field; it warns about Caps Lock, shows the keyboard layout when you have several (click to switch), and shows what's playing. Passwords go through the same PAM `login` stack hyprlock uses. If the shell cannot come back (it crashed five times within a minute), switch to a TTY (Ctrl+Alt+F3), log in and run `hyprctl --instance 0 dispatch 'hl.dsp.exec_cmd("hyprlock")'`, then unlock there.
 - **Polkit**: when an app asks for administrator rights, a password card appears over the dimmed screen in place of the KDE dialog.
-- **Screenshots** (Print): the screen freezes; drag a region, click a window, or click for the whole screen (R, W and S switch, E toggles annotating in Satty, Escape cancels).
+- **Screenshots and recordings** (Print, or Ctrl+Print to start in Video): the screen freezes; drag a region, click a window, or click for the whole screen (R, W and S switch, E toggles annotating in Satty, Escape cancels). **Video** (V) records the area instead, **Sound** (A) adds what the computer plays, and **Timer** (T) waits 3, 5 or 10 seconds first, counting down in the bar (click the countdown to cancel). While recording, a red capsule in the bar shows the time; click it or press Ctrl+Print to stop. Recordings are H.264 MP4 files in `~/Videos/Screencasts`, copied to the clipboard as a file when they finish (paste into a chat or a file manager), with a notification that plays it. `bin/penumbra-record` does the recording, so it carries on if the shell restarts; without the shell, Ctrl+Print asks for a region with slurp.
 - **Updates**: a violet update capsule appears on the right only when pending updates are found. It checks official Arch packages, AUR packages through Paru or Yay (whichever is installed), and user/system Flatpak apps and runtimes every 15 minutes. Click it for the list of pending packages by source, with Check again and Update now, which opens Kitty: password, package review and confirmation prompts stay interactive, the terminal closes on success or waits for Enter after a failure, and repeated clicks do not start parallel updates. Repository checks use `checkupdates` and a separate database, so they never refresh the live pacman database; failed checks are logged and do not count as available updates. The helper is `bin/penumbra-updates`.
 - **Wallpaper picker** (Super+Shift+W, or the wallpaper button in the control center): the three wallpapers side by side; click one to switch.
 - **Session overlay** (Super+M): arrow keys and Enter, or the mouse. Log out, Restart and Shut down ask for a second press.
-- **Scripts** reach it through IPC: `quickshell -c penumbra ipc call panel control|wifi|bluetooth|mixer|settings|calendar|session|updates|wallpapers|close`, `launcher apps|clipboard|emoji|symbols`, `lock lock`, `shot open false`, `osd adjust volume|microphone|brightness up|down|mute|current`, `osd flash volume 40 false`, `notifications clear|dnd`, `updates refresh`. `penumbra-osd`, `penumbra-power`, `penumbra-launcher`, `penumbra-clipboard`, `penumbra-shot` and hypridle fall back to wpctl/brightnessctl, rofi, slurp and hyprlock when the shell is not running.
+- **Scripts** reach it through IPC: `quickshell -c penumbra ipc call panel control|wifi|bluetooth|mixer|settings|calendar|session|updates|wallpapers|close`, `launcher apps|clipboard|emoji|symbols`, `lock lock`, `shot open false`, `shot record`, `recorder stop`, `osd adjust volume|microphone|brightness up|down|mute|current`, `osd flash volume 40 false`, `notifications clear|dnd`, `updates refresh`. `penumbra-osd`, `penumbra-power`, `penumbra-launcher`, `penumbra-clipboard`, `penumbra-shot` and hypridle fall back to wpctl/brightnessctl, rofi, slurp and hyprlock when the shell is not running.
 
 Edit the QML and Quickshell reloads it live. `Theme.qml` holds the fonts, radii and animation timings, and turns the palette into the shell's colour names.
 

@@ -183,7 +183,7 @@ Panel {
                     Layout.fillWidth: true
                     glyph: "󰹑"
                     title: "Screenshot"
-                    subtitle: "Region, window or screen"
+                    subtitle: "Picture or video"
                     onToggled: Ui.openShot()
                 }
             }

@@ -21,8 +21,10 @@ PACKAGES=(
     qt5ct qt6ct qt5-wayland qt5-quickcontrols2 ttf-jetbrains-mono-nerd inter-font
     # Hardware and services
     networkmanager bluez bluez-utils pipewire-pulse wireplumber brightnessctl playerctl cava
-    # Screenshots, clipboard, color picker, emoji and symbols
-    grim slurp satty hyprpicker cliphist wl-clipboard wtype unicode-emoji noto-fonts-emoji
+    # Passwords apps save, unlocked when you sign in
+    gnome-keyring seahorse
+    # Screenshots, screen recording, clipboard, color picker, emoji and symbols
+    grim slurp satty wf-recorder hyprpicker cliphist wl-clipboard wtype unicode-emoji noto-fonts-emoji
     # Used by the helper scripts and build tools
     pacman-contrib flatpak libnotify librsvg python-pillow xorg-xcursorgen
 )
@@ -355,6 +357,22 @@ set_login_keyboard() {
     fi
 }
 
+# The keyring unlocks with your password when you sign in through SDDM. Arch's SDDM PAM file
+# already lists gnome-keyring (as optional, skipped while it isn't installed); older or edited
+# files get the two lines added.
+enable_keyring_unlock() {
+    local pam=/etc/pam.d/sddm
+    [[ -f $pam ]] || return 0
+    grep -Eq '^-?auth[[:space:]].*pam_gnome_keyring\.so' "$pam" \
+        && grep -Eq '^-?session[[:space:]].*pam_gnome_keyring\.so' "$pam" && return 0
+    backup_file "$pam" "${pam#/}"
+    grep -Eq '^-?auth[[:space:]].*pam_gnome_keyring\.so' "$pam" \
+        || printf '%s\n' '-auth       optional    pam_gnome_keyring.so' >> "$pam"
+    grep -Eq '^-?session[[:space:]].*pam_gnome_keyring\.so' "$pam" \
+        || printf '%s\n' '-session    optional    pam_gnome_keyring.so    auto_start' >> "$pam"
+    echo "Added gnome-keyring to $pam, so the keyring unlocks when you sign in."
+}
+
 enable_services() {
     local unit
     for unit in bluetooth NetworkManager sddm; do
@@ -380,6 +398,7 @@ run_system_part() {
     install_system_files
     set_login_keyboard
     set_login_shell "$user"
+    enable_keyring_unlock
     enable_services
 
     step 'Boot themes (optional)'
@@ -428,6 +447,17 @@ apply_gtk_settings() {
     gsettings set org.gnome.desktop.wm.preferences button-layout ':close'
 }
 
+# gnome-keyring keeps the passwords apps save (Secret Service). KWallet comes with Dolphin and can
+# claim the same D-Bus name, so it is told not to; Dolphin's own KWallet use is unchanged.
+configure_keyring() {
+    local rc=$HOME/.config/kwalletrc
+    if command -v kwriteconfig6 >/dev/null; then
+        backup_file "$rc" .config/kwalletrc
+        kwriteconfig6 --file "$rc" --group org.freedesktop.secrets --key apiEnabled false
+    fi
+    systemctl --user enable gnome-keyring-daemon.socket 2>/dev/null || true
+}
+
 # The Penumbra shell is the notification daemon; mask Dunst so it can't compete.
 disable_dunst() {
     systemctl --user cat dunst.service >/dev/null 2>&1 || return 0
@@ -463,6 +493,7 @@ run_user_part() {
 
     step 'Applying themes and starting services'
     apply_gtk_settings
+    configure_keyring
     disable_dunst
     systemctl --user daemon-reload
     systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service

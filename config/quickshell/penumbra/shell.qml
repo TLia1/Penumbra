@@ -1,7 +1,7 @@
 //@ pragma UseQApplication
 //@ pragma IconTheme Penumbra
 // PENUMBRA shell: animated wallpapers, bar, control center, notifications, OSD, calendar, session
-// overlay, launcher, lock screen, polkit agent and screenshot overlay.
+// overlay, launcher, lock screen, polkit agent and screenshot/recording overlay.
 // Run with `quickshell -c penumbra`; scripts talk to it with `quickshell -c penumbra ipc call …`.
 import QtQuick
 import Quickshell
@@ -72,7 +72,16 @@ ShellRoot {
 
     IpcHandler {
         target: "shot"
-        function open(annotate: bool): void { shot.open(annotate); }
+        function open(annotate: bool): void { shot.open(annotate, false); }
+        // The same overlay, set to record a video.
+        function record(): void { shot.open(false, true); }
+    }
+
+    IpcHandler {
+        target: "recorder"
+        // penumbra-record calls this when a recording starts or ends.
+        function refresh(): void { Recorder.refresh(); }
+        function stop(): void { Recorder.stop(); }
     }
 
     IpcHandler {

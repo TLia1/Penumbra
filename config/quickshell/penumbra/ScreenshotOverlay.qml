@@ -5,7 +5,8 @@ import Quickshell.Hyprland
 import Quickshell.Wayland
 
 // Print: the screen freezes; drag a region, click a window or click for the whole screen.
-// The overlay then steps aside (no closing animation) and penumbra-shot captures the area.
+// The overlay then steps aside (no closing animation) and penumbra-shot captures the area, or
+// penumbra-record records it (Video); a timer counts down in the bar first.
 PanelWindow {
     id: root
     screen: Ui.screen
@@ -19,6 +20,10 @@ PanelWindow {
 
     property string mode: "region" // region, window or screen
     property bool annotate: false
+    property bool record: false
+    property bool sound: false // kept between recordings
+    property int delay: 0 // seconds
+    readonly property var delays: [0, 3, 5, 10]
     property rect selection: Qt.rect(0, 0, 0, 0)
     property point origin
     property bool dragging: false
@@ -37,9 +42,13 @@ PanelWindow {
     readonly property rect target: mode === "screen" ? Qt.rect(0, 0, width, height)
         : mode === "window" ? (hovered?.rect ?? Qt.rect(0, 0, 0, 0)) : selection
 
-    function open(withAnnotate) {
+    function open(withAnnotate, withRecord) {
         Ui.openShot();
         annotate = withAnnotate;
+        record = withRecord;
+    }
+    function nextDelay() {
+        delay = delays[(delays.indexOf(delay) + 1) % delays.length];
     }
     // Start fresh however it opens (Print, or the control center's tile).
     Connections {
@@ -49,6 +58,8 @@ PanelWindow {
                 return;
             Hyprland.refreshToplevels();
             root.annotate = false;
+            root.record = false;
+            root.delay = 0;
             root.mode = "region";
             root.selection = Qt.rect(0, 0, 0, 0);
             root.hovered = null;
@@ -61,15 +72,9 @@ PanelWindow {
             return;
         const geometry = `${Math.round(r.x + monitor.x)},${Math.round(r.y + monitor.y)} ${Math.round(r.width)}x${Math.round(r.height)}`;
         Ui.shotOpen = false;
-        shoot.args = [Ui.bin + "penumbra-shot", ...(annotate ? ["annotate"] : []), "--geometry", geometry];
-        shoot.restart();
-    }
-    // Let the compositor draw a frame without the overlay before grim reads the screen.
-    Timer {
-        id: shoot
-        property var args: []
-        interval: 90
-        onTriggered: Quickshell.execDetached(args)
+        Recorder.after(delay, record
+            ? [Ui.bin + "penumbra-record", "start", "--geometry", geometry, ...(sound ? ["--sound"] : [])]
+            : [Ui.bin + "penumbra-shot", ...(annotate ? ["annotate"] : []), "--geometry", geometry]);
     }
     function windowAt(x, y) {
         return windows.find(w => x >= w.rect.x && x < w.rect.x + w.rect.width && y >= w.rect.y && y < w.rect.y + w.rect.height) ?? null;
@@ -97,8 +102,14 @@ PanelWindow {
                 root.mode = "window";
             else if (event.key === Qt.Key_S)
                 root.mode = "screen";
-            else if (event.key === Qt.Key_E)
+            else if (event.key === Qt.Key_E && !root.record)
                 root.annotate = !root.annotate;
+            else if (event.key === Qt.Key_V)
+                root.record = !root.record;
+            else if (event.key === Qt.Key_A && root.record)
+                root.sound = !root.sound;
+            else if (event.key === Qt.Key_T)
+                root.nextDelay();
             else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
                 root.capture();
             else
@@ -136,7 +147,7 @@ PanelWindow {
             color: "transparent"
             radius: Theme.corner(4)
             border.width: 2
-            border.color: Theme.violet
+            border.color: root.record ? Theme.rose : Theme.violet
             Rectangle {
                 anchors { left: parent.left; top: parent.bottom; topMargin: 8 }
                 visible: parent.width > 60
@@ -178,6 +189,36 @@ PanelWindow {
                 root.dragging = false;
                 if (root.mode !== "region" || wasDragging)
                     root.capture();
+            }
+        }
+
+        // A toggle on the toolbar, lit in `tint` while on.
+        component Chip: Rectangle {
+            id: chip
+            property string glyph
+            property string text
+            property bool on: false
+            property color tint: Theme.violet
+            signal clicked()
+            implicitWidth: chipRow.implicitWidth + 24
+            implicitHeight: 38
+            radius: Theme.corner(19)
+            color: on ? Theme.alpha(tint, 0.2) : chipArea.containsMouse ? Theme.hover : "transparent"
+            border.color: on ? tint : "transparent"
+            Behavior on color { ColorAnimation { duration: Theme.fast } }
+            RowLayout {
+                id: chipRow
+                anchors.centerIn: parent
+                spacing: 7
+                Glyph { text: chip.glyph; size: 15; color: chip.on ? chip.tint : Theme.textSoft }
+                Label { text: chip.text; color: chip.on ? chip.tint : Theme.text }
+            }
+            MouseArea {
+                id: chipArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: chip.clicked()
             }
         }
 
@@ -236,26 +277,33 @@ PanelWindow {
                     implicitHeight: 24
                     color: Theme.line
                 }
-                Rectangle {
-                    implicitWidth: editRow.implicitWidth + 24
-                    implicitHeight: 38
-                    radius: Theme.corner(19)
-                    color: root.annotate ? Theme.alpha(Theme.violet, 0.2) : editArea.containsMouse ? Theme.hover : "transparent"
-                    border.color: root.annotate ? Theme.violet : "transparent"
-                    RowLayout {
-                        id: editRow
-                        anchors.centerIn: parent
-                        spacing: 7
-                        Glyph { text: "󰏫"; size: 15; color: root.annotate ? Theme.violetBright : Theme.textSoft }
-                        Label { text: "Annotate"; color: root.annotate ? Theme.violetBright : Theme.text }
-                    }
-                    MouseArea {
-                        id: editArea
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.annotate = !root.annotate
-                    }
+                Chip {
+                    glyph: "󰕧"
+                    text: "Video"
+                    on: root.record
+                    tint: Theme.rose
+                    onClicked: root.record = !root.record
+                }
+                Chip {
+                    visible: !root.record
+                    glyph: "󰏫"
+                    text: "Annotate"
+                    on: root.annotate
+                    onClicked: root.annotate = !root.annotate
+                }
+                Chip {
+                    visible: root.record
+                    glyph: root.sound ? "󰕾" : "󰖁"
+                    text: "Sound"
+                    on: root.sound
+                    tint: Theme.rose
+                    onClicked: root.sound = !root.sound
+                }
+                Chip {
+                    glyph: "󰔛"
+                    text: root.delay ? `${root.delay} s` : "Timer"
+                    on: root.delay > 0
+                    onClicked: root.nextDelay()
                 }
                 Rectangle {
                     implicitWidth: 38
@@ -278,7 +326,9 @@ PanelWindow {
             anchors { horizontalCenter: parent.horizontalCenter; bottom: toolbar.top; bottomMargin: 12 }
             visible: !root.dragging
             text: (root.mode === "region" ? "Drag to select" : root.mode === "window" ? "Click a window" : "Click or press Enter for the whole screen")
-                + (root.annotate ? " · opens in Satty" : " · saved and copied") + " · Esc to cancel"
+                + (root.record ? " · records until you click the bar's red capsule or press Ctrl+Print"
+                    : root.annotate ? " · opens in Satty" : " · saved and copied")
+                + (root.delay ? ` · starts after ${root.delay} s` : "") + " · Esc to cancel"
             font.pixelSize: 11
             color: Theme.textSoft
         }

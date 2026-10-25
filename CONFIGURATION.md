@@ -32,8 +32,10 @@ PACKAGES=(
     qt5ct qt6ct qt5-wayland qt5-quickcontrols2 ttf-jetbrains-mono-nerd inter-font
     # Hardware and services
     networkmanager bluez bluez-utils pipewire-pulse wireplumber brightnessctl playerctl cava
-    # Screenshots, clipboard, color picker, emoji and symbols
-    grim slurp satty hyprpicker cliphist wl-clipboard wtype unicode-emoji noto-fonts-emoji
+    # Passwords apps save, unlocked when you sign in
+    gnome-keyring seahorse
+    # Screenshots, screen recording, clipboard, color picker, emoji and symbols
+    grim slurp satty wf-recorder hyprpicker cliphist wl-clipboard wtype unicode-emoji noto-fonts-emoji
     # Used by the helper scripts and build tools
     pacman-contrib flatpak libnotify librsvg python-pillow xorg-xcursorgen
 )
@@ -366,6 +368,22 @@ set_login_keyboard() {
     fi
 }
 
+# The keyring unlocks with your password when you sign in through SDDM. Arch's SDDM PAM file
+# already lists gnome-keyring (as optional, skipped while it isn't installed); older or edited
+# files get the two lines added.
+enable_keyring_unlock() {
+    local pam=/etc/pam.d/sddm
+    [[ -f $pam ]] || return 0
+    grep -Eq '^-?auth[[:space:]].*pam_gnome_keyring\.so' "$pam" \
+        && grep -Eq '^-?session[[:space:]].*pam_gnome_keyring\.so' "$pam" && return 0
+    backup_file "$pam" "${pam#/}"
+    grep -Eq '^-?auth[[:space:]].*pam_gnome_keyring\.so' "$pam" \
+        || printf '%s\n' '-auth       optional    pam_gnome_keyring.so' >> "$pam"
+    grep -Eq '^-?session[[:space:]].*pam_gnome_keyring\.so' "$pam" \
+        || printf '%s\n' '-session    optional    pam_gnome_keyring.so    auto_start' >> "$pam"
+    echo "Added gnome-keyring to $pam, so the keyring unlocks when you sign in."
+}
+
 enable_services() {
     local unit
     for unit in bluetooth NetworkManager sddm; do
@@ -391,6 +409,7 @@ run_system_part() {
     install_system_files
     set_login_keyboard
     set_login_shell "$user"
+    enable_keyring_unlock
     enable_services
 
     step 'Boot themes (optional)'
@@ -439,6 +458,17 @@ apply_gtk_settings() {
     gsettings set org.gnome.desktop.wm.preferences button-layout ':close'
 }
 
+# gnome-keyring keeps the passwords apps save (Secret Service). KWallet comes with Dolphin and can
+# claim the same D-Bus name, so it is told not to; Dolphin's own KWallet use is unchanged.
+configure_keyring() {
+    local rc=$HOME/.config/kwalletrc
+    if command -v kwriteconfig6 >/dev/null; then
+        backup_file "$rc" .config/kwalletrc
+        kwriteconfig6 --file "$rc" --group org.freedesktop.secrets --key apiEnabled false
+    fi
+    systemctl --user enable gnome-keyring-daemon.socket 2>/dev/null || true
+}
+
 # The Penumbra shell is the notification daemon; mask Dunst so it can't compete.
 disable_dunst() {
     systemctl --user cat dunst.service >/dev/null 2>&1 || return 0
@@ -474,6 +504,7 @@ run_user_part() {
 
     step 'Applying themes and starting services'
     apply_gtk_settings
+    configure_keyring
     disable_dunst
     systemctl --user daemon-reload
     systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
@@ -2733,6 +2764,84 @@ case "$action" in
 esac
 ```
 
+## `bin/penumbra-record`
+
+```bash
+#!/usr/bin/env bash
+# Screen recording to ~/Videos/Screencasts with wf-recorder. The shell's overlay picks the area and
+# runs `start --geometry "X,Y WxH"` (--sound adds what the computer plays); `stop` finishes the
+# recording. With no argument (Ctrl+Print), it stops a recording or opens the overlay to start one;
+# without the shell, slurp asks for a region.
+set -euo pipefail
+state=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/penumbra/recording
+pidfile=$state.pid
+log=$state.log
+
+# The shell shows a recording in the bar; it reads $state again when told.
+refresh() { quickshell -c penumbra ipc call recorder refresh >/dev/null 2>&1 || true; }
+recording() { [[ -f $pidfile ]] && kill -0 "$(<"$pidfile")" 2>/dev/null; }
+stop() { recording && kill -INT "$(<"$pidfile")" || true; }
+usage() { echo 'Usage: penumbra-record [toggle|stop|start [--geometry "X,Y WxH"] [--sound]]' >&2; exit 2; }
+
+case ${1:-toggle} in
+ stop) stop; exit 0;;
+ toggle)
+  if recording; then stop; exit 0; fi
+  quickshell -c penumbra ipc call shot record >/dev/null 2>&1 && exit 0
+  exec "$0" start;;
+ start) shift;;
+ *) usage;;
+esac
+
+geometry= sound=false
+while (( $# )); do
+ case $1 in
+  --geometry) geometry=${2?--geometry needs "X,Y WxH"}; shift;;
+  --sound) sound=true;;
+  *) usage;;
+ esac
+ shift
+done
+recording && exit 0
+[[ -n $geometry ]] || geometry=$(slurp -b 100d18aa -c b69af7 -w 2) || exit 0
+# H.264 in yuv420p needs an even width and height.
+if [[ $geometry =~ ^(-?[0-9]+),(-?[0-9]+)\ ([0-9]+)x([0-9]+)$ ]]; then
+ geometry="${BASH_REMATCH[1]},${BASH_REMATCH[2]} $(( BASH_REMATCH[3] / 2 * 2 ))x$(( BASH_REMATCH[4] / 2 * 2 ))"
+fi
+
+dir=$HOME/Videos/Screencasts
+mkdir -p "$dir" "${state%/*}"
+file=$dir/$(date +%Y-%m-%d_%H-%M-%S).mp4
+args=(-g "$geometry" -f "$file" -c libx264 -p preset=veryfast -p crf=23 -x yuv420p)
+# The default output's monitor carries what the computer plays.
+if $sound; then args+=("--audio=$(pactl get-default-sink).monitor"); fi
+
+# This script stays until the recording ends, so it can report it. Job control keeps the recorder
+# from inheriting "ignore SIGINT", the signal `stop` finishes it with.
+set -m
+wf-recorder "${args[@]}" >"$log" 2>&1 &
+pid=$!
+set +m
+echo "$pid" > "$pidfile"
+printf '%s\n%s\n' "$(date +%s)" "$file" > "$state"
+refresh
+wait "$pid" || true
+rm -f "$state" "$pidfile"
+refresh
+
+if [[ -s $file ]]; then
+ # Copied as a file, so it can be pasted into a chat or a file manager.
+ printf 'file://%s\n' "$file" | wl-copy --type text/uri-list
+ action=$(notify-send -a Penumbra -i video-x-generic --action=open=Play 'Recording saved' \
+  "Copied to clipboard · ${file/#$HOME/\~}") || true
+ [[ $action = open ]] && xdg-open "$file"
+else
+ rm -f "$file"
+ notify-send -a Penumbra -u critical 'Recording failed' "$(tail -n 3 "$log")"
+fi
+exit 0
+```
+
 ## `bin/penumbra-session`
 
 ```bash
@@ -3400,6 +3509,8 @@ exec("SUPER + SHIFT + W", "quickshell -c penumbra ipc call panel wallpapers")
 exec("SUPER + SHIFT + R", "~/.local/bin/penumbra-session restart")
 exec("Print", "~/.local/bin/penumbra-shot")
 exec("SHIFT + Print", "~/.local/bin/penumbra-shot annotate")
+-- Record the screen; press again (or click the red capsule) to stop.
+exec("CTRL + Print", "~/.local/bin/penumbra-record")
 hl.bind("SUPER + C", hl.dsp.window.close())
 hl.bind("SUPER + V", hl.dsp.window.float({action="toggle"}))
 hl.bind("SUPER + F", hl.dsp.window.fullscreen())
@@ -4261,6 +4372,39 @@ PanelWindow {
         anchors { right: parent.right; verticalCenter: parent.verticalCenter }
         spacing: Theme.gap
 
+        // A capture's timer counting down; click to cancel.
+        Capsule {
+            visible: Recorder.countdown > 0
+            padding: 14
+            tip: "Click to cancel"
+            onClicked: Recorder.cancel()
+            Glyph { text: "󰔛"; color: Theme.amber }
+            Label { text: Recorder.countdown; font.family: Theme.mono; font.weight: Font.Bold; color: Theme.amber }
+        }
+
+        // A screen recording and how long it has run; click to stop.
+        Capsule {
+            visible: Recorder.recording
+            padding: 14
+            tip: "Recording · click to stop (or Ctrl+Print)"
+            color: hovered ? Theme.alpha(Theme.rose, 0.3) : Theme.alpha(Theme.rose, 0.16)
+            border.color: Theme.alpha(Theme.rose, 0.5)
+            onClicked: Recorder.stop()
+            Rectangle {
+                implicitWidth: 9
+                implicitHeight: 9
+                radius: Theme.corner(4.5)
+                color: Theme.rose
+                SequentialAnimation on opacity {
+                    running: Recorder.recording
+                    loops: Animation.Infinite
+                    NumberAnimation { to: 0.3; duration: 700; easing.type: Easing.InOutSine }
+                    NumberAnimation { to: 1; duration: 700; easing.type: Easing.InOutSine }
+                }
+            }
+            Label { text: Recorder.elapsedText; font.family: Theme.mono; font.weight: Font.Bold; color: Theme.rose }
+        }
+
         Capsule {
             visible: Devices.layouts.length > 1
             padding: 14
@@ -5061,7 +5205,7 @@ Panel {
                     Layout.fillWidth: true
                     glyph: "󰹑"
                     title: "Screenshot"
-                    subtitle: "Region, window or screen"
+                    subtitle: "Picture or video"
                     onToggled: Ui.openShot()
                 }
             }
@@ -8602,6 +8746,97 @@ Panel {
 }
 ```
 
+## `config/quickshell/penumbra/Recorder.qml`
+
+```qml
+pragma Singleton
+import QtQuick
+import Quickshell
+import Quickshell.Io
+
+// Screen recordings and capture countdowns. penumbra-record does the recording and keeps it in
+// $XDG_RUNTIME_DIR/penumbra/recording ("started-at\nfile"), so a recording outlives the shell; the
+// bar shows it from there. A capture with a timer counts down here first, shown in the bar too.
+Singleton {
+    id: root
+
+    property bool recording: false
+    property real startedAt: 0 // seconds since the epoch
+    property string file: ""
+    property int elapsed: 0 // seconds
+    readonly property string elapsedText: `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`
+
+    function refresh() {
+        state.reload();
+    }
+    function stop() {
+        Quickshell.execDetached([Ui.bin + "penumbra-record", "stop"]);
+    }
+
+    FileView {
+        id: state
+        path: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/penumbra/recording"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: {
+            const [started, file] = text().split("\n");
+            root.startedAt = Number(started) || 0;
+            root.file = file ?? "";
+            root.recording = root.startedAt > 0;
+        }
+        onLoadFailed: root.recording = false
+    }
+    Timer {
+        interval: 1000
+        repeat: true
+        running: root.recording
+        triggeredOnStart: true
+        onTriggered: root.elapsed = Math.max(0, Math.floor(Date.now() / 1000 - root.startedAt))
+    }
+
+    // Run `command` after `delay` seconds of countdown. The countdown leaves the bar a moment before
+    // the command runs, so a screenshot of the bar doesn't show it.
+    property int countdown: 0
+    property var pending: []
+    function after(delay, command) {
+        pending = command;
+        countdown = delay;
+        if (delay > 0)
+            tick.restart();
+        else
+            go.restart();
+    }
+    function cancel() {
+        tick.stop();
+        countdown = 0;
+        pending = [];
+    }
+    Timer {
+        id: tick
+        interval: 1000
+        repeat: true
+        onTriggered: {
+            root.countdown -= 1;
+            if (root.countdown <= 0) {
+                tick.stop();
+                go.restart();
+            }
+        }
+    }
+    // Also lets the compositor draw a frame without the overlay before the capture starts.
+    Timer {
+        id: go
+        interval: 90
+        onTriggered: {
+            if (root.pending.length)
+                Ui.spawn(root.pending);
+            root.pending = [];
+        }
+    }
+}
+```
+
 ## `config/quickshell/penumbra/SceneLayer.qml`
 
 ```qml
@@ -8651,7 +8886,8 @@ import Quickshell.Hyprland
 import Quickshell.Wayland
 
 // Print: the screen freezes; drag a region, click a window or click for the whole screen.
-// The overlay then steps aside (no closing animation) and penumbra-shot captures the area.
+// The overlay then steps aside (no closing animation) and penumbra-shot captures the area, or
+// penumbra-record records it (Video); a timer counts down in the bar first.
 PanelWindow {
     id: root
     screen: Ui.screen
@@ -8665,6 +8901,10 @@ PanelWindow {
 
     property string mode: "region" // region, window or screen
     property bool annotate: false
+    property bool record: false
+    property bool sound: false // kept between recordings
+    property int delay: 0 // seconds
+    readonly property var delays: [0, 3, 5, 10]
     property rect selection: Qt.rect(0, 0, 0, 0)
     property point origin
     property bool dragging: false
@@ -8683,9 +8923,13 @@ PanelWindow {
     readonly property rect target: mode === "screen" ? Qt.rect(0, 0, width, height)
         : mode === "window" ? (hovered?.rect ?? Qt.rect(0, 0, 0, 0)) : selection
 
-    function open(withAnnotate) {
+    function open(withAnnotate, withRecord) {
         Ui.openShot();
         annotate = withAnnotate;
+        record = withRecord;
+    }
+    function nextDelay() {
+        delay = delays[(delays.indexOf(delay) + 1) % delays.length];
     }
     // Start fresh however it opens (Print, or the control center's tile).
     Connections {
@@ -8695,6 +8939,8 @@ PanelWindow {
                 return;
             Hyprland.refreshToplevels();
             root.annotate = false;
+            root.record = false;
+            root.delay = 0;
             root.mode = "region";
             root.selection = Qt.rect(0, 0, 0, 0);
             root.hovered = null;
@@ -8707,15 +8953,9 @@ PanelWindow {
             return;
         const geometry = `${Math.round(r.x + monitor.x)},${Math.round(r.y + monitor.y)} ${Math.round(r.width)}x${Math.round(r.height)}`;
         Ui.shotOpen = false;
-        shoot.args = [Ui.bin + "penumbra-shot", ...(annotate ? ["annotate"] : []), "--geometry", geometry];
-        shoot.restart();
-    }
-    // Let the compositor draw a frame without the overlay before grim reads the screen.
-    Timer {
-        id: shoot
-        property var args: []
-        interval: 90
-        onTriggered: Quickshell.execDetached(args)
+        Recorder.after(delay, record
+            ? [Ui.bin + "penumbra-record", "start", "--geometry", geometry, ...(sound ? ["--sound"] : [])]
+            : [Ui.bin + "penumbra-shot", ...(annotate ? ["annotate"] : []), "--geometry", geometry]);
     }
     function windowAt(x, y) {
         return windows.find(w => x >= w.rect.x && x < w.rect.x + w.rect.width && y >= w.rect.y && y < w.rect.y + w.rect.height) ?? null;
@@ -8743,8 +8983,14 @@ PanelWindow {
                 root.mode = "window";
             else if (event.key === Qt.Key_S)
                 root.mode = "screen";
-            else if (event.key === Qt.Key_E)
+            else if (event.key === Qt.Key_E && !root.record)
                 root.annotate = !root.annotate;
+            else if (event.key === Qt.Key_V)
+                root.record = !root.record;
+            else if (event.key === Qt.Key_A && root.record)
+                root.sound = !root.sound;
+            else if (event.key === Qt.Key_T)
+                root.nextDelay();
             else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
                 root.capture();
             else
@@ -8782,7 +9028,7 @@ PanelWindow {
             color: "transparent"
             radius: Theme.corner(4)
             border.width: 2
-            border.color: Theme.violet
+            border.color: root.record ? Theme.rose : Theme.violet
             Rectangle {
                 anchors { left: parent.left; top: parent.bottom; topMargin: 8 }
                 visible: parent.width > 60
@@ -8824,6 +9070,36 @@ PanelWindow {
                 root.dragging = false;
                 if (root.mode !== "region" || wasDragging)
                     root.capture();
+            }
+        }
+
+        // A toggle on the toolbar, lit in `tint` while on.
+        component Chip: Rectangle {
+            id: chip
+            property string glyph
+            property string text
+            property bool on: false
+            property color tint: Theme.violet
+            signal clicked()
+            implicitWidth: chipRow.implicitWidth + 24
+            implicitHeight: 38
+            radius: Theme.corner(19)
+            color: on ? Theme.alpha(tint, 0.2) : chipArea.containsMouse ? Theme.hover : "transparent"
+            border.color: on ? tint : "transparent"
+            Behavior on color { ColorAnimation { duration: Theme.fast } }
+            RowLayout {
+                id: chipRow
+                anchors.centerIn: parent
+                spacing: 7
+                Glyph { text: chip.glyph; size: 15; color: chip.on ? chip.tint : Theme.textSoft }
+                Label { text: chip.text; color: chip.on ? chip.tint : Theme.text }
+            }
+            MouseArea {
+                id: chipArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: chip.clicked()
             }
         }
 
@@ -8882,26 +9158,33 @@ PanelWindow {
                     implicitHeight: 24
                     color: Theme.line
                 }
-                Rectangle {
-                    implicitWidth: editRow.implicitWidth + 24
-                    implicitHeight: 38
-                    radius: Theme.corner(19)
-                    color: root.annotate ? Theme.alpha(Theme.violet, 0.2) : editArea.containsMouse ? Theme.hover : "transparent"
-                    border.color: root.annotate ? Theme.violet : "transparent"
-                    RowLayout {
-                        id: editRow
-                        anchors.centerIn: parent
-                        spacing: 7
-                        Glyph { text: "󰏫"; size: 15; color: root.annotate ? Theme.violetBright : Theme.textSoft }
-                        Label { text: "Annotate"; color: root.annotate ? Theme.violetBright : Theme.text }
-                    }
-                    MouseArea {
-                        id: editArea
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.annotate = !root.annotate
-                    }
+                Chip {
+                    glyph: "󰕧"
+                    text: "Video"
+                    on: root.record
+                    tint: Theme.rose
+                    onClicked: root.record = !root.record
+                }
+                Chip {
+                    visible: !root.record
+                    glyph: "󰏫"
+                    text: "Annotate"
+                    on: root.annotate
+                    onClicked: root.annotate = !root.annotate
+                }
+                Chip {
+                    visible: root.record
+                    glyph: root.sound ? "󰕾" : "󰖁"
+                    text: "Sound"
+                    on: root.sound
+                    tint: Theme.rose
+                    onClicked: root.sound = !root.sound
+                }
+                Chip {
+                    glyph: "󰔛"
+                    text: root.delay ? `${root.delay} s` : "Timer"
+                    on: root.delay > 0
+                    onClicked: root.nextDelay()
                 }
                 Rectangle {
                     implicitWidth: 38
@@ -8924,7 +9207,9 @@ PanelWindow {
             anchors { horizontalCenter: parent.horizontalCenter; bottom: toolbar.top; bottomMargin: 12 }
             visible: !root.dragging
             text: (root.mode === "region" ? "Drag to select" : root.mode === "window" ? "Click a window" : "Click or press Enter for the whole screen")
-                + (root.annotate ? " · opens in Satty" : " · saved and copied") + " · Esc to cancel"
+                + (root.record ? " · records until you click the bar's red capsule or press Ctrl+Print"
+                    : root.annotate ? " · opens in Satty" : " · saved and copied")
+                + (root.delay ? ` · starts after ${root.delay} s` : "") + " · Esc to cancel"
             font.pixelSize: 11
             color: Theme.textSoft
         }
@@ -10698,7 +10983,7 @@ var diffText = "#403457";
 //@ pragma UseQApplication
 //@ pragma IconTheme Penumbra
 // PENUMBRA shell: animated wallpapers, bar, control center, notifications, OSD, calendar, session
-// overlay, launcher, lock screen, polkit agent and screenshot overlay.
+// overlay, launcher, lock screen, polkit agent and screenshot/recording overlay.
 // Run with `quickshell -c penumbra`; scripts talk to it with `quickshell -c penumbra ipc call …`.
 import QtQuick
 import Quickshell
@@ -10769,7 +11054,16 @@ ShellRoot {
 
     IpcHandler {
         target: "shot"
-        function open(annotate: bool): void { shot.open(annotate); }
+        function open(annotate: bool): void { shot.open(annotate, false); }
+        // The same overlay, set to record a video.
+        function record(): void { shot.open(false, true); }
+    }
+
+    IpcHandler {
+        target: "recorder"
+        // penumbra-record calls this when a recording starts or ends.
+        function refresh(): void { Recorder.refresh(); }
+        function stop(): void { Recorder.stop(); }
     }
 
     IpcHandler {
@@ -11064,6 +11358,8 @@ RestartSec=1
 [preferred]
 default=hyprland;gtk
 org.freedesktop.impl.portal.FileChooser=gtk
+# Sandboxed apps keep their passwords in gnome-keyring.
+org.freedesktop.impl.portal.Secret=gnome-keyring
 ```
 
 ## `share/color-schemes/Penumbra.colors`

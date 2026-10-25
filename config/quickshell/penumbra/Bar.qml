@@ -187,6 +187,39 @@ PanelWindow {
         anchors { right: parent.right; verticalCenter: parent.verticalCenter }
         spacing: Theme.gap
 
+        // A capture's timer counting down; click to cancel.
+        Capsule {
+            visible: Recorder.countdown > 0
+            padding: 14
+            tip: "Click to cancel"
+            onClicked: Recorder.cancel()
+            Glyph { text: "󰔛"; color: Theme.amber }
+            Label { text: Recorder.countdown; font.family: Theme.mono; font.weight: Font.Bold; color: Theme.amber }
+        }
+
+        // A screen recording and how long it has run; click to stop.
+        Capsule {
+            visible: Recorder.recording
+            padding: 14
+            tip: "Recording · click to stop (or Ctrl+Print)"
+            color: hovered ? Theme.alpha(Theme.rose, 0.3) : Theme.alpha(Theme.rose, 0.16)
+            border.color: Theme.alpha(Theme.rose, 0.5)
+            onClicked: Recorder.stop()
+            Rectangle {
+                implicitWidth: 9
+                implicitHeight: 9
+                radius: Theme.corner(4.5)
+                color: Theme.rose
+                SequentialAnimation on opacity {
+                    running: Recorder.recording
+                    loops: Animation.Infinite
+                    NumberAnimation { to: 0.3; duration: 700; easing.type: Easing.InOutSine }
+                    NumberAnimation { to: 1; duration: 700; easing.type: Easing.InOutSine }
+                }
+            }
+            Label { text: Recorder.elapsedText; font.family: Theme.mono; font.weight: Font.Bold; color: Theme.rose }
+        }
+
         Capsule {
             visible: Devices.layouts.length > 1
             padding: 14

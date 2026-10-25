@@ -64,6 +64,8 @@ exec("SUPER + SHIFT + W", "quickshell -c penumbra ipc call panel wallpapers")
 exec("SUPER + SHIFT + R", "~/.local/bin/penumbra-session restart")
 exec("Print", "~/.local/bin/penumbra-shot")
 exec("SHIFT + Print", "~/.local/bin/penumbra-shot annotate")
+-- Record the screen; press again (or click the red capsule) to stop.
+exec("CTRL + Print", "~/.local/bin/penumbra-record")
 hl.bind("SUPER + C", hl.dsp.window.close())
 hl.bind("SUPER + V", hl.dsp.window.float({action="toggle"}))
 hl.bind("SUPER + F", hl.dsp.window.fullscreen())

@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Screen recording to ~/Videos/Screencasts with wf-recorder. The shell's overlay picks the area and
+# runs `start --geometry "X,Y WxH"` (--sound adds what the computer plays); `stop` finishes the
+# recording. With no argument (Ctrl+Print), it stops a recording or opens the overlay to start one;
+# without the shell, slurp asks for a region.
+set -euo pipefail
+state=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/penumbra/recording
+pidfile=$state.pid
+log=$state.log
+
+# The shell shows a recording in the bar; it reads $state again when told.
+refresh() { quickshell -c penumbra ipc call recorder refresh >/dev/null 2>&1 || true; }
+recording() { [[ -f $pidfile ]] && kill -0 "$(<"$pidfile")" 2>/dev/null; }
+stop() { recording && kill -INT "$(<"$pidfile")" || true; }
+usage() { echo 'Usage: penumbra-record [toggle|stop|start [--geometry "X,Y WxH"] [--sound]]' >&2; exit 2; }
+
+case ${1:-toggle} in
+ stop) stop; exit 0;;
+ toggle)
+  if recording; then stop; exit 0; fi
+  quickshell -c penumbra ipc call shot record >/dev/null 2>&1 && exit 0
+  exec "$0" start;;
+ start) shift;;
+ *) usage;;
+esac
+
+geometry= sound=false
+while (( $# )); do
+ case $1 in
+  --geometry) geometry=${2?--geometry needs "X,Y WxH"}; shift;;
+  --sound) sound=true;;
+  *) usage;;
+ esac
+ shift
+done
+recording && exit 0
+[[ -n $geometry ]] || geometry=$(slurp -b 100d18aa -c b69af7 -w 2) || exit 0
+# H.264 in yuv420p needs an even width and height.
+if [[ $geometry =~ ^(-?[0-9]+),(-?[0-9]+)\ ([0-9]+)x([0-9]+)$ ]]; then
+ geometry="${BASH_REMATCH[1]},${BASH_REMATCH[2]} $(( BASH_REMATCH[3] / 2 * 2 ))x$(( BASH_REMATCH[4] / 2 * 2 ))"
+fi
+
+dir=$HOME/Videos/Screencasts
+mkdir -p "$dir" "${state%/*}"
+file=$dir/$(date +%Y-%m-%d_%H-%M-%S).mp4
+args=(-g "$geometry" -f "$file" -c libx264 -p preset=veryfast -p crf=23 -x yuv420p)
+# The default output's monitor carries what the computer plays.
+if $sound; then args+=("--audio=$(pactl get-default-sink).monitor"); fi
+
+# This script stays until the recording ends, so it can report it. Job control keeps the recorder
+# from inheriting "ignore SIGINT", the signal `stop` finishes it with.
+set -m
+wf-recorder "${args[@]}" >"$log" 2>&1 &
+pid=$!
+set +m
+echo "$pid" > "$pidfile"
+printf '%s\n%s\n' "$(date +%s)" "$file" > "$state"
+refresh
+wait "$pid" || true
+rm -f "$state" "$pidfile"
+refresh
+
+if [[ -s $file ]]; then
+ # Copied as a file, so it can be pasted into a chat or a file manager.
+ printf 'file://%s\n' "$file" | wl-copy --type text/uri-list
+ action=$(notify-send -a Penumbra -i video-x-generic --action=open=Play 'Recording saved' \
+  "Copied to clipboard · ${file/#$HOME/\~}") || true
+ [[ $action = open ]] && xdg-open "$file"
+else
+ rm -f "$file"
+ notify-send -a Penumbra -u critical 'Recording failed' "$(tail -n 3 "$log")"
+fi
+exit 0
