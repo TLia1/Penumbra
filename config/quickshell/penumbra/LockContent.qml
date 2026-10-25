@@ -68,11 +68,6 @@ Rectangle {
         Component.onCompleted: { opacity = 1; input.forceActiveFocus(); }
         Behavior on opacity { NumberAnimation { duration: Theme.slow * 2; easing.type: Easing.OutCubic } }
 
-        SystemClock {
-            id: clock
-            precision: SystemClock.Seconds
-        }
-
         // Battery and network, top right.
         RowLayout {
             anchors { top: parent.top; right: parent.right; margins: 28 }
@@ -92,7 +87,7 @@ Rectangle {
             spacing: 0
             Label {
                 Layout.alignment: Qt.AlignHCenter
-                text: Qt.formatDateTime(clock.date, "HH:mm")
+                text: Qt.formatDateTime(Clock.date, "HH:mm")
                 font.pixelSize: 124
                 font.weight: Font.Light
                 font.letterSpacing: -3
@@ -100,7 +95,7 @@ Rectangle {
             }
             Label {
                 Layout.alignment: Qt.AlignHCenter
-                text: Qt.formatDateTime(clock.date, "dddd d MMMM")
+                text: Qt.formatDateTime(Clock.date, "dddd d MMMM")
                 font.pixelSize: 15
                 font.letterSpacing: 3
                 font.capitalization: Font.AllUppercase

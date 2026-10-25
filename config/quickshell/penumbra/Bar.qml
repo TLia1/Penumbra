@@ -50,14 +50,10 @@ PanelWindow {
             id: clockCapsule
             padding: 18
             active: Ui.calendarOpen
-            tip: Qt.formatDateTime(clock.date, "dddd d MMMM yyyy")
+            tip: Qt.formatDateTime(Clock.date, "dddd d MMMM yyyy")
             onClicked: Ui.toggleCalendar()
-            SystemClock {
-                id: clock
-                precision: SystemClock.Minutes
-            }
             Label {
-                text: Qt.formatDateTime(clock.date, "HH:mm")
+                text: Qt.formatDateTime(Clock.date, "HH:mm")
                 font.pixelSize: 14
                 font.weight: Font.Bold
                 color: Ui.calendarOpen ? Theme.violetInk : "#eee8ff"
