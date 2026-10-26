@@ -47,6 +47,8 @@ Singleton {
     // Inter's optical size for large text: tighter spacing and finer detail from about 20 px up.
     readonly property string display: "Inter Display"
     readonly property string mono: "JetBrainsMono Nerd Font"
+    // The distribution's logo on the bar's launcher button, set by install.sh from distro/NAME/distro.sh.
+    readonly property string distroGlyph: "@@DISTRO_GLYPH@@"
 
     // The type scale. Every text size in the shell is one of these.
     readonly property int textTiny: 10     // badges, timestamps

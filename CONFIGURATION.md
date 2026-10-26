@@ -19,28 +19,8 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 SETTINGS_FILE=${XDG_CONFIG_HOME:-$HOME/.config}/penumbra/settings.conf
 XKB_RULES=/usr/share/X11/xkb/rules/base.lst
 
-PACKAGES=(
-    # Desktop
-    hyprland quickshell awww sddm hyprlock hypridle hyprsunset rofi
-    xdg-desktop-portal-hyprland xdg-desktop-portal-gtk
-    # Terminal and editor
-    kitty fish starship fastfetch htop neovim git ripgrep unzip nodejs npm tree-sitter-cli gcc
-    # Applications
-    dolphin pavucontrol blueman network-manager-applet xdg-utils
-    # Themes and fonts
-    breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme
-    qt5ct qt6ct qt5-wayland qt5-quickcontrols2 ttf-jetbrains-mono-nerd inter-font
-    # Hardware and services
-    networkmanager bluez bluez-utils pipewire-pulse wireplumber brightnessctl playerctl cava
-    # Passwords apps save, unlocked when you sign in
-    gnome-keyring seahorse
-    # Screenshots, screen recording, clipboard, color picker, emoji and symbols
-    grim slurp satty wf-recorder hyprpicker cliphist wl-clipboard wtype unicode-emoji noto-fonts-emoji
-    # Used by the helper scripts and build tools
-    pacman-contrib flatpak libnotify librsvg python-pillow xorg-xcursorgen
-)
-# Replaced by the Quickshell shell (bar, notifications, OSD) and awww (wallpaper).
-LEGACY_PACKAGES=(waybar mako swaybg)
+# Configuration folders of the desktop Penumbra replaced (Waybar and Mako); the packages are in the
+# distribution's LEGACY_PACKAGES.
 LEGACY_CONFIGS=(waybar mako)
 
 usage() {
@@ -56,6 +36,9 @@ Parts (default: all of them):
                        replaced and remove the ones it added. Packages stay.
                        With --user-only, only your account's files.
 
+Distribution (detected from /etc/os-release; supported: $(supported_distros)):
+  --distro NAME        Use distro/NAME/ instead of the detected one.
+
 Settings (detected on the first run, then remembered in $SETTINGS_FILE):
   --layout LAYOUT      Keyboard layout, e.g. us, gb, fr, de, or "us,fr" for several.
   --variant VARIANT    Layout variant, e.g. intl, dvorak, colemak. Empty for none.
@@ -68,8 +51,9 @@ Other options:
   -y, --yes            Don't ask about the settings; use the saved or detected ones.
   --skip-packages      Don't install packages (or PENUMBRA_SKIP_PACKAGES=1).
   --remove-legacy yes|no|ask
-                       Whether to remove Waybar, Mako and swaybg if they are
-                       installed (or PENUMBRA_REMOVE_LEGACY=1/0). Default: ask.
+                       Whether to remove the packages Penumbra replaced (Waybar,
+                       Mako, swaybg) if they are installed (or
+                       PENUMBRA_REMOVE_LEGACY=1/0). Default: ask.
   --user NAME          Desktop user for --system-only (default: \$SUDO_USER).
   -h, --help           Show this help.
 EOF
@@ -94,12 +78,63 @@ ask() {
     [[ ${answer,,} == y || ${answer,,} == yes ]]
 }
 
+# ─── Distribution ────────────────────────────────────────────────────────────
+# Everything that differs between distributions (package names, the package manager, the logo,
+# update checks) lives in distro/NAME/. distro.sh is sourced here; its config/, bin/, share/ and
+# system/ folders are installed over the common ones. See EXTENDING.md.
+
+supported_distros() {
+    local dir names=()
+    for dir in "$ROOT"/distro/*/distro.sh; do names+=("$(basename "$(dirname "$dir")")"); done
+    local IFS=,
+    echo "${names[*]}"
+}
+
+# Pick DISTRO: --distro, else the first of /etc/os-release's ID and ID_LIKE (e.g. "endeavouros"
+# then "arch") that has a folder.
+detect_distro() {
+    local id
+    if [[ -z $DISTRO ]]; then
+        for id in $( . /etc/os-release 2>/dev/null; echo "${ID:-} ${ID_LIKE:-}"); do
+            [[ -r $ROOT/distro/$id/distro.sh ]] && { DISTRO=$id; break; }
+        done
+        [[ -n $DISTRO ]] || die "Penumbra has no support for this distribution yet (supported: $(supported_distros)). See EXTENDING.md."
+    fi
+    [[ $DISTRO =~ ^[a-z0-9_-]+$ && -r $ROOT/distro/$DISTRO/distro.sh ]] \
+        || die "No distro/$DISTRO/distro.sh (supported: $(supported_distros))."
+}
+
+load_distro() {
+    detect_distro
+    DISTRO_DIR=$ROOT/distro/$DISTRO
+    LEGACY_PACKAGES=() PLYMOUTH_PACKAGES=(plymouth)
+    # shellcheck source=distro/arch/distro.sh
+    source "$DISTRO_DIR/distro.sh"
+    local name
+    for name in pkg_install pkg_installed pkg_versions pkg_remove; do
+        declare -F "$name" >/dev/null || die "distro/$DISTRO/distro.sh does not define $name."
+    done
+    for name in DISTRO_NAME DISTRO_GLYPH DISTRO_UPDATE_COMMAND PACKAGES; do
+        [[ -v $name ]] || die "distro/$DISTRO/distro.sh does not set $name."
+    done
+}
+
 # ─── Settings ────────────────────────────────────────────────────────────────
 # Each setting comes from, in order: a command-line option, the saved settings
-# file, then what this machine already uses.
+# file, then what this machine already uses. Templates get each one as @@KEY@@ (kb_layout →
+# @@KB_LAYOUT@@). A new setting needs a line in SETTING_KEYS, SETTING_OPTIONS and SETTING_LABELS,
+# a default in detect_settings and a check in valid_setting.
 
 declare -A settings=()
 SETTING_KEYS=(kb_layout kb_variant kb_options scale numlock shell)
+declare -A SETTING_OPTIONS=(
+    [kb_layout]=--layout
+    [kb_variant]=--variant
+    [kb_options]=--kb-options
+    [scale]=--scale
+    [numlock]=--numlock
+    [shell]=--shell
+)
 declare -A SETTING_LABELS=(
     [kb_layout]='Keyboard layout'
     [kb_variant]='Layout variant'
@@ -108,6 +143,15 @@ declare -A SETTING_LABELS=(
     [numlock]='Num Lock at login (on/off)'
     [shell]='Login shell (fish/keep)'
 )
+
+# option_setting --layout → kb_layout; false for any other option.
+option_setting() {
+    local key
+    for key in "${SETTING_KEYS[@]}"; do
+        [[ $1 == "${SETTING_OPTIONS[$key]}" ]] && { echo "$key"; return 0; }
+    done
+    return 1
+}
 
 # Set a setting unless something with higher priority already did.
 set_default() { [[ -v settings[$1] ]] || settings[$1]=$2; }
@@ -227,19 +271,26 @@ backup_file() {
     fi
 }
 
+# The values templates can use besides the settings, as PLACEHOLDER=value.
+declare -A placeholders=()
+set_placeholders() {
+    placeholders=(
+        [HOME]=$HOME
+        [DISTRO_GLYPH]=$DISTRO_GLYPH
+        [DISTRO_UPDATE_COMMAND]=$DISTRO_UPDATE_COMMAND
+        # Hyprland's no_hardware_cursors: 1 forces software cursors, 2 decides per GPU.
+        [SOFTWARE_CURSOR]=$(is_vm && echo 1 || echo 2)
+    )
+    local key
+    for key in "${SETTING_KEYS[@]}"; do placeholders[${key^^}]=${settings[$key]:-}; done
+}
+
 # Print a file with its @@PLACEHOLDERS@@ replaced by this user's values.
 render_template() {
-    local text numlock=false
-    [[ ${settings[numlock]} == on ]] && numlock=true
+    local text name
     text=$(<"$1")
-    text=${text//@@HOME@@/"$HOME"}
-    text=${text//@@KB_LAYOUT@@/"${settings[kb_layout]}"}
-    text=${text//@@KB_VARIANT@@/"${settings[kb_variant]}"}
-    text=${text//@@KB_OPTIONS@@/"${settings[kb_options]}"}
-    text=${text//@@SCALE@@/"${settings[scale]}"}
-    text=${text//@@NUMLOCK@@/"$numlock"}
-    # Hyprland's no_hardware_cursors: 1 forces software cursors, 2 decides per GPU.
-    if is_vm; then text=${text//@@SOFTWARE_CURSOR@@/1}; else text=${text//@@SOFTWARE_CURSOR@@/2}; fi
+    for name in "${!placeholders[@]}"; do text=${text//@@$name@@/"${placeholders[$name]}"}; done
+    [[ $text =~ @@[A-Z_]+@@ ]] && warn "${1#"$ROOT/"}: unknown placeholder ${BASH_REMATCH[0]}"
     printf '%s\n' "$text"
 }
 
@@ -299,35 +350,35 @@ install_packages() {
         echo 'Skipping packages.'
         return
     fi
-    # Use the currently synced repositories; never refresh the database alone. pacman asks about
-    # conflicts and replacements itself, unless nobody is there to answer.
-    local confirm=()
-    interactive || confirm=(--noconfirm)
-    pacman -S --needed "${confirm[@]}" "${PACKAGES[@]}"
+    pkg_install "${PACKAGES[@]}"
 }
 
 remove_legacy_packages() {
     local installed
-    mapfile -t installed < <(pacman -Qq "${LEGACY_PACKAGES[@]}" 2>/dev/null || true)
+    (( ${#LEGACY_PACKAGES[@]} )) || return 0
+    mapfile -t installed < <(pkg_installed "${LEGACY_PACKAGES[@]}")
     (( ${#installed[@]} )) || return 0
     case $REMOVE_LEGACY in
         yes) ;;
         ask) ask "Remove packages Penumbra no longer uses (${installed[*]})?" || return 0 ;;
         *) return 0 ;;
     esac
-    pacman -Q "${installed[@]}" > "$BACKUP/removed-packages.txt"
-    # -s also drops their now-unneeded dependencies, never explicitly installed packages.
-    pacman -Rns --noconfirm "${installed[@]}" \
+    pkg_versions "${installed[@]}" > "$BACKUP/removed-packages.txt"
+    pkg_remove "${installed[@]}" \
         || warn "Could not remove ${installed[*]}; another package may still depend on them."
 }
 
+# The common system/ files, then the distribution's, which can replace them.
 install_system_files() {
-    local source rel
-    while IFS= read -r -d '' source; do
-        rel=${source#"$ROOT/system/"}
-        backup_file "/$rel" "$rel"
-        install -Dm644 "$source" "/$rel"
-    done < <(find "$ROOT/system" -type f -print0)
+    local source rel from
+    for from in "$ROOT/system" "$DISTRO_DIR/system"; do
+        [[ -d $from ]] || continue
+        while IFS= read -r -d '' source; do
+            rel=${source#"$from/"}
+            backup_file "/$rel" "$rel"
+            install -Dm644 "$source" "/$rel"
+        done < <(find "$from" -type f -print0)
+    done
     configure_vm_greeter
 }
 
@@ -346,10 +397,11 @@ configure_vm_greeter() {
 }
 
 set_login_shell() {
-    local user=$1
+    local user=$1 fish
     [[ ${settings[shell]:-fish} == fish ]] || return 0
+    fish=$(command -v fish) || { warn 'fish is not installed; the login shell stays as it is.'; return 0; }
     getent passwd "$user" | cut -d: -f7 > "$BACKUP/previous-shell.txt"
-    usermod -s /usr/bin/fish "$user"
+    usermod -s "$fish" "$user"
 }
 
 # Give the login screen the same keyboard layout as the desktop.
@@ -369,8 +421,8 @@ set_login_keyboard() {
 }
 
 # The keyring unlocks with your password when you sign in through SDDM. Arch's SDDM PAM file
-# already lists gnome-keyring (as optional, skipped while it isn't installed); older or edited
-# files get the two lines added.
+# already lists gnome-keyring (as optional, skipped while it isn't installed); other, older or
+# edited files get the two lines added.
 enable_keyring_unlock() {
     local pam=/etc/pam.d/sddm
     [[ -f $pam ]] || return 0
@@ -386,10 +438,10 @@ enable_keyring_unlock() {
 
 enable_services() {
     local unit
-    for unit in bluetooth NetworkManager sddm; do
+    for unit in "${SERVICES[@]}" sddm; do
         systemctl is-enabled "$unit" > "$BACKUP/$unit.enabled" 2>&1 || true
     done
-    systemctl enable --now bluetooth NetworkManager
+    systemctl enable --now "${SERVICES[@]}"
     # Not started now: that would end the current session.
     systemctl enable sddm
 }
@@ -413,10 +465,19 @@ run_system_part() {
     enable_services
 
     step 'Boot themes (optional)'
-    # Boot assets are deliberately outside system/: deploy only after opt-in.
-    python3 "$ROOT/tools/install-boot.py" || warn 'Optional boot theming did not complete; see the messages above.'
+    run_boot_part || warn 'Optional boot theming did not complete; see the messages above.'
 
     echo "System backup: $BACKUP"
+}
+
+# Boot assets are deliberately outside system/: deploy only after opt-in. The package comes from
+# the distribution; tools/install-boot.py does the rest.
+run_boot_part() {
+    if ! command -v plymouth-set-default-theme >/dev/null \
+        && ask "Install Plymouth (${PLYMOUTH_PACKAGES[*]}) for the boot splash?"; then
+        pkg_install "${PLYMOUTH_PACKAGES[@]}" || warn 'Plymouth was not installed.'
+    fi
+    python3 "$ROOT/tools/install-boot.py"
 }
 
 # ─── User part ───────────────────────────────────────────────────────────────
@@ -485,16 +546,20 @@ run_user_part() {
     step 'Installing your configuration'
     prune_tree "$ROOT/config/quickshell/penumbra" "$HOME/.config/quickshell/penumbra"
     prune_tree "$ROOT/config/nvim/lua/penumbra" "$HOME/.config/nvim/lua/penumbra"
-    local script
+    local script from
     for script in "$HOME"/.local/bin/penumbra-*; do
-        [[ -e $script && ! -e $ROOT/bin/${script##*/} ]] || continue
+        [[ -e $script && ! -e $ROOT/bin/${script##*/} && ! -e $DISTRO_DIR/bin/${script##*/} ]] || continue
         backup_file "$script" "${script#"$HOME/"}"
         rm -f "$script"
         echo "Removed ~/.local/bin/${script##*/}; Penumbra no longer uses it."
     done
-    install_tree "$ROOT/config" "$HOME/.config"
-    install_tree "$ROOT/bin" "$HOME/.local/bin"
-    install_tree "$ROOT/share" "$HOME/.local/share"
+    set_placeholders
+    # The common files, then the distribution's, which can add to or replace them.
+    for from in "$ROOT" "$DISTRO_DIR"; do
+        [[ ! -d $from/config ]] || install_tree "$from/config" "$HOME/.config"
+        [[ ! -d $from/bin ]] || install_tree "$from/bin" "$HOME/.local/bin"
+        [[ ! -d $from/share ]] || install_tree "$from/share" "$HOME/.local/share"
+    done
     create_user_files
     chmod +x "$HOME"/.local/bin/penumbra-*
     # The configs above come rounded; put back sharp corners if that was the choice.
@@ -638,17 +703,16 @@ uninstall_system() {
 
 # sudo resets the environment, so hand the system part its options explicitly.
 run_system_part_with_sudo() {
-    local args=(
-        --system-only --user "$USER"
-        --layout "${settings[kb_layout]}" --variant "${settings[kb_variant]}"
-        --kb-options "${settings[kb_options]}" --shell "${settings[shell]}"
-        --remove-legacy "$REMOVE_LEGACY"
-    )
+    local args=(--system-only --user "$USER" --distro "$DISTRO" --remove-legacy "$REMOVE_LEGACY") key
+    for key in "${SETTING_KEYS[@]}"; do args+=("${SETTING_OPTIONS[$key]}" "${settings[$key]}"); done
     [[ $SKIP_PACKAGES == 1 ]] && args+=(--skip-packages)
     sudo "$ROOT/install.sh" "${args[@]}"
 }
 
 # ─── Main ────────────────────────────────────────────────────────────────────
+
+# Sourced (by the tests): only define the functions. `return` only works in a sourced file.
+if (return 0 2>/dev/null); then return 0; fi
 
 PART=all
 UNINSTALL=0
@@ -656,6 +720,9 @@ ASSUME_YES=0
 SKIP_PACKAGES=${PENUMBRA_SKIP_PACKAGES:-0}
 case ${PENUMBRA_REMOVE_LEGACY:-ask} in 1) REMOVE_LEGACY=yes ;; 0) REMOVE_LEGACY=no ;; *) REMOVE_LEGACY=ask ;; esac
 TARGET_USER=''
+DISTRO=''
+# Started and enabled by the system part, besides SDDM; a distribution's distro.sh may change them.
+SERVICES=(bluetooth NetworkManager)
 
 while (( $# )); do
     case $1 in
@@ -663,18 +730,16 @@ while (( $# )); do
         --system-only) PART=system ;;
         --boot-only) PART=boot ;;
         --uninstall) UNINSTALL=1 ;;
-        --layout) settings[kb_layout]=${2?--layout needs a value}; shift ;;
-        --variant) settings[kb_variant]=${2?--variant needs a value}; shift ;;
-        --kb-options) settings[kb_options]=${2?--kb-options needs a value}; shift ;;
-        --scale) settings[scale]=${2?--scale needs a value}; shift ;;
-        --numlock) settings[numlock]=${2?--numlock needs on or off}; shift ;;
-        --shell) settings[shell]=${2?--shell needs fish or keep}; shift ;;
+        --distro) DISTRO=${2?--distro needs a name}; shift ;;
         --skip-packages) SKIP_PACKAGES=1 ;;
         --remove-legacy) REMOVE_LEGACY=${2?--remove-legacy needs yes, no or ask}; shift ;;
         --user) TARGET_USER=${2?--user needs a name}; shift ;;
         -y|--yes) ASSUME_YES=1 ;;
         -h|--help) usage; exit 0 ;;
-        -*) usage >&2; exit 2 ;;
+        -*)
+            key=$(option_setting "$1") || { usage >&2; exit 2; }
+            settings[$key]=${2?$1 needs a value}
+            shift ;;
         *) TARGET_USER=$1 ;;  # Older form: --system-only NAME
     esac
     shift
@@ -702,10 +767,11 @@ if (( UNINSTALL )); then
     exit 0
 fi
 
+load_distro
 case $PART in
     boot)
-        if [[ $EUID == 0 ]]; then exec python3 "$ROOT/tools/install-boot.py"; fi
-        exec sudo python3 "$ROOT/tools/install-boot.py"
+        [[ $EUID == 0 ]] || exec sudo "$ROOT/install.sh" --boot-only --distro "$DISTRO"
+        run_boot_part
         ;;
     system)
         run_system_part
@@ -723,6 +789,107 @@ case $PART in
         run_user_part
         ;;
 esac
+```
+
+## `distro/arch/config/fastfetch/penumbra-logo.svg`
+
+```xml
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 400 400">
+<defs><mask id="arch"><path fill="white" d="M200 20 372 365 Q286 314 241 308 C246 249 232 222 204 222 C174 222 158 251 162 308 Q107 320 28 365 L146 130 181 153 151 119Z"/></mask></defs>
+<g mask="url(#arch)"><path fill="#b69af7" d="M0 0H400V400H0z"/><path fill="#ceb4ff" d="M200 20 246 126 180 330 115 273Z"/><path fill="#71637f" d="M246 126 400 400 202 316Z"/><path fill="#a1a5e9" d="M28 365 115 273 159 314Z"/><path fill="#e4dced" d="M200 20 210 43 153 121 146 130Z"/><path fill="#231d2e" d="M286 269 339 290 318 258 400 400 231 313Z"/></g>
+</svg>
+```
+
+## `distro/arch/distro.sh`
+
+```bash
+# Penumbra on Arch Linux and the distributions built on it (EndeavourOS, CachyOS, Manjaro...).
+# install.sh sources this file; EXTENDING.md lists what a distribution's file must define.
+
+DISTRO_NAME='Arch Linux'
+# The bar's launcher button: a JetBrainsMono Nerd Font glyph (nf-md-arch).
+DISTRO_GLYPH='󰣇'
+# What fish's `update` abbreviation runs.
+DISTRO_UPDATE_COMMAND='sudo pacman -Syu'
+
+PACKAGES=(
+    # Desktop
+    hyprland quickshell awww sddm hyprlock hypridle hyprsunset rofi
+    xdg-desktop-portal-hyprland xdg-desktop-portal-gtk
+    # Terminal and editor
+    kitty fish starship fastfetch htop neovim git ripgrep unzip nodejs npm tree-sitter-cli gcc
+    # Applications
+    dolphin pavucontrol blueman network-manager-applet xdg-utils
+    # Themes and fonts
+    breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme
+    qt5ct qt6ct qt5-wayland qt5-quickcontrols2 ttf-jetbrains-mono-nerd inter-font
+    # Hardware and services
+    networkmanager bluez bluez-utils pipewire-pulse wireplumber brightnessctl playerctl cava
+    # Passwords apps save, unlocked when you sign in
+    gnome-keyring seahorse
+    # Screenshots, screen recording, clipboard, color picker, emoji and symbols
+    grim slurp satty wf-recorder hyprpicker cliphist wl-clipboard wtype unicode-emoji noto-fonts-emoji
+    # Used by the helper scripts and build tools
+    pacman-contrib flatpak libnotify librsvg python-pillow xorg-xcursorgen
+)
+# Replaced by the Quickshell shell (bar, notifications, OSD) and awww (wallpaper).
+LEGACY_PACKAGES=(waybar mako swaybg)
+# The boot splash, offered by ./install.sh --boot-only.
+PLYMOUTH_PACKAGES=(plymouth)
+
+# pkg_install PACKAGE...: install what is missing. Uses the currently synced repositories; never
+# refresh the database alone. pacman asks about conflicts and replacements itself, unless nobody is
+# there to answer.
+pkg_install() {
+    local confirm=()
+    interactive || confirm=(--noconfirm)
+    pacman -S --needed "${confirm[@]}" "$@"
+}
+
+# pkg_installed PACKAGE... → the ones that are installed, one per line.
+pkg_installed() { pacman -Qq "$@" 2>/dev/null || true; }
+
+# pkg_versions PACKAGE... → "name version" per line, kept in the backup before removing them.
+pkg_versions() { pacman -Q "$@"; }
+
+# pkg_remove PACKAGE...: remove them without asking (the installer already asked). -s also drops
+# their now-unneeded dependencies, never explicitly installed packages.
+pkg_remove() { pacman -Rns --noconfirm "$@"; }
+```
+
+## `distro/arch/share/penumbra/updates.py`
+
+```python
+"""Arch's package sources for penumbra-updates: the official repositories, and the AUR through
+Paru or Yay when one is installed. Flatpak is handled by penumbra-updates itself."""
+import shutil
+
+
+def aur_helper():
+    return shutil.which("paru") or shutil.which("yay")
+
+
+def sources():
+    """The checks to run. Each lists one pending update per line, "name old -> new"; `empty` are
+    exit codes that mean nothing to update, `empty_if_silent` the same when nothing is printed."""
+    # checkupdates uses a separate database, so it never refreshes the live pacman one.
+    found = [{"name": "Arch", "command": ["checkupdates", "--nocolor"], "empty": (2,)}]
+    aur = aur_helper()
+    if aur:
+        # Yay returns 1 with no output when no AUR upgrades are available.
+        found.append({"name": "AUR", "command": [aur, "-Qua", "--color", "never"], "empty_if_silent": (1,)})
+    return found
+
+
+def notes():
+    """Extra lines for the bar's tooltip."""
+    return [] if aur_helper() else ["AUR: install yay or paru to enable"]
+
+
+def upgrades():
+    """(name, command) for each upgrade step, run in order in a terminal."""
+    aur = aur_helper()
+    return [("Arch + AUR", [aur, "-Syu"]) if aur else ("Arch", ["sudo", "pacman", "-Syu"])]
 ```
 
 ## `palette/palette.toml`
@@ -986,6 +1153,7 @@ OUTPUT = ROOT / 'CONFIGURATION.md'
 # Sections in reading order; each is a list of glob patterns relative to the bundle.
 SECTIONS = [
     ['install.sh'],
+    ['distro/**/*'],
     ['palette/palette.toml'],
     ['tools/*'],
     ['tests/*'],
@@ -2098,11 +2266,9 @@ def main():
             apply_limine(limine)
         if available and ask('Apply the Penumbra GRUB theme (back up and preserve existing menu)'):
             apply_grub()
-        installed = subprocess.run(['pacman', '-Qq', 'plymouth'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+        # ./install.sh --boot-only offers to install it, with the distribution's package manager.
+        installed = bool(shutil.which('plymouth-set-default-theme'))
         print('Plymouth: ' + ('installed.' if installed else 'not installed.'))
-        if not installed and ask('Install Plymouth from the configured Arch repositories'):
-            run('pacman', '-S', '--needed', 'plymouth')
-            installed = True
         if installed and (available or limine) and ask('Apply Penumbra to Plymouth (add splash/hook and rebuild initramfs)'):
             apply_plymouth(limine)
         elif installed and not (available or limine):
@@ -2560,6 +2726,76 @@ if __name__ == '__main__':
     unittest.main()
 ```
 
+## `tests/test_install.py`
+
+```python
+"""Every distribution folder gives install.sh what it needs, and every template fills in."""
+import importlib.util
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parent.parent
+DISTROS = sorted(p.parent.name for p in (ROOT / 'distro').glob('*/distro.sh'))
+SETTINGS = 'settings=([kb_layout]=us [kb_variant]= [kb_options]= [scale]=auto [numlock]=on [shell]=fish)'
+
+
+def bash(script, distro, *args):
+    """Run `script` with install.sh's functions loaded for `distro`; `args` are "$@". HOME is a
+    throwaway folder, so nothing can reach your own configuration."""
+    with tempfile.TemporaryDirectory() as home:
+        return subprocess.run(['bash', '-c', f'source "$0"; DISTRO=$1; shift; load_distro; {script}',
+                               str(ROOT / 'install.sh'), distro, *args],
+                              capture_output=True, text=True, env={**os.environ, 'HOME': home})
+
+
+def templates(distro):
+    """The text files install.sh fills in for `distro`."""
+    files = [p for folder in (ROOT / 'config', ROOT / 'bin', ROOT / 'share', ROOT / 'distro' / distro)
+             for p in folder.rglob('*') if p.is_file()]
+    return [str(p) for p in files if b'@@' in p.read_bytes() and b'\0' not in p.read_bytes()]
+
+
+class Distributions(unittest.TestCase):
+    def test_arch_is_supported(self):
+        self.assertIn('arch', DISTROS)
+
+    def test_distro_sh_defines_everything(self):
+        for distro in DISTROS:
+            with self.subTest(distro=distro):
+                result = bash('(( ${#PACKAGES[@]} ))', distro)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_updates_module(self):
+        for distro in DISTROS:
+            path = ROOT / 'distro' / distro / 'share/penumbra/updates.py'
+            if not path.exists():
+                continue
+            with self.subTest(distro=distro):
+                spec = importlib.util.spec_from_file_location('updates', path)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                for source in module.sources():
+                    self.assertTrue(source['name'] and source['command'], source)
+                self.assertIsInstance(module.notes(), list)
+                self.assertTrue(all(name and command for name, command in module.upgrades()))
+
+    def test_templates_fill_in(self):
+        for distro in DISTROS:
+            with self.subTest(distro=distro):
+                result = bash(f'{SETTINGS}; set_placeholders; for f; do render_template "$f"; done',
+                              distro, *templates(distro))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stderr, '')
+                self.assertNotRegex(result.stdout, r'@@[A-Z_]+@@')
+
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
 ## `bin/penumbra-clipboard`
 
 ```bash
@@ -2972,7 +3208,7 @@ start() {
 hyprctl setcursor Penumbra-Cursors 28 >/dev/null
 start awww-daemon awww-daemon
 # The shell is the polkit agent too; an older KDE agent would hold the registration.
-pkill -u "$UID" -f '^/usr/lib/polkit-kde-authentication-agent-1' || true
+pkill -u "$UID" -f '^/usr/lib/(.*/)?polkit-kde-authentication-agent-1' || true
 # Bar, notifications, OSD, control center, launcher, overlays, lock screen and polkit agent;
 # systemd restarts it if it dies (see ~/.config/systemd/user/penumbra-shell.service).
 systemctl --user reset-failed penumbra-shell.service 2>/dev/null
@@ -3027,6 +3263,7 @@ notify-send -a Penumbra -i "$file" 'Screenshot saved' "Copied to clipboard · ${
 """Update checks for the Penumbra bar and an interactive Kitty update session."""
 import fcntl
 import html
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -3034,20 +3271,28 @@ import shutil
 import subprocess
 import sys
 
+# The distribution's package sources, installed from distro/<name>/share/penumbra/updates.py.
+DISTRO = Path.home() / ".local/share/penumbra/updates.py"
 
-def helper():
-    return shutil.which("paru") or shutil.which("yay")
+
+def distro():
+    """The distribution's updates module, or None when there is none."""
+    if not DISTRO.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location("penumbra_distro_updates", DISTRO)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def check(command, empty_codes=()):
+def check(command, empty=(), empty_if_silent=()):
     """The pending updates a command lists, one per line, or None when the check failed."""
     try:
         result = subprocess.run(command, capture_output=True, text=True,
                                 timeout=180, env={**os.environ, "LC_ALL": "C"})
-        if result.returncode in empty_codes:
+        if result.returncode in empty:
             return []
-        # Yay returns 1 with no output when no AUR upgrades are available.
-        if ("-Qua" in command and result.returncode == 1
+        if (result.returncode in empty_if_silent
                 and not result.stdout.strip() and not result.stderr.strip()):
             return []
         if result.returncode:
@@ -3059,23 +3304,22 @@ def check(command, empty_codes=()):
 
 
 def status():
-    sources = [("Arch", ["checkupdates", "--nocolor"], (2,))]
-    aur = helper()
-    if aur:
-        sources.append(("AUR", [aur, "-Qua", "--color", "never"], ()))
+    packages = distro()
+    sources = packages.sources() if packages else []
     if shutil.which("flatpak"):
-        sources.extend((f"Flatpak ({scope})",
-                        ["flatpak", "remote-ls", f"--{scope}", "--updates",
-                         "--all", "--arch=*", "--columns=ref"], ())
+        sources.extend({"name": f"Flatpak ({scope})",
+                        "command": ["flatpak", "remote-ls", f"--{scope}", "--updates",
+                                    "--all", "--arch=*", "--columns=ref"]}
                        for scope in ("user", "system"))
-    found = [(name, check(command, codes)) for name, command, codes in sources]
+    found = [(source["name"], check(source["command"], source.get("empty", ()),
+                                    source.get("empty_if_silent", ())))
+             for source in sources]
     total = sum(len(lines) for _, lines in found if lines is not None)
     tooltip = [f"{name}: {len(lines) if lines is not None else 'check unavailable'}"
                for name, lines in found]
-    if not aur:
-        tooltip.append("AUR: install yay or paru to enable")
+    tooltip.extend(packages.notes() if packages else ["System packages: run ./install.sh to enable"])
     tooltip.append("Click for the list · checked every 15 minutes")
-    # Each line is "name old -> new" (pacman, AUR) or a Flatpak ref.
+    # Each line is what the distribution's check prints (pacman: "name old -> new") or a Flatpak ref.
     print(json.dumps({"text": f"󰚰 {total}" if total else "",
                       "tooltip": html.escape("\n".join(tooltip)),
                       "class": "available",
@@ -3102,9 +3346,8 @@ def update():
         return 0
     failed = False
     try:
-        aur = helper()
-        commands = [("Arch + AUR" if aur else "Arch",
-                     [aur, "-Syu"] if aur else ["sudo", "pacman", "-Syu"])]
+        packages = distro()
+        commands = packages.upgrades() if packages else []
         if shutil.which("flatpak"):
             commands.extend((f"Flatpak ({scope})", ["flatpak", "update", f"--{scope}"])
                             for scope in ("user", "system"))
@@ -3233,7 +3476,7 @@ XCURSOR_SIZE=28
 {
   "logo": {
     "type": "kitty-direct",
-    "source": "~/.config/fastfetch/penumbra-arch.png",
+    "source": "~/.config/fastfetch/penumbra-logo.png",
     "width": 26,
     "height": 13,
     "padding": {
@@ -3366,15 +3609,6 @@ XCURSOR_SIZE=28
 }
 ```
 
-## `config/fastfetch/penumbra-arch.svg`
-
-```xml
-<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 400 400">
-<defs><mask id="arch"><path fill="white" d="M200 20 372 365 Q286 314 241 308 C246 249 232 222 204 222 C174 222 158 251 162 308 Q107 320 28 365 L146 130 181 153 151 119Z"/></mask></defs>
-<g mask="url(#arch)"><path fill="#b69af7" d="M0 0H400V400H0z"/><path fill="#ceb4ff" d="M200 20 246 126 180 330 115 273Z"/><path fill="#71637f" d="M246 126 400 400 202 316Z"/><path fill="#a1a5e9" d="M28 365 115 273 159 314Z"/><path fill="#e4dced" d="M200 20 210 43 153 121 146 130Z"/><path fill="#231d2e" d="M286 269 339 290 318 258 400 400 231 313Z"/></g>
-</svg>
-```
-
 ## `config/fish/conf.d/penumbra-colors.fish`
 
 ```fish
@@ -3403,7 +3637,7 @@ if status is-interactive
     set -g fish_greeting
     starship init fish | source
     abbr --add ll 'ls -lah --color=auto'
-    abbr --add update 'sudo pacman -Syu'
+    abbr --add update '@@DISTRO_UPDATE_COMMAND@@'
 end
 ```
 
@@ -3575,7 +3809,7 @@ hl.config({
   blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = 0.9, popups = true} },
  animations = {enabled = true},
  dwindle = {preserve_split = true},
- input = {kb_layout = "@@KB_LAYOUT@@", kb_variant = "@@KB_VARIANT@@", kb_options = "@@KB_OPTIONS@@", numlock_by_default = @@NUMLOCK@@,
+ input = {kb_layout = "@@KB_LAYOUT@@", kb_variant = "@@KB_VARIANT@@", kb_options = "@@KB_OPTIONS@@", numlock_by_default = "@@NUMLOCK@@" == "on",
   follow_mouse = 1, sensitivity = 0, touchpad = {natural_scroll = true}},
  -- A fresh lock screen (hyprlock from a TTY) can take over if the shell's ever dies while locked.
  misc = {disable_hyprland_logo = true, disable_splash_rendering = true, force_default_wallpaper = 0, allow_session_lock_restore = true},
@@ -4384,7 +4618,7 @@ PanelWindow {
             tip: "Applications · right-click for the clipboard"
             active: Ui.launcherOpen
             onClicked: m => Ui.toggleLauncher(m.button === Qt.RightButton ? "clipboard" : "apps")
-            Glyph { text: "󰣇"; size: 20; color: Ui.launcherOpen ? Theme.violetInk : Theme.violetBright }
+            Glyph { text: Theme.distroGlyph; size: 20; color: Ui.launcherOpen ? Theme.violetInk : Theme.violetBright }
         }
 
         Capsule {
@@ -6335,10 +6569,16 @@ PanelWindow {
     property var clips: []
     property var usage: ({}) // desktop entry id → launches
     property var picks: ({}) // emoji or symbol → times picked
+    property var pointer: null // where the mouse last was, in window coordinates
 
     Connections {
         target: Ui
-        function onLauncherOpenChanged() { if (Ui.launcherOpen) root.reset(); }
+        function onLauncherOpenChanged() {
+            if (Ui.launcherOpen) {
+                root.pointer = null;
+                root.reset();
+            }
+        }
         function onLauncherModeChanged() { if (Ui.launcherOpen) root.reset(); }
     }
     onAppsChanged: refresh()
@@ -6349,6 +6589,25 @@ PanelWindow {
         if (clipboard)
             clipList.running = true;
         refresh();
+    }
+
+    // Hover follows the mouse only when it moves: opening under a still cursor, the card growing or
+    // results shifting beneath it leave the selection alone. Positions are the pointer's own window
+    // coordinates, never mapped back through the scaling card, so a still cursor reads the same each
+    // time. The first sighting only records where it is.
+    function pointerAt(x, y) {
+        if (pointer === null)
+            pointer = Qt.point(x, y);
+        if (Math.hypot(x - pointer.x, y - pointer.y) < 2)
+            return;
+        pointer = Qt.point(x, y);
+        const list = characters ? grid : view;
+        const p = list.mapFromItem(null, x, y);
+        if (!list.contains(p))
+            return;
+        const i = list.indexAt(p.x + list.contentX, p.y + list.contentY);
+        if (i >= 0)
+            list.currentIndex = i;
     }
 
     // ── Results ─────────────────────────────────────────────────────
@@ -6630,6 +6889,10 @@ PanelWindow {
 
         // Swallow clicks so they don't reach the backdrop.
         MouseArea { anchors.fill: parent }
+        // Handlers hear hover even when a row's MouseArea takes it.
+        HoverHandler {
+            onPointChanged: if (hovered) root.pointerAt(point.scenePosition.x, point.scenePosition.y)
+        }
 
         ColumnLayout {
             id: column
@@ -6759,7 +7022,6 @@ PanelWindow {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onEntered: view.currentIndex = row.index
                         onClicked: root.activate(row.index, false)
                     }
 
@@ -6900,7 +7162,6 @@ PanelWindow {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onEntered: grid.currentIndex = cell.index
                         onClicked: mouse => root.activate(cell.index, mouse.modifiers & Qt.ShiftModifier)
                     }
                 }
@@ -10651,6 +10912,8 @@ Singleton {
     // Inter's optical size for large text: tighter spacing and finer detail from about 20 px up.
     readonly property string display: "Inter Display"
     readonly property string mono: "JetBrainsMono Nerd Font"
+    // The distribution's logo on the bar's launcher button, set by install.sh from distro/NAME/distro.sh.
+    readonly property string distroGlyph: "@@DISTRO_GLYPH@@"
 
     // The type scale. Every text size in the shell is one of these.
     readonly property int textTiny: 10     // badges, timestamps

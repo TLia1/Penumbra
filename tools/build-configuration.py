@@ -14,6 +14,7 @@ OUTPUT = ROOT / 'CONFIGURATION.md'
 # Sections in reading order; each is a list of glob patterns relative to the bundle.
 SECTIONS = [
     ['install.sh'],
+    ['distro/**/*'],
     ['palette/palette.toml'],
     ['tools/*'],
     ['tests/*'],

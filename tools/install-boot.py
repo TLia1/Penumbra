@@ -727,11 +727,9 @@ def main():
             apply_limine(limine)
         if available and ask('Apply the Penumbra GRUB theme (back up and preserve existing menu)'):
             apply_grub()
-        installed = subprocess.run(['pacman', '-Qq', 'plymouth'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+        # ./install.sh --boot-only offers to install it, with the distribution's package manager.
+        installed = bool(shutil.which('plymouth-set-default-theme'))
         print('Plymouth: ' + ('installed.' if installed else 'not installed.'))
-        if not installed and ask('Install Plymouth from the configured Arch repositories'):
-            run('pacman', '-S', '--needed', 'plymouth')
-            installed = True
         if installed and (available or limine) and ask('Apply Penumbra to Plymouth (add splash/hook and rebuild initramfs)'):
             apply_plymouth(limine)
         elif installed and not (available or limine):

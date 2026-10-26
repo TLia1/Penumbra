@@ -2,6 +2,7 @@
 """Update checks for the Penumbra bar and an interactive Kitty update session."""
 import fcntl
 import html
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -9,20 +10,28 @@ import shutil
 import subprocess
 import sys
 
+# The distribution's package sources, installed from distro/<name>/share/penumbra/updates.py.
+DISTRO = Path.home() / ".local/share/penumbra/updates.py"
 
-def helper():
-    return shutil.which("paru") or shutil.which("yay")
+
+def distro():
+    """The distribution's updates module, or None when there is none."""
+    if not DISTRO.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location("penumbra_distro_updates", DISTRO)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def check(command, empty_codes=()):
+def check(command, empty=(), empty_if_silent=()):
     """The pending updates a command lists, one per line, or None when the check failed."""
     try:
         result = subprocess.run(command, capture_output=True, text=True,
                                 timeout=180, env={**os.environ, "LC_ALL": "C"})
-        if result.returncode in empty_codes:
+        if result.returncode in empty:
             return []
-        # Yay returns 1 with no output when no AUR upgrades are available.
-        if ("-Qua" in command and result.returncode == 1
+        if (result.returncode in empty_if_silent
                 and not result.stdout.strip() and not result.stderr.strip()):
             return []
         if result.returncode:
@@ -34,23 +43,22 @@ def check(command, empty_codes=()):
 
 
 def status():
-    sources = [("Arch", ["checkupdates", "--nocolor"], (2,))]
-    aur = helper()
-    if aur:
-        sources.append(("AUR", [aur, "-Qua", "--color", "never"], ()))
+    packages = distro()
+    sources = packages.sources() if packages else []
     if shutil.which("flatpak"):
-        sources.extend((f"Flatpak ({scope})",
-                        ["flatpak", "remote-ls", f"--{scope}", "--updates",
-                         "--all", "--arch=*", "--columns=ref"], ())
+        sources.extend({"name": f"Flatpak ({scope})",
+                        "command": ["flatpak", "remote-ls", f"--{scope}", "--updates",
+                                    "--all", "--arch=*", "--columns=ref"]}
                        for scope in ("user", "system"))
-    found = [(name, check(command, codes)) for name, command, codes in sources]
+    found = [(source["name"], check(source["command"], source.get("empty", ()),
+                                    source.get("empty_if_silent", ())))
+             for source in sources]
     total = sum(len(lines) for _, lines in found if lines is not None)
     tooltip = [f"{name}: {len(lines) if lines is not None else 'check unavailable'}"
                for name, lines in found]
-    if not aur:
-        tooltip.append("AUR: install yay or paru to enable")
+    tooltip.extend(packages.notes() if packages else ["System packages: run ./install.sh to enable"])
     tooltip.append("Click for the list · checked every 15 minutes")
-    # Each line is "name old -> new" (pacman, AUR) or a Flatpak ref.
+    # Each line is what the distribution's check prints (pacman: "name old -> new") or a Flatpak ref.
     print(json.dumps({"text": f"󰚰 {total}" if total else "",
                       "tooltip": html.escape("\n".join(tooltip)),
                       "class": "available",
@@ -77,9 +85,8 @@ def update():
         return 0
     failed = False
     try:
-        aur = helper()
-        commands = [("Arch + AUR" if aur else "Arch",
-                     [aur, "-Syu"] if aur else ["sudo", "pacman", "-Syu"])]
+        packages = distro()
+        commands = packages.upgrades() if packages else []
         if shutil.which("flatpak"):
             commands.extend((f"Flatpak ({scope})", ["flatpak", "update", f"--{scope}"])
                             for scope in ("user", "system"))

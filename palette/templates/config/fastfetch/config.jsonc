@@ -3,7 +3,7 @@
 {
   "logo": {
     "type": "kitty-direct",
-    "source": "~/.config/fastfetch/penumbra-arch.png",
+    "source": "~/.config/fastfetch/penumbra-logo.png",
     "width": 26,
     "height": 13,
     "padding": {

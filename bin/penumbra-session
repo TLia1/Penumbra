@@ -27,7 +27,7 @@ start() {
 hyprctl setcursor Penumbra-Cursors 28 >/dev/null
 start awww-daemon awww-daemon
 # The shell is the polkit agent too; an older KDE agent would hold the registration.
-pkill -u "$UID" -f '^/usr/lib/polkit-kde-authentication-agent-1' || true
+pkill -u "$UID" -f '^/usr/lib/(.*/)?polkit-kde-authentication-agent-1' || true
 # Bar, notifications, OSD, control center, launcher, overlays, lock screen and polkit agent;
 # systemd restarts it if it dies (see ~/.config/systemd/user/penumbra-shell.service).
 systemctl --user reset-failed penumbra-shell.service 2>/dev/null

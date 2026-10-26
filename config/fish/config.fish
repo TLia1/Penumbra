@@ -4,5 +4,5 @@ if status is-interactive
     set -g fish_greeting
     starship init fish | source
     abbr --add ll 'ls -lah --color=auto'
-    abbr --add update 'sudo pacman -Syu'
+    abbr --add update '@@DISTRO_UPDATE_COMMAND@@'
 end

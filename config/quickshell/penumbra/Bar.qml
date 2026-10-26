@@ -44,7 +44,7 @@ PanelWindow {
             tip: "Applications · right-click for the clipboard"
             active: Ui.launcherOpen
             onClicked: m => Ui.toggleLauncher(m.button === Qt.RightButton ? "clipboard" : "apps")
-            Glyph { text: "󰣇"; size: 20; color: Ui.launcherOpen ? Theme.violetInk : Theme.violetBright }
+            Glyph { text: Theme.distroGlyph; size: 20; color: Ui.launcherOpen ? Theme.violetInk : Theme.violetBright }
         }
 
         Capsule {

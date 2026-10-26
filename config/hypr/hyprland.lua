@@ -28,7 +28,7 @@ hl.config({
   blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = 0.9, popups = true} },
  animations = {enabled = true},
  dwindle = {preserve_split = true},
- input = {kb_layout = "@@KB_LAYOUT@@", kb_variant = "@@KB_VARIANT@@", kb_options = "@@KB_OPTIONS@@", numlock_by_default = @@NUMLOCK@@,
+ input = {kb_layout = "@@KB_LAYOUT@@", kb_variant = "@@KB_VARIANT@@", kb_options = "@@KB_OPTIONS@@", numlock_by_default = "@@NUMLOCK@@" == "on",
   follow_mouse = 1, sensitivity = 0, touchpad = {natural_scroll = true}},
  -- A fresh lock screen (hyprlock from a TTY) can take over if the shell's ever dies while locked.
  misc = {disable_hyprland_logo = true, disable_splash_rendering = true, force_default_wallpaper = 0, allow_session_lock_restore = true},

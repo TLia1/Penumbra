@@ -1,6 +1,6 @@
 # PENUMBRA
 
-An original black-and-violet Arch Linux desktop. Targets **Hyprland 0.56 with Lua configuration**, Quickshell 0.3, SDDM 0.21, Kitty 0.49 and Fish 4.
+An original black-and-violet desktop for Arch Linux and the distributions built on it (EndeavourOS, CachyOS…). Everything that differs between distributions lives in `distro/`, so others can be added; see [EXTENDING.md](EXTENDING.md), which also covers adding settings and shell features. Targets **Hyprland 0.56 with Lua configuration**, Quickshell 0.3, SDDM 0.21, Kitty 0.49 and Fish 4.
 
 ## Install
 
@@ -11,7 +11,7 @@ chmod +x install.sh
 ./install.sh
 ```
 
-Run as your regular desktop user. Sudo prompts normally; no password is stored in the bundle. The installer uses the current pacman databases, official Arch packages, timestamped backups, and user-scoped configuration; pacman asks about conflicts and replacements as usual. It does not install anything from the AUR. On a substantially older Arch installation, perform a normal full system upgrade yourself first. Never use `pacman -Sy` alone. This installer does not update repositories. Optional GRUB, Limine and Plymouth theming asks separately before changing boot configuration; see Boot themes below.
+Run as your regular desktop user. The installer reads `/etc/os-release` to pick the distribution's folder in `distro/` (`--distro NAME` overrides it). Sudo prompts normally; no password is stored in the bundle. The installer uses the current pacman databases, official Arch packages, timestamped backups, and user-scoped configuration; pacman asks about conflicts and replacements as usual. It does not install anything from the AUR. On a substantially older Arch installation, perform a normal full system upgrade yourself first. Never use `pacman -Sy` alone. This installer does not update repositories. Optional GRUB, Limine and Plymouth theming asks separately before changing boot configuration; see Boot themes below.
 
 ### Your settings
 
@@ -116,6 +116,7 @@ Bar: click the Arch logo for the launcher (right-click for the clipboard) and th
 ## Files and destinations
 
 - `config/` → `~/.config/` (all authored user configuration files, including the shell's systemd unit in `config/systemd/user/`).
+- `distro/NAME/` → what differs on one distribution: `distro.sh` (packages and the package manager, the bar's logo glyph, fish's `update`), and `config/`, `bin/`, `share/` and `system/` folders installed over the common ones (the Fastfetch logo, the bar's update checks in `share/penumbra/updates.py`). See [EXTENDING.md](EXTENDING.md).
 - `bin/` → `~/.local/bin/` (session, power, screenshot, screen recording, clipboard, color picker, OSD, update, GPU reading and wallpaper scripts).
 - `config/quickshell/penumbra/` → the Penumbra shell (QML), run by `penumbra-shell.service`.
 - `share/` → `~/.local/share/` (KDE color scheme and violet icon overlay).
@@ -130,9 +131,9 @@ Bar: click the Arch logo for the launcher (right-click for the clipboard) and th
 
 ## What the installer changes
 
-1. Installs the packages listed explicitly in `install.sh`.
+1. Installs the packages listed explicitly in `distro/NAME/distro.sh`, with the distribution's package manager.
 2. Backs up existing managed system files under `/var/lib/penumbra/backups/TIMESTAMP` and deploys SDDM and the cursors; in a virtual machine, adds the software-rendering greeter setting.
-3. Sets the target user's login shell to `/usr/bin/fish` (unless `--shell keep`) and the login screen's keyboard layout to yours.
+3. Sets the target user's login shell to fish (unless `--shell keep`) and the login screen's keyboard layout to yours.
 4. Enables NetworkManager and Bluetooth, and enables SDDM without restarting it.
 5. Backs up managed user files under `~/.local/state/penumbra/backups/TIMESTAMP` and copies this configuration. Files Penumbra no longer ships are removed from the folders it owns outright (`~/.config/quickshell/penumbra`, `~/.config/nvim/lua/penumbra`, `~/.local/bin/penumbra-*`), so a renamed shell component never lingers; they are in the backup too. Creates the starter files for your own settings if they are missing.
 6. Applies GTK dark preference, font, cursor, icon and title-bar button settings through GSettings. Sets up gnome-keyring: makes sure SDDM's PAM file unlocks it at sign-in (Arch's already does; the installer adds the two optional lines if they are missing), routes the Secret portal to it, and tells KWallet (which comes with Dolphin) not to claim the same Secret Service name.
@@ -195,7 +196,7 @@ It runs as the systemd user service `penumbra-shell.service`, which `penumbra-se
 - **Lock screen** (Super+L, after ten idle minutes and before suspend): the clock over the current wallpaper without its wordmark, still animating, your `~/.face` (or initial), and the password field; it warns about Caps Lock, shows the keyboard layout when you have several (click to switch), and shows what's playing. Passwords go through the same PAM `login` stack hyprlock uses. If the shell cannot come back (it crashed five times within a minute), switch to a TTY (Ctrl+Alt+F3), log in and run `hyprctl --instance 0 dispatch 'hl.dsp.exec_cmd("hyprlock")'`, then unlock there.
 - **Polkit**: when an app asks for administrator rights, a password card appears over the dimmed screen in place of the KDE dialog.
 - **Screenshots and recordings** (Print, or Ctrl+Print to start in Video): the screen freezes; drag a region, click a window, or click for the whole screen (R, W and S switch, E toggles annotating in Satty, Escape cancels). **Video** (V) records the area instead, **Sound** (A) adds what the computer plays, and **Timer** (T) waits 3, 5 or 10 seconds first, counting down in the bar (click the countdown to cancel). While recording, a red capsule in the bar shows the time; click it or press Ctrl+Print to stop. Recordings are H.264 MP4 files in `~/Videos/Screencasts`, copied to the clipboard as a file when they finish (paste into a chat or a file manager), with a notification that plays it. `bin/penumbra-record` does the recording, so it carries on if the shell restarts; without the shell, Ctrl+Print asks for a region with slurp.
-- **Updates**: a violet update capsule appears on the right only when pending updates are found. It checks official Arch packages, AUR packages through Paru or Yay (whichever is installed), and user/system Flatpak apps and runtimes every 15 minutes. Click it for the list of pending packages by source, with Check again and Update now, which opens Kitty: password, package review and confirmation prompts stay interactive, the terminal closes on success or waits for Enter after a failure, and repeated clicks do not start parallel updates. Repository checks use `checkupdates` and a separate database, so they never refresh the live pacman database; failed checks are logged and do not count as available updates. The helper is `bin/penumbra-updates`.
+- **Updates**: a violet update capsule appears on the right only when pending updates are found. It checks the distribution's packages (on Arch: official packages, and AUR packages through Paru or Yay, whichever is installed; see `distro/arch/share/penumbra/updates.py`) and user/system Flatpak apps and runtimes every 15 minutes. Click it for the list of pending packages by source, with Check again and Update now, which opens Kitty: password, package review and confirmation prompts stay interactive, the terminal closes on success or waits for Enter after a failure, and repeated clicks do not start parallel updates. Repository checks use `checkupdates` and a separate database, so they never refresh the live pacman database; failed checks are logged and do not count as available updates. The helper is `bin/penumbra-updates`.
 - **Wallpaper picker** (Super+Shift+W, or the wallpaper button in the control center): the three wallpapers side by side; click one to switch.
 - **Session overlay** (Super+M): arrow keys and Enter, or the mouse. Log out, Restart and Shut down ask for a second press.
 - **Scripts** reach it through IPC: `quickshell -c penumbra ipc call panel control|wifi|bluetooth|mixer|settings|calendar|session|updates|wallpapers|close`, `launcher apps|clipboard|emoji|symbols`, `lock lock`, `shot open false`, `shot record`, `recorder stop`, `osd adjust volume|microphone|brightness up|down|mute|current`, `osd flash volume 40 false`, `notifications clear|dnd`, `updates refresh`. `penumbra-osd`, `penumbra-power`, `penumbra-launcher`, `penumbra-clipboard`, `penumbra-shot` and hypridle fall back to wpctl/brightnessctl, rofi, slurp and hyprlock when the shell is not running.
@@ -224,9 +225,9 @@ The cursor artwork and builder are original to Penumbra. Unlike the Papirus fold
 
 ## Terminal
 
-Kitty uses 0.8 background opacity with the Penumbra palette and compositor blur. Fish opens with a faceted violet Arch-style logo, system and hardware panels, and palette dots; terminals narrower than 95 columns omit the image. The compact Starship prompt keeps the clock on the right.
+Kitty uses 0.8 background opacity with the Penumbra palette and compositor blur. Fish opens with a faceted violet logo of the distribution (Arch's on Arch), system and hardware panels, and palette dots; terminals narrower than 95 columns omit the image. The compact Starship prompt keeps the clock on the right.
 
-Fastfetch configuration and editable logo: `config/fastfetch/` (its colours come from the palette template `palette/templates/config/fastfetch/config.jsonc`). Render logo changes with `rsvg-convert config/fastfetch/penumbra-arch.svg -o config/fastfetch/penumbra-arch.png`.
+Fastfetch configuration: `config/fastfetch/` (its colours come from the palette template `palette/templates/config/fastfetch/config.jsonc`); the editable logo is the distribution's, `distro/arch/config/fastfetch/penumbra-logo.svg`. Render logo changes with `rsvg-convert distro/arch/config/fastfetch/penumbra-logo.svg -o distro/arch/config/fastfetch/penumbra-logo.png`.
 
 ## Boot themes
 
@@ -242,7 +243,7 @@ The normal installer and `--system-only` also offer these prompts. `--user-only`
 2. Ask whether to apply the Limine theme. Put a managed appearance block at the top of `limine.conf` and copy the wallpaper next to it (`penumbra/background.png`). Entries, timeout, default entry and every other line stay as they were; your own copies of the options the block sets are commented out with a `#penumbra-off#` prefix, because Limine reads the first copy of an option and picks a random wallpaper when several are given. Reapplying replaces only that block.
 3. Check GRUB tools and existing configuration. On UEFI, verify that the current firmware entry names GRUB. For a generic disk/fallback entry, accept firmware `LoaderInfo` identifying GRUB and ask you to confirm that it uses `/boot/grub/grub.cfg`. On legacy BIOS, check installed GRUB core/configuration and ask you to confirm GRUB is actually used; files alone cannot prove which bootloader ran.
 4. Ask whether to apply the GRUB theme. Preserve the existing `grub.cfg` byte-for-byte and append a managed graphics block, using filesystem-relative asset paths. Reapplying replaces only that final block. This avoids losing UKI entries that `grub-mkconfig` cannot rediscover.
-5. Check whether the Plymouth package is installed. If missing, ask whether to install it with normal interactive `pacman -S --needed plymouth` prompts.
+5. Before the steps above, `install.sh` checks whether Plymouth is installed. If missing, it asks whether to install it with the distribution's package manager and its normal interactive prompts (`pacman -S --needed plymouth` on Arch).
 6. Ask separately whether to apply the Plymouth theme. This adds `splash` to existing GRUB arguments, or to each Linux entry's `cmdline` in `limine.conf`, inserts `plymouth` after `udev` or `systemd` while retaining keyboard/encryption hooks, and rebuilds supported initramfs images. For supported UKIs, rebuild the EFI image instead, preserving its existing arguments and GRUB chainload or Limine entries. The installer backs up `/etc/kernel/cmdline`, appends `splash` if missing, and verifies that the rebuilt UKI embeds exactly those arguments. Explicit Plymouth-disable arguments require manual review.
 
 No GRUB or Limine installation, partition changes, EFI entry writes, boot-sector writes or automatic reboot are performed. Menu timeout, default entry and recovery settings remain yours. A hidden menu remains hidden. Plymouth uses its built-in `two-step` renderer, including native disk-unlock/password dialogs; Escape can show boot details. Its labels use Inter, which Arch's hook copies into the initramfs, and the keyboard layout name comes from Plymouth's own packaged image, whose layout table is compiled into Plymouth. The Limine wallpaper is centred on a matching backdrop rather than stretched, so the planet stays round on any screen; smaller screens see its centre. The assets are original Penumbra artwork, built with `python tools/build-boot-assets.py` (Pillow, `rsvg-convert` and the Inter font required only for rebuilding artwork).

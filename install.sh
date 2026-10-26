@@ -8,28 +8,8 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 SETTINGS_FILE=${XDG_CONFIG_HOME:-$HOME/.config}/penumbra/settings.conf
 XKB_RULES=/usr/share/X11/xkb/rules/base.lst
 
-PACKAGES=(
-    # Desktop
-    hyprland quickshell awww sddm hyprlock hypridle hyprsunset rofi
-    xdg-desktop-portal-hyprland xdg-desktop-portal-gtk
-    # Terminal and editor
-    kitty fish starship fastfetch htop neovim git ripgrep unzip nodejs npm tree-sitter-cli gcc
-    # Applications
-    dolphin pavucontrol blueman network-manager-applet xdg-utils
-    # Themes and fonts
-    breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme
-    qt5ct qt6ct qt5-wayland qt5-quickcontrols2 ttf-jetbrains-mono-nerd inter-font
-    # Hardware and services
-    networkmanager bluez bluez-utils pipewire-pulse wireplumber brightnessctl playerctl cava
-    # Passwords apps save, unlocked when you sign in
-    gnome-keyring seahorse
-    # Screenshots, screen recording, clipboard, color picker, emoji and symbols
-    grim slurp satty wf-recorder hyprpicker cliphist wl-clipboard wtype unicode-emoji noto-fonts-emoji
-    # Used by the helper scripts and build tools
-    pacman-contrib flatpak libnotify librsvg python-pillow xorg-xcursorgen
-)
-# Replaced by the Quickshell shell (bar, notifications, OSD) and awww (wallpaper).
-LEGACY_PACKAGES=(waybar mako swaybg)
+# Configuration folders of the desktop Penumbra replaced (Waybar and Mako); the packages are in the
+# distribution's LEGACY_PACKAGES.
 LEGACY_CONFIGS=(waybar mako)
 
 usage() {
@@ -45,6 +25,9 @@ Parts (default: all of them):
                        replaced and remove the ones it added. Packages stay.
                        With --user-only, only your account's files.
 
+Distribution (detected from /etc/os-release; supported: $(supported_distros)):
+  --distro NAME        Use distro/NAME/ instead of the detected one.
+
 Settings (detected on the first run, then remembered in $SETTINGS_FILE):
   --layout LAYOUT      Keyboard layout, e.g. us, gb, fr, de, or "us,fr" for several.
   --variant VARIANT    Layout variant, e.g. intl, dvorak, colemak. Empty for none.
@@ -57,8 +40,9 @@ Other options:
   -y, --yes            Don't ask about the settings; use the saved or detected ones.
   --skip-packages      Don't install packages (or PENUMBRA_SKIP_PACKAGES=1).
   --remove-legacy yes|no|ask
-                       Whether to remove Waybar, Mako and swaybg if they are
-                       installed (or PENUMBRA_REMOVE_LEGACY=1/0). Default: ask.
+                       Whether to remove the packages Penumbra replaced (Waybar,
+                       Mako, swaybg) if they are installed (or
+                       PENUMBRA_REMOVE_LEGACY=1/0). Default: ask.
   --user NAME          Desktop user for --system-only (default: \$SUDO_USER).
   -h, --help           Show this help.
 EOF
@@ -83,12 +67,63 @@ ask() {
     [[ ${answer,,} == y || ${answer,,} == yes ]]
 }
 
+# ─── Distribution ────────────────────────────────────────────────────────────
+# Everything that differs between distributions (package names, the package manager, the logo,
+# update checks) lives in distro/NAME/. distro.sh is sourced here; its config/, bin/, share/ and
+# system/ folders are installed over the common ones. See EXTENDING.md.
+
+supported_distros() {
+    local dir names=()
+    for dir in "$ROOT"/distro/*/distro.sh; do names+=("$(basename "$(dirname "$dir")")"); done
+    local IFS=,
+    echo "${names[*]}"
+}
+
+# Pick DISTRO: --distro, else the first of /etc/os-release's ID and ID_LIKE (e.g. "endeavouros"
+# then "arch") that has a folder.
+detect_distro() {
+    local id
+    if [[ -z $DISTRO ]]; then
+        for id in $( . /etc/os-release 2>/dev/null; echo "${ID:-} ${ID_LIKE:-}"); do
+            [[ -r $ROOT/distro/$id/distro.sh ]] && { DISTRO=$id; break; }
+        done
+        [[ -n $DISTRO ]] || die "Penumbra has no support for this distribution yet (supported: $(supported_distros)). See EXTENDING.md."
+    fi
+    [[ $DISTRO =~ ^[a-z0-9_-]+$ && -r $ROOT/distro/$DISTRO/distro.sh ]] \
+        || die "No distro/$DISTRO/distro.sh (supported: $(supported_distros))."
+}
+
+load_distro() {
+    detect_distro
+    DISTRO_DIR=$ROOT/distro/$DISTRO
+    LEGACY_PACKAGES=() PLYMOUTH_PACKAGES=(plymouth)
+    # shellcheck source=distro/arch/distro.sh
+    source "$DISTRO_DIR/distro.sh"
+    local name
+    for name in pkg_install pkg_installed pkg_versions pkg_remove; do
+        declare -F "$name" >/dev/null || die "distro/$DISTRO/distro.sh does not define $name."
+    done
+    for name in DISTRO_NAME DISTRO_GLYPH DISTRO_UPDATE_COMMAND PACKAGES; do
+        [[ -v $name ]] || die "distro/$DISTRO/distro.sh does not set $name."
+    done
+}
+
 # ─── Settings ────────────────────────────────────────────────────────────────
 # Each setting comes from, in order: a command-line option, the saved settings
-# file, then what this machine already uses.
+# file, then what this machine already uses. Templates get each one as @@KEY@@ (kb_layout →
+# @@KB_LAYOUT@@). A new setting needs a line in SETTING_KEYS, SETTING_OPTIONS and SETTING_LABELS,
+# a default in detect_settings and a check in valid_setting.
 
 declare -A settings=()
 SETTING_KEYS=(kb_layout kb_variant kb_options scale numlock shell)
+declare -A SETTING_OPTIONS=(
+    [kb_layout]=--layout
+    [kb_variant]=--variant
+    [kb_options]=--kb-options
+    [scale]=--scale
+    [numlock]=--numlock
+    [shell]=--shell
+)
 declare -A SETTING_LABELS=(
     [kb_layout]='Keyboard layout'
     [kb_variant]='Layout variant'
@@ -97,6 +132,15 @@ declare -A SETTING_LABELS=(
     [numlock]='Num Lock at login (on/off)'
     [shell]='Login shell (fish/keep)'
 )
+
+# option_setting --layout → kb_layout; false for any other option.
+option_setting() {
+    local key
+    for key in "${SETTING_KEYS[@]}"; do
+        [[ $1 == "${SETTING_OPTIONS[$key]}" ]] && { echo "$key"; return 0; }
+    done
+    return 1
+}
 
 # Set a setting unless something with higher priority already did.
 set_default() { [[ -v settings[$1] ]] || settings[$1]=$2; }
@@ -216,19 +260,26 @@ backup_file() {
     fi
 }
 
+# The values templates can use besides the settings, as PLACEHOLDER=value.
+declare -A placeholders=()
+set_placeholders() {
+    placeholders=(
+        [HOME]=$HOME
+        [DISTRO_GLYPH]=$DISTRO_GLYPH
+        [DISTRO_UPDATE_COMMAND]=$DISTRO_UPDATE_COMMAND
+        # Hyprland's no_hardware_cursors: 1 forces software cursors, 2 decides per GPU.
+        [SOFTWARE_CURSOR]=$(is_vm && echo 1 || echo 2)
+    )
+    local key
+    for key in "${SETTING_KEYS[@]}"; do placeholders[${key^^}]=${settings[$key]:-}; done
+}
+
 # Print a file with its @@PLACEHOLDERS@@ replaced by this user's values.
 render_template() {
-    local text numlock=false
-    [[ ${settings[numlock]} == on ]] && numlock=true
+    local text name
     text=$(<"$1")
-    text=${text//@@HOME@@/"$HOME"}
-    text=${text//@@KB_LAYOUT@@/"${settings[kb_layout]}"}
-    text=${text//@@KB_VARIANT@@/"${settings[kb_variant]}"}
-    text=${text//@@KB_OPTIONS@@/"${settings[kb_options]}"}
-    text=${text//@@SCALE@@/"${settings[scale]}"}
-    text=${text//@@NUMLOCK@@/"$numlock"}
-    # Hyprland's no_hardware_cursors: 1 forces software cursors, 2 decides per GPU.
-    if is_vm; then text=${text//@@SOFTWARE_CURSOR@@/1}; else text=${text//@@SOFTWARE_CURSOR@@/2}; fi
+    for name in "${!placeholders[@]}"; do text=${text//@@$name@@/"${placeholders[$name]}"}; done
+    [[ $text =~ @@[A-Z_]+@@ ]] && warn "${1#"$ROOT/"}: unknown placeholder ${BASH_REMATCH[0]}"
     printf '%s\n' "$text"
 }
 
@@ -288,35 +339,35 @@ install_packages() {
         echo 'Skipping packages.'
         return
     fi
-    # Use the currently synced repositories; never refresh the database alone. pacman asks about
-    # conflicts and replacements itself, unless nobody is there to answer.
-    local confirm=()
-    interactive || confirm=(--noconfirm)
-    pacman -S --needed "${confirm[@]}" "${PACKAGES[@]}"
+    pkg_install "${PACKAGES[@]}"
 }
 
 remove_legacy_packages() {
     local installed
-    mapfile -t installed < <(pacman -Qq "${LEGACY_PACKAGES[@]}" 2>/dev/null || true)
+    (( ${#LEGACY_PACKAGES[@]} )) || return 0
+    mapfile -t installed < <(pkg_installed "${LEGACY_PACKAGES[@]}")
     (( ${#installed[@]} )) || return 0
     case $REMOVE_LEGACY in
         yes) ;;
         ask) ask "Remove packages Penumbra no longer uses (${installed[*]})?" || return 0 ;;
         *) return 0 ;;
     esac
-    pacman -Q "${installed[@]}" > "$BACKUP/removed-packages.txt"
-    # -s also drops their now-unneeded dependencies, never explicitly installed packages.
-    pacman -Rns --noconfirm "${installed[@]}" \
+    pkg_versions "${installed[@]}" > "$BACKUP/removed-packages.txt"
+    pkg_remove "${installed[@]}" \
         || warn "Could not remove ${installed[*]}; another package may still depend on them."
 }
 
+# The common system/ files, then the distribution's, which can replace them.
 install_system_files() {
-    local source rel
-    while IFS= read -r -d '' source; do
-        rel=${source#"$ROOT/system/"}
-        backup_file "/$rel" "$rel"
-        install -Dm644 "$source" "/$rel"
-    done < <(find "$ROOT/system" -type f -print0)
+    local source rel from
+    for from in "$ROOT/system" "$DISTRO_DIR/system"; do
+        [[ -d $from ]] || continue
+        while IFS= read -r -d '' source; do
+            rel=${source#"$from/"}
+            backup_file "/$rel" "$rel"
+            install -Dm644 "$source" "/$rel"
+        done < <(find "$from" -type f -print0)
+    done
     configure_vm_greeter
 }
 
@@ -335,10 +386,11 @@ configure_vm_greeter() {
 }
 
 set_login_shell() {
-    local user=$1
+    local user=$1 fish
     [[ ${settings[shell]:-fish} == fish ]] || return 0
+    fish=$(command -v fish) || { warn 'fish is not installed; the login shell stays as it is.'; return 0; }
     getent passwd "$user" | cut -d: -f7 > "$BACKUP/previous-shell.txt"
-    usermod -s /usr/bin/fish "$user"
+    usermod -s "$fish" "$user"
 }
 
 # Give the login screen the same keyboard layout as the desktop.
@@ -358,8 +410,8 @@ set_login_keyboard() {
 }
 
 # The keyring unlocks with your password when you sign in through SDDM. Arch's SDDM PAM file
-# already lists gnome-keyring (as optional, skipped while it isn't installed); older or edited
-# files get the two lines added.
+# already lists gnome-keyring (as optional, skipped while it isn't installed); other, older or
+# edited files get the two lines added.
 enable_keyring_unlock() {
     local pam=/etc/pam.d/sddm
     [[ -f $pam ]] || return 0
@@ -375,10 +427,10 @@ enable_keyring_unlock() {
 
 enable_services() {
     local unit
-    for unit in bluetooth NetworkManager sddm; do
+    for unit in "${SERVICES[@]}" sddm; do
         systemctl is-enabled "$unit" > "$BACKUP/$unit.enabled" 2>&1 || true
     done
-    systemctl enable --now bluetooth NetworkManager
+    systemctl enable --now "${SERVICES[@]}"
     # Not started now: that would end the current session.
     systemctl enable sddm
 }
@@ -402,10 +454,19 @@ run_system_part() {
     enable_services
 
     step 'Boot themes (optional)'
-    # Boot assets are deliberately outside system/: deploy only after opt-in.
-    python3 "$ROOT/tools/install-boot.py" || warn 'Optional boot theming did not complete; see the messages above.'
+    run_boot_part || warn 'Optional boot theming did not complete; see the messages above.'
 
     echo "System backup: $BACKUP"
+}
+
+# Boot assets are deliberately outside system/: deploy only after opt-in. The package comes from
+# the distribution; tools/install-boot.py does the rest.
+run_boot_part() {
+    if ! command -v plymouth-set-default-theme >/dev/null \
+        && ask "Install Plymouth (${PLYMOUTH_PACKAGES[*]}) for the boot splash?"; then
+        pkg_install "${PLYMOUTH_PACKAGES[@]}" || warn 'Plymouth was not installed.'
+    fi
+    python3 "$ROOT/tools/install-boot.py"
 }
 
 # ─── User part ───────────────────────────────────────────────────────────────
@@ -474,16 +535,20 @@ run_user_part() {
     step 'Installing your configuration'
     prune_tree "$ROOT/config/quickshell/penumbra" "$HOME/.config/quickshell/penumbra"
     prune_tree "$ROOT/config/nvim/lua/penumbra" "$HOME/.config/nvim/lua/penumbra"
-    local script
+    local script from
     for script in "$HOME"/.local/bin/penumbra-*; do
-        [[ -e $script && ! -e $ROOT/bin/${script##*/} ]] || continue
+        [[ -e $script && ! -e $ROOT/bin/${script##*/} && ! -e $DISTRO_DIR/bin/${script##*/} ]] || continue
         backup_file "$script" "${script#"$HOME/"}"
         rm -f "$script"
         echo "Removed ~/.local/bin/${script##*/}; Penumbra no longer uses it."
     done
-    install_tree "$ROOT/config" "$HOME/.config"
-    install_tree "$ROOT/bin" "$HOME/.local/bin"
-    install_tree "$ROOT/share" "$HOME/.local/share"
+    set_placeholders
+    # The common files, then the distribution's, which can add to or replace them.
+    for from in "$ROOT" "$DISTRO_DIR"; do
+        [[ ! -d $from/config ]] || install_tree "$from/config" "$HOME/.config"
+        [[ ! -d $from/bin ]] || install_tree "$from/bin" "$HOME/.local/bin"
+        [[ ! -d $from/share ]] || install_tree "$from/share" "$HOME/.local/share"
+    done
     create_user_files
     chmod +x "$HOME"/.local/bin/penumbra-*
     # The configs above come rounded; put back sharp corners if that was the choice.
@@ -627,17 +692,16 @@ uninstall_system() {
 
 # sudo resets the environment, so hand the system part its options explicitly.
 run_system_part_with_sudo() {
-    local args=(
-        --system-only --user "$USER"
-        --layout "${settings[kb_layout]}" --variant "${settings[kb_variant]}"
-        --kb-options "${settings[kb_options]}" --shell "${settings[shell]}"
-        --remove-legacy "$REMOVE_LEGACY"
-    )
+    local args=(--system-only --user "$USER" --distro "$DISTRO" --remove-legacy "$REMOVE_LEGACY") key
+    for key in "${SETTING_KEYS[@]}"; do args+=("${SETTING_OPTIONS[$key]}" "${settings[$key]}"); done
     [[ $SKIP_PACKAGES == 1 ]] && args+=(--skip-packages)
     sudo "$ROOT/install.sh" "${args[@]}"
 }
 
 # ─── Main ────────────────────────────────────────────────────────────────────
+
+# Sourced (by the tests): only define the functions. `return` only works in a sourced file.
+if (return 0 2>/dev/null); then return 0; fi
 
 PART=all
 UNINSTALL=0
@@ -645,6 +709,9 @@ ASSUME_YES=0
 SKIP_PACKAGES=${PENUMBRA_SKIP_PACKAGES:-0}
 case ${PENUMBRA_REMOVE_LEGACY:-ask} in 1) REMOVE_LEGACY=yes ;; 0) REMOVE_LEGACY=no ;; *) REMOVE_LEGACY=ask ;; esac
 TARGET_USER=''
+DISTRO=''
+# Started and enabled by the system part, besides SDDM; a distribution's distro.sh may change them.
+SERVICES=(bluetooth NetworkManager)
 
 while (( $# )); do
     case $1 in
@@ -652,18 +719,16 @@ while (( $# )); do
         --system-only) PART=system ;;
         --boot-only) PART=boot ;;
         --uninstall) UNINSTALL=1 ;;
-        --layout) settings[kb_layout]=${2?--layout needs a value}; shift ;;
-        --variant) settings[kb_variant]=${2?--variant needs a value}; shift ;;
-        --kb-options) settings[kb_options]=${2?--kb-options needs a value}; shift ;;
-        --scale) settings[scale]=${2?--scale needs a value}; shift ;;
-        --numlock) settings[numlock]=${2?--numlock needs on or off}; shift ;;
-        --shell) settings[shell]=${2?--shell needs fish or keep}; shift ;;
+        --distro) DISTRO=${2?--distro needs a name}; shift ;;
         --skip-packages) SKIP_PACKAGES=1 ;;
         --remove-legacy) REMOVE_LEGACY=${2?--remove-legacy needs yes, no or ask}; shift ;;
         --user) TARGET_USER=${2?--user needs a name}; shift ;;
         -y|--yes) ASSUME_YES=1 ;;
         -h|--help) usage; exit 0 ;;
-        -*) usage >&2; exit 2 ;;
+        -*)
+            key=$(option_setting "$1") || { usage >&2; exit 2; }
+            settings[$key]=${2?$1 needs a value}
+            shift ;;
         *) TARGET_USER=$1 ;;  # Older form: --system-only NAME
     esac
     shift
@@ -691,10 +756,11 @@ if (( UNINSTALL )); then
     exit 0
 fi
 
+load_distro
 case $PART in
     boot)
-        if [[ $EUID == 0 ]]; then exec python3 "$ROOT/tools/install-boot.py"; fi
-        exec sudo python3 "$ROOT/tools/install-boot.py"
+        [[ $EUID == 0 ]] || exec sudo "$ROOT/install.sh" --boot-only --distro "$DISTRO"
+        run_boot_part
         ;;
     system)
         run_system_part
