@@ -2625,6 +2625,104 @@ edit "$config/satty/config.toml" "s/^corner-roundness = .*/corner-roundness = $a
 edit "$config/fastfetch/config.jsonc" "$boxes"
 ```
 
+## `bin/penumbra-gpus`
+
+```bash
+#!/usr/bin/env bash
+# GPU readings for the shell's system monitor.
+#   penumbra-gpus list     one line per GPU: card, driver, model name from the hardware database
+#   penumbra-gpus sample   "now <uptime>", then one line per GPU: card and key=value readings
+# A GPU that is runtime-suspended (a hybrid laptop's discrete card, most of the time) only
+# reports state=asleep: reading its counters, or running nvidia-smi, would power it up.
+set -u
+shopt -s nullglob
+
+# Cards, not their connectors (card1-eDP-1).
+cards() {
+    local card
+    for card in /sys/class/drm/card[0-9]*; do
+        [[ ${card##*/} == *-* || ! -e $card/device/driver ]] || echo "$card"
+    done
+}
+
+driver() {
+    local path
+    path=$(readlink -f "$1/device/driver")
+    echo "${path##*/}"
+}
+
+# The first line of a file, or nothing.
+get() {
+    local value=
+    [[ -r $1 ]] && read -r value < "$1" 2>/dev/null
+    echo "$value"
+}
+
+list() {
+    local card model
+    for card in $(cards); do
+        model=$(udevadm info -q property -p "$(readlink -f "$card/device")" 2>/dev/null | sed -n 's/^ID_MODEL_FROM_DATABASE=//p')
+        printf '%s\t%s\t%s\n' "${card##*/}" "$(driver "$card")" "$model"
+    done
+}
+
+# Busy time comes as idle counters (Intel) or a percentage (AMD, NVIDIA); memory in MiB,
+# temperature in °C, power in W.
+sample() {
+    local card device out hwmon used total temp power
+    read -r now _ < /proc/uptime
+    echo "now $now"
+    for card in $(cards); do
+        device=$(readlink -f "$card/device")
+        out="${card##*/}"
+        if [[ $(get "$device/power/runtime_status") == suspended ]]; then
+            printf '%s\tstate=asleep\n' "$out"
+            continue
+        fi
+        out+=$'\tstate=active'
+        case $(driver "$card") in
+        i915)
+            out+=$'\tidle_ms='$(get "$card/gt/gt0/rc6_residency_ms")
+            out+=$'\tfreq='$(get "$card/gt_act_freq_mhz")$'\tmax_freq='$(get "$card/gt_RP0_freq_mhz")
+            ;;
+        xe)
+            out+=$'\tidle_ms='$(get "$device/tile0/gt0/gtidle/idle_residency_ms")
+            out+=$'\tfreq='$(get "$device/tile0/gt0/freq0/act_freq")$'\tmax_freq='$(get "$device/tile0/gt0/freq0/rp0_freq")
+            ;;
+        amdgpu)
+            out+=$'\tbusy='$(get "$device/gpu_busy_percent")
+            used=$(get "$device/mem_info_vram_used") total=$(get "$device/mem_info_vram_total")
+            [[ -n $used && -n $total ]] && out+=$'\tmem_used='$((used / 1048576))$'\tmem_total='$((total / 1048576))
+            for hwmon in "$device"/hwmon/hwmon*; do
+                temp=$(get "$hwmon/temp1_input") power=$(get "$hwmon/power1_average")
+                [[ -n $power ]] || power=$(get "$hwmon/power1_input")
+                [[ -n $temp ]] && out+=$'\ttemp='$((temp / 1000))
+                [[ -n $power ]] && out+=$'\tpower='$((power / 1000000))
+            done
+            ;;
+        nvidia)
+            if command -v nvidia-smi > /dev/null; then
+                IFS=', ' read -r busy used total temp power < <(nvidia-smi --id="${device##*/}" \
+                    --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw \
+                    --format=csv,noheader,nounits 2>/dev/null)
+                out+=$'\tbusy='${busy:-}$'\tmem_used='${used:-}$'\tmem_total='${total:-}$'\ttemp='${temp:-}$'\tpower='${power%.*}
+            fi
+            ;;
+        esac
+        echo "$out"
+    done
+}
+
+case ${1:-} in
+list) list ;;
+sample) sample ;;
+*)
+    echo "usage: ${0##*/} list|sample" >&2
+    exit 2
+    ;;
+esac
+```
+
 ## `bin/penumbra-launcher`
 
 ```bash
@@ -4459,11 +4557,11 @@ PanelWindow {
             padding: 12
             spacing: 12
             active: Ui.monitorOpen
-            tip: `CPU ${Sys.cpu}% · Memory ${Sys.memoryDetail}`
+            tip: `CPU ${Usage.cpu}% · Memory ${Usage.memoryDetail}`
             onClicked: m => m.button === Qt.RightButton ? Ui.run("kitty --class penumbra-monitor htop") : Ui.toggleMonitor()
             readonly property color tint: Ui.monitorOpen ? Theme.violetInk : Theme.subtle
             Repeater {
-                model: [{ name: "CPU", value: Sys.cpu }, { name: "RAM", value: Sys.memory }]
+                model: [{ name: "CPU", value: Usage.cpu }, { name: "RAM", value: Usage.memory }]
                 delegate: RowLayout {
                     required property var modelData
                     spacing: 5
@@ -6057,15 +6155,83 @@ Text {
     Behavior on color { ColorAnimation { duration: Theme.fast } }
 
     // The non-Mono Nerd Font draws most icons wider than their one-cell advance, hanging off to
-    // the right, so centring the advance leaves the icon off-centre. Size and centre on the ink.
+    // the right, so centring the advance leaves the icon off-centre. Pad the short side so the
+    // ink, not the advance, sits in the middle.
     TextMetrics {
         id: ink
         font: root.font
         text: root.text
     }
-    implicitWidth: Math.ceil(Math.max(ink.advanceWidth, ink.tightBoundingRect.width))
-    transform: Translate {
-        x: ink.advanceWidth / 2 - ink.tightBoundingRect.x - ink.tightBoundingRect.width / 2
+    readonly property real inkOffset: ink.tightBoundingRect.x + ink.tightBoundingRect.width / 2 - ink.advanceWidth / 2
+    leftPadding: Math.max(0, -2 * inkOffset)
+    rightPadding: Math.max(0, 2 * inkOffset)
+}
+```
+
+## `config/quickshell/penumbra/Graph.qml`
+
+```qml
+import QtQuick
+import QtQuick.Shapes
+
+// A history graph, newest sample at the right edge: a line over a fill that fades downwards.
+// While live, each new sample glides in over one sampling interval instead of jumping.
+Item {
+    id: root
+
+    property var values: []
+    // The value at the top edge; 0 scales to the largest value shown, but never below floor.
+    property real maximum: 100
+    property real floor: 1
+    property color color: Theme.violet
+    property real fillOpacity: 0.3
+    property bool live: true
+
+    readonly property real ceiling: maximum > 0 ? maximum : Math.max(floor, 1.15 * Math.max(0, ...values))
+    // One point more than fits: the oldest sits just off the left edge, so the glide never
+    // shows a gap there.
+    readonly property real step: width / (Usage.historyLength - 2)
+    // Inset by half the line, so a line along the top or bottom is drawn whole.
+    readonly property var points: values.map((v, i) => Qt.point(width - (values.length - 1 - i) * step, 1 + (height - 2) * (1 - Math.max(0, Math.min(v, ceiling)) / ceiling)))
+
+    clip: true
+    onValuesChanged: if (live) glide.restart()
+
+    Shape {
+        id: shape
+        width: root.width
+        height: root.height
+        visible: root.points.length > 1
+        preferredRendererType: Shape.CurveRenderer
+
+        NumberAnimation on x {
+            id: glide
+            running: false
+            from: root.step
+            to: 0
+            duration: Usage.interval
+        }
+
+        ShapePath {
+            strokeColor: "transparent"
+            fillGradient: LinearGradient {
+                y1: 0
+                y2: root.height
+                GradientStop { position: 0; color: Theme.alpha(root.color, root.fillOpacity) }
+                GradientStop { position: 1; color: Theme.alpha(root.color, 0) }
+            }
+            PathPolyline {
+                path: root.points.length ? [Qt.point(root.points[0].x, root.height)].concat(root.points, [Qt.point(root.width, root.height)]) : []
+            }
+        }
+        ShapePath {
+            strokeColor: root.color
+            strokeWidth: 1.5
+            fillColor: "transparent"
+            joinStyle: ShapePath.RoundJoin
+            capStyle: ShapePath.RoundCap
+            PathPolyline { path: root.points }
+        }
     }
 }
 ```
@@ -7627,6 +7793,759 @@ ColumnLayout {
 }
 ```
 
+## `config/quickshell/penumbra/MonitorPanel.qml`
+
+```qml
+import QtQuick
+import QtQuick.Effects
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Io
+import Quickshell.Widgets
+
+// The system monitor, under the system capsule: live graphs of the processor, memory,
+// graphics, disks and network with storage, or the busiest apps.
+Panel {
+    id: root
+    anchors { top: true; right: true }
+    margins.right: Theme.edge - shadowRoom
+    sheetWidth: 440
+    open: Ui.monitorOpen
+    onDismissed: Ui.dismiss()
+
+    readonly property var pages: [
+        { page: "overview", label: "Overview", glyph: "󰕮" },
+        { page: "processes", label: "Processes", glyph: "󰉹" }
+    ]
+    property string page: "overview"
+    readonly property bool listing: open && page === "processes"
+
+    readonly property int shown: 10
+    property string sortBy: "cpu" // cpu or memory
+    property string expanded: ""
+    property var groups: []
+
+    // The graphics card shows the GPU picked by clicking it, or else the discrete GPU while it
+    // is awake and the integrated one otherwise.
+    property int gpuChoice: -1
+    readonly property int gpuDefault: Math.max(0, Usage.gpus.findIndex(g => !g.integrated && !g.asleep), Usage.gpus.findIndex(g => g.integrated))
+    readonly property var gpu: Usage.gpus[gpuChoice >= 0 ? gpuChoice : gpuDefault] ?? null
+
+    onOpenChanged: if (!open) expanded = ""
+    onPageChanged: pageIn.restart()
+    onSortByChanged: refreshList()
+
+    // Two batch iterations: the second measures CPU over the one-second delay.
+    // The C locale keeps decimal points out of the user's locale.
+    Process {
+        id: top
+        command: ["env", "LC_ALL=C", "top", "-b", "-n", "2", "-d", "1", "-w", "512", "-c", "-e", "k"]
+        stdout: StdioCollector {
+            onStreamFinished: root.parse(text)
+        }
+    }
+    Timer {
+        interval: 2000
+        running: root.listing
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: if (!top.running) top.running = true
+    }
+
+    // RES is in KiB, but top shortens values too wide for the column (e.g. 10.2g).
+    function kib(value) {
+        const scale = { m: 1024, g: 1048576, t: 1073741824 }[value.slice(-1)];
+        return scale ? parseFloat(value) * scale : Number(value);
+    }
+    // Processes are grouped by executable, so a browser counts once.
+    function parse(out) {
+        const lines = out.split("\n");
+        let start = lines.length;
+        for (let i = lines.length - 1; i >= 0; i--) {
+            if (/^\s*PID\s+USER/.test(lines[i])) {
+                start = i + 1;
+                break;
+            }
+        }
+        const found = {};
+        for (const line of lines.slice(start)) {
+            // PID USER PR NI VIRT RES SHR S %CPU %MEM TIME+ COMMAND
+            const m = line.match(/^\s*(\d+)\s+(\S+)\s+\S+\s+\S+\s+\S+\s+(\S+)\s+\S+\s+\S\s+([\d.]+)\s+\S+\s+\S+\s+(.+)$/);
+            if (!m || m[5].startsWith("top -b -n 2"))
+                continue;
+            const key = m[5].startsWith("[") ? "kernel" : m[5].split(" ")[0].split("/").pop().replace(/^-/, "");
+            if (!key)
+                continue;
+            if (!found[key])
+                found[key] = { key, cpu: 0, mem: 0, pids: [], user: m[2] };
+            const g = found[key];
+            g.cpu += Number(m[4]);
+            g.mem += kib(m[3]);
+            g.pids.push(m[1]);
+            if (g.user !== m[2])
+                g.user = "";
+        }
+        groups = Object.values(found);
+        refreshList();
+    }
+    // Apps whose desktop file is named after something else (com.anthropic.Claude runs
+    // claude-desktop) are found by the program they launch; wrappers say nothing about the app.
+    readonly property var launchers: {
+        const wrappers = ["env", "flatpak", "sh", "bash", "python", "python3", "java", "sudo", "pkexec"];
+        const map = {};
+        for (const e of DesktopEntries.applications.values) {
+            const exe = (e.command[0] ?? "").split("/").pop();
+            if (exe && !wrappers.includes(exe) && (!map[exe] || map[exe].noDisplay))
+                map[exe] = e;
+        }
+        return map;
+    }
+    // Updated in place, so rows keep their state between samples.
+    function refreshList() {
+        const byCpu = (a, b) => (b.cpu - a.cpu) || (b.mem - a.mem);
+        const byMem = (a, b) => b.mem - a.mem;
+        const top = groups.slice().sort(sortBy === "cpu" ? byCpu : byMem).slice(0, shown);
+        top.forEach((g, i) => {
+            const entry = g.key === "kernel" ? null : DesktopEntries.heuristicLookup(g.key) ?? launchers[g.key];
+            const row = {
+                key: g.key,
+                name: g.key === "kernel" ? "Kernel" : entry?.name || g.key,
+                icon: entry?.icon ? Quickshell.iconPath(entry.icon, true) : "",
+                cpu: g.cpu / Usage.cores,
+                mem: g.mem,
+                pids: g.pids.join(" "),
+                count: g.pids.length,
+                user: g.user
+            };
+            if (i < rows.count)
+                rows.set(i, row);
+            else
+                rows.append(row);
+        });
+        while (rows.count > top.length)
+            rows.remove(rows.count - 1);
+    }
+    function percent(value) {
+        return value < 0.05 ? "0%" : value < 10 ? value.toFixed(1) + "%" : Math.round(value) + "%";
+    }
+    function size(kib) {
+        return kib < 512 ? "—" : kib >= 1048576 ? (kib / 1048576).toFixed(1) + " GiB" : Math.round(kib / 1024) + " MiB";
+    }
+    function gib(kib) {
+        return (kib / 1048576).toFixed(1) + " GiB";
+    }
+    // Decimal units, as drives and connections are sold.
+    function bytes(n) {
+        const units = ["B", "KB", "MB", "GB", "TB"];
+        let i = 0;
+        for (; n >= 1000 && i < units.length - 1; i++)
+            n /= 1000;
+        return `${i === 0 || n >= 10 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
+    }
+    function rate(n) {
+        return bytes(n) + "/s";
+    }
+    // Calm, then amber, then rose as something fills up.
+    function level(value, calm) {
+        return value >= 90 ? Theme.rose : value >= 75 ? Theme.amber : calm;
+    }
+    function end(pids, force) {
+        Quickshell.execDetached(["kill", force ? "-KILL" : "-TERM"].concat(pids.split(" ")));
+        expanded = "";
+        refreshSoon.restart();
+    }
+    Timer {
+        id: refreshSoon
+        interval: 400
+        onTriggered: if (!top.running) top.running = true
+    }
+
+    ListModel { id: rows }
+
+    // A figure over its history graph, which fills the card's lower part edge to edge.
+    component Meter: Rectangle {
+        id: meter
+        property string glyph
+        property string title
+        property color accent: Theme.violet
+        property bool interactive: false
+        // The graphs; the header's right side; the figures under the title.
+        default property alias graphs: graphArea.data
+        property alias corner: cornerSlot.data
+        property alias figures: figureSlot.data
+        signal clicked()
+
+        Layout.fillWidth: true
+        Layout.preferredWidth: 1
+        implicitHeight: 132
+        radius: Theme.radius
+        color: interactive && meterArea.containsMouse ? Theme.hover : Theme.raised
+        border.color: Theme.line
+        Behavior on color { ColorAnimation { duration: Theme.fast } }
+
+        MouseArea {
+            id: meterArea
+            anchors.fill: parent
+            enabled: meter.interactive
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: meter.clicked()
+        }
+
+        Item {
+            id: graphArea
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom; margins: 1 }
+            height: 54
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                maskEnabled: true
+                maskSource: graphMask
+                maskThresholdMin: 0.25
+                maskSpreadAtMin: 0.25
+            }
+        }
+        // The card's lower corners, for the graphs.
+        Rectangle {
+            id: graphMask
+            anchors.fill: graphArea
+            visible: false
+            layer.enabled: true
+            bottomLeftRadius: Math.max(0, meter.radius - 1)
+            bottomRightRadius: Math.max(0, meter.radius - 1)
+        }
+
+        ColumnLayout {
+            anchors { left: parent.left; right: parent.right; top: parent.top; margins: 12; leftMargin: 14; rightMargin: 14 }
+            spacing: 4
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 16
+                spacing: 7
+                Glyph { text: meter.glyph; size: 13; color: meter.accent }
+                Label { Layout.fillWidth: true; text: meter.title; font.pixelSize: Theme.textSmall; color: Theme.muted }
+                RowLayout { id: cornerSlot; spacing: 6 }
+            }
+            ColumnLayout {
+                id: figureSlot
+                Layout.fillWidth: true
+                spacing: 0
+            }
+        }
+    }
+
+    // A big figure and a line of detail under it.
+    component Figure: ColumnLayout {
+        id: figure
+        property string value
+        property string detail
+        property color color: Theme.text
+        Layout.fillWidth: true
+        spacing: 0
+        Label {
+            text: figure.value
+            font.family: Theme.display
+            font.pixelSize: Theme.textHeading
+            font.weight: Font.DemiBold
+            color: figure.color
+        }
+        Label {
+            Layout.fillWidth: true
+            visible: text !== ""
+            text: figure.detail
+            font.pixelSize: Theme.textSmall
+            color: Theme.subtle
+        }
+    }
+
+    // A column title that sorts the list.
+    component SortHeader: Overline {
+        id: header
+        property string mode
+        readonly property bool current: root.sortBy === mode
+        horizontalAlignment: Text.AlignRight
+        font.weight: current ? Font.DemiBold : Font.Medium
+        color: current ? Theme.violetBright : headerArea.containsMouse ? Theme.textSoft : Theme.muted
+        MouseArea {
+            id: headerArea
+            anchors.fill: parent
+            anchors.margins: -6
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.sortBy = header.mode
+        }
+    }
+
+    ColumnLayout {
+        x: 18
+        y: 18
+        width: root.sheetWidth - 36
+        spacing: 12
+
+        // Header: the machine, and the two pages. Only the current page shows its name.
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.bottomMargin: 2
+            spacing: 6
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 1
+                Label { text: "System"; font.pixelSize: Theme.textLarge; font.weight: Font.DemiBold }
+                Label {
+                    Layout.fillWidth: true
+                    text: Usage.cpuModel || `${Usage.cores} threads`
+                    font.pixelSize: Theme.textSmall
+                    color: Theme.muted
+                }
+            }
+            Repeater {
+                model: root.pages
+                delegate: Rectangle {
+                    required property var modelData
+                    readonly property bool current: root.page === modelData.page
+                    implicitWidth: current ? pageRow.implicitWidth + 24 : 32
+                    implicitHeight: 32
+                    radius: Theme.corner(16)
+                    color: current ? Theme.violet : pageArea.containsMouse ? Theme.hover : Theme.raised
+                    border.color: current ? Theme.violetBright : Theme.line
+                    Behavior on color { ColorAnimation { duration: Theme.fast } }
+                    Behavior on implicitWidth { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+                    RowLayout {
+                        id: pageRow
+                        anchors.centerIn: parent
+                        spacing: 6
+                        Glyph { text: modelData.glyph; size: 13; color: current ? Theme.violetInk : Theme.textSoft }
+                        Label { visible: current; text: modelData.label; font.pixelSize: Theme.textSmall; font.weight: Font.DemiBold; color: Theme.violetInk }
+                    }
+                    MouseArea {
+                        id: pageArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.page = modelData.page
+                    }
+                }
+            }
+        }
+
+        ColumnLayout {
+            id: pageContent
+            Layout.fillWidth: true
+            spacing: 12
+
+            ParallelAnimation {
+                id: pageIn
+                NumberAnimation { target: pageContent; property: "opacity"; from: 0; to: 1; duration: Theme.normal; easing.type: Easing.OutCubic }
+                NumberAnimation { target: pageContent; property: "Layout.topMargin"; from: 8; to: 0; duration: Theme.slow; easing.type: Easing.OutExpo }
+            }
+
+            // Overview
+            GridLayout {
+                Layout.fillWidth: true
+                visible: root.page === "overview"
+                columns: 2
+                rowSpacing: 8
+                columnSpacing: 8
+
+                Meter {
+                    glyph: "󰻠"
+                    title: "Processor"
+                    accent: Theme.violet
+                    // One bar per thread.
+                    corner: Row {
+                        readonly property int count: Usage.coreLoads.length
+                        readonly property real bar: Math.max(1, (84 - (count - 1)) / count)
+                        spacing: 1
+                        Repeater {
+                            model: parent.count
+                            delegate: Rectangle {
+                                required property int index
+                                width: parent.bar
+                                height: 14
+                                radius: Theme.corner(1)
+                                color: Theme.alpha(Theme.violet, 0.16)
+                                Rectangle {
+                                    anchors.bottom: parent.bottom
+                                    width: parent.width
+                                    height: Math.max(1, parent.height * (Usage.coreLoads[index] ?? 0) / 100)
+                                    radius: parent.radius
+                                    color: root.level(Usage.coreLoads[index] ?? 0, Theme.violet)
+                                    Behavior on height { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+                                }
+                            }
+                        }
+                    }
+                    figures: Figure {
+                        value: Usage.cpu + "%"
+                        detail: [Usage.cpuTemp >= 0 ? Usage.cpuTemp + " °C" : "", Usage.cpuGhz ? Usage.cpuGhz.toFixed(1) + " GHz" : "", Usage.loadAverage ? "load " + Usage.loadAverage : ""].filter(s => s).join(" · ")
+                    }
+                    Graph {
+                        anchors.fill: parent
+                        values: Usage.cpuHistory
+                        color: Theme.violet
+                        live: root.open
+                    }
+                }
+
+                Meter {
+                    glyph: "󰍛"
+                    title: "Memory"
+                    accent: Theme.pink
+                    corner: Label {
+                        visible: Usage.swapUsed >= 1024
+                        text: "Swap " + root.gib(Usage.swapUsed)
+                        font.pixelSize: Theme.textTiny
+                        color: Theme.dim
+                    }
+                    figures: Figure {
+                        value: Usage.memory + "%"
+                        detail: `${root.gib(Usage.memoryUsed)} of ${root.gib(Usage.memoryTotal)}`
+                    }
+                    Graph {
+                        anchors.fill: parent
+                        values: Usage.memoryHistory
+                        color: Theme.pink
+                        live: root.open
+                    }
+                }
+
+                Meter {
+                    glyph: "󰢮"
+                    title: root.gpu?.name ?? "Graphics"
+                    accent: Theme.blue
+                    interactive: Usage.gpus.length > 1
+                    onClicked: root.gpuChoice = (Usage.gpus.indexOf(root.gpu) + 1) % Usage.gpus.length
+                    // Which GPU of several this is.
+                    corner: Row {
+                        visible: Usage.gpus.length > 1
+                        spacing: 4
+                        Repeater {
+                            model: Usage.gpus.length
+                            delegate: Rectangle {
+                                required property int index
+                                readonly property bool current: Usage.gpus[index] === root.gpu
+                                width: current ? 12 : 5
+                                height: 5
+                                radius: Theme.corner(2.5)
+                                color: current ? Theme.blue : Theme.alpha(Theme.blue, 0.3)
+                                Behavior on width { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+                            }
+                        }
+                    }
+                    figures: Figure {
+                        readonly property var g: root.gpu
+                        value: !g ? "—" : g.asleep ? "Asleep" : g.busy >= 0 ? Math.round(g.busy) + "%" : "…"
+                        color: g?.asleep ? Theme.textSoft : Theme.text
+                        detail: {
+                            if (!g)
+                                return "No GPU found";
+                            if (g.asleep)
+                                return "Wakes when an app needs it";
+                            return [g.temp >= 0 ? g.temp + " °C" : "",
+                                    g.memTotal > 0 ? `${(g.memUsed / 1024).toFixed(1)} of ${(g.memTotal / 1024).toFixed(1)} GiB` : "",
+                                    g.power >= 0 ? g.power + " W" : "",
+                                    g.freq >= 0 ? `${g.freq} MHz` : ""].filter(s => s).join(" · ");
+                        }
+                    }
+                    Graph {
+                        anchors.fill: parent
+                        values: root.gpu?.history ?? []
+                        color: Theme.blue
+                        live: root.open
+                    }
+                }
+
+                Meter {
+                    glyph: "󰋊"
+                    title: "Disks"
+                    accent: Theme.green
+                    figures: Figure {
+                        value: root.rate(Usage.diskRead + Usage.diskWrite)
+                        detail: `Read ${root.rate(Usage.diskRead)} · Write ${root.rate(Usage.diskWrite)}`
+                    }
+                    Graph {
+                        anchors.fill: parent
+                        values: Usage.diskHistory
+                        maximum: 0
+                        floor: 1e6
+                        color: Theme.green
+                        live: root.open
+                    }
+                }
+
+                Meter {
+                    Layout.columnSpan: 2
+                    glyph: Devices.networkGlyph
+                    title: Devices.networkName
+                    accent: Theme.cyan
+                    corner: Label {
+                        text: Usage.netInterface
+                        font.pixelSize: Theme.textTiny
+                        color: Theme.dim
+                    }
+                    figures: RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 22
+                        Repeater {
+                            model: [
+                                { glyph: "󰇚", value: Usage.netDown, total: Usage.netReceived, what: "received", color: Theme.cyan },
+                                { glyph: "󰕒", value: Usage.netUp, total: Usage.netSent, what: "sent", color: Theme.violetBright }
+                            ]
+                            delegate: RowLayout {
+                                required property var modelData
+                                spacing: 8
+                                Glyph { text: modelData.glyph; size: 16; color: modelData.color }
+                                Figure {
+                                    value: root.rate(modelData.value)
+                                    detail: `${root.bytes(modelData.total)} ${modelData.what}`
+                                }
+                            }
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+                    // Both directions on one scale.
+                    Graph {
+                        id: download
+                        anchors.fill: parent
+                        values: Usage.downHistory
+                        maximum: Math.max(1e5, 1.15 * Math.max(0, ...Usage.downHistory, ...Usage.upHistory))
+                        color: Theme.cyan
+                        live: root.open
+                    }
+                    Graph {
+                        anchors.fill: parent
+                        values: Usage.upHistory
+                        maximum: download.maximum
+                        color: Theme.violetBright
+                        fillOpacity: 0.16
+                        live: root.open
+                    }
+                }
+
+                // Storage, one row per filesystem.
+                Rectangle {
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    visible: Usage.filesystems.length > 0
+                    implicitHeight: storage.implicitHeight + 24
+                    radius: Theme.radius
+                    color: Theme.raised
+                    border.color: Theme.line
+                    ColumnLayout {
+                        id: storage
+                        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 12; leftMargin: 14; rightMargin: 14 }
+                        spacing: 10
+                        Repeater {
+                            model: Usage.filesystems
+                            delegate: ColumnLayout {
+                                id: fs
+                                required property var modelData
+                                readonly property real used: 100 * modelData.used / modelData.size
+                                Layout.fillWidth: true
+                                spacing: 6
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 7
+                                    Glyph { text: "󰋊"; size: 13; color: Theme.green }
+                                    Label { text: fs.modelData.name; font.weight: Font.Medium }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: fs.modelData.mount
+                                        font.pixelSize: Theme.textSmall
+                                        color: Theme.dim
+                                    }
+                                    Label {
+                                        text: `${root.bytes(fs.modelData.size - fs.modelData.used)} free of ${root.bytes(fs.modelData.size)}`
+                                        font.pixelSize: Theme.textSmall
+                                        color: Theme.subtle
+                                    }
+                                }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 6
+                                    radius: Theme.corner(3)
+                                    color: Theme.hover
+                                    Rectangle {
+                                        width: Math.max(height, parent.width * Math.min(fs.used, 100) / 100)
+                                        height: parent.height
+                                        radius: parent.radius
+                                        color: root.level(fs.used, Theme.green)
+                                        Behavior on width { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Processes
+            ColumnLayout {
+                Layout.fillWidth: true
+                visible: root.page === "processes"
+                spacing: 8
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 10
+                    Layout.rightMargin: 10
+                    spacing: 0
+                    Overline {
+                        Layout.fillWidth: true
+                        text: "Apps & processes"
+                    }
+                    SortHeader { Layout.preferredWidth: 56; text: "CPU"; mode: "cpu" }
+                    SortHeader { Layout.preferredWidth: 76; text: "Memory"; mode: "memory" }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+
+                    Label {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 40
+                        visible: rows.count === 0
+                        horizontalAlignment: Text.AlignHCenter
+                        text: "Measuring…"
+                        color: Theme.muted
+                    }
+
+                    Repeater {
+                        model: rows
+                        delegate: Rectangle {
+                            id: row
+                            required property string key
+                            required property string name
+                            required property string icon
+                            required property real cpu
+                            required property real mem
+                            required property string pids
+                            required property int count
+                            required property string user
+                            readonly property bool expanded: root.expanded === key
+                            readonly property bool mine: user === Quickshell.env("USER")
+
+                            Layout.fillWidth: true
+                            implicitHeight: column.implicitHeight + 14
+                            radius: Theme.radiusSmall
+                            color: area.containsMouse || expanded ? Theme.raised : "transparent"
+                            border.color: expanded ? Theme.line : "transparent"
+                            clip: true
+                            Behavior on color { ColorAnimation { duration: Theme.fast } }
+                            Behavior on implicitHeight { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
+
+                            MouseArea {
+                                id: area
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.expanded = row.expanded ? "" : row.key
+                            }
+
+                            ColumnLayout {
+                                id: column
+                                anchors { left: parent.left; right: parent.right; top: parent.top; margins: 7; leftMargin: 10; rightMargin: 10 }
+                                spacing: 8
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 11
+                                    Item {
+                                        implicitWidth: 22
+                                        implicitHeight: 22
+                                        IconImage {
+                                            anchors.fill: parent
+                                            visible: row.icon !== ""
+                                            source: row.icon
+                                            asynchronous: true
+                                        }
+                                        Glyph {
+                                            anchors.centerIn: parent
+                                            visible: row.icon === ""
+                                            text: row.key === "kernel" ? "󰻠" : "󰣆"
+                                            size: 17
+                                            color: Theme.textSoft
+                                        }
+                                    }
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 0
+                                        Label { Layout.fillWidth: true; text: row.name }
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: (row.count > 1 ? `${row.count} processes` : `PID ${row.pids}`) + (row.user && !row.mine ? ` · ${row.user}` : "")
+                                            font.pixelSize: Theme.textSmall
+                                            color: Theme.muted
+                                        }
+                                    }
+                                    Label {
+                                        Layout.preferredWidth: 56
+                                        horizontalAlignment: Text.AlignRight
+                                        text: root.percent(row.cpu)
+                                        font.pixelSize: Theme.textBody
+                                        color: root.sortBy === "cpu" ? Theme.text : Theme.muted
+                                    }
+                                    Label {
+                                        Layout.preferredWidth: 76
+                                        horizontalAlignment: Text.AlignRight
+                                        text: root.size(row.mem)
+                                        font.pixelSize: Theme.textBody
+                                        color: root.sortBy === "memory" ? Theme.text : Theme.muted
+                                    }
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 33
+                                    visible: row.expanded
+                                    spacing: 8
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: row.mine ? `Running as ${row.user}` : row.key === "kernel" ? "Kernel threads" : "Owned by another user"
+                                        font.pixelSize: Theme.textSmall
+                                        color: Theme.dim
+                                    }
+                                    PillButton {
+                                        visible: row.mine
+                                        text: "End"
+                                        onClicked: root.end(row.pids, false)
+                                    }
+                                    PillButton {
+                                        visible: row.mine
+                                        text: "Force quit"
+                                        danger: true
+                                        onClicked: root.end(row.pids, true)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: 2
+            Label {
+                Layout.fillWidth: true
+                text: "Updates every 2 s"
+                font.pixelSize: Theme.textSmall
+                color: Theme.dim
+            }
+            PillButton {
+                text: "Advanced view"
+                primary: true
+                onClicked: {
+                    Ui.close();
+                    Ui.run("kitty --class penumbra-monitor htop");
+                }
+            }
+        }
+    }
+}
+```
+
 ## `config/quickshell/penumbra/NotificationCard.qml`
 
 ```qml
@@ -8519,381 +9438,6 @@ Scope {
                         available: !!root.flow?.isResponseRequired
                         onClicked: root.submit()
                     }
-                }
-            }
-        }
-    }
-}
-```
-
-## `config/quickshell/penumbra/ProcessPanel.qml`
-
-```qml
-import QtQuick
-import QtQuick.Layouts
-import Quickshell
-import Quickshell.Io
-import Quickshell.Widgets
-
-// CPU and memory at a glance, and the busiest apps, under the system capsule.
-Panel {
-    id: root
-    anchors { top: true; right: true }
-    margins.right: Theme.edge - shadowRoom
-    sheetWidth: 400
-    open: Ui.monitorOpen
-    onDismissed: Ui.dismiss()
-
-    readonly property int shown: 8
-    property string sortBy: "cpu" // cpu or memory
-    property string expanded: ""
-    property var groups: []
-
-    onOpenChanged: if (!open) expanded = ""
-    onSortByChanged: refreshList()
-
-    // Two batch iterations: the second measures CPU over the one-second delay.
-    // The C locale keeps decimal points out of the user's locale.
-    Process {
-        id: top
-        command: ["env", "LC_ALL=C", "top", "-b", "-n", "2", "-d", "1", "-w", "512", "-c", "-e", "k"]
-        stdout: StdioCollector {
-            onStreamFinished: root.parse(text)
-        }
-    }
-    Timer {
-        interval: 2000
-        running: root.open
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: if (!top.running) top.running = true
-    }
-
-    // RES is in KiB, but top shortens values too wide for the column (e.g. 10.2g).
-    function kib(value) {
-        const scale = { m: 1024, g: 1048576, t: 1073741824 }[value.slice(-1)];
-        return scale ? parseFloat(value) * scale : Number(value);
-    }
-    // Processes are grouped by executable, so a browser counts once.
-    function parse(out) {
-        const lines = out.split("\n");
-        let start = lines.length;
-        for (let i = lines.length - 1; i >= 0; i--) {
-            if (/^\s*PID\s+USER/.test(lines[i])) {
-                start = i + 1;
-                break;
-            }
-        }
-        const found = {};
-        for (const line of lines.slice(start)) {
-            // PID USER PR NI VIRT RES SHR S %CPU %MEM TIME+ COMMAND
-            const m = line.match(/^\s*(\d+)\s+(\S+)\s+\S+\s+\S+\s+\S+\s+(\S+)\s+\S+\s+\S\s+([\d.]+)\s+\S+\s+\S+\s+(.+)$/);
-            if (!m || m[5].startsWith("top -b -n 2"))
-                continue;
-            const key = m[5].startsWith("[") ? "kernel" : m[5].split(" ")[0].split("/").pop().replace(/^-/, "");
-            if (!key)
-                continue;
-            if (!found[key])
-                found[key] = { key, cpu: 0, mem: 0, pids: [], user: m[2] };
-            const g = found[key];
-            g.cpu += Number(m[4]);
-            g.mem += kib(m[3]);
-            g.pids.push(m[1]);
-            if (g.user !== m[2])
-                g.user = "";
-        }
-        groups = Object.values(found);
-        refreshList();
-    }
-    // Apps whose desktop file is named after something else (com.anthropic.Claude runs
-    // claude-desktop) are found by the program they launch; wrappers say nothing about the app.
-    readonly property var launchers: {
-        const wrappers = ["env", "flatpak", "sh", "bash", "python", "python3", "java", "sudo", "pkexec"];
-        const map = {};
-        for (const e of DesktopEntries.applications.values) {
-            const exe = (e.command[0] ?? "").split("/").pop();
-            if (exe && !wrappers.includes(exe) && (!map[exe] || map[exe].noDisplay))
-                map[exe] = e;
-        }
-        return map;
-    }
-    // Updated in place, so rows keep their state between samples.
-    function refreshList() {
-        const byCpu = (a, b) => (b.cpu - a.cpu) || (b.mem - a.mem);
-        const byMem = (a, b) => b.mem - a.mem;
-        const top = groups.slice().sort(sortBy === "cpu" ? byCpu : byMem).slice(0, shown);
-        top.forEach((g, i) => {
-            const entry = g.key === "kernel" ? null : DesktopEntries.heuristicLookup(g.key) ?? launchers[g.key];
-            const row = {
-                key: g.key,
-                name: g.key === "kernel" ? "Kernel" : entry?.name || g.key,
-                icon: entry?.icon ? Quickshell.iconPath(entry.icon, true) : "",
-                cpu: g.cpu / Sys.cores,
-                mem: g.mem,
-                pids: g.pids.join(" "),
-                count: g.pids.length,
-                user: g.user
-            };
-            if (i < rows.count)
-                rows.set(i, row);
-            else
-                rows.append(row);
-        });
-        while (rows.count > top.length)
-            rows.remove(rows.count - 1);
-    }
-    function percent(value) {
-        return value < 0.05 ? "0%" : value < 10 ? value.toFixed(1) + "%" : Math.round(value) + "%";
-    }
-    function size(kib) {
-        return kib < 512 ? "—" : kib >= 1048576 ? (kib / 1048576).toFixed(1) + " GiB" : Math.round(kib / 1024) + " MiB";
-    }
-    function end(pids, force) {
-        Quickshell.execDetached(["kill", force ? "-KILL" : "-TERM"].concat(pids.split(" ")));
-        expanded = "";
-        refreshSoon.restart();
-    }
-    Timer {
-        id: refreshSoon
-        interval: 400
-        onTriggered: if (!top.running) top.running = true
-    }
-
-    ListModel { id: rows }
-
-    component Stat: Rectangle {
-        id: stat
-        property string glyph
-        property string title
-        property int value
-        property string detail
-        Layout.fillWidth: true
-        implicitHeight: 84
-        radius: Theme.radius
-        color: Theme.raised
-        border.color: Theme.line
-        ColumnLayout {
-            anchors { fill: parent; margins: 12; leftMargin: 14; rightMargin: 14 }
-            spacing: 6
-            RowLayout {
-                spacing: 7
-                Glyph { text: stat.glyph; size: 13; color: Theme.violetBright }
-                Label { Layout.fillWidth: true; text: stat.title; font.pixelSize: Theme.textSmall; color: Theme.muted }
-                Label { text: stat.value + "%"; font.pixelSize: Theme.textTitle; font.weight: Font.DemiBold }
-            }
-            Rectangle {
-                Layout.fillWidth: true
-                implicitHeight: 6
-                radius: Theme.corner(3)
-                color: Theme.hover
-                Rectangle {
-                    width: parent.width * Math.min(stat.value, 100) / 100
-                    height: parent.height
-                    radius: Theme.corner(3)
-                    color: stat.value >= 90 ? Theme.rose : stat.value >= 70 ? Theme.amber : Theme.violet
-                    Behavior on width { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
-                    Behavior on color { ColorAnimation { duration: Theme.fast } }
-                }
-            }
-            Label { Layout.fillWidth: true; text: stat.detail; font.pixelSize: Theme.textSmall; color: Theme.muted }
-        }
-    }
-
-    // A column title that sorts the list.
-    component SortHeader: Overline {
-        id: header
-        property string mode
-        readonly property bool current: root.sortBy === mode
-        horizontalAlignment: Text.AlignRight
-        font.weight: current ? Font.DemiBold : Font.Medium
-        color: current ? Theme.violetBright : headerArea.containsMouse ? Theme.textSoft : Theme.muted
-        MouseArea {
-            id: headerArea
-            anchors.fill: parent
-            anchors.margins: -6
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.sortBy = header.mode
-        }
-    }
-
-    ColumnLayout {
-        x: 18
-        y: 18
-        width: root.sheetWidth - 36
-        spacing: 12
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 8
-            Stat {
-                glyph: "󰻠"
-                title: "Processor"
-                value: Sys.cpu
-                detail: `${Sys.cores} threads`
-            }
-            Stat {
-                glyph: "󰍛"
-                title: "Memory"
-                value: Sys.memory
-                detail: Sys.memoryDetail
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.topMargin: 4
-            Layout.leftMargin: 10
-            Layout.rightMargin: 10
-            spacing: 0
-            Overline {
-                Layout.fillWidth: true
-                text: "Apps & processes"
-            }
-            SortHeader { Layout.preferredWidth: 56; text: "CPU"; mode: "cpu" }
-            SortHeader { Layout.preferredWidth: 76; text: "Memory"; mode: "memory" }
-        }
-
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 2
-
-            Label {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 40
-                visible: rows.count === 0
-                horizontalAlignment: Text.AlignHCenter
-                text: "Measuring…"
-                color: Theme.muted
-            }
-
-            Repeater {
-                model: rows
-                delegate: Rectangle {
-                    id: row
-                    required property string key
-                    required property string name
-                    required property string icon
-                    required property real cpu
-                    required property real mem
-                    required property string pids
-                    required property int count
-                    required property string user
-                    readonly property bool expanded: root.expanded === key
-                    readonly property bool mine: user === Quickshell.env("USER")
-
-                    Layout.fillWidth: true
-                    implicitHeight: column.implicitHeight + 14
-                    radius: Theme.radiusSmall
-                    color: area.containsMouse || expanded ? Theme.raised : "transparent"
-                    border.color: expanded ? Theme.line : "transparent"
-                    clip: true
-                    Behavior on color { ColorAnimation { duration: Theme.fast } }
-                    Behavior on implicitHeight { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
-
-                    MouseArea {
-                        id: area
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.expanded = row.expanded ? "" : row.key
-                    }
-
-                    ColumnLayout {
-                        id: column
-                        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 7; leftMargin: 10; rightMargin: 10 }
-                        spacing: 8
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 11
-                            Item {
-                                implicitWidth: 22
-                                implicitHeight: 22
-                                IconImage {
-                                    anchors.fill: parent
-                                    visible: row.icon !== ""
-                                    source: row.icon
-                                    asynchronous: true
-                                }
-                                Glyph {
-                                    anchors.centerIn: parent
-                                    visible: row.icon === ""
-                                    text: row.key === "kernel" ? "󰻠" : "󰣆"
-                                    size: 17
-                                    color: Theme.textSoft
-                                }
-                            }
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 0
-                                Label { Layout.fillWidth: true; text: row.name }
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: (row.count > 1 ? `${row.count} processes` : `PID ${row.pids}`) + (row.user && !row.mine ? ` · ${row.user}` : "")
-                                    font.pixelSize: Theme.textSmall
-                                    color: Theme.muted
-                                }
-                            }
-                            Label {
-                                Layout.preferredWidth: 56
-                                horizontalAlignment: Text.AlignRight
-                                text: root.percent(row.cpu)
-                                font.pixelSize: Theme.textBody
-                                color: root.sortBy === "cpu" ? Theme.text : Theme.muted
-                            }
-                            Label {
-                                Layout.preferredWidth: 76
-                                horizontalAlignment: Text.AlignRight
-                                text: root.size(row.mem)
-                                font.pixelSize: Theme.textBody
-                                color: root.sortBy === "memory" ? Theme.text : Theme.muted
-                            }
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Layout.leftMargin: 33
-                            visible: row.expanded
-                            spacing: 8
-                            Label {
-                                Layout.fillWidth: true
-                                text: row.mine ? `Running as ${row.user}` : row.key === "kernel" ? "Kernel threads" : "Owned by another user"
-                                font.pixelSize: Theme.textSmall
-                                color: Theme.dim
-                            }
-                            PillButton {
-                                visible: row.mine
-                                text: "End"
-                                onClicked: root.end(row.pids, false)
-                            }
-                            PillButton {
-                                visible: row.mine
-                                text: "Force quit"
-                                danger: true
-                                onClicked: root.end(row.pids, true)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.topMargin: 2
-            Label {
-                Layout.fillWidth: true
-                text: "Updates every 2 s"
-                font.pixelSize: Theme.textSmall
-                color: Theme.dim
-            }
-            PillButton {
-                text: "Advanced view"
-                primary: true
-                onClicked: {
-                    Ui.close();
-                    Ui.run("kitty --class penumbra-monitor htop");
                 }
             }
         }
@@ -9966,58 +10510,15 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Polled system state: CPU, memory, backlight and pending updates.
+// Polled system state: backlight and pending updates. Resource usage is in Usage.
 Singleton {
     id: root
 
-    property int cpu: 0
-    property int cores: 1
-    property int memory: 0
-    property string memoryDetail: ""
     property int brightness: -1 // -1 when the machine has no backlight
     property int updates: 0
     property string updatesDetail: ""
     property var updateSources: [] // [{ name, packages: ["name old -> new" or a Flatpak ref] }]
     property bool checkingUpdates: updateCheck.running
-
-    property var lastCpu: null
-
-    Timer {
-        interval: 3000
-        running: true
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: {
-            stat.reload();
-            meminfo.reload();
-        }
-    }
-
-    FileView {
-        id: stat
-        path: "/proc/stat"
-        onLoaded: {
-            root.cores = (text().match(/^cpu\d+ /gm) ?? []).length || 1;
-            const f = text().split("\n")[0].trim().split(/\s+/).slice(1).map(Number);
-            const idle = f[3] + f[4], total = f.reduce((a, b) => a + b, 0);
-            if (root.lastCpu) {
-                const dt = total - root.lastCpu.total;
-                root.cpu = dt > 0 ? Math.round(100 * (1 - (idle - root.lastCpu.idle) / dt)) : 0;
-            }
-            root.lastCpu = { idle, total };
-        }
-    }
-
-    FileView {
-        id: meminfo
-        path: "/proc/meminfo"
-        onLoaded: {
-            const kb = key => Number(text().match(new RegExp(key + ":\\s+(\\d+)"))[1]);
-            const total = kb("MemTotal"), used = total - kb("MemAvailable");
-            root.memory = Math.round(100 * used / total);
-            root.memoryDetail = `${(used / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} GiB`;
-        }
-    }
 
     // brightnessctl -m prints: device,class,current,percent%,max
     Process {
@@ -10135,6 +10636,10 @@ Singleton {
     readonly property color rose: P.rose
     readonly property color green: P.green
     readonly property color amber: P.amber
+    // The system monitor's series.
+    readonly property color blue: P.blue
+    readonly property color pink: P.pink
+    readonly property color cyan: P.cyan
 
     // A palette colour made translucent.
     function alpha(c, a) {
@@ -10564,6 +11069,345 @@ Panel {
                     Ui.close();
                     Ui.run(Ui.bin + "penumbra-updates open");
                 }
+            }
+        }
+    }
+}
+```
+
+## `config/quickshell/penumbra/Usage.qml`
+
+```qml
+pragma Singleton
+import QtQuick
+import Quickshell
+import Quickshell.Io
+
+// Resource usage: CPU, memory, GPUs, disks and network, with two minutes of history for the
+// monitor's graphs. The /proc counters are cheap and always read, so the graphs already have a
+// past when the monitor opens; temperatures, clocks, GPUs and filesystems are only read while
+// it is open.
+Singleton {
+    id: root
+
+    readonly property int interval: 2000
+    readonly property int historyLength: 60
+    readonly property bool watching: Ui.monitorOpen
+
+    property int cpu: 0
+    property int cores: 1
+    property var coreLoads: [] // percent, one per thread
+    property string cpuModel: ""
+    property real cpuGhz: 0
+    property int cpuTemp: -1
+    property string loadAverage: ""
+    property var cpuHistory: []
+
+    // KiB, as /proc/meminfo counts.
+    property int memory: 0
+    property real memoryUsed: 0
+    property real memoryCache: 0 // page cache the kernel gives back when asked
+    property real memoryTotal: 0
+    property real swapUsed: 0
+    property real swapTotal: 0
+    property string memoryDetail: ""
+    property var memoryHistory: []
+
+    // Bytes per second across the physical disks, and bytes for filesystems.
+    property real diskRead: 0
+    property real diskWrite: 0
+    property var diskHistory: []
+    property var filesystems: [] // [{ name, mount, used, size }]
+
+    // The interface with the default route; bytes per second, and bytes since it came up.
+    property string netInterface: ""
+    property real netDown: 0
+    property real netUp: 0
+    property real netReceived: 0
+    property real netSent: 0
+    property var downHistory: []
+    property var upHistory: []
+
+    // [{ card, driver, name, integrated, asleep, busy, memUsed, memTotal, temp, power, freq, maxFreq, history }]
+    // Memory in MiB, temperature in °C, power in W, clocks in MHz; -1 where the driver says nothing.
+    property var gpus: []
+
+    // Previous counters, for rates.
+    property var lastCpu: null
+    property var lastCores: []
+    property var lastDisk: null
+    property var lastNet: null
+    property var lastGpu: ({})
+    property string cpuTempPath: ""
+
+    function push(list, value) {
+        return list.concat([value]).slice(-historyLength);
+    }
+
+    Timer {
+        interval: root.interval
+        running: true
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: {
+            stat.reload();
+            meminfo.reload();
+            route.reload();
+            netdev.reload();
+            diskstats.reload();
+            if (root.watching)
+                root.readDetails();
+        }
+    }
+    function readDetails() {
+        cpuinfo.reload();
+        loadavg.reload();
+        if (cpuTempPath)
+            cpuTemp.reload();
+        if (gpus.length && !gpuSample.running)
+            gpuSample.running = true;
+    }
+    // Filesystems change rarely; ask on opening, then every half minute. Intel's GPU busy time
+    // is a difference between samples, so a stale sample from the last opening is dropped.
+    onWatchingChanged: {
+        lastGpu = {};
+        if (watching) {
+            readDetails();
+            df.running = true;
+        }
+    }
+    Timer {
+        interval: 30000
+        running: root.watching
+        repeat: true
+        onTriggered: df.running = true
+    }
+
+    FileView {
+        id: stat
+        path: "/proc/stat"
+        onLoaded: {
+            const lines = text().split("\n").filter(l => l.startsWith("cpu"));
+            const times = lines.map(l => {
+                const f = l.trim().split(/\s+/).slice(1).map(Number);
+                return { idle: f[3] + f[4], total: f.reduce((a, b) => a + b, 0) };
+            });
+            const busy = (now, before) => {
+                const dt = now.total - before.total;
+                return dt > 0 ? Math.max(0, Math.min(100, 100 * (1 - (now.idle - before.idle) / dt))) : 0;
+            };
+            root.cores = times.length - 1 || 1;
+            if (root.lastCpu) {
+                root.cpu = Math.round(busy(times[0], root.lastCpu));
+                root.cpuHistory = root.push(root.cpuHistory, root.cpu);
+            }
+            if (root.lastCores.length === times.length - 1)
+                root.coreLoads = times.slice(1).map((t, i) => busy(t, root.lastCores[i]));
+            root.lastCpu = times[0];
+            root.lastCores = times.slice(1);
+        }
+    }
+
+    FileView {
+        id: cpuinfo
+        path: "/proc/cpuinfo"
+        onLoaded: {
+            const mhz = (text().match(/^cpu MHz\s*:\s*([\d.]+)/gm) ?? []).map(l => Number(l.split(":")[1]));
+            root.cpuGhz = mhz.length ? mhz.reduce((a, b) => a + b, 0) / mhz.length / 1000 : 0;
+            if (!root.cpuModel) {
+                const model = text().match(/^model name\s*:\s*(.+)$/m)?.[1] ?? "";
+                root.cpuModel = model.replace(/\((R|TM)\)/g, "").replace(/ CPU @.*$| \d+-Core Processor$/, "").replace(/\s+/g, " ").trim();
+            }
+        }
+    }
+
+    FileView {
+        id: loadavg
+        path: "/proc/loadavg"
+        onLoaded: root.loadAverage = text().split(" ")[0]
+    }
+
+    // The package sensor: coretemp on Intel, k10temp or zenpower on AMD.
+    Process {
+        running: true
+        command: ["sh", "-c", "for h in /sys/class/hwmon/hwmon*; do case $(cat $h/name) in coretemp|k10temp|zenpower|cpu_thermal) echo $h/temp1_input; exit;; esac; done"]
+        stdout: StdioCollector {
+            onStreamFinished: root.cpuTempPath = text.trim()
+        }
+    }
+    FileView {
+        id: cpuTemp
+        path: root.cpuTempPath
+        printErrors: false
+        onLoaded: root.cpuTemp = Math.round(Number(text()) / 1000)
+    }
+
+    FileView {
+        id: meminfo
+        path: "/proc/meminfo"
+        onLoaded: {
+            const kb = key => Number(text().match(new RegExp("^" + key + ":\\s+(\\d+)", "m"))?.[1] ?? 0);
+            const total = kb("MemTotal"), available = kb("MemAvailable"), used = total - available;
+            root.memoryTotal = total;
+            root.memoryUsed = used;
+            root.memoryCache = Math.max(0, available - kb("MemFree"));
+            root.swapTotal = kb("SwapTotal");
+            root.swapUsed = root.swapTotal - kb("SwapFree");
+            root.memory = Math.round(100 * used / total);
+            root.memoryDetail = `${(used / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} GiB`;
+            root.memoryHistory = root.push(root.memoryHistory, 100 * used / total);
+        }
+    }
+
+    // Whole disks only: partitions would count the same bytes twice, and zram is memory.
+    FileView {
+        id: diskstats
+        path: "/proc/diskstats"
+        onLoaded: {
+            let read = 0, written = 0;
+            for (const line of text().split("\n")) {
+                const f = line.trim().split(/\s+/);
+                if (/^(nvme\d+n\d+|sd[a-z]+|vd[a-z]+|xvd[a-z]+|hd[a-z]+|mmcblk\d+)$/.test(f[2] ?? "")) {
+                    read += Number(f[5]) * 512;
+                    written += Number(f[9]) * 512;
+                }
+            }
+            const now = Date.now(), last = root.lastDisk;
+            if (last) {
+                const dt = (now - last.time) / 1000;
+                root.diskRead = Math.max(0, (read - last.read) / dt);
+                root.diskWrite = Math.max(0, (written - last.written) / dt);
+                root.diskHistory = root.push(root.diskHistory, root.diskRead + root.diskWrite);
+            }
+            root.lastDisk = { read, written, time: now };
+        }
+    }
+
+    Process {
+        id: df
+        command: ["env", "LC_ALL=C", "df", "--local", "-B1", "--output=source,size,used,target"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                // Btrfs subvolumes and bind mounts list one device several times; keep its
+                // shortest mount point. Boot partitions are not worth a row.
+                const found = {};
+                for (const line of text.trim().split("\n").slice(1)) {
+                    const m = line.match(/^(\/dev\/\S+)\s+(\d+)\s+(\d+)\s+(.+)$/);
+                    if (!m || /^\/(boot|efi)(\/|$)/.test(m[4]))
+                        continue;
+                    if (!found[m[1]] || m[4].length < found[m[1]].mount.length)
+                        found[m[1]] = { mount: m[4], size: Number(m[2]), used: Number(m[3]) };
+                }
+                root.filesystems = Object.values(found).sort((a, b) => a.mount.length - b.mount.length).map(f => Object.assign(f, {
+                    name: f.mount === "/" ? "System" : f.mount === "/home" ? "Home" : f.mount.split("/").pop()
+                }));
+            }
+        }
+    }
+
+    // The default route's interface: Destination 00000000, lowest metric.
+    FileView {
+        id: route
+        path: "/proc/net/route"
+        onLoaded: {
+            const routes = text().trim().split("\n").slice(1).map(l => l.trim().split(/\s+/)).filter(f => f[1] === "00000000");
+            routes.sort((a, b) => Number(a[6]) - Number(b[6]));
+            root.netInterface = routes[0]?.[0] ?? "";
+        }
+    }
+    FileView {
+        id: netdev
+        path: "/proc/net/dev"
+        onLoaded: {
+            let rx = 0, tx = 0;
+            for (const line of text().split("\n").slice(2)) {
+                const [name, rest] = line.split(":");
+                const iface = name?.trim(), f = rest?.trim().split(/\s+/).map(Number);
+                if (!f || iface === "lo" || (root.netInterface && iface !== root.netInterface))
+                    continue;
+                rx += f[0];
+                tx += f[8];
+            }
+            const now = Date.now(), last = root.lastNet;
+            root.netReceived = rx;
+            root.netSent = tx;
+            // A new interface starts from its own counters; skip the jump between them.
+            if (last && last.iface === root.netInterface) {
+                const dt = (now - last.time) / 1000;
+                root.netDown = Math.max(0, (rx - last.rx) / dt);
+                root.netUp = Math.max(0, (tx - last.tx) / dt);
+            } else {
+                root.netDown = root.netUp = 0;
+            }
+            if (last) {
+                root.downHistory = root.push(root.downHistory, root.netDown);
+                root.upHistory = root.push(root.upHistory, root.netUp);
+            }
+            root.lastNet = { rx, tx, time: now, iface: root.netInterface };
+        }
+    }
+
+    // GPUs come from bin/penumbra-gpus, which never wakes a sleeping one.
+    Process {
+        running: true
+        command: [Ui.bin + "penumbra-gpus", "list"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.gpus = text.trim().split("\n").filter(l => l).map(line => {
+                    const [card, driver, model] = line.split("\t");
+                    // "AD107M [GeForce RTX 4060 Max-Q / Mobile]" → "GeForce RTX 4060 Max-Q"
+                    const name = (model?.match(/\[(.+)\]/)?.[1] ?? model ?? "").split(" / ")[0].trim();
+                    return {
+                        card, driver,
+                        name: name || "Graphics",
+                        integrated: driver === "i915" || driver === "xe",
+                        asleep: false, busy: -1, memUsed: -1, memTotal: -1, temp: -1, power: -1, freq: -1, maxFreq: -1,
+                        history: []
+                    };
+                });
+            }
+        }
+    }
+    Process {
+        id: gpuSample
+        command: [Ui.bin + "penumbra-gpus", "sample"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const lines = text.trim().split("\n");
+                const now = Number(lines[0]?.split(" ")[1]) * 1000;
+                const readings = {};
+                for (const line of lines.slice(1)) {
+                    const [card, ...pairs] = line.split("\t");
+                    readings[card] = {};
+                    for (const pair of pairs) {
+                        const at = pair.indexOf("=");
+                        readings[card][pair.slice(0, at)] = pair.slice(at + 1);
+                    }
+                }
+                const seen = {};
+                root.gpus = root.gpus.map(gpu => {
+                    const r = readings[gpu.card];
+                    if (!r)
+                        return gpu;
+                    const num = key => r[key] === undefined || r[key] === "" || isNaN(Number(r[key])) ? -1 : Number(r[key]);
+                    let busy = num("busy");
+                    // Intel counts the time spent idle (RC6); busy is the rest.
+                    if (num("idle_ms") >= 0) {
+                        const before = root.lastGpu[gpu.card];
+                        busy = before && now > before.now ? Math.max(0, Math.min(100, 100 * (1 - (num("idle_ms") - before.idle) / (now - before.now)))) : -1;
+                        seen[gpu.card] = { idle: num("idle_ms"), now };
+                    }
+                    const asleep = r.state === "asleep";
+                    return Object.assign({}, gpu, {
+                        asleep,
+                        busy: asleep ? -1 : busy,
+                        memUsed: num("mem_used"), memTotal: num("mem_total"),
+                        temp: num("temp"), power: num("power"),
+                        freq: num("freq"), maxFreq: num("max_freq"),
+                        history: busy >= 0 || asleep ? root.push(gpu.history, Math.max(0, busy)) : gpu.history
+                    });
+                });
+                root.lastGpu = seen;
             }
         }
     }
@@ -11185,7 +12029,7 @@ ShellRoot {
 
     ControlCenter {}
     CalendarPanel {}
-    ProcessPanel {}
+    MonitorPanel {}
     UpdatesPanel {}
     WallpaperPicker {}
     NotificationPopups {}

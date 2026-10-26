@@ -19,7 +19,7 @@ ShellRoot {
 
     ControlCenter {}
     CalendarPanel {}
-    ProcessPanel {}
+    MonitorPanel {}
     UpdatesPanel {}
     WallpaperPicker {}
     NotificationPopups {}

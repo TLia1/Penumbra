@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# GPU readings for the shell's system monitor.
+#   penumbra-gpus list     one line per GPU: card, driver, model name from the hardware database
+#   penumbra-gpus sample   "now <uptime>", then one line per GPU: card and key=value readings
+# A GPU that is runtime-suspended (a hybrid laptop's discrete card, most of the time) only
+# reports state=asleep: reading its counters, or running nvidia-smi, would power it up.
+set -u
+shopt -s nullglob
+
+# Cards, not their connectors (card1-eDP-1).
+cards() {
+    local card
+    for card in /sys/class/drm/card[0-9]*; do
+        [[ ${card##*/} == *-* || ! -e $card/device/driver ]] || echo "$card"
+    done
+}
+
+driver() {
+    local path
+    path=$(readlink -f "$1/device/driver")
+    echo "${path##*/}"
+}
+
+# The first line of a file, or nothing.
+get() {
+    local value=
+    [[ -r $1 ]] && read -r value < "$1" 2>/dev/null
+    echo "$value"
+}
+
+list() {
+    local card model
+    for card in $(cards); do
+        model=$(udevadm info -q property -p "$(readlink -f "$card/device")" 2>/dev/null | sed -n 's/^ID_MODEL_FROM_DATABASE=//p')
+        printf '%s\t%s\t%s\n' "${card##*/}" "$(driver "$card")" "$model"
+    done
+}
+
+# Busy time comes as idle counters (Intel) or a percentage (AMD, NVIDIA); memory in MiB,
+# temperature in °C, power in W.
+sample() {
+    local card device out hwmon used total temp power
+    read -r now _ < /proc/uptime
+    echo "now $now"
+    for card in $(cards); do
+        device=$(readlink -f "$card/device")
+        out="${card##*/}"
+        if [[ $(get "$device/power/runtime_status") == suspended ]]; then
+            printf '%s\tstate=asleep\n' "$out"
+            continue
+        fi
+        out+=$'\tstate=active'
+        case $(driver "$card") in
+        i915)
+            out+=$'\tidle_ms='$(get "$card/gt/gt0/rc6_residency_ms")
+            out+=$'\tfreq='$(get "$card/gt_act_freq_mhz")$'\tmax_freq='$(get "$card/gt_RP0_freq_mhz")
+            ;;
+        xe)
+            out+=$'\tidle_ms='$(get "$device/tile0/gt0/gtidle/idle_residency_ms")
+            out+=$'\tfreq='$(get "$device/tile0/gt0/freq0/act_freq")$'\tmax_freq='$(get "$device/tile0/gt0/freq0/rp0_freq")
+            ;;
+        amdgpu)
+            out+=$'\tbusy='$(get "$device/gpu_busy_percent")
+            used=$(get "$device/mem_info_vram_used") total=$(get "$device/mem_info_vram_total")
+            [[ -n $used && -n $total ]] && out+=$'\tmem_used='$((used / 1048576))$'\tmem_total='$((total / 1048576))
+            for hwmon in "$device"/hwmon/hwmon*; do
+                temp=$(get "$hwmon/temp1_input") power=$(get "$hwmon/power1_average")
+                [[ -n $power ]] || power=$(get "$hwmon/power1_input")
+                [[ -n $temp ]] && out+=$'\ttemp='$((temp / 1000))
+                [[ -n $power ]] && out+=$'\tpower='$((power / 1000000))
+            done
+            ;;
+        nvidia)
+            if command -v nvidia-smi > /dev/null; then
+                IFS=', ' read -r busy used total temp power < <(nvidia-smi --id="${device##*/}" \
+                    --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw \
+                    --format=csv,noheader,nounits 2>/dev/null)
+                out+=$'\tbusy='${busy:-}$'\tmem_used='${used:-}$'\tmem_total='${total:-}$'\ttemp='${temp:-}$'\tpower='${power%.*}
+            fi
+            ;;
+        esac
+        echo "$out"
+    done
+}
+
+case ${1:-} in
+list) list ;;
+sample) sample ;;
+*)
+    echo "usage: ${0##*/} list|sample" >&2
+    exit 2
+    ;;
+esac

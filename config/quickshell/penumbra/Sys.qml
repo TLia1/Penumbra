@@ -3,58 +3,15 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Polled system state: CPU, memory, backlight and pending updates.
+// Polled system state: backlight and pending updates. Resource usage is in Usage.
 Singleton {
     id: root
 
-    property int cpu: 0
-    property int cores: 1
-    property int memory: 0
-    property string memoryDetail: ""
     property int brightness: -1 // -1 when the machine has no backlight
     property int updates: 0
     property string updatesDetail: ""
     property var updateSources: [] // [{ name, packages: ["name old -> new" or a Flatpak ref] }]
     property bool checkingUpdates: updateCheck.running
-
-    property var lastCpu: null
-
-    Timer {
-        interval: 3000
-        running: true
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: {
-            stat.reload();
-            meminfo.reload();
-        }
-    }
-
-    FileView {
-        id: stat
-        path: "/proc/stat"
-        onLoaded: {
-            root.cores = (text().match(/^cpu\d+ /gm) ?? []).length || 1;
-            const f = text().split("\n")[0].trim().split(/\s+/).slice(1).map(Number);
-            const idle = f[3] + f[4], total = f.reduce((a, b) => a + b, 0);
-            if (root.lastCpu) {
-                const dt = total - root.lastCpu.total;
-                root.cpu = dt > 0 ? Math.round(100 * (1 - (idle - root.lastCpu.idle) / dt)) : 0;
-            }
-            root.lastCpu = { idle, total };
-        }
-    }
-
-    FileView {
-        id: meminfo
-        path: "/proc/meminfo"
-        onLoaded: {
-            const kb = key => Number(text().match(new RegExp(key + ":\\s+(\\d+)"))[1]);
-            const total = kb("MemTotal"), used = total - kb("MemAvailable");
-            root.memory = Math.round(100 * used / total);
-            root.memoryDetail = `${(used / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} GiB`;
-        }
-    }
 
     // brightnessctl -m prints: device,class,current,percent%,max
     Process {

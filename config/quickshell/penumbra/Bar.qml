@@ -217,11 +217,11 @@ PanelWindow {
             padding: 12
             spacing: 12
             active: Ui.monitorOpen
-            tip: `CPU ${Sys.cpu}% · Memory ${Sys.memoryDetail}`
+            tip: `CPU ${Usage.cpu}% · Memory ${Usage.memoryDetail}`
             onClicked: m => m.button === Qt.RightButton ? Ui.run("kitty --class penumbra-monitor htop") : Ui.toggleMonitor()
             readonly property color tint: Ui.monitorOpen ? Theme.violetInk : Theme.subtle
             Repeater {
-                model: [{ name: "CPU", value: Sys.cpu }, { name: "RAM", value: Sys.memory }]
+                model: [{ name: "CPU", value: Usage.cpu }, { name: "RAM", value: Usage.memory }]
                 delegate: RowLayout {
                     required property var modelData
                     spacing: 5

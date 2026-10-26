@@ -32,6 +32,10 @@ Singleton {
     readonly property color rose: P.rose
     readonly property color green: P.green
     readonly property color amber: P.amber
+    // The system monitor's series.
+    readonly property color blue: P.blue
+    readonly property color pink: P.pink
+    readonly property color cyan: P.cyan
 
     // A palette colour made translucent.
     function alpha(c, a) {
