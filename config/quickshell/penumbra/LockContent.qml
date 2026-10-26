@@ -18,7 +18,7 @@ Rectangle {
     // ── Wallpaper ───────────────────────────────────────────────────
     Image {
         anchors.fill: parent
-        source: "file://" + Ui.wallpapers + Ui.wallpaper + "-clean.png"
+        source: Ui.fileUrl(Ui.wallpaperStill)
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
     }

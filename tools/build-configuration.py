@@ -20,7 +20,7 @@ SECTIONS = [
     ['tests/*'],
     ['bin/*'],
     ['config/**/*'],
-    ['share/color-schemes/*', 'share/icons/*/index.theme'],
+    ['share/color-schemes/*', 'share/icons/*/index.theme', 'share/kio/servicemenus/*'],
     ['system/**/*'],
     ['boot/grub/theme.txt', 'boot/plymouth/*.plymouth'],
     ['assets/wallpaper*.svg'],

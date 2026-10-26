@@ -551,6 +551,8 @@ run_user_part() {
     done
     create_user_files
     chmod +x "$HOME"/.local/bin/penumbra-*
+    # Dolphin only reads service menus in your account that are executable.
+    chmod +x "$HOME/.local/share/kio/servicemenus/penumbra-wallpaper.desktop"
     # The configs above come rounded; put back sharp corners if that was the choice.
     "$HOME/.local/bin/penumbra-corners" restore
     install_wallpapers

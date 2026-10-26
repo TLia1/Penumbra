@@ -109,9 +109,35 @@ Singleton {
         onTriggered: root.osdVisible = false
     }
 
-    // The chosen wallpaper (wallpaper, wallpaper-dawn…), as penumbra-wallpaper records it.
+    // The chosen wallpaper, as penumbra-wallpaper records it: one of Penumbra's (wallpaper,
+    // wallpaper-dawn…), or the path of your own image, GIF or video.
     property string wallpaper: "wallpaper"
     readonly property string wallpapers: Quickshell.env("HOME") + "/.local/share/penumbra/"
+    readonly property string wallpaperFolder: Quickshell.env("HOME") + "/Pictures/Wallpapers"
+    readonly property var wallpaperTitles: ({ "wallpaper": "Night", "wallpaper-dawn": "Dawn", "wallpaper-eclipse": "Eclipse" })
+    function wallpaperTitle(name) {
+        return wallpaperTitles[name] ?? name.replace(/^.*\//, "").replace(/\.[^.]*$/, "");
+    }
+    // scene (dawn, eclipse), still (night or an image), gif or video.
+    function wallpaperKind(name) {
+        if (name === "wallpaper-dawn" || name === "wallpaper-eclipse")
+            return "scene";
+        const ext = name.startsWith("/") ? name.replace(/^.*\./, "").toLowerCase() : "";
+        if (ext === "gif")
+            return "gif";
+        return ["mp4", "webm", "mkv", "mov", "m4v"].includes(ext) ? "video" : "still";
+    }
+    // The first frame penumbra-wallpaper saves of a GIF, video or non-PNG image.
+    function wallpaperPoster(path) {
+        return Quickshell.env("HOME") + "/.cache/penumbra/wallpapers/" + Qt.md5(path) + ".png";
+    }
+    // The still the lock screen shows: the wordmark-free scene, or your image or its first frame.
+    readonly property string wallpaperStill: !wallpaper.startsWith("/") ? wallpapers + wallpaper + "-clean.png"
+        : wallpaperKind(wallpaper) === "still" && wallpaper.toLowerCase().endsWith(".png") ? wallpaper : wallpaperPoster(wallpaper)
+    // A file:// URL for a path that may hold spaces, # or ?.
+    function fileUrl(path) {
+        return "file://" + path.split("/").map(encodeURIComponent).join("/");
+    }
     FileView {
         path: Quickshell.env("HOME") + "/.local/state/penumbra/wallpaper"
         watchChanges: true

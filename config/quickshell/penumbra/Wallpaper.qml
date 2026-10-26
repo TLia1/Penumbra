@@ -1,24 +1,27 @@
 import QtQuick
+import QtMultimedia
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 
-// Animated wallpapers. Each scene sits on the bottom layer over awww's still copy of the same
-// image, so fading it in or out changes nothing at rest; night has no animated scene.
+// Animated wallpapers: the dawn and eclipse scenes, and your GIFs and videos. Each sits on the
+// bottom layer over awww's still copy of the same image (a GIF's or video's first frame), so
+// fading it in or out changes nothing at rest; night and plain images have nothing to animate.
 // penumbra-wallpaper says when the wallpaper changes; the settings page can keep them still.
 Scope {
     id: root
 
-    readonly property var scenes: ["wallpaper-dawn", "wallpaper-eclipse"]
-    // The chosen wallpaper; the animated scene that should be up, and the one loaded now (they
+    // The chosen wallpaper; the animated one that should be up, and the one loaded now (they
     // differ while one fades out).
     property string chosen: ""
-    readonly property string target: Settings.animatedWallpapers && scenes.includes(chosen) ? chosen : ""
+    readonly property string target: Settings.animatedWallpapers && Ui.wallpaperKind(chosen) !== "still" ? chosen : ""
     property string scene: ""
     // awww's transition is still running.
     property bool waiting: false
     readonly property bool shown: target !== "" && scene === target && !waiting
+    // Nothing to see behind the lock screen; stop drawing.
+    property bool paused: false
 
     property real fade: shown ? 1 : 0
     Behavior on fade { NumberAnimation { duration: root.shown ? 900 : 350; easing.type: Easing.InOutQuad } }
@@ -66,15 +69,16 @@ Scope {
                     WlrLayershell.namespace: "animated-wallpaper"
 
                     // Nothing to see under a fullscreen window; stop drawing.
-                    readonly property bool running: !(Hyprland.monitorFor(screen)?.activeWorkspace?.hasFullscreen ?? false)
+                    readonly property bool running: !root.paused && !(Hyprland.monitorFor(screen)?.activeWorkspace?.hasFullscreen ?? false)
 
                     // Cover the screen like `awww img --resize crop`.
                     Loader {
                         id: scene
                         anchors.centerIn: parent
-                        scale: item ? Math.max(window.width / item.width, window.height / item.height) : 1
+                        scale: item && item.width > 0 && item.height > 0 ? Math.max(window.width / item.width, window.height / item.height) : 1
                         opacity: root.fade
-                        sourceComponent: root.scene === "wallpaper-eclipse" ? eclipse : dawn
+                        sourceComponent: ({ "wallpaper-dawn": dawn, "wallpaper-eclipse": eclipse })[root.scene]
+                            ?? (Ui.wallpaperKind(root.scene) === "gif" ? gif : video)
 
                         Component {
                             id: dawn
@@ -88,6 +92,36 @@ Scope {
                             EclipseScene {
                                 running: window.running
                                 pixelScale: Math.max(window.width / width, window.height / height) * window.devicePixelRatio
+                            }
+                        }
+                        Component {
+                            id: gif
+                            AnimatedImage {
+                                width: window.width
+                                height: window.height
+                                source: Ui.fileUrl(root.scene)
+                                fillMode: Image.PreserveAspectCrop
+                                cache: false
+                                playing: window.running
+                            }
+                        }
+                        // Silent, looping, and with no audio output, so it never shows in the mixer.
+                        Component {
+                            id: video
+                            VideoOutput {
+                                id: clip
+                                width: window.width
+                                height: window.height
+                                fillMode: VideoOutput.PreserveAspectCrop
+                                readonly property bool running: window.running
+                                onRunningChanged: running ? player.play() : player.pause()
+                                MediaPlayer {
+                                    id: player
+                                    source: Ui.fileUrl(root.scene)
+                                    videoOutput: clip
+                                    loops: MediaPlayer.Infinite
+                                    Component.onCompleted: if (clip.running) play()
+                                }
                             }
                         }
                     }

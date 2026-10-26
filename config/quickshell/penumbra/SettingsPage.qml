@@ -5,8 +5,6 @@ import QtQuick.Layouts
 ColumnLayout {
     id: root
 
-    readonly property var wallpaperNames: ({ "wallpaper": "Night", "wallpaper-dawn": "Dawn", "wallpaper-eclipse": "Eclipse" })
-
     spacing: 12
 
     component Section: Overline {
@@ -158,14 +156,14 @@ ColumnLayout {
             Layout.fillWidth: true
             glyph: "󰸉"
             title: "Wallpaper"
-            subtitle: root.wallpaperNames[Ui.wallpaper] ?? Ui.wallpaper
+            subtitle: Ui.wallpaperTitle(Ui.wallpaper)
             trailing: "󰅂"
             onClicked: Ui.toggleWallpapers()
         }
         SwitchRow {
             glyph: "󰐊"
             title: "Animated wallpapers"
-            subtitle: Settings.animatedWallpapers ? "Dawn and eclipse move" : "Still images"
+            subtitle: Settings.animatedWallpapers ? "Dawn, eclipse, GIFs and videos move" : "Still images"
             checked: Settings.animatedWallpapers
             onToggled: Settings.animatedWallpapers = !Settings.animatedWallpapers
         }

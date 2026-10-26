@@ -10,6 +10,7 @@ import Quickshell.Io
 ShellRoot {
     Wallpaper {
         id: wallpaper
+        paused: lockScreen.locked
     }
 
     Variants {

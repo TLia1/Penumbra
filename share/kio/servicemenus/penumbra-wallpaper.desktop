@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Service
+MimeType=image/png;image/jpeg;image/webp;image/bmp;image/gif;video/mp4;video/webm;video/x-matroska;video/quicktime;
+Actions=setWallpaper
+X-KDE-Priority=TopLevel
+
+[Desktop Action setWallpaper]
+Name=Set as Wallpaper
+Icon=preferences-desktop-wallpaper
+Exec=sh -c 'exec "$HOME/.local/bin/penumbra-wallpaper" "$1"' penumbra-wallpaper %f

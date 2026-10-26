@@ -11,6 +11,8 @@ PanelWindow {
     property int sheetWidth: 380
     default property alias content: sheet.data
     property alias sheet: sheet
+    // Items that see key presses before the sheet does (which closes on Escape).
+    property list<Item> keyTargets
     signal dismissed()
 
     // Room around the sheet for its shadow; panels anchor with Theme.edge - shadowRoom, so the
@@ -52,6 +54,7 @@ PanelWindow {
         opacity: panel.open ? 1 : 0
         y: panel.shadowRoom + (panel.open ? 0 : -14)
         focus: panel.open
+        Keys.forwardTo: panel.keyTargets
         Keys.onEscapePressed: panel.dismissed()
         Behavior on opacity { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
         Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }

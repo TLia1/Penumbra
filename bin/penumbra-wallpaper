@@ -1,34 +1,101 @@
 #!/usr/bin/env bash
-# Switch Penumbra wallpapers (the next one, or one by name) with an awww transition;
-# the lock screen follows the choice.
+# Switch wallpapers with an awww transition: Penumbra's own scenes by name, or any image, GIF or
+# video by path. `next` cycles through Penumbra's, then those in ~/Pictures/Wallpapers. GIFs and
+# videos show as their first frame in awww and the shell plays them over it, as it animates dawn
+# and eclipse. The lock screen follows the choice.
 set -euo pipefail
 dir="$HOME/.local/share/penumbra"
 state="$HOME/.local/state/penumbra/wallpaper"
+folder="$HOME/Pictures/Wallpapers"
+# First frames and PNG copies, named after the md5 of the file's path (the shell finds them the same way).
+cache="$HOME/.cache/penumbra/wallpapers"
 names=(wallpaper wallpaper-dawn wallpaper-eclipse)
+stills='png|jpg|jpeg|webp|bmp'
+moving='gif|mp4|webm|mkv|mov|m4v'
+
+usage() {
+ echo "Usage: penumbra-wallpaper [next|restore|posters|wallpaper|wallpaper-dawn|wallpaper-eclipse|FILE]" >&2
+ exit 2
+}
+kind() {
+ local ext=${1##*.}
+ ext=${ext,,}
+ if [[ $ext =~ ^($stills)$ ]]; then echo still
+ elif [[ $ext =~ ^($moving)$ ]]; then echo moving
+ else echo none; fi
+}
+valid() {
+ case $1 in
+  wallpaper|wallpaper-dawn|wallpaper-eclipse) [[ -e $dir/$1.png ]];;
+  /*) [[ -f $1 && $(kind "$1") != none ]];;
+  *) false;;
+ esac
+}
+# Penumbra's wallpapers, then yours.
+choices() {
+ printf '%s\n' "${names[@]}"
+ [[ -d $folder ]] || return 0
+ find "$folder" -maxdepth 1 -type f -regextype posix-extended -iregex ".*\.($stills|$moving)" | LC_ALL=C sort
+}
+# still FILE: a PNG of the file's first frame, which awww and the lock screen can show.
+still() {
+ local out
+ if [[ $(kind "$1") = still && ${1,,} = *.png ]]; then
+  printf '%s\n' "$1"
+  return
+ fi
+ out="$cache/$(printf '%s' "$1" | md5sum | cut -c1-32).png"
+ if [[ ! -s $out || $1 -nt $out ]]; then
+  mkdir -p "$cache"
+  ffmpeg -nostdin -loglevel error -y -i "$1" -frames:v 1 -update 1 "$out" || { rm -f "$out"; return 1; }
+ fi
+ printf '%s\n' "$out"
+}
+
 current=$(cat "$state" 2>/dev/null || echo wallpaper)
-[[ -e "$dir/$current.png" ]] || current=wallpaper
+valid "$current" || current=wallpaper
 transition=(--transition-type grow --transition-duration 1.4 --transition-fps 120)
 case "${1:-next}" in
  next)
-  for i in "${!names[@]}"; do [[ ${names[i]} = "$current" ]] && break; done
-  current=${names[(i + 1) % ${#names[@]}]};;
- wallpaper|wallpaper-dawn|wallpaper-eclipse) current=$1;;
+  mapfile -t list < <(choices)
+  for i in "${!list[@]}"; do [[ ${list[i]} = "$current" ]] && break; done
+  current=${list[(i + 1) % ${#list[@]}]};;
  restore) transition=(--transition-type none);;
- *) echo "Usage: penumbra-wallpaper [next|restore|wallpaper|wallpaper-dawn|wallpaper-eclipse]" >&2; exit 2;;
+ # First frames of the GIFs and videos in your folder, for the wallpaper picker.
+ posters)
+  while IFS= read -r file; do
+   [[ $(kind "$file") = moving ]] && { still "$file" >/dev/null || true; }
+  done < <(choices)
+  exit 0;;
+ wallpaper|wallpaper-dawn|wallpaper-eclipse) current=$1;;
+ *)
+  # Absolute, but through any symlinked folder, so the picker recognises it.
+  file=$(realpath -es -- "$1" 2>/dev/null) || usage
+  valid "$file" || { echo "penumbra-wallpaper: $1 is not an image, GIF or video" >&2; exit 2; }
+  current=$file;;
 esac
-# Grow each scene out of its planet, or the eclipse.
+# Grow each scene out of its planet, or the eclipse; your own from the middle.
 if [[ ${1:-next} != restore ]]; then
  case $current in
   wallpaper-dawn) transition+=(--transition-pos 0.32,0.37);;
   wallpaper-eclipse) transition+=(--transition-pos 0.65,0.63);;
-  *) transition+=(--transition-pos 0.68,0.51);;
+  wallpaper) transition+=(--transition-pos 0.68,0.51);;
+  *) transition+=(--transition-pos 0.5,0.5);;
  esac
 fi
+case $current in
+ /*)
+  lock=$(still "$current")
+  [[ $(kind "$current") = moving ]] && image=$lock || image=$current;;
+ *)
+  image=$dir/$current.png
+  lock=$dir/$current-clean.png;;
+esac
 mkdir -p "${state%/*}"
 printf '%s\n' "$current" > "$state"
-ln -sfn "$dir/$current-clean.png" "$dir/lock.png"
-# The shell animates dawn and eclipse over awww's still image, once the transition has finished.
+ln -sfn "$lock" "$dir/lock.png"
+# The shell animates dawn, eclipse, GIFs and videos over awww's still image, once the transition has finished.
 [[ ${1:-next} = restore ]] && delay=0 || delay=1400
 quickshell -c penumbra ipc call wallpaper set "$current" "$delay" >/dev/null 2>&1 || true
 for _ in {1..50}; do awww query >/dev/null 2>&1 && break; sleep 0.1; done
-exec awww img "$dir/$current.png" --resize crop "${transition[@]}"
+exec awww img "$image" --resize crop "${transition[@]}"

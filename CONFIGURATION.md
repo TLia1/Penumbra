@@ -562,6 +562,8 @@ run_user_part() {
     done
     create_user_files
     chmod +x "$HOME"/.local/bin/penumbra-*
+    # Dolphin only reads service menus in your account that are executable.
+    chmod +x "$HOME/.local/share/kio/servicemenus/penumbra-wallpaper.desktop"
     # The configs above come rounded; put back sharp corners if that was the choice.
     "$HOME/.local/bin/penumbra-corners" restore
     install_wallpapers
@@ -829,6 +831,8 @@ PACKAGES=(
     gnome-keyring seahorse
     # Screenshots, screen recording, clipboard, color picker, emoji and symbols
     grim slurp satty wf-recorder hyprpicker cliphist wl-clipboard wtype unicode-emoji noto-fonts-emoji
+    # Your own GIF and video wallpapers: the shell plays them, ffmpeg takes their first frame
+    qt6-multimedia qt6-multimedia-ffmpeg ffmpeg
     # Used by the helper scripts and build tools
     pacman-contrib flatpak libnotify librsvg python-pillow xorg-xcursorgen
 )
@@ -1159,7 +1163,7 @@ SECTIONS = [
     ['tests/*'],
     ['bin/*'],
     ['config/**/*'],
-    ['share/color-schemes/*', 'share/icons/*/index.theme'],
+    ['share/color-schemes/*', 'share/icons/*/index.theme', 'share/kio/servicemenus/*'],
     ['system/**/*'],
     ['boot/grub/theme.txt', 'boot/plymouth/*.plymouth'],
     ['assets/wallpaper*.svg'],
@@ -3400,39 +3404,106 @@ if __name__ == "__main__":
 
 ```bash
 #!/usr/bin/env bash
-# Switch Penumbra wallpapers (the next one, or one by name) with an awww transition;
-# the lock screen follows the choice.
+# Switch wallpapers with an awww transition: Penumbra's own scenes by name, or any image, GIF or
+# video by path. `next` cycles through Penumbra's, then those in ~/Pictures/Wallpapers. GIFs and
+# videos show as their first frame in awww and the shell plays them over it, as it animates dawn
+# and eclipse. The lock screen follows the choice.
 set -euo pipefail
 dir="$HOME/.local/share/penumbra"
 state="$HOME/.local/state/penumbra/wallpaper"
+folder="$HOME/Pictures/Wallpapers"
+# First frames and PNG copies, named after the md5 of the file's path (the shell finds them the same way).
+cache="$HOME/.cache/penumbra/wallpapers"
 names=(wallpaper wallpaper-dawn wallpaper-eclipse)
+stills='png|jpg|jpeg|webp|bmp'
+moving='gif|mp4|webm|mkv|mov|m4v'
+
+usage() {
+ echo "Usage: penumbra-wallpaper [next|restore|posters|wallpaper|wallpaper-dawn|wallpaper-eclipse|FILE]" >&2
+ exit 2
+}
+kind() {
+ local ext=${1##*.}
+ ext=${ext,,}
+ if [[ $ext =~ ^($stills)$ ]]; then echo still
+ elif [[ $ext =~ ^($moving)$ ]]; then echo moving
+ else echo none; fi
+}
+valid() {
+ case $1 in
+  wallpaper|wallpaper-dawn|wallpaper-eclipse) [[ -e $dir/$1.png ]];;
+  /*) [[ -f $1 && $(kind "$1") != none ]];;
+  *) false;;
+ esac
+}
+# Penumbra's wallpapers, then yours.
+choices() {
+ printf '%s\n' "${names[@]}"
+ [[ -d $folder ]] || return 0
+ find "$folder" -maxdepth 1 -type f -regextype posix-extended -iregex ".*\.($stills|$moving)" | LC_ALL=C sort
+}
+# still FILE: a PNG of the file's first frame, which awww and the lock screen can show.
+still() {
+ local out
+ if [[ $(kind "$1") = still && ${1,,} = *.png ]]; then
+  printf '%s\n' "$1"
+  return
+ fi
+ out="$cache/$(printf '%s' "$1" | md5sum | cut -c1-32).png"
+ if [[ ! -s $out || $1 -nt $out ]]; then
+  mkdir -p "$cache"
+  ffmpeg -nostdin -loglevel error -y -i "$1" -frames:v 1 -update 1 "$out" || { rm -f "$out"; return 1; }
+ fi
+ printf '%s\n' "$out"
+}
+
 current=$(cat "$state" 2>/dev/null || echo wallpaper)
-[[ -e "$dir/$current.png" ]] || current=wallpaper
+valid "$current" || current=wallpaper
 transition=(--transition-type grow --transition-duration 1.4 --transition-fps 120)
 case "${1:-next}" in
  next)
-  for i in "${!names[@]}"; do [[ ${names[i]} = "$current" ]] && break; done
-  current=${names[(i + 1) % ${#names[@]}]};;
- wallpaper|wallpaper-dawn|wallpaper-eclipse) current=$1;;
+  mapfile -t list < <(choices)
+  for i in "${!list[@]}"; do [[ ${list[i]} = "$current" ]] && break; done
+  current=${list[(i + 1) % ${#list[@]}]};;
  restore) transition=(--transition-type none);;
- *) echo "Usage: penumbra-wallpaper [next|restore|wallpaper|wallpaper-dawn|wallpaper-eclipse]" >&2; exit 2;;
+ # First frames of the GIFs and videos in your folder, for the wallpaper picker.
+ posters)
+  while IFS= read -r file; do
+   [[ $(kind "$file") = moving ]] && { still "$file" >/dev/null || true; }
+  done < <(choices)
+  exit 0;;
+ wallpaper|wallpaper-dawn|wallpaper-eclipse) current=$1;;
+ *)
+  # Absolute, but through any symlinked folder, so the picker recognises it.
+  file=$(realpath -es -- "$1" 2>/dev/null) || usage
+  valid "$file" || { echo "penumbra-wallpaper: $1 is not an image, GIF or video" >&2; exit 2; }
+  current=$file;;
 esac
-# Grow each scene out of its planet, or the eclipse.
+# Grow each scene out of its planet, or the eclipse; your own from the middle.
 if [[ ${1:-next} != restore ]]; then
  case $current in
   wallpaper-dawn) transition+=(--transition-pos 0.32,0.37);;
   wallpaper-eclipse) transition+=(--transition-pos 0.65,0.63);;
-  *) transition+=(--transition-pos 0.68,0.51);;
+  wallpaper) transition+=(--transition-pos 0.68,0.51);;
+  *) transition+=(--transition-pos 0.5,0.5);;
  esac
 fi
+case $current in
+ /*)
+  lock=$(still "$current")
+  [[ $(kind "$current") = moving ]] && image=$lock || image=$current;;
+ *)
+  image=$dir/$current.png
+  lock=$dir/$current-clean.png;;
+esac
 mkdir -p "${state%/*}"
 printf '%s\n' "$current" > "$state"
-ln -sfn "$dir/$current-clean.png" "$dir/lock.png"
-# The shell animates dawn and eclipse over awww's still image, once the transition has finished.
+ln -sfn "$lock" "$dir/lock.png"
+# The shell animates dawn, eclipse, GIFs and videos over awww's still image, once the transition has finished.
 [[ ${1:-next} = restore ]] && delay=0 || delay=1400
 quickshell -c penumbra ipc call wallpaper set "$current" "$delay" >/dev/null 2>&1 || true
 for _ in {1..50}; do awww query >/dev/null 2>&1 && break; sleep 0.1; done
-exec awww img "$dir/$current.png" --resize crop "${transition[@]}"
+exec awww img "$image" --resize crop "${transition[@]}"
 ```
 
 ## `config/dolphinrc`
@@ -7369,7 +7440,7 @@ Rectangle {
     // ── Wallpaper ───────────────────────────────────────────────────
     Image {
         anchors.fill: parent
-        source: "file://" + Ui.wallpapers + Ui.wallpaper + "-clean.png"
+        source: Ui.fileUrl(Ui.wallpaperStill)
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
     }
@@ -9386,6 +9457,8 @@ PanelWindow {
     property int sheetWidth: 380
     default property alias content: sheet.data
     property alias sheet: sheet
+    // Items that see key presses before the sheet does (which closes on Escape).
+    property list<Item> keyTargets
     signal dismissed()
 
     // Room around the sheet for its shadow; panels anchor with Theme.edge - shadowRoom, so the
@@ -9427,6 +9500,7 @@ PanelWindow {
         opacity: panel.open ? 1 : 0
         y: panel.shadowRoom + (panel.open ? 0 : -14)
         focus: panel.open
+        Keys.forwardTo: panel.keyTargets
         Keys.onEscapePressed: panel.dismissed()
         Behavior on opacity { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
         Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
@@ -10363,8 +10437,6 @@ import QtQuick.Layouts
 ColumnLayout {
     id: root
 
-    readonly property var wallpaperNames: ({ "wallpaper": "Night", "wallpaper-dawn": "Dawn", "wallpaper-eclipse": "Eclipse" })
-
     spacing: 12
 
     component Section: Overline {
@@ -10516,14 +10588,14 @@ ColumnLayout {
             Layout.fillWidth: true
             glyph: "󰸉"
             title: "Wallpaper"
-            subtitle: root.wallpaperNames[Ui.wallpaper] ?? Ui.wallpaper
+            subtitle: Ui.wallpaperTitle(Ui.wallpaper)
             trailing: "󰅂"
             onClicked: Ui.toggleWallpapers()
         }
         SwitchRow {
             glyph: "󰐊"
             title: "Animated wallpapers"
-            subtitle: Settings.animatedWallpapers ? "Dawn and eclipse move" : "Still images"
+            subtitle: Settings.animatedWallpapers ? "Dawn, eclipse, GIFs and videos move" : "Still images"
             checked: Settings.animatedWallpapers
             onToggled: Settings.animatedWallpapers = !Settings.animatedWallpapers
         }
@@ -11157,9 +11229,35 @@ Singleton {
         onTriggered: root.osdVisible = false
     }
 
-    // The chosen wallpaper (wallpaper, wallpaper-dawn…), as penumbra-wallpaper records it.
+    // The chosen wallpaper, as penumbra-wallpaper records it: one of Penumbra's (wallpaper,
+    // wallpaper-dawn…), or the path of your own image, GIF or video.
     property string wallpaper: "wallpaper"
     readonly property string wallpapers: Quickshell.env("HOME") + "/.local/share/penumbra/"
+    readonly property string wallpaperFolder: Quickshell.env("HOME") + "/Pictures/Wallpapers"
+    readonly property var wallpaperTitles: ({ "wallpaper": "Night", "wallpaper-dawn": "Dawn", "wallpaper-eclipse": "Eclipse" })
+    function wallpaperTitle(name) {
+        return wallpaperTitles[name] ?? name.replace(/^.*\//, "").replace(/\.[^.]*$/, "");
+    }
+    // scene (dawn, eclipse), still (night or an image), gif or video.
+    function wallpaperKind(name) {
+        if (name === "wallpaper-dawn" || name === "wallpaper-eclipse")
+            return "scene";
+        const ext = name.startsWith("/") ? name.replace(/^.*\./, "").toLowerCase() : "";
+        if (ext === "gif")
+            return "gif";
+        return ["mp4", "webm", "mkv", "mov", "m4v"].includes(ext) ? "video" : "still";
+    }
+    // The first frame penumbra-wallpaper saves of a GIF, video or non-PNG image.
+    function wallpaperPoster(path) {
+        return Quickshell.env("HOME") + "/.cache/penumbra/wallpapers/" + Qt.md5(path) + ".png";
+    }
+    // The still the lock screen shows: the wordmark-free scene, or your image or its first frame.
+    readonly property string wallpaperStill: !wallpaper.startsWith("/") ? wallpapers + wallpaper + "-clean.png"
+        : wallpaperKind(wallpaper) === "still" && wallpaper.toLowerCase().endsWith(".png") ? wallpaper : wallpaperPoster(wallpaper)
+    // A file:// URL for a path that may hold spaces, # or ?.
+    function fileUrl(path) {
+        return "file://" + path.split("/").map(encodeURIComponent).join("/");
+    }
     FileView {
         path: Quickshell.env("HOME") + "/.local/state/penumbra/wallpaper"
         watchChanges: true
@@ -11681,26 +11779,29 @@ Singleton {
 
 ```qml
 import QtQuick
+import QtMultimedia
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 
-// Animated wallpapers. Each scene sits on the bottom layer over awww's still copy of the same
-// image, so fading it in or out changes nothing at rest; night has no animated scene.
+// Animated wallpapers: the dawn and eclipse scenes, and your GIFs and videos. Each sits on the
+// bottom layer over awww's still copy of the same image (a GIF's or video's first frame), so
+// fading it in or out changes nothing at rest; night and plain images have nothing to animate.
 // penumbra-wallpaper says when the wallpaper changes; the settings page can keep them still.
 Scope {
     id: root
 
-    readonly property var scenes: ["wallpaper-dawn", "wallpaper-eclipse"]
-    // The chosen wallpaper; the animated scene that should be up, and the one loaded now (they
+    // The chosen wallpaper; the animated one that should be up, and the one loaded now (they
     // differ while one fades out).
     property string chosen: ""
-    readonly property string target: Settings.animatedWallpapers && scenes.includes(chosen) ? chosen : ""
+    readonly property string target: Settings.animatedWallpapers && Ui.wallpaperKind(chosen) !== "still" ? chosen : ""
     property string scene: ""
     // awww's transition is still running.
     property bool waiting: false
     readonly property bool shown: target !== "" && scene === target && !waiting
+    // Nothing to see behind the lock screen; stop drawing.
+    property bool paused: false
 
     property real fade: shown ? 1 : 0
     Behavior on fade { NumberAnimation { duration: root.shown ? 900 : 350; easing.type: Easing.InOutQuad } }
@@ -11748,15 +11849,16 @@ Scope {
                     WlrLayershell.namespace: "animated-wallpaper"
 
                     // Nothing to see under a fullscreen window; stop drawing.
-                    readonly property bool running: !(Hyprland.monitorFor(screen)?.activeWorkspace?.hasFullscreen ?? false)
+                    readonly property bool running: !root.paused && !(Hyprland.monitorFor(screen)?.activeWorkspace?.hasFullscreen ?? false)
 
                     // Cover the screen like `awww img --resize crop`.
                     Loader {
                         id: scene
                         anchors.centerIn: parent
-                        scale: item ? Math.max(window.width / item.width, window.height / item.height) : 1
+                        scale: item && item.width > 0 && item.height > 0 ? Math.max(window.width / item.width, window.height / item.height) : 1
                         opacity: root.fade
-                        sourceComponent: root.scene === "wallpaper-eclipse" ? eclipse : dawn
+                        sourceComponent: ({ "wallpaper-dawn": dawn, "wallpaper-eclipse": eclipse })[root.scene]
+                            ?? (Ui.wallpaperKind(root.scene) === "gif" ? gif : video)
 
                         Component {
                             id: dawn
@@ -11772,6 +11874,36 @@ Scope {
                                 pixelScale: Math.max(window.width / width, window.height / height) * window.devicePixelRatio
                             }
                         }
+                        Component {
+                            id: gif
+                            AnimatedImage {
+                                width: window.width
+                                height: window.height
+                                source: Ui.fileUrl(root.scene)
+                                fillMode: Image.PreserveAspectCrop
+                                cache: false
+                                playing: window.running
+                            }
+                        }
+                        // Silent, looping, and with no audio output, so it never shows in the mixer.
+                        Component {
+                            id: video
+                            VideoOutput {
+                                id: clip
+                                width: window.width
+                                height: window.height
+                                fillMode: VideoOutput.PreserveAspectCrop
+                                readonly property bool running: window.running
+                                onRunningChanged: running ? player.play() : player.pause()
+                                MediaPlayer {
+                                    id: player
+                                    source: Ui.fileUrl(root.scene)
+                                    videoOutput: clip
+                                    loops: MediaPlayer.Infinite
+                                    Component.onCompleted: if (clip.running) play()
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -11785,9 +11917,12 @@ Scope {
 ```qml
 import QtQuick
 import QtQuick.Layouts
+import Qt.labs.folderlistmodel
+import Quickshell.Io
 import Quickshell.Widgets
 
-// The three wallpapers side by side; click one to switch with penumbra-wallpaper's transition.
+// Penumbra's three wallpapers, then the images, GIFs and videos in ~/Pictures/Wallpapers; click
+// one, or pick it with the arrow keys and Enter, to switch with penumbra-wallpaper's transition.
 Panel {
     id: root
     anchors { top: true; right: true }
@@ -11796,11 +11931,186 @@ Panel {
     open: Ui.wallpapersOpen
     onDismissed: Ui.dismiss()
 
-    readonly property var choices: [
-        { name: "wallpaper", title: "Night", animated: false },
-        { name: "wallpaper-dawn", title: "Dawn", animated: true },
-        { name: "wallpaper-eclipse", title: "Eclipse", animated: true }
+    readonly property int cell: (sheetWidth - 36 - 20) / 3
+    readonly property var scenes: [
+        { name: "wallpaper", badge: "" },
+        { name: "wallpaper-dawn", badge: "Animated" },
+        { name: "wallpaper-eclipse", badge: "Animated" }
     ]
+
+    // Look again each time it opens: the folder may have been created or filled since, and new
+    // videos need their first frame for a thumbnail.
+    onOpenChanged: {
+        if (!open)
+            return;
+        yours.folder = "";
+        yours.folder = Ui.fileUrl(Ui.wallpaperFolder);
+        posters.running = true;
+        selectCurrent();
+    }
+
+    // The highlighted choice: Penumbra's three, then yours, read as one three-column grid.
+    property int selected: 0
+    readonly property int total: scenes.length + yours.count
+    function selectCurrent() {
+        const scene = scenes.findIndex(s => s.name === Ui.wallpaper);
+        let mine = yours.count - 1;
+        while (mine >= 0 && yours.get(mine, "filePath") !== Ui.wallpaper)
+            mine--;
+        select(scene >= 0 ? scene : mine >= 0 ? scenes.length + mine : 0);
+    }
+    // The folder lists its files after the panel opens; find the current one among them.
+    Connections {
+        target: yours
+        function onStatusChanged() {
+            if (yours.status === FolderListModel.Ready && root.open)
+                root.selectCurrent();
+        }
+    }
+    function select(index) {
+        selected = Math.max(0, Math.min(total - 1, index));
+        const item = selected >= scenes.length ? mine.itemAt(selected - scenes.length) : null;
+        if (!item)
+            return;
+        // Scroll your wallpapers just enough to show it.
+        if (item.y < flick.contentY)
+            flick.contentY = item.y;
+        else if (item.y + item.height > flick.contentY + flick.height)
+            flick.contentY = item.y + item.height - flick.height;
+    }
+    function choose(index) {
+        const name = index < scenes.length ? scenes[index].name : yours.get(index - scenes.length, "filePath");
+        if (name && name !== Ui.wallpaper)
+            Ui.spawn([Ui.bin + "penumbra-wallpaper", name]);
+    }
+    keyTargets: [keys]
+    Item {
+        id: keys
+        Keys.onLeftPressed: root.select(root.selected - 1)
+        Keys.onRightPressed: root.select(root.selected + 1)
+        Keys.onUpPressed: root.select(root.selected - 3)
+        // From the last full row, down still reaches the shorter one below.
+        Keys.onDownPressed: root.select(root.selected + 3 < root.total ? root.selected + 3 : Math.floor(root.selected / 3) < Math.floor((root.total - 1) / 3) ? root.total - 1 : root.selected)
+        Keys.onTabPressed: root.select((root.selected + 1) % root.total)
+        Keys.onBacktabPressed: root.select((root.selected + root.total - 1) % root.total)
+        Keys.onPressed: event => {
+            if (event.key === Qt.Key_Home)
+                root.select(0);
+            else if (event.key === Qt.Key_End)
+                root.select(root.total - 1);
+            else if ([Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space].includes(event.key))
+                root.choose(root.selected);
+            else
+                return;
+            event.accepted = true;
+        }
+    }
+    FolderListModel {
+        id: yours
+        showDirs: false
+        caseSensitive: false
+        nameFilters: ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp", "*.gif", "*.mp4", "*.webm", "*.mkv", "*.mov", "*.m4v"]
+    }
+    Process {
+        id: posters
+        command: [Ui.bin + "penumbra-wallpaper", "posters"]
+        onExited: root.postersMade()
+    }
+    signal postersMade()
+
+    component Choice: Column {
+        id: choice
+        required property string name
+        property string badge: ""
+        property url thumbnail
+        // Its place among all the choices.
+        required property int position
+        readonly property bool current: Ui.wallpaper === name
+        readonly property bool highlighted: root.selected === position
+        width: root.cell
+        spacing: 6
+
+        ClippingRectangle {
+            width: parent.width
+            height: width * 9 / 16
+            radius: Theme.radiusSmall
+            color: Theme.raised
+            border.width: choice.current ? 2 : 1
+            border.color: choice.current ? Theme.violet : choice.highlighted ? Theme.lineStrong : Theme.line
+            contentUnderBorder: true
+            Image {
+                id: thumb
+                anchors.fill: parent
+                source: choice.thumbnail
+                sourceSize.width: 360
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                cache: false
+                scale: choice.highlighted ? 1.04 : 1
+                Behavior on scale { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+            }
+            // A video's first frame may only just have been made.
+            Connections {
+                target: root
+                function onPostersMade() {
+                    if (thumb.status !== Image.Error)
+                        return;
+                    thumb.source = "";
+                    thumb.source = choice.thumbnail;
+                }
+            }
+            Glyph {
+                visible: thumb.status !== Image.Ready
+                anchors.centerIn: parent
+                text: "󰸉"
+                size: 22
+                color: Theme.dim
+            }
+            Rectangle {
+                visible: choice.badge !== ""
+                anchors { left: parent.left; top: parent.top; margins: 8 }
+                implicitWidth: badge.implicitWidth + 14
+                implicitHeight: 20
+                radius: Theme.corner(10)
+                color: Theme.glassStrong
+                Label {
+                    id: badge
+                    anchors.centerIn: parent
+                    text: choice.badge
+                    font.pixelSize: Theme.textTiny
+                    font.weight: Font.DemiBold
+                    color: Theme.violetBright
+                }
+            }
+            MouseArea {
+                id: area
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                // The mouse and the arrow keys move the same highlight.
+                onEntered: root.selected = choice.position
+                onClicked: root.choose(choice.position)
+            }
+        }
+        Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: 6
+            Rectangle {
+                visible: choice.current
+                anchors.verticalCenter: parent.verticalCenter
+                width: 6
+                height: 6
+                radius: Theme.corner(3)
+                color: Theme.violet
+            }
+            Label {
+                width: Math.min(implicitWidth, root.cell - 12)
+                text: Ui.wallpaperTitle(choice.name)
+                font.weight: choice.current ? Font.DemiBold : Font.Normal
+                color: choice.current || choice.highlighted ? Theme.text : Theme.muted
+            }
+        }
+    }
 
     ColumnLayout {
         x: 18
@@ -11808,85 +12118,71 @@ Panel {
         width: root.sheetWidth - 36
         spacing: 12
 
-        Label {
-            text: "Wallpaper"
-            font.pixelSize: Theme.textLarge
-            font.weight: Font.DemiBold
-        }
-
         RowLayout {
             Layout.fillWidth: true
+            Label {
+                Layout.fillWidth: true
+                text: "Wallpaper"
+                font.pixelSize: Theme.textLarge
+                font.weight: Font.DemiBold
+            }
+            PillButton {
+                text: "Open folder"
+                onClicked: {
+                    Ui.spawn(["bash", "-c", 'mkdir -p "$1" && exec xdg-open "$1"', "_", Ui.wallpaperFolder]);
+                    Ui.dismiss();
+                }
+            }
+        }
+
+        Overline { text: "Penumbra" }
+        Row {
             spacing: 10
             Repeater {
-                model: root.choices
-                delegate: ColumnLayout {
-                    id: choice
+                model: root.scenes
+                delegate: Choice {
                     required property var modelData
-                    readonly property bool current: Ui.wallpaper === modelData.name
-                    Layout.fillWidth: true
-                    // Equal thirds, whatever the labels' widths.
-                    Layout.preferredWidth: 1
-                    spacing: 6
+                    required property int index
+                    position: index
+                    name: modelData.name
+                    badge: modelData.badge
+                    thumbnail: Ui.fileUrl(Ui.wallpapers + modelData.name + ".png")
+                }
+            }
+        }
 
-                    ClippingRectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: width * 9 / 16
-                        radius: Theme.radiusSmall
-                        color: Theme.raised
-                        border.width: choice.current ? 2 : 1
-                        border.color: choice.current ? Theme.violet : area.containsMouse ? Theme.lineStrong : Theme.line
-                        contentUnderBorder: true
-                        Image {
-                            anchors.fill: parent
-                            source: "file://" + Ui.wallpapers + choice.modelData.name + ".png"
-                            sourceSize.width: 360
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
-                            scale: area.containsMouse ? 1.04 : 1
-                            Behavior on scale { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
-                        }
-                        Rectangle {
-                            visible: choice.modelData.animated
-                            anchors { left: parent.left; top: parent.top; margins: 8 }
-                            implicitWidth: badge.implicitWidth + 14
-                            implicitHeight: 20
-                            radius: Theme.corner(10)
-                            color: Theme.glassStrong
-                            Label {
-                                id: badge
-                                anchors.centerIn: parent
-                                text: "Animated"
-                                font.pixelSize: Theme.textTiny
-                                font.weight: Font.DemiBold
-                                color: Theme.violetBright
-                            }
-                        }
-                        MouseArea {
-                            id: area
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                if (!choice.current)
-                                    Ui.run(Ui.bin + "penumbra-wallpaper " + choice.modelData.name);
-                            }
-                        }
-                    }
-                    RowLayout {
-                        Layout.alignment: Qt.AlignHCenter
-                        spacing: 6
-                        Rectangle {
-                            visible: choice.current
-                            implicitWidth: 6
-                            implicitHeight: 6
-                            radius: Theme.corner(3)
-                            color: Theme.violet
-                        }
-                        Label {
-                            text: choice.modelData.title
-                            font.weight: choice.current ? Font.DemiBold : Font.Normal
-                            color: choice.current ? Theme.text : Theme.muted
-                        }
+        Overline { text: "Yours" }
+        Label {
+            visible: yours.count === 0
+            Layout.fillWidth: true
+            wrapMode: Text.Wrap
+            text: "Put images, GIFs and videos in ~/Pictures/Wallpapers, or right-click one in Dolphin and choose Set as Wallpaper."
+            color: Theme.muted
+        }
+        Flickable {
+            id: flick
+            visible: yours.count > 0
+            Layout.fillWidth: true
+            // Two rows and a peek at the third.
+            Layout.preferredHeight: Math.min(contentHeight, root.cell * 1.45 + 60)
+            contentHeight: grid.height
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            Grid {
+                id: grid
+                columns: 3
+                spacing: 10
+                Repeater {
+                    id: mine
+                    model: yours
+                    delegate: Choice {
+                        required property string filePath
+                        required property int index
+                        position: root.scenes.length + index
+                        readonly property string kind: Ui.wallpaperKind(filePath)
+                        name: filePath
+                        badge: kind === "gif" ? "GIF" : kind === "video" ? "Video" : ""
+                        thumbnail: Ui.fileUrl(kind === "video" ? Ui.wallpaperPoster(filePath) : filePath)
                     }
                 }
             }
@@ -11894,7 +12190,7 @@ Panel {
 
         Label {
             Layout.fillWidth: true
-            text: "Super+W cycles through them · the lock screen follows your choice"
+            text: "Arrow keys and Enter pick one · Super+W cycles through them · the lock screen follows"
             font.pixelSize: Theme.textSmall
             color: Theme.dim
         }
@@ -12283,6 +12579,7 @@ import Quickshell.Io
 ShellRoot {
     Wallpaper {
         id: wallpaper
+        paused: lockScreen.locked
     }
 
     Variants {
@@ -12834,6 +13131,21 @@ Type=Fixed
 [Icon Theme]
 Name=Penumbra cursor fallback
 Inherits=Penumbra-Cursors
+```
+
+## `share/kio/servicemenus/penumbra-wallpaper.desktop`
+
+```ini
+[Desktop Entry]
+Type=Service
+MimeType=image/png;image/jpeg;image/webp;image/bmp;image/gif;video/mp4;video/webm;video/x-matroska;video/quicktime;
+Actions=setWallpaper
+X-KDE-Priority=TopLevel
+
+[Desktop Action setWallpaper]
+Name=Set as Wallpaper
+Icon=preferences-desktop-wallpaper
+Exec=sh -c 'exec "$HOME/.local/bin/penumbra-wallpaper" "$1"' penumbra-wallpaper %f
 ```
 
 ## `system/etc/sddm.conf.d/90-penumbra.conf`

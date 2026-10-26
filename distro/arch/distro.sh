@@ -24,6 +24,8 @@ PACKAGES=(
     gnome-keyring seahorse
     # Screenshots, screen recording, clipboard, color picker, emoji and symbols
     grim slurp satty wf-recorder hyprpicker cliphist wl-clipboard wtype unicode-emoji noto-fonts-emoji
+    # Your own GIF and video wallpapers: the shell plays them, ffmpeg takes their first frame
+    qt6-multimedia qt6-multimedia-ffmpeg ffmpeg
     # Used by the helper scripts and build tools
     pacman-contrib flatpak libnotify librsvg python-pillow xorg-xcursorgen
 )
