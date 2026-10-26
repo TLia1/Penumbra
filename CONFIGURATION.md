@@ -4249,7 +4249,7 @@ import Quickshell.Services.SystemTray
 import Quickshell.Wayland
 import Quickshell.Widgets
 
-// Floating capsules: launcher and clock left; workspaces and title centered; status right.
+// Floating capsules: launcher, clock, workspaces and media left; focused window centered; status right.
 PanelWindow {
     id: bar
     required property var modelData
@@ -4277,6 +4277,7 @@ PanelWindow {
 
     // ── Left ────────────────────────────────────────────────────────
     RowLayout {
+        id: leftSide
         anchors { left: parent.left; verticalCenter: parent.verticalCenter }
         spacing: Theme.gap
 
@@ -4302,7 +4303,33 @@ PanelWindow {
             }
         }
 
-        // What's playing, with cava's spectrum when it is installed; hidden while paused.
+        // Workspaces sit right of the clock.
+        RowLayout {
+            spacing: Theme.gap
+            Repeater {
+                model: Hyprland.workspaces.values
+                    .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
+                    .sort((a, b) => a.id - b.id)
+                delegate: Capsule {
+                    id: workspace
+                    required property var modelData
+                    readonly property bool current: modelData.active && modelData.monitor?.name === bar.screen.name
+                    implicitWidth: Math.max(current ? 52 : Theme.barHeight, workspaceLabel.implicitWidth + 26)
+                    padding: 0
+                    active: current
+                    color: current ? Theme.violet : modelData.urgent ? Theme.rose : (hovered ? Theme.hover : Theme.glass)
+                    onClicked: modelData.activate()
+                    Label {
+                        id: workspaceLabel
+                        text: workspace.modelData.name
+                        color: workspace.current || workspace.modelData.urgent ? Theme.violetInk : workspace.hovered ? Theme.text : Theme.subtle
+                        font.weight: workspace.current ? Font.Bold : Font.DemiBold
+                    }
+                }
+            }
+        }
+
+        // Cava's spectrum while something plays (a note when cava is missing); hidden while paused.
         Capsule {
             shown: !!Media.playing
             padding: 14
@@ -4329,92 +4356,13 @@ PanelWindow {
                 }
             }
             Glyph { visible: !Ui.hasVisualizer; text: "󰎆"; color: Theme.violetBright }
-            Label {
-                text: Media.player?.trackTitle || Media.appName(Media.player)
-                Layout.maximumWidth: 170
-                color: Theme.textSoft
-            }
         }
     }
 
     // ── Center ──────────────────────────────────────────────────────
-    // The workspaces hold the exact center, so switching windows never moves them; the focused
-    // window's title grows to their right.
+    // The focused window holds the exact center.
     RowLayout {
-        id: workspaces
         anchors.centerIn: parent
-        spacing: Theme.gap
-
-        Repeater {
-            model: Hyprland.workspaces.values
-                .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
-                .sort((a, b) => a.id - b.id)
-            // The number, then the icons of the apps open there (three at most).
-            delegate: Capsule {
-                id: workspace
-                required property var modelData
-                readonly property bool current: modelData.active && modelData.monitor?.name === bar.screen.name
-                readonly property var icons: {
-                    const ids = modelData.toplevels.values.map(t => t.wayland?.appId || t.lastIpcObject?.class || "");
-                    return [...new Set(ids.filter(id => id))]
-                        .map(id => Quickshell.iconPath(DesktopEntries.heuristicLookup(id)?.icon ?? id, true))
-                        .filter(icon => icon !== "");
-                }
-                implicitWidth: Math.max(current ? 52 : Theme.barHeight, workspaceRow.implicitWidth + 26)
-                padding: 0
-                active: current
-                color: current ? Theme.violet : modelData.urgent ? Theme.rose : (hovered ? Theme.hover : Theme.glass)
-                tip: icons.length > 3 ? `${modelData.toplevels.values.length} windows` : ""
-                onClicked: modelData.activate()
-                RowLayout {
-                    id: workspaceRow
-                    spacing: 6
-                    Label {
-                        text: workspace.modelData.name
-                        color: workspace.current || workspace.modelData.urgent ? Theme.violetInk : workspace.hovered ? Theme.text : Theme.subtle
-                        font.weight: workspace.current ? Font.Bold : Font.DemiBold
-                    }
-                    Repeater {
-                        model: workspace.icons.slice(0, 3)
-                        delegate: Item {
-                            required property string modelData
-                            implicitWidth: 15
-                            implicitHeight: 15
-                            IconImage {
-                                id: appIcon
-                                anchors.fill: parent
-                                source: parent.modelData
-                                asynchronous: true
-                                visible: false
-                            }
-                            // Tinted violet like the tray until the workspace is current or hovered.
-                            MultiEffect {
-                                readonly property bool lit: workspace.current || workspace.hovered
-                                anchors.fill: parent
-                                source: appIcon
-                                saturation: lit ? 0 : -1
-                                colorization: lit ? 0 : 0.35
-                                colorizationColor: Theme.violet
-                                brightness: lit ? 0 : 0.1
-                                opacity: lit ? 1 : 0.85
-                                Behavior on saturation { NumberAnimation { duration: Theme.fast } }
-                                Behavior on colorization { NumberAnimation { duration: Theme.fast } }
-                            }
-                        }
-                    }
-                    Label {
-                        visible: workspace.icons.length > 3
-                        text: "+" + (workspace.icons.length - 3)
-                        font.pixelSize: Theme.textTiny
-                        color: workspace.current ? Theme.violetInk : Theme.muted
-                    }
-                }
-            }
-        }
-    }
-
-    RowLayout {
-        anchors { left: workspaces.right; leftMargin: Theme.gap; verticalCenter: parent.verticalCenter }
         Capsule {
             id: title
             // The Wayland toplevel protocol knows the focused window from startup; nothing is
@@ -4428,9 +4376,7 @@ PanelWindow {
                 const names = [entry?.name, client?.appId].filter(n => n).map(n => n.toLowerCase());
                 return m && names.some(n => m[2].toLowerCase().includes(n)) ? m[1] : t;
             }
-            // While a window plays, the media capsule already shows its title.
-            readonly property bool repeatsMedia: !!Media.playing && !!Media.playing.trackTitle && (client?.title ?? "").startsWith(Media.playing.trackTitle)
-            shown: !!client && client.activated && text !== "" && !repeatsMedia && client.screens.some(s => s.name === bar.screen.name)
+            shown: !!client && client.activated && text !== "" && client.screens.some(s => s.name === bar.screen.name)
             interactive: false
             padding: 15
             spacing: 8
@@ -4443,8 +4389,8 @@ PanelWindow {
             }
             Label {
                 text: title.text
-                // As wide as the room before the status capsules allows, up to a point.
-                Layout.maximumWidth: Math.max(60, Math.min(300, rightSide.x - workspaces.x - workspaces.width - 3 * Theme.gap - 60))
+                // As wide as the room between the side capsules allows, up to a point.
+                Layout.maximumWidth: Math.max(60, Math.min(300, 2 * Math.min(content.width / 2 - leftSide.x - leftSide.width, rightSide.x - content.width / 2) - 2 * Theme.gap - 60))
                 color: Theme.textSoft
             }
         }
@@ -5069,6 +5015,25 @@ Rectangle {
             }
         }
         onExited: root.wheelRest = 0
+    }
+
+    // An active capsule takes the focused window's border: violet shading towards violetDeep.
+    Rectangle {
+        anchors.fill: parent
+        radius: root.radius
+        opacity: root.active ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: Theme.fast } }
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0; color: Theme.violetBright }
+            GradientStop { position: 1; color: Qt.tint(Theme.violet, Theme.alpha(Theme.violetDeep, 0.4)) }
+        }
+    }
+    // The lit top edge the panels have, so the bar reads as the same glass.
+    GlassEdge {
+        radius: root.radius
+        strength: root.active ? 0.55 : 0.2
     }
 
     RowLayout {
@@ -6082,6 +6047,7 @@ import QtQuick
 
 // A Nerd Font icon.
 Text {
+    id: root
     property real size: 14
     color: Theme.textSoft
     font.family: Theme.mono
@@ -6089,6 +6055,18 @@ Text {
     verticalAlignment: Text.AlignVCenter
     horizontalAlignment: Text.AlignHCenter
     Behavior on color { ColorAnimation { duration: Theme.fast } }
+
+    // The non-Mono Nerd Font draws most icons wider than their one-cell advance, hanging off to
+    // the right, so centring the advance leaves the icon off-centre. Size and centre on the ink.
+    TextMetrics {
+        id: ink
+        font: root.font
+        text: root.text
+    }
+    implicitWidth: Math.ceil(Math.max(ink.advanceWidth, ink.tightBoundingRect.width))
+    transform: Translate {
+        x: ink.advanceWidth / 2 - ink.tightBoundingRect.x - ink.tightBoundingRect.width / 2
+    }
 }
 ```
 

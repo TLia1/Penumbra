@@ -7,7 +7,7 @@ import Quickshell.Services.SystemTray
 import Quickshell.Wayland
 import Quickshell.Widgets
 
-// Floating capsules: launcher and clock left; workspaces and title centered; status right.
+// Floating capsules: launcher, clock, workspaces and media left; focused window centered; status right.
 PanelWindow {
     id: bar
     required property var modelData
@@ -35,6 +35,7 @@ PanelWindow {
 
     // ── Left ────────────────────────────────────────────────────────
     RowLayout {
+        id: leftSide
         anchors { left: parent.left; verticalCenter: parent.verticalCenter }
         spacing: Theme.gap
 
@@ -60,7 +61,33 @@ PanelWindow {
             }
         }
 
-        // What's playing, with cava's spectrum when it is installed; hidden while paused.
+        // Workspaces sit right of the clock.
+        RowLayout {
+            spacing: Theme.gap
+            Repeater {
+                model: Hyprland.workspaces.values
+                    .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
+                    .sort((a, b) => a.id - b.id)
+                delegate: Capsule {
+                    id: workspace
+                    required property var modelData
+                    readonly property bool current: modelData.active && modelData.monitor?.name === bar.screen.name
+                    implicitWidth: Math.max(current ? 52 : Theme.barHeight, workspaceLabel.implicitWidth + 26)
+                    padding: 0
+                    active: current
+                    color: current ? Theme.violet : modelData.urgent ? Theme.rose : (hovered ? Theme.hover : Theme.glass)
+                    onClicked: modelData.activate()
+                    Label {
+                        id: workspaceLabel
+                        text: workspace.modelData.name
+                        color: workspace.current || workspace.modelData.urgent ? Theme.violetInk : workspace.hovered ? Theme.text : Theme.subtle
+                        font.weight: workspace.current ? Font.Bold : Font.DemiBold
+                    }
+                }
+            }
+        }
+
+        // Cava's spectrum while something plays (a note when cava is missing); hidden while paused.
         Capsule {
             shown: !!Media.playing
             padding: 14
@@ -87,47 +114,13 @@ PanelWindow {
                 }
             }
             Glyph { visible: !Ui.hasVisualizer; text: "󰎆"; color: Theme.violetBright }
-            Label {
-                text: Media.player?.trackTitle || Media.appName(Media.player)
-                Layout.maximumWidth: 170
-                color: Theme.textSoft
-            }
         }
     }
 
     // ── Center ──────────────────────────────────────────────────────
-    // The workspaces hold the exact center, so switching windows never moves them; the focused
-    // window's title grows to their right.
+    // The focused window holds the exact center.
     RowLayout {
-        id: workspaces
         anchors.centerIn: parent
-        spacing: Theme.gap
-
-        Repeater {
-            model: Hyprland.workspaces.values
-                .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
-                .sort((a, b) => a.id - b.id)
-            delegate: Capsule {
-                id: workspace
-                required property var modelData
-                readonly property bool current: modelData.active && modelData.monitor?.name === bar.screen.name
-                implicitWidth: Math.max(current ? 52 : Theme.barHeight, workspaceLabel.implicitWidth + 26)
-                padding: 0
-                active: current
-                color: current ? Theme.violet : modelData.urgent ? Theme.rose : (hovered ? Theme.hover : Theme.glass)
-                onClicked: modelData.activate()
-                Label {
-                    id: workspaceLabel
-                    text: workspace.modelData.name
-                    color: workspace.current || workspace.modelData.urgent ? Theme.violetInk : workspace.hovered ? Theme.text : Theme.subtle
-                    font.weight: workspace.current ? Font.Bold : Font.DemiBold
-                }
-            }
-        }
-    }
-
-    RowLayout {
-        anchors { left: workspaces.right; leftMargin: Theme.gap; verticalCenter: parent.verticalCenter }
         Capsule {
             id: title
             // The Wayland toplevel protocol knows the focused window from startup; nothing is
@@ -141,9 +134,7 @@ PanelWindow {
                 const names = [entry?.name, client?.appId].filter(n => n).map(n => n.toLowerCase());
                 return m && names.some(n => m[2].toLowerCase().includes(n)) ? m[1] : t;
             }
-            // While a window plays, the media capsule already shows its title.
-            readonly property bool repeatsMedia: !!Media.playing && !!Media.playing.trackTitle && (client?.title ?? "").startsWith(Media.playing.trackTitle)
-            shown: !!client && client.activated && text !== "" && !repeatsMedia && client.screens.some(s => s.name === bar.screen.name)
+            shown: !!client && client.activated && text !== "" && client.screens.some(s => s.name === bar.screen.name)
             interactive: false
             padding: 15
             spacing: 8
@@ -156,8 +147,8 @@ PanelWindow {
             }
             Label {
                 text: title.text
-                // As wide as the room before the status capsules allows, up to a point.
-                Layout.maximumWidth: Math.max(60, Math.min(300, rightSide.x - workspaces.x - workspaces.width - 3 * Theme.gap - 60))
+                // As wide as the room between the side capsules allows, up to a point.
+                Layout.maximumWidth: Math.max(60, Math.min(300, 2 * Math.min(content.width / 2 - leftSide.x - leftSide.width, rightSide.x - content.width / 2) - 2 * Theme.gap - 60))
                 color: Theme.textSoft
             }
         }
