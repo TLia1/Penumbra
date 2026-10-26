@@ -35,10 +35,16 @@ PanelWindow {
     property var clips: []
     property var usage: ({}) // desktop entry id → launches
     property var picks: ({}) // emoji or symbol → times picked
+    property var pointer: null // where the mouse last was, in window coordinates
 
     Connections {
         target: Ui
-        function onLauncherOpenChanged() { if (Ui.launcherOpen) root.reset(); }
+        function onLauncherOpenChanged() {
+            if (Ui.launcherOpen) {
+                root.pointer = null;
+                root.reset();
+            }
+        }
         function onLauncherModeChanged() { if (Ui.launcherOpen) root.reset(); }
     }
     onAppsChanged: refresh()
@@ -49,6 +55,25 @@ PanelWindow {
         if (clipboard)
             clipList.running = true;
         refresh();
+    }
+
+    // Hover follows the mouse only when it moves: opening under a still cursor, the card growing or
+    // results shifting beneath it leave the selection alone. Positions are the pointer's own window
+    // coordinates, never mapped back through the scaling card, so a still cursor reads the same each
+    // time. The first sighting only records where it is.
+    function pointerAt(x, y) {
+        if (pointer === null)
+            pointer = Qt.point(x, y);
+        if (Math.hypot(x - pointer.x, y - pointer.y) < 2)
+            return;
+        pointer = Qt.point(x, y);
+        const list = characters ? grid : view;
+        const p = list.mapFromItem(null, x, y);
+        if (!list.contains(p))
+            return;
+        const i = list.indexAt(p.x + list.contentX, p.y + list.contentY);
+        if (i >= 0)
+            list.currentIndex = i;
     }
 
     // ── Results ─────────────────────────────────────────────────────
@@ -330,6 +355,10 @@ PanelWindow {
 
         // Swallow clicks so they don't reach the backdrop.
         MouseArea { anchors.fill: parent }
+        // Handlers hear hover even when a row's MouseArea takes it.
+        HoverHandler {
+            onPointChanged: if (hovered) root.pointerAt(point.scenePosition.x, point.scenePosition.y)
+        }
 
         ColumnLayout {
             id: column
@@ -459,7 +488,6 @@ PanelWindow {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onEntered: view.currentIndex = row.index
                         onClicked: root.activate(row.index, false)
                     }
 
@@ -600,7 +628,6 @@ PanelWindow {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onEntered: grid.currentIndex = cell.index
                         onClicked: mouse => root.activate(cell.index, mouse.modifiers & Qt.ShiftModifier)
                     }
                 }
