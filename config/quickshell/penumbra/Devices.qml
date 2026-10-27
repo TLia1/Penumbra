@@ -77,7 +77,8 @@ Singleton {
     readonly property string bluetoothName: !adapter ? "No adapter" : !bluetoothOn ? "Off" : bluetoothConnected.length ? bluetoothConnected[0].name : "On"
 
     readonly property var battery: UPower.displayDevice
-    readonly property bool hasBattery: battery?.isPresent && battery.type === UPowerDeviceType.Battery
+    // Not until UPower has answered: before that the percentage reads 0 and would warn.
+    readonly property bool hasBattery: (battery?.ready ?? false) && battery.isPresent && battery.type === UPowerDeviceType.Battery
     readonly property int batteryPercent: !hasBattery ? 0 : Math.round(battery.percentage > 1 ? battery.percentage : battery.percentage * 100)
     readonly property bool charging: hasBattery && (battery.state === UPowerDeviceState.Charging || battery.state === UPowerDeviceState.FullyCharged || battery.state === UPowerDeviceState.PendingCharge)
     readonly property string batteryGlyph: charging ? "󰂄" : ["󰁺", "󰁼", "󰁾", "󰂀", "󰁹"][Math.min(4, Math.floor(batteryPercent / 20))]
@@ -93,10 +94,12 @@ Singleton {
     }
     // Warn once at 10% and again, as a critical notification that stays, at 5%, while
     // discharging; plugging the charger in resets both.
+    // Checked later, once every binding has caught up: when hasBattery turns true,
+    // batteryPercent and charging still hold their old 0 and false.
     property int batteryWarned: 100
-    onBatteryPercentChanged: warnBattery()
-    onChargingChanged: warnBattery()
-    onHasBatteryChanged: warnBattery()
+    onBatteryPercentChanged: Qt.callLater(warnBattery)
+    onChargingChanged: Qt.callLater(warnBattery)
+    onHasBatteryChanged: Qt.callLater(warnBattery)
     function warnBattery() {
         if (!hasBattery || charging) {
             batteryWarned = 100;
