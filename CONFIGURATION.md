@@ -2963,6 +2963,42 @@ sample) sample ;;
 esac
 ```
 
+## `bin/penumbra-idle`
+
+```bash
+#!/usr/bin/env bash
+# Idle steps hypridle runs: dim the backlight before locking and bring it back, and suspend
+# only while running on battery (desktops and laptops on the charger stay awake).
+set -uo pipefail
+case ${1:-} in
+    dim)
+        # Down to a third of the current level; brightnessctl remembers it for undim.
+        current=$(brightnessctl --class=backlight get 2>/dev/null) || exit 0
+        brightnessctl --class=backlight --save set $(( current / 3 > 0 ? current / 3 : 1 )) >/dev/null
+        ;;
+    undim)
+        brightnessctl --class=backlight --restore >/dev/null 2>&1 || true
+        ;;
+    suspend)
+        # A charger that is plugged in, or no battery at all, keeps the machine awake.
+        battery=0
+        for supply in /sys/class/power_supply/*; do
+            [[ -r $supply/type ]] || continue
+            case $(<"$supply/type") in
+                Mains|USB) [[ $(cat "$supply/online" 2>/dev/null) == 1 ]] && exit 0 ;;
+                Battery) [[ $(cat "$supply/scope" 2>/dev/null) == Device ]] || battery=1 ;;
+            esac
+        done
+        (( battery )) && systemctl suspend
+        ;;
+    *)
+        echo 'Usage: penumbra-idle dim|undim|suspend' >&2
+        exit 1
+        ;;
+esac
+exit 0
+```
+
 ## `bin/penumbra-launcher`
 
 ```bash
@@ -3839,11 +3875,28 @@ general {
     # The shell's lock screen; hyprlock when the shell isn't running.
     lock_cmd = quickshell -c penumbra ipc call lock lock || pidof hyprlock || hyprlock
     before_sleep_cmd = loginctl lock-session
-    after_sleep_cmd = hyprctl dispatch 'hl.dsp.dpms("on")'
+    after_sleep_cmd = hyprctl dispatch 'hl.dsp.dpms({action = "on"})'
+}
+# Dim the backlight half a minute before locking; any input brings it back.
+listener {
+    timeout = 570
+    on-timeout = ~/.local/bin/penumbra-idle dim
+    on-resume = ~/.local/bin/penumbra-idle undim
 }
 listener {
     timeout = 600
     on-timeout = loginctl lock-session
+}
+# Turn the screens off a minute after locking.
+listener {
+    timeout = 660
+    on-timeout = hyprctl dispatch 'hl.dsp.dpms({action = "off"})'
+    on-resume = hyprctl dispatch 'hl.dsp.dpms({action = "on"})'
+}
+# Suspend after half an hour, only on battery.
+listener {
+    timeout = 1800
+    on-timeout = ~/.local/bin/penumbra-idle suspend
 }
 ```
 
@@ -3922,12 +3975,31 @@ hl.bind("SUPER + C", hl.dsp.window.close())
 hl.bind("SUPER + V", hl.dsp.window.float({action="toggle"}))
 hl.bind("SUPER + F", hl.dsp.window.fullscreen())
 hl.bind("SUPER + J", hl.dsp.layout("togglesplit"))
-for _, d in ipairs({"left", "right", "up", "down"}) do hl.bind("SUPER + "..d, hl.dsp.focus({direction=d})) end
+-- Pin a floating window (picture-in-picture, a note) so it follows you to every workspace.
+hl.bind("SUPER + P", hl.dsp.window.pin())
+-- Group windows into tabs; Super+Tab and Super+Shift+Tab step through the group.
+hl.bind("SUPER + G", hl.dsp.group.toggle())
+hl.bind("SUPER + Tab", hl.dsp.group.next())
+hl.bind("SUPER + SHIFT + Tab", hl.dsp.group.prev())
+-- A scratchpad workspace that slides over the current one: Super+Shift+S sends a window there.
+hl.bind("SUPER + S", hl.dsp.workspace.toggle_special("scratch"))
+hl.bind("SUPER + SHIFT + S", hl.dsp.window.move({workspace="special:scratch"}))
+-- Arrows focus; with Shift they move the window, with Ctrl they resize it (repeating while held).
+local step = {left={-40, 0}, right={40, 0}, up={0, -40}, down={0, 40}}
+for _, d in ipairs({"left", "right", "up", "down"}) do
+ hl.bind("SUPER + "..d, hl.dsp.focus({direction=d}))
+ hl.bind("SUPER + SHIFT + "..d, hl.dsp.window.move({direction=d}))
+ hl.bind("SUPER + CTRL + "..d, hl.dsp.window.resize({x=step[d][1], y=step[d][2], relative=true}), {repeating=true})
+end
 -- Physical keycodes keep the number-row workspace shortcuts working on any layout (AZERTY included).
+-- Super+Alt sends the window without following it.
 for i=1,10 do
  hl.bind("SUPER + code:"..(i+9), hl.dsp.focus({workspace=i}))
  hl.bind("SUPER + SHIFT + code:"..(i+9), hl.dsp.window.move({workspace=i}))
+ hl.bind("SUPER + ALT + code:"..(i+9), hl.dsp.window.move({workspace=i, follow=false}))
 end
+-- Three-finger swipes switch workspaces on a touchpad.
+hl.gesture({fingers=3, direction="horizontal", action="workspace"})
 hl.bind("SUPER + mouse:272", hl.dsp.window.drag(), {mouse=true})
 hl.bind("SUPER + mouse:273", hl.dsp.window.resize(), {mouse=true})
 hl.bind("SUPER + mouse_down", hl.dsp.focus({workspace="e+1"}))
@@ -3946,6 +4018,12 @@ for key,cmd in pairs({
 }) do hl.bind(key, hl.dsp.exec_cmd(cmd), {locked=true}) end
 hl.window_rule({name="settings", match={class="^(org.pulseaudio.pavucontrol|pavucontrol|blueman-manager|nm-connection-editor|qt6ct)$"}, float=true, size="820 540", center=true})
 hl.window_rule({name="annotate", match={class="^(com.gabm.satty)$"}, float=true, center=true})
+-- Browser video popped out: floating, on every workspace, keeping its shape.
+hl.window_rule({name="pip", match={title="^(Picture-in-Picture|Picture in picture)$"}, float=true, pin=true, keep_aspect_ratio=true, size="480 270"})
+-- Open and save dialogs float over their app instead of splitting the screen.
+hl.window_rule({name="dialogs", match={title="^(Open File|Open Files|Open Folder|Select Folder|Save File|Save As|Save Image|File Upload|Choose Files?)(.*)$"}, float=true, size="900 600", center=true})
+-- Fullscreen windows (videos, games) keep the screen from dimming and locking.
+hl.window_rule({name="fullscreen-awake", match={class=".*"}, idle_inhibit="fullscreen"})
 -- Frosted glass behind every Penumbra shell surface and the launcher.
 hl.layer_rule({name="glass", match={namespace="^(penumbra-.*|rofi)$"}, blur=true, ignore_alpha=0.3})
 -- The screenshot overlay must be gone at once, before grim reads the screen.
@@ -5763,6 +5841,7 @@ Panel {
                             Image {
                                 anchors.fill: parent
                                 source: root.player?.trackArtUrl ?? ""
+                                sourceSize: Qt.size(112, 112)
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                             }
@@ -6174,6 +6253,26 @@ Singleton {
             return charging ? "Charging" : "On battery";
         const h = Math.floor(seconds / 3600), m = Math.round(seconds % 3600 / 60);
         return `${h ? h + " h " : ""}${m} min ${charging ? "until full" : "left"}`;
+    }
+    // Warn once at 10% and again, as a critical notification that stays, at 5%, while
+    // discharging; plugging the charger in resets both.
+    property int batteryWarned: 100
+    onBatteryPercentChanged: warnBattery()
+    onChargingChanged: warnBattery()
+    onHasBatteryChanged: warnBattery()
+    function warnBattery() {
+        if (!hasBattery || charging) {
+            batteryWarned = 100;
+            return;
+        }
+        const level = batteryPercent <= 5 ? 5 : batteryPercent <= 10 ? 10 : 100;
+        if (level >= batteryWarned)
+            return;
+        batteryWarned = level;
+        const critical = level === 5;
+        Quickshell.execDetached(["notify-send", "--app-name=Battery", "--icon=" + (critical ? "battery-empty" : "battery-caution"),
+            "--urgency=" + (critical ? "critical" : "normal"), critical ? "Battery critically low" : "Battery low",
+            `${batteryPercent}% · ${batteryDetail}. Plug in the charger${critical ? " now" : " soon"}.`]);
     }
 
     // Keyboard layouts of the main keyboard, e.g. ["us", "fr"], and the one in use.
@@ -7440,7 +7539,9 @@ Rectangle {
     // ── Wallpaper ───────────────────────────────────────────────────
     Image {
         anchors.fill: parent
-        source: Ui.fileUrl(Ui.wallpaperStill)
+        // Not before the surface has a size, so it decodes at the screen's size, not the file's.
+        source: width > 0 ? Ui.fileUrl(Ui.wallpaperStill) : ""
+        sourceSize: Qt.size(Math.ceil(width * surface.pixelRatio), Math.ceil(height * surface.pixelRatio))
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
     }
@@ -7675,6 +7776,7 @@ Rectangle {
                     Image {
                         anchors.fill: parent
                         source: surface.player?.trackArtUrl ?? ""
+                        sourceSize: Qt.size(96, 96)
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                     }
@@ -8904,10 +9006,13 @@ Rectangle {
         return icon.startsWith("/") || icon.includes("://") ? icon : Quickshell.iconPath(icon, true);
     }
     readonly property string iconSource: notification?.image && !largeImage ? notification.image : appIconSource
+    // Decoded no wider than 240: an image only ever shrinks to fit, so it still tells which are
+    // that wide, and their shape, without holding a whole screenshot.
     Image {
         id: probe
         visible: false
         source: root.notification?.image ?? ""
+        sourceSize.width: 240
         asynchronous: true
     }
 
@@ -9037,6 +9142,8 @@ Rectangle {
                 Image {
                     anchors.fill: parent
                     source: root.largeImage ? root.notification.image : ""
+                    // Twice the card's width, at most 360.
+                    sourceSize.width: 720
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                 }
@@ -11292,7 +11399,8 @@ Singleton {
     // shell runs as penumbra-shell.service, and restarting it must not take the apps along.
     // `command` is an argument list, or { command, workingDirectory }.
     function spawn(command) {
-        const scope = ["systemd-run", "--user", "--scope", "--slice=app.slice", "--collect", "--quiet", "--"];
+        // Without the shell's allocator tuning (penumbra-shell.service).
+        const scope = ["systemd-run", "--user", "--scope", "--slice=app.slice", "--collect", "--quiet", "--", "env", "-u", "MALLOC_CONF"];
         if (Array.isArray(command))
             Quickshell.execDetached(scope.concat(command));
         else
@@ -11857,8 +11965,10 @@ Scope {
                         anchors.centerIn: parent
                         scale: item && item.width > 0 && item.height > 0 ? Math.max(window.width / item.width, window.height / item.height) : 1
                         opacity: root.fade
+                        // Nothing for a still or no scene: a video player with no video would
+                        // still load FFmpeg and wake the GPUs' video decoders.
                         sourceComponent: ({ "wallpaper-dawn": dawn, "wallpaper-eclipse": eclipse })[root.scene]
-                            ?? (Ui.wallpaperKind(root.scene) === "gif" ? gif : video)
+                            ?? ({ "gif": gif, "video": video })[Ui.wallpaperKind(root.scene)] ?? null
 
                         Component {
                             id: dawn
@@ -12933,6 +13043,14 @@ Type=exec
 # Only while the compositor is up: after logging out its socket is gone, and the unit is skipped
 # rather than restarted in a loop.
 ExecCondition=/bin/sh -c 'test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"'
+# Video wallpapers decode through VA-API before CUDA: Qt otherwise opens a CUDA context on a
+# hybrid laptop's NVIDIA card, which costs ~50 MB and keeps that card awake.
+Environment=QT_FFMPEG_DECODING_HW_DEVICE_TYPES=vaapi,cuda
+Environment=QT_FFMPEG_ENCODING_HW_DEVICE_TYPES=vaapi,cuda
+# Quickshell allocates with jemalloc, which by default keeps an arena per thread per core and
+# holds on to what they free: one arena, purged after a second, about halves the shell's memory.
+# Ui.spawn keeps this from the apps it starts.
+Environment=MALLOC_CONF=narenas:1,background_thread:true,dirty_decay_ms:1000,muzzy_decay_ms:0
 ExecStart=/usr/bin/quickshell -c penumbra
 # If the shell dies (even while the screen is locked) it comes back, and locks again if it was.
 Restart=on-failure

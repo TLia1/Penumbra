@@ -70,12 +70,31 @@ hl.bind("SUPER + C", hl.dsp.window.close())
 hl.bind("SUPER + V", hl.dsp.window.float({action="toggle"}))
 hl.bind("SUPER + F", hl.dsp.window.fullscreen())
 hl.bind("SUPER + J", hl.dsp.layout("togglesplit"))
-for _, d in ipairs({"left", "right", "up", "down"}) do hl.bind("SUPER + "..d, hl.dsp.focus({direction=d})) end
+-- Pin a floating window (picture-in-picture, a note) so it follows you to every workspace.
+hl.bind("SUPER + P", hl.dsp.window.pin())
+-- Group windows into tabs; Super+Tab and Super+Shift+Tab step through the group.
+hl.bind("SUPER + G", hl.dsp.group.toggle())
+hl.bind("SUPER + Tab", hl.dsp.group.next())
+hl.bind("SUPER + SHIFT + Tab", hl.dsp.group.prev())
+-- A scratchpad workspace that slides over the current one: Super+Shift+S sends a window there.
+hl.bind("SUPER + S", hl.dsp.workspace.toggle_special("scratch"))
+hl.bind("SUPER + SHIFT + S", hl.dsp.window.move({workspace="special:scratch"}))
+-- Arrows focus; with Shift they move the window, with Ctrl they resize it (repeating while held).
+local step = {left={-40, 0}, right={40, 0}, up={0, -40}, down={0, 40}}
+for _, d in ipairs({"left", "right", "up", "down"}) do
+ hl.bind("SUPER + "..d, hl.dsp.focus({direction=d}))
+ hl.bind("SUPER + SHIFT + "..d, hl.dsp.window.move({direction=d}))
+ hl.bind("SUPER + CTRL + "..d, hl.dsp.window.resize({x=step[d][1], y=step[d][2], relative=true}), {repeating=true})
+end
 -- Physical keycodes keep the number-row workspace shortcuts working on any layout (AZERTY included).
+-- Super+Alt sends the window without following it.
 for i=1,10 do
  hl.bind("SUPER + code:"..(i+9), hl.dsp.focus({workspace=i}))
  hl.bind("SUPER + SHIFT + code:"..(i+9), hl.dsp.window.move({workspace=i}))
+ hl.bind("SUPER + ALT + code:"..(i+9), hl.dsp.window.move({workspace=i, follow=false}))
 end
+-- Three-finger swipes switch workspaces on a touchpad.
+hl.gesture({fingers=3, direction="horizontal", action="workspace"})
 hl.bind("SUPER + mouse:272", hl.dsp.window.drag(), {mouse=true})
 hl.bind("SUPER + mouse:273", hl.dsp.window.resize(), {mouse=true})
 hl.bind("SUPER + mouse_down", hl.dsp.focus({workspace="e+1"}))
@@ -94,6 +113,12 @@ for key,cmd in pairs({
 }) do hl.bind(key, hl.dsp.exec_cmd(cmd), {locked=true}) end
 hl.window_rule({name="settings", match={class="^(org.pulseaudio.pavucontrol|pavucontrol|blueman-manager|nm-connection-editor|qt6ct)$"}, float=true, size="820 540", center=true})
 hl.window_rule({name="annotate", match={class="^(com.gabm.satty)$"}, float=true, center=true})
+-- Browser video popped out: floating, on every workspace, keeping its shape.
+hl.window_rule({name="pip", match={title="^(Picture-in-Picture|Picture in picture)$"}, float=true, pin=true, keep_aspect_ratio=true, size="480 270"})
+-- Open and save dialogs float over their app instead of splitting the screen.
+hl.window_rule({name="dialogs", match={title="^(Open File|Open Files|Open Folder|Select Folder|Save File|Save As|Save Image|File Upload|Choose Files?)(.*)$"}, float=true, size="900 600", center=true})
+-- Fullscreen windows (videos, games) keep the screen from dimming and locking.
+hl.window_rule({name="fullscreen-awake", match={class=".*"}, idle_inhibit="fullscreen"})
 -- Frosted glass behind every Penumbra shell surface and the launcher.
 hl.layer_rule({name="glass", match={namespace="^(penumbra-.*|rofi)$"}, blur=true, ignore_alpha=0.3})
 -- The screenshot overlay must be gone at once, before grim reads the screen.

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Idle steps hypridle runs: dim the backlight before locking and bring it back, and suspend
+# only while running on battery (desktops and laptops on the charger stay awake).
+set -uo pipefail
+case ${1:-} in
+    dim)
+        # Down to a third of the current level; brightnessctl remembers it for undim.
+        current=$(brightnessctl --class=backlight get 2>/dev/null) || exit 0
+        brightnessctl --class=backlight --save set $(( current / 3 > 0 ? current / 3 : 1 )) >/dev/null
+        ;;
+    undim)
+        brightnessctl --class=backlight --restore >/dev/null 2>&1 || true
+        ;;
+    suspend)
+        # A charger that is plugged in, or no battery at all, keeps the machine awake.
+        battery=0
+        for supply in /sys/class/power_supply/*; do
+            [[ -r $supply/type ]] || continue
+            case $(<"$supply/type") in
+                Mains|USB) [[ $(cat "$supply/online" 2>/dev/null) == 1 ]] && exit 0 ;;
+                Battery) [[ $(cat "$supply/scope" 2>/dev/null) == Device ]] || battery=1 ;;
+            esac
+        done
+        (( battery )) && systemctl suspend
+        ;;
+    *)
+        echo 'Usage: penumbra-idle dim|undim|suspend' >&2
+        exit 1
+        ;;
+esac
+exit 0

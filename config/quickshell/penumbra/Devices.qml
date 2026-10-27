@@ -91,6 +91,26 @@ Singleton {
         const h = Math.floor(seconds / 3600), m = Math.round(seconds % 3600 / 60);
         return `${h ? h + " h " : ""}${m} min ${charging ? "until full" : "left"}`;
     }
+    // Warn once at 10% and again, as a critical notification that stays, at 5%, while
+    // discharging; plugging the charger in resets both.
+    property int batteryWarned: 100
+    onBatteryPercentChanged: warnBattery()
+    onChargingChanged: warnBattery()
+    onHasBatteryChanged: warnBattery()
+    function warnBattery() {
+        if (!hasBattery || charging) {
+            batteryWarned = 100;
+            return;
+        }
+        const level = batteryPercent <= 5 ? 5 : batteryPercent <= 10 ? 10 : 100;
+        if (level >= batteryWarned)
+            return;
+        batteryWarned = level;
+        const critical = level === 5;
+        Quickshell.execDetached(["notify-send", "--app-name=Battery", "--icon=" + (critical ? "battery-empty" : "battery-caution"),
+            "--urgency=" + (critical ? "critical" : "normal"), critical ? "Battery critically low" : "Battery low",
+            `${batteryPercent}% · ${batteryDetail}. Plug in the charger${critical ? " now" : " soon"}.`]);
+    }
 
     // Keyboard layouts of the main keyboard, e.g. ["us", "fr"], and the one in use.
     property var layouts: []
