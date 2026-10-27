@@ -11,4 +11,45 @@ if status is-interactive
     set -g fish_color_selection --background={{hover:hex}}
     set -g fish_pager_color_prefix {{violet:hex}} --bold
     set -g fish_pager_color_selected_background --background={{hover:hex}}
+    # fzf, ls and eza, unless you set your own first.
+    set -q FZF_DEFAULT_OPTS
+    or set -gx FZF_DEFAULT_OPTS "--color=fg:{{text}},hl:{{violet}},fg+:{{white}},bg+:{{hover}},hl+:{{violetBright}},gutter:-1,query:{{text}},prompt:{{violet}},pointer:{{violet}},marker:{{pink}},spinner:{{violet}},info:{{muted}},header:{{subtle}},border:{{border}},separator:{{border}},scrollbar:{{mid}},label:{{subtle}}"
+    if not set -q LS_COLORS
+        set -l ls 'di=1;38;2;{{violet:sgr}}' 'ln=38;2;{{cyan:sgr}}' 'or=38;2;{{rose:sgr}}' 'mi=38;2;{{rose:sgr}}' \
+            'ex=1;38;2;{{green:sgr}}' 'so=38;2;{{pink:sgr}}' 'pi=38;2;{{amber:sgr}}' \
+            'bd=38;2;{{amber:sgr}};48;2;{{raised:sgr}}' 'cd=38;2;{{amber:sgr}};48;2;{{raised:sgr}}' \
+            'su=38;2;{{violetInk:sgr}};48;2;{{rose:sgr}}' 'sg=38;2;{{violetInk:sgr}};48;2;{{amber:sgr}}' \
+            'tw=38;2;{{violetInk:sgr}};48;2;{{green:sgr}}' 'ow=38;2;{{violet:sgr}};48;2;{{raised:sgr}}' \
+            'st=38;2;{{violetInk:sgr}};48;2;{{violet:sgr}}'
+        for ext in tar gz tgz xz zst bz2 zip 7z rar deb rpm pkg.tar.zst iso
+            set -a ls "*.$ext=38;2;{{rose:sgr}}"
+        end
+        for ext in png jpg jpeg gif webp avif svg bmp tif tiff mp4 mkv webm mov avi
+            set -a ls "*.$ext=38;2;{{pink:sgr}}"
+        end
+        for ext in mp3 flac ogg opus wav m4a
+            set -a ls "*.$ext=38;2;{{cyan:sgr}}"
+        end
+        for ext in pdf epub md txt
+            set -a ls "*.$ext=38;2;{{amber:sgr}}"
+        end
+        set -gx LS_COLORS (string join : $ls)
+    end
+    set -q EZA_COLORS
+    or set -gx EZA_COLORS (string join : \
+        'ur=38;2;{{amber:sgr}}' 'uw=38;2;{{rose:sgr}}' 'ux=38;2;{{green:sgr}}' 'ue=38;2;{{green:sgr}}' \
+        'gr=38;2;{{amber:sgr}}' 'gw=38;2;{{rose:sgr}}' 'gx=38;2;{{green:sgr}}' \
+        'tr=38;2;{{amber:sgr}}' 'tw=38;2;{{rose:sgr}}' 'tx=38;2;{{green:sgr}}' \
+        'su=38;2;{{pink:sgr}}' 'sf=38;2;{{pink:sgr}}' 'xa=38;2;{{cyan:sgr}}' \
+        'sn=38;2;{{violet:sgr}}' 'sb=38;2;{{violetSoft:sgr}}' 'df=38;2;{{violet:sgr}}' 'ds=38;2;{{violetSoft:sgr}}' \
+        'uu=38;2;{{textSoft:sgr}}' 'un=38;2;{{amber:sgr}}' 'gu=38;2;{{textSoft:sgr}}' 'gn=38;2;{{amber:sgr}}' \
+        'lc=38;2;{{muted:sgr}}' 'lm=38;2;{{muted:sgr}}' 'da=38;2;{{muted:sgr}}' 'in=38;2;{{dim:sgr}}' \
+        'bl=38;2;{{dim:sgr}}' 'hd=4;38;2;{{subtle:sgr}}' 'lp=38;2;{{cyan:sgr}}' 'cc=38;2;{{pink:sgr}}' \
+        'xx=38;2;{{dim:sgr}}' 'ga=38;2;{{green:sgr}}' 'gm=38;2;{{violet:sgr}}' 'gd=38;2;{{rose:sgr}}' \
+        'gv=38;2;{{cyan:sgr}}' 'gt=38;2;{{amber:sgr}}' 'gi=38;2;{{dim:sgr}}' 'gc=38;2;{{rose:sgr}}')
+    # lazygit reads its colours after your own config.yml (./install.sh adds penumbra.yml when
+    # lazygit is installed).
+    if not set -q LG_CONFIG_FILE; and test -e $HOME/.config/lazygit/penumbra.yml
+        set -gx LG_CONFIG_FILE $HOME/.config/lazygit/config.yml,$HOME/.config/lazygit/penumbra.yml
+    end
 end

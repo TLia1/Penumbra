@@ -8,7 +8,8 @@ How the bundle is put together, and where to make each kind of change: a new dis
 |---|---|---|
 | Common files, the same everywhere | `config/`, `bin/`, `share/`, `system/` | `~/.config`, `~/.local/bin`, `~/.local/share`, `/` |
 | One distribution's differences | `distro/NAME/` | the same places, over the common files |
-| Colours | `palette/palette.toml` → `palette/templates/` | rendered into the common files by `tools/build-palette.py` |
+| Colours | `palette/palette.toml` → `palette/templates/` | rendered into the common files and `apps/` by `tools/build-palette.py` |
+| Other apps' colours | `apps/NAME/` | the same places, only when the command `NAME` exists |
 | Per-user values | `@@PLACEHOLDERS@@` in any text file | filled in by `install.sh` as it copies |
 | Boot themes | `boot/` | only through `tools/install-boot.py`, after asking |
 
@@ -107,7 +108,9 @@ The shell is `config/quickshell/penumbra/`. `shell.qml` lists the top-level surf
 
 ## Adding a colour
 
-Add it to `palette/palette.toml`, use it as `{{name}}` (or `{{name:hex}}`, `{{name:rgb}}`) in a file under `palette/templates/`, and run `python tools/build-palette.py`. In the shell, expose it in `Theme.qml` as `P.name`. A new app's colour file is a new template at the path the file has in the bundle.
+Add it to `palette/palette.toml`, use it as `{{name}}` (or `{{name:hex}}`, `{{name:rgb}}`, `{{name:sgr}}` for terminal codes) in a file under `palette/templates/`, and run `python tools/build-palette.py`. In the shell, expose it in `Theme.qml` as `P.name`. A new app's colour file is a new template at the path the file has in the bundle.
+
+For an app Penumbra doesn't install, put the template under `palette/templates/apps/NAME/config/` (or `share/`), where `NAME` is the app's command; `install.sh` copies `apps/NAME/` only when that command exists (`APP_COMMANDS` maps a folder to other commands, as for VS Code). If the app needs its settings file told about the colours, add a `color_NAME` function next to the others in `install.sh`: use `add_line` and `install_file`, which keep what they change in the backup, and leave a theme the user chose alone. `tests/test_install.py` runs them all against stand-in commands; add your app's checks there.
 
 ## Before committing
 

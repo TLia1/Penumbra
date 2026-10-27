@@ -539,6 +539,157 @@ disable_dunst() {
     systemctl --user daemon-reload
 }
 
+# ─── Colours for other apps ──────────────────────────────────────────────────
+# apps/NAME/ holds Penumbra's colours for an app Penumbra doesn't install. It is used only when one
+# of the app's commands exists (NAME, unless APP_COMMANDS lists others): its config/ is copied to
+# ~/.config and its share/ to ~/.local/share, then color_NAME, if there is one, turns the colours on.
+# Your own settings files are only added to, and kept in the backup like everything else.
+declare -A APP_COMMANDS=([vscode]='code codium')
+
+install_app_colors() {
+    local dir app command found
+    for dir in "$ROOT"/apps/*/; do
+        dir=${dir%/} app=${dir##*/} found=
+        for command in ${APP_COMMANDS[$app]:-$app}; do
+            command -v "$command" >/dev/null && found=1
+        done
+        [[ -n $found ]] || continue
+        [[ ! -d $dir/config ]] || install_tree "$dir/config" "$HOME/.config"
+        [[ ! -d $dir/share ]] || install_tree "$dir/share" "$HOME/.local/share"
+        if declare -F "color_$app" >/dev/null; then "color_$app" "$dir"; fi
+        echo "Penumbra colours for $app."
+    done
+}
+
+# install_file FROM TO: copy one file, keeping what it replaces.
+install_file() {
+    backup_file "$2" "${2#"$HOME/"}"
+    mkdir -p "$(dirname "$2")"
+    cp "$1" "$2"
+}
+
+# add_line FILE LINE [top]: add LINE at the end of FILE, or at the top, unless FILE already has it.
+# FILE is created if missing, and written in place so a symbolic link stays one.
+add_line() {
+    local file=$1 line=$2 text=''
+    [[ -f $file ]] && grep -qxF -- "$line" "$file" && return 0
+    backup_file "$file" "${file#"$HOME/"}"
+    mkdir -p "$(dirname "$file")"
+    [[ -f $file ]] && text=$(<"$file")
+    if [[ ${3:-} == top ]]; then
+        printf '%s\n%s' "$line" "${text:+$text$'\n'}" > "$file"
+    else
+        printf '%s%s\n' "${text:+$text$'\n'}" "$line" > "$file"
+    fi
+}
+
+# btop: choose the theme in btop.conf (btop fills in the rest of a new file).
+color_btop() {
+    local conf=$HOME/.config/btop/btop.conf
+    if [[ -f $conf ]] && grep -q '^color_theme *=' "$conf"; then
+        grep -qx 'color_theme = "penumbra"' "$conf" && return 0
+        backup_file "$conf" .config/btop/btop.conf
+        sed --follow-symlinks -i 's/^color_theme *=.*/color_theme = "penumbra"/' "$conf"
+    else
+        add_line "$conf" 'color_theme = "penumbra"'
+    fi
+}
+
+# bat: use the theme unless your bat config already picks one, and rebuild bat's theme cache, which
+# delta reads too.
+color_bat() {
+    local conf
+    conf=$(bat --config-file)
+    [[ -f $conf ]] && grep -q '^--theme[= ]' "$conf" || add_line "$conf" '--theme="Penumbra"'
+    bat cache --build >/dev/null
+}
+
+# delta: include the "penumbra" feature from your Git configuration and add it to delta.features,
+# after the features you already use.
+color_delta() {
+    local conf=$HOME/.gitconfig features
+    # shellcheck disable=SC2088  # Git expands the ~ itself.
+    local include='~/.config/git/penumbra-delta.gitconfig'
+    [[ -e $conf || ! -e $HOME/.config/git/config ]] || conf=$HOME/.config/git/config
+    # Syntax highlighting in the Penumbra colours comes from bat's theme cache.
+    if command -v bat >/dev/null; then
+        git config --file "$HOME/.config/git/penumbra-delta.gitconfig" delta.penumbra.syntax-theme Penumbra
+    fi
+    features=$(git config --file "$conf" delta.features || true)
+    if git config --file "$conf" --get-all include.path 2>/dev/null | grep -qxF "$include" \
+        && [[ " $features " == *' penumbra '* ]]; then
+        return 0
+    fi
+    backup_file "$conf" "${conf#"$HOME/"}"
+    git config --file "$conf" --get-all include.path 2>/dev/null | grep -qxF "$include" \
+        || git config --file "$conf" --add include.path "$include"
+    [[ " $features " == *' penumbra '* ]] || git config --file "$conf" delta.features "${features:+$features }penumbra"
+}
+
+# yazi: the flavor's code previews use bat's theme; choose the flavor unless theme.toml has one.
+color_yazi() {
+    local theme=$HOME/.config/yazi/theme.toml
+    install_file "$ROOT/apps/bat/config/bat/themes/Penumbra.tmTheme" \
+        "$HOME/.config/yazi/flavors/penumbra.yazi/tmtheme.xml"
+    if [[ -f $theme ]] && grep -q '^\[flavor\]' "$theme"; then
+        grep -q '"penumbra"' "$theme" || echo 'yazi: your theme.toml chooses its own flavor; set dark = "penumbra" there to use Penumbra.'
+        return 0
+    fi
+    add_line "$theme" $'[flavor]\ndark = "penumbra"'
+}
+
+color_zathura() { add_line "$HOME/.config/zathura/zathurarc" 'include penumbra-colors'; }
+
+# mpv: at the top of mpv.conf, so it isn't read as part of a [profile].
+color_mpv() { add_line "$HOME/.config/mpv/mpv.conf" 'include="~~/penumbra.conf"' top; }
+
+# VS Code, Code - OSS and VSCodium: package the theme as an extension and install it with the editor's
+# own command (a copied folder is ignored once the editor keeps a list of its extensions).
+color_vscode() {
+    local vsix=$BACKUP/penumbra-theme.vsix command
+    (cd "$1/vsix" && python3 -m zipfile -c "$vsix" extension.vsixmanifest '[Content_Types].xml' extension)
+    for command in ${APP_COMMANDS[vscode]}; do
+        command -v "$command" >/dev/null || continue
+        "$command" --install-extension "$vsix" --force >/dev/null 2>&1 \
+            || warn "$command could not install the Penumbra theme ($vsix)."
+    done
+    echo 'VS Code: choose Penumbra in Preferences: Color Theme.'
+}
+
+# Vesktop: turn the theme on in its settings, which it writes on first start. A running Vesktop
+# keeps its own copy, so this shows after a restart.
+color_vesktop() {
+    local settings=$HOME/.config/vesktop/settings/settings.json
+    [[ -f $settings ]] || return 0
+    python3 -c 'import json, sys; sys.exit("penumbra.theme.css" in json.load(open(sys.argv[1])).get("enabledThemes", []))' \
+        "$settings" || return 0
+    backup_file "$settings" .config/vesktop/settings/settings.json
+    python3 - "$settings" <<'EOF'
+import json, sys
+with open(sys.argv[1]) as file:
+    settings = json.load(file)
+settings.setdefault('enabledThemes', []).append('penumbra.theme.css')
+with open(sys.argv[1], 'w') as file:
+    json.dump(settings, file, indent=4)
+EOF
+}
+
+# Firefox: every profile imports the colours from its chrome/userChrome.css, which Firefox reads
+# once user.js allows it (on its next start).
+color_firefox() {
+    local root profile
+    for root in "$HOME/.mozilla/firefox" "$HOME/.config/mozilla/firefox"; do
+        [[ -r $root/profiles.ini ]] || continue
+        while IFS= read -r profile; do
+            [[ $profile == /* ]] || profile=$root/$profile
+            [[ -d $profile ]] || continue
+            install_file "$1/chrome/penumbra.css" "$profile/chrome/penumbra.css"
+            add_line "$profile/chrome/userChrome.css" '@import "penumbra.css";' top
+            add_line "$profile/user.js" 'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);'
+        done < <(sed -n 's/^Path=//p' "$root/profiles.ini")
+    done
+}
+
 run_user_part() {
     BACKUP=$HOME/.local/state/penumbra/backups/$STAMP
     mkdir -p "$BACKUP"
@@ -571,6 +722,7 @@ run_user_part() {
 
     step 'Applying themes and starting services'
     apply_gtk_settings
+    install_app_colors
     configure_keyring
     disable_dunst
     systemctl --user daemon-reload
@@ -599,8 +751,8 @@ backup_runs() {
 # copy is what you had before uninstalling.
 keep_once() { [[ -e $BACKUP/$2 || -L $BACKUP/$2 ]] || backup_file "$1" "$2"; }
 
-# undo_runs DIR TARGET TOPS...: undo every run in DIR. Saved files live under TOPS (e.g. ".config",
-# or "etc"), relative to TARGET ($HOME or /); new-files.txt paths must be under TARGET.
+# undo_runs DIR TARGET TOPS...: undo every run in DIR. Saved files are TOPS or under them (e.g. ".config",
+# ".gitconfig" or "etc"), relative to TARGET ($HOME or /); new-files.txt paths must be under TARGET.
 undo_runs() {
     local dir=$1 target=$2 run path rel top
     shift 2
@@ -617,7 +769,7 @@ undo_runs() {
             done < "$dir/$run/new-files.txt"
         fi
         for top in "$@"; do
-            [[ -d $dir/$run/$top ]] || continue
+            [[ -e $dir/$run/$top ]] || continue
             while IFS= read -r -d '' path; do
                 rel=${path#"$dir/$run/"}
                 keep_once "${target%/}/$rel" "$rel"
@@ -640,17 +792,22 @@ oldest_backup() {
 }
 
 uninstall_user() {
-    local dir=$HOME/.local/state/penumbra/backups file key value schema
+    local dir=$HOME/.local/state/penumbra/backups file key value schema editor
     [[ -n $(backup_runs "$dir") ]] || die "No Penumbra backups in $dir; nothing to undo."
     BACKUP=$dir/uninstall-$STAMP
     mkdir -p "$BACKUP"
     step 'Removing Penumbra from your account'
     systemctl --user stop penumbra-shell.service 2>/dev/null || true
-    undo_runs "$dir" "$HOME" .config .local
+    undo_runs "$dir" "$HOME" .config .local .gitconfig .mozilla
     # The lock screen's link to the current wallpaper, and folders left empty.
     [[ -L $HOME/.local/share/penumbra/lock.png ]] && rm -f "$HOME/.local/share/penumbra/lock.png"
     find "$HOME/.config/quickshell/penumbra" "$HOME/.local/share/penumbra" "$HOME/.config/nvim/lua/penumbra" \
         -depth -type d -empty -delete 2>/dev/null || true
+    # The editor's theme extension, which the editor installed itself.
+    for editor in ${APP_COMMANDS[vscode]}; do
+        command -v "$editor" >/dev/null || continue
+        "$editor" --uninstall-extension penumbra.penumbra-theme >/dev/null 2>&1 || true
+    done
     systemctl --user daemon-reload
     # GSettings Penumbra changed, as they were before the first install.
     if command -v gsettings >/dev/null; then
@@ -960,6 +1117,9 @@ diffAdd = "#1c3029"
 diffDelete = "#38202d"
 diffChange = "#27243f"
 diffText = "#403457"
+# The changed words inside an added or deleted line (delta, VS Code).
+diffAddEmph = "#2a4a3c"
+diffDeleteEmph = "#552b40"
 ```
 
 ## `tools/build-boot-assets.py`
@@ -1163,6 +1323,7 @@ SECTIONS = [
     ['tests/*'],
     ['bin/*'],
     ['config/**/*'],
+    ['apps/**/*'],
     ['share/color-schemes/*', 'share/icons/*/index.theme', 'share/kio/servicemenus/*'],
     ['system/**/*'],
     ['boot/grub/theme.txt', 'boot/plymouth/*.plymouth'],
@@ -1177,7 +1338,8 @@ LANGUAGES = {
     '.sh': 'bash', '.py': 'python', '.lua': 'lua', '.qml': 'qml', '.js': 'javascript', '.toml': 'toml',
     '.css': 'css', '.ini': 'ini', '.conf': 'ini', '.jsonc': 'jsonc', '.json': 'json', '.fish': 'fish',
     '.rasi': 'css', '.svg': 'xml', '.frag': 'glsl', '.service': 'ini', '.desktop': 'ini', '.theme': 'ini',
-    '.colors': 'ini', '.plymouth': 'ini', '.txt': 'text',
+    '.colors': 'ini', '.plymouth': 'ini', '.txt': 'text', '.tmTheme': 'xml', '.xml': 'xml',
+    '.vsixmanifest': 'xml', '.yml': 'yaml', '.gitconfig': 'ini',
 }
 
 INTRO = '''# Complete Penumbra configuration
@@ -1395,7 +1557,7 @@ print(f'Built {len(frames)} original shapes / {len(list((THEME/"cursors").iterdi
 """Write every PENUMBRA colour file from palette/palette.toml.
 
 Each file under palette/templates/ is rendered to the same path in the repository, with
-{{name}} replaced by that colour as #rrggbb, {{name:hex}} as rrggbb and {{name:rgb}} as r,g,b.
+{{name}} replaced by that colour as #rrggbb, {{name:hex}} as rrggbb, {{name:rgb}} as r,g,b and {{name:sgr}} as r;g;b (for terminal colour codes).
 `--check` only reports generated files that are out of date (exit status 1).
 """
 from pathlib import Path
@@ -1406,7 +1568,7 @@ import tomllib
 ROOT = Path(__file__).resolve().parent.parent
 PALETTE = ROOT / 'palette' / 'palette.toml'
 TEMPLATES = ROOT / 'palette' / 'templates'
-TOKEN = re.compile(r'\{\{\s*([A-Za-z]+)(?::(hex|rgb))?\s*\}\}')
+TOKEN = re.compile(r'\{\{\s*([A-Za-z]+)(?::(hex|rgb|sgr))?\s*\}\}')
 
 
 def load_palette():
@@ -1425,8 +1587,8 @@ def render(template, colors):
         value = colors[name]
         if form == 'hex':
             return value[1:]
-        if form == 'rgb':
-            return ','.join(str(int(value[i:i + 2], 16)) for i in (1, 3, 5))
+        if form in ('rgb', 'sgr'):
+            return (',' if form == 'rgb' else ';').join(str(int(value[i:i + 2], 16)) for i in (1, 3, 5))
         return value
     return TOKEN.sub(color, template.read_text())
 
@@ -2796,6 +2958,83 @@ class Distributions(unittest.TestCase):
                 self.assertNotRegex(result.stdout, r'@@[A-Z_]+@@')
 
 
+# Stand-ins for the apps in apps/ (and systemctl, for the uninstall): each records how it was
+# called. bat answers the question install.sh asks it.
+STUB = '''#!/bin/sh
+echo "${0##*/} $*" >> "$HOME/calls"
+[ "${0##*/} $1" = "bat --config-file" ] && echo "$HOME/.config/bat/config"
+exit 0
+'''
+# Your own settings before the install, then two installs: the second must change nothing.
+APP_SETUP = '''
+runs=$HOME/.local/state/penumbra/backups; PATH=$1:$PATH
+mkdir -p ~/.config/mozilla/firefox/abc.default/chrome ~/.config/mpv ~/.config/vesktop/settings ~/.config/btop
+printf '[Profile0]\\nName=default\\nIsRelative=1\\nPath=abc.default\\n' > ~/.config/mozilla/firefox/profiles.ini
+printf '#nav-bar { padding: 0 }\\n' > ~/.config/mozilla/firefox/abc.default/chrome/userChrome.css
+printf '[quiet]\\nvolume=50' > ~/.config/mpv/mpv.conf
+printf 'color_theme = "Default"\\nupdate_ms = 1000\\n' > ~/.config/btop/btop.conf
+echo '{"enabledThemes": ["mine.css"]}' > ~/.config/vesktop/settings/settings.json
+git config --file ~/.gitconfig delta.features side-by-side
+BACKUP=$runs/20260101-000000; mkdir -p "$BACKUP"; install_app_colors >/dev/null
+find ~ -type f ! -path "$runs/*" ! -name calls ! -name first -exec md5sum {} + | sort > ~/first
+BACKUP=$runs/20260102-000000; mkdir -p "$BACKUP"; install_app_colors >/dev/null
+find ~ -type f ! -path "$runs/*" ! -name calls ! -name first -exec md5sum {} + | sort | diff ~/first - >&2
+'''
+
+
+class AppColors(unittest.TestCase):
+    def run_install(self, checks):
+        with tempfile.TemporaryDirectory() as stubs:
+            for app in [p.name for p in (ROOT / 'apps').iterdir()] + ['code', 'codium', 'systemctl']:
+                path = Path(stubs) / app
+                path.write_text(STUB)
+                path.chmod(0o755)
+            result = bash(APP_SETUP + checks, 'arch', stubs)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stderr, '')
+        return result.stdout
+
+    def test_every_app_is_turned_on_once(self):
+        out = self.run_install('''
+            grep -x 'color_theme = "penumbra"' ~/.config/btop/btop.conf; grep -c . ~/.config/btop/btop.conf
+            cat ~/.config/bat/config; grep -c 'cache --build' ~/calls
+            git config --file ~/.gitconfig delta.features; git config --file ~/.gitconfig --get-all include.path
+            git config --file ~/.config/git/penumbra-delta.gitconfig delta.penumbra.syntax-theme
+            cat ~/.config/yazi/theme.toml; test -s ~/.config/yazi/flavors/penumbra.yazi/tmtheme.xml && echo tmtheme
+            cat ~/.config/zathura/zathurarc ~/.config/mpv/mpv.conf
+            python3 -c 'import json,os; print(json.load(open(os.path.expanduser("~/.config/vesktop/settings/settings.json")))["enabledThemes"])'
+            cat ~/.config/mozilla/firefox/abc.default/chrome/userChrome.css ~/.config/mozilla/firefox/abc.default/user.js
+            grep -c -- '--install-extension' ~/calls
+        ''')
+        self.assertEqual(out.split('\n'), [
+            'color_theme = "penumbra"', '2',
+            '--theme="Penumbra"', '2',
+            'side-by-side penumbra', '~/.config/git/penumbra-delta.gitconfig',
+            'Penumbra',
+            '[flavor]', 'dark = "penumbra"', 'tmtheme',
+            'include penumbra-colors', 'include="~~/penumbra.conf"', '[quiet]', 'volume=50',
+            "['mine.css', 'penumbra.theme.css']",
+            '@import "penumbra.css";', '#nav-bar { padding: 0 }',
+            'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);',
+            '4', ''])
+
+    def test_uninstall_puts_your_files_back(self):
+        out = self.run_install('''
+            STAMP=later uninstall_user >/dev/null
+            cat ~/.config/mpv/mpv.conf; echo; cat ~/.config/btop/btop.conf
+            cat ~/.config/mozilla/firefox/abc.default/chrome/userChrome.css
+            git config --file ~/.gitconfig --list
+            { ls ~/.config/zathura/zathurarc ~/.config/mozilla/firefox/abc.default/user.js 2>&1 || true; } | grep -c 'No such file'
+            grep -c -- '--uninstall-extension' ~/calls
+        ''')
+        self.assertEqual(out.split('\n'), [
+            '[quiet]', 'volume=50',
+            'color_theme = "Default"', 'update_ms = 1000',
+            '#nav-bar { padding: 0 }',
+            'delta.features=side-by-side',
+            '2', '2', ''])
+
+
 if __name__ == '__main__':
     unittest.main()
 ```
@@ -3732,6 +3971,47 @@ if status is-interactive
     set -g fish_color_selection --background=38264f
     set -g fish_pager_color_prefix b69af7 --bold
     set -g fish_pager_color_selected_background --background=38264f
+    # fzf, ls and eza, unless you set your own first.
+    set -q FZF_DEFAULT_OPTS
+    or set -gx FZF_DEFAULT_OPTS "--color=fg:#e9e1f5,hl:#b69af7,fg+:#faf5ff,bg+:#38264f,hl+:#c4a5ff,gutter:-1,query:#e9e1f5,prompt:#b69af7,pointer:#b69af7,marker:#d5a4dc,spinner:#b69af7,info:#8f809f,header:#aa9cbd,border:#33263f,separator:#33263f,scrollbar:#59446a,label:#aa9cbd"
+    if not set -q LS_COLORS
+        set -l ls 'di=1;38;2;182;154;247' 'ln=38;2;156;203;210' 'or=38;2;239;143;164' 'mi=38;2;239;143;164' \
+            'ex=1;38;2;165;204;179' 'so=38;2;213;164;220' 'pi=38;2;229;200;154' \
+            'bd=38;2;229;200;154;48;2;28;21;40' 'cd=38;2;229;200;154;48;2;28;21;40' \
+            'su=38;2;16;11;27;48;2;239;143;164' 'sg=38;2;16;11;27;48;2;229;200;154' \
+            'tw=38;2;16;11;27;48;2;165;204;179' 'ow=38;2;182;154;247;48;2;28;21;40' \
+            'st=38;2;16;11;27;48;2;182;154;247'
+        for ext in tar gz tgz xz zst bz2 zip 7z rar deb rpm pkg.tar.zst iso
+            set -a ls "*.$ext=38;2;239;143;164"
+        end
+        for ext in png jpg jpeg gif webp avif svg bmp tif tiff mp4 mkv webm mov avi
+            set -a ls "*.$ext=38;2;213;164;220"
+        end
+        for ext in mp3 flac ogg opus wav m4a
+            set -a ls "*.$ext=38;2;156;203;210"
+        end
+        for ext in pdf epub md txt
+            set -a ls "*.$ext=38;2;229;200;154"
+        end
+        set -gx LS_COLORS (string join : $ls)
+    end
+    set -q EZA_COLORS
+    or set -gx EZA_COLORS (string join : \
+        'ur=38;2;229;200;154' 'uw=38;2;239;143;164' 'ux=38;2;165;204;179' 'ue=38;2;165;204;179' \
+        'gr=38;2;229;200;154' 'gw=38;2;239;143;164' 'gx=38;2;165;204;179' \
+        'tr=38;2;229;200;154' 'tw=38;2;239;143;164' 'tx=38;2;165;204;179' \
+        'su=38;2;213;164;220' 'sf=38;2;213;164;220' 'xa=38;2;156;203;210' \
+        'sn=38;2;182;154;247' 'sb=38;2;156;135;198' 'df=38;2;182;154;247' 'ds=38;2;156;135;198' \
+        'uu=38;2;200;187;222' 'un=38;2;229;200;154' 'gu=38;2;200;187;222' 'gn=38;2;229;200;154' \
+        'lc=38;2;143;128;159' 'lm=38;2;143;128;159' 'da=38;2;143;128;159' 'in=38;2;113;99;127' \
+        'bl=38;2;113;99;127' 'hd=4;38;2;170;156;189' 'lp=38;2;156;203;210' 'cc=38;2;213;164;220' \
+        'xx=38;2;113;99;127' 'ga=38;2;165;204;179' 'gm=38;2;182;154;247' 'gd=38;2;239;143;164' \
+        'gv=38;2;156;203;210' 'gt=38;2;229;200;154' 'gi=38;2;113;99;127' 'gc=38;2;239;143;164')
+    # lazygit reads its colours after your own config.yml (./install.sh adds penumbra.yml when
+    # lazygit is installed).
+    if not set -q LG_CONFIG_FILE; and test -e $HOME/.config/lazygit/penumbra.yml
+        set -gx LG_CONFIG_FILE $HOME/.config/lazygit/config.yml,$HOME/.config/lazygit/penumbra.yml
+    end
 end
 ```
 
@@ -13066,6 +13346,1283 @@ default=hyprland;gtk
 org.freedesktop.impl.portal.FileChooser=gtk
 # Sandboxed apps keep their passwords in gnome-keyring.
 org.freedesktop.impl.portal.Secret=gnome-keyring
+```
+
+## `apps/bat/config/bat/themes/Penumbra.tmTheme`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- PENUMBRA syntax colours for bat, delta and yazi. Generated by tools/build-palette.py from palette/palette.toml; do not edit. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>name</key>
+  <string>Penumbra</string>
+  <key>settings</key>
+  <array>
+    <dict>
+      <key>settings</key>
+      <dict>
+        <key>background</key>
+        <string>#0d0a12</string>
+        <key>foreground</key>
+        <string>#e9e1f5</string>
+        <key>caret</key>
+        <string>#b69af7</string>
+        <key>lineHighlight</key>
+        <string>#1c1528</string>
+        <key>selection</key>
+        <string>#563b7e</string>
+        <key>selectionForeground</key>
+        <string>#ffffff</string>
+        <key>gutter</key>
+        <string>#0d0a12</string>
+        <key>gutterForeground</key>
+        <string>#8f809f</string>
+        <key>invisibles</key>
+        <string>#33263f</string>
+        <key>findHighlight</key>
+        <string>#e5c89a</string>
+        <key>findHighlightForeground</key>
+        <string>#0d0a12</string>
+        <key>bracketsForeground</key>
+        <string>#b69af7</string>
+        <key>guide</key>
+        <string>#33263f</string>
+        <key>activeGuide</key>
+        <string>#59446a</string>
+        <key>accent</key>
+        <string>#b69af7</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Comment</string>
+      <key>scope</key>
+      <string>comment, punctuation.definition.comment</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#71637f</string>
+        <key>fontStyle</key>
+        <string>italic</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>String</string>
+      <key>scope</key>
+      <string>string, constant.other.symbol</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#a5ccb3</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Escape and regexp</string>
+      <key>scope</key>
+      <string>constant.character.escape, string.regexp</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#d5a4dc</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Number and constant</string>
+      <key>scope</key>
+      <string>constant.numeric, constant.language, constant.other, constant.character</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#e5c89a</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Builtin constant</string>
+      <key>scope</key>
+      <string>support.constant</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#e5c89a</string>
+        <key>fontStyle</key>
+        <string>italic</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Variable</string>
+      <key>scope</key>
+      <string>variable, variable.other</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#e9e1f5</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Builtin variable</string>
+      <key>scope</key>
+      <string>variable.language</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#d5a4dc</string>
+        <key>fontStyle</key>
+        <string>italic</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Parameter</string>
+      <key>scope</key>
+      <string>variable.parameter</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#c8bbde</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Property</string>
+      <key>scope</key>
+      <string>variable.other.member, variable.other.property, support.type.property-name, meta.object-literal.key</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#c8bbde</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Keyword</string>
+      <key>scope</key>
+      <string>keyword, storage.modifier, keyword.control</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#b69af7</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Function keyword</string>
+      <key>scope</key>
+      <string>storage.type.function, keyword.declaration.function</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#b69af7</string>
+        <key>fontStyle</key>
+        <string>italic</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Import</string>
+      <key>scope</key>
+      <string>keyword.control.import, keyword.other.import, keyword.control.include</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#d5a4dc</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Operator</string>
+      <key>scope</key>
+      <string>keyword.operator</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#d5a4dc</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Storage type</string>
+      <key>scope</key>
+      <string>storage.type</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#b69af7</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Type</string>
+      <key>scope</key>
+      <string>entity.name.type, entity.name.class, entity.name.struct, entity.name.enum, support.type, support.class, entity.other.inherited-class</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#e5c89a</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Builtin type</string>
+      <key>scope</key>
+      <string>storage.type.primitive, support.type.primitive, support.type.builtin</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#e5c89a</string>
+        <key>fontStyle</key>
+        <string>italic</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Function</string>
+      <key>scope</key>
+      <string>entity.name.function, meta.function-call, variable.function, support.function</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#a1a5e9</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Builtin function</string>
+      <key>scope</key>
+      <string>support.function.builtin</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#a1a5e9</string>
+        <key>fontStyle</key>
+        <string>italic</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Module</string>
+      <key>scope</key>
+      <string>entity.name.namespace, entity.name.module, support.module</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#9ccbd2</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Label</string>
+      <key>scope</key>
+      <string>entity.name.label</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#9ccbd2</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Attribute and decorator</string>
+      <key>scope</key>
+      <string>entity.other.attribute-name, meta.annotation, meta.decorator, punctuation.definition.annotation</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#9ccbd2</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Tag</string>
+      <key>scope</key>
+      <string>entity.name.tag</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#b69af7</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Tag delimiter</string>
+      <key>scope</key>
+      <string>punctuation.definition.tag</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#8f809f</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Punctuation</string>
+      <key>scope</key>
+      <string>punctuation, meta.brace</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#8f809f</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Interpolation</string>
+      <key>scope</key>
+      <string>punctuation.section.embedded, punctuation.definition.template-expression</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#d5a4dc</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Heading</string>
+      <key>scope</key>
+      <string>markup.heading, entity.name.section, punctuation.definition.heading</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#b69af7</string>
+        <key>fontStyle</key>
+        <string>bold</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Bold</string>
+      <key>scope</key>
+      <string>markup.bold</string>
+      <key>settings</key>
+      <dict>
+        <key>fontStyle</key>
+        <string>bold</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Italic</string>
+      <key>scope</key>
+      <string>markup.italic</string>
+      <key>settings</key>
+      <dict>
+        <key>fontStyle</key>
+        <string>italic</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Link</string>
+      <key>scope</key>
+      <string>markup.underline.link, string.other.link</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#a1a5e9</string>
+        <key>fontStyle</key>
+        <string>underline</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Raw</string>
+      <key>scope</key>
+      <string>markup.raw, markup.inline.raw</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#a5ccb3</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>List</string>
+      <key>scope</key>
+      <string>markup.list punctuation.definition.list, punctuation.definition.list.begin</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#d5a4dc</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Quote</string>
+      <key>scope</key>
+      <string>markup.quote</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#8f809f</string>
+        <key>fontStyle</key>
+        <string>italic</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Inserted</string>
+      <key>scope</key>
+      <string>markup.inserted</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#a5ccb3</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Deleted</string>
+      <key>scope</key>
+      <string>markup.deleted</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#ef8fa4</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Changed</string>
+      <key>scope</key>
+      <string>markup.changed</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#b69af7</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Diff range</string>
+      <key>scope</key>
+      <string>meta.diff.range, meta.diff.header</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#8f809f</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Invalid</string>
+      <key>scope</key>
+      <string>invalid</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#ef8fa4</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Deprecated</string>
+      <key>scope</key>
+      <string>invalid.deprecated</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#e5c89a</string>
+      </dict>
+    </dict>
+  </array>
+  <key>semanticClass</key>
+  <string>theme.dark.penumbra</string>
+</dict>
+</plist>
+```
+
+## `apps/btop/config/btop/themes/penumbra.theme`
+
+```ini
+# PENUMBRA colours for btop. Generated by tools/build-palette.py from palette/palette.toml; do not edit.
+# An empty main_bg keeps Kitty's translucent background.
+theme[main_bg]=""
+theme[main_fg]="#e9e1f5"
+theme[title]="#faf5ff"
+theme[hi_fg]="#c4a5ff"
+theme[selected_bg]="#38264f"
+theme[selected_fg]="#faf5ff"
+theme[inactive_fg]="#71637f"
+theme[graph_text]="#c8bbde"
+theme[meter_bg]="#1c1528"
+theme[proc_misc]="#b69af7"
+theme[cpu_box]="#59446a"
+theme[mem_box]="#59446a"
+theme[net_box]="#59446a"
+theme[proc_box]="#59446a"
+theme[div_line]="#33263f"
+theme[temp_start]="#a5ccb3"
+theme[temp_mid]="#e5c89a"
+theme[temp_end]="#ef8fa4"
+theme[cpu_start]="#9c87c6"
+theme[cpu_mid]="#b69af7"
+theme[cpu_end]="#d5a4dc"
+theme[free_start]="#1c3029"
+theme[free_mid]="#a5ccb3"
+theme[free_end]="#b9e0c6"
+theme[cached_start]="#27243f"
+theme[cached_mid]="#a1a5e9"
+theme[cached_end]="#b8bdf5"
+theme[available_start]="#27243f"
+theme[available_mid]="#9ccbd2"
+theme[available_end]="#b4e0e5"
+theme[used_start]="#563b7e"
+theme[used_mid]="#b69af7"
+theme[used_end]="#c4a5ff"
+theme[download_start]="#563b7e"
+theme[download_mid]="#b69af7"
+theme[download_end]="#c4a5ff"
+theme[upload_start]="#38202d"
+theme[upload_mid]="#d5a4dc"
+theme[upload_end]="#ef8fa4"
+theme[process_start]="#b69af7"
+theme[process_mid]="#d5a4dc"
+theme[process_end]="#ef8fa4"
+```
+
+## `apps/delta/config/git/penumbra-delta.gitconfig`
+
+```ini
+# PENUMBRA colours for delta. Generated by tools/build-palette.py from palette/palette.toml; do not edit.
+# ./install.sh includes this file from your Git configuration and adds "penumbra" to delta.features.
+[delta "penumbra"]
+    dark = true
+    file-style = "#b69af7" bold
+    file-decoration-style = "#33263f" ul
+    hunk-header-style = file line-number syntax
+    hunk-header-decoration-style = "#33263f" box
+    hunk-header-file-style = "#b69af7"
+    hunk-header-line-number-style = "#8f809f"
+    minus-style = syntax "#38202d"
+    minus-non-emph-style = syntax "#38202d"
+    minus-emph-style = syntax "#552b40"
+    minus-empty-line-marker-style = normal "#38202d"
+    plus-style = syntax "#1c3029"
+    plus-non-emph-style = syntax "#1c3029"
+    plus-emph-style = syntax "#2a4a3c"
+    plus-empty-line-marker-style = normal "#1c3029"
+    zero-style = syntax
+    line-numbers-minus-style = "#ef8fa4"
+    line-numbers-plus-style = "#a5ccb3"
+    line-numbers-zero-style = "#71637f"
+    line-numbers-left-style = "#33263f"
+    line-numbers-right-style = "#33263f"
+    commit-style = "#e5c89a"
+    commit-decoration-style = "#33263f" box
+    blame-palette = "#0d0a12 #100d18 #16111f"
+    merge-conflict-begin-symbol = ▼
+    merge-conflict-end-symbol = ▲
+    merge-conflict-ours-diff-header-style = "#e5c89a" bold
+    merge-conflict-theirs-diff-header-style = "#b69af7" bold
+    whitespace-error-style = "#ef8fa4" reverse
+```
+
+## `apps/firefox/chrome/penumbra.css`
+
+```css
+/* PENUMBRA colours for Firefox's toolbars, tabs and menus. Generated by tools/build-palette.py
+   from palette/palette.toml; do not edit. ./install.sh imports it from each profile's
+   chrome/userChrome.css; pages themselves keep their own colours. */
+:root {
+    --toolbox-bgcolor: #100d18 !important;
+    --toolbox-bgcolor-inactive: #100d18 !important;
+    --toolbox-textcolor: #c8bbde !important;
+    --toolbox-textcolor-inactive: #8f809f !important;
+    --toolbar-bgcolor: #0d0a12 !important;
+    --toolbar-color: #e9e1f5 !important;
+    --toolbar-field-background-color: #1c1528 !important;
+    --toolbar-field-color: #e9e1f5 !important;
+    --toolbar-field-border-color: #33263f !important;
+    --toolbar-field-focus-background-color: #1c1528 !important;
+    --toolbar-field-focus-color: #faf5ff !important;
+    --toolbar-field-focus-border-color: #b69af7 !important;
+    --toolbarbutton-hover-background: #1c1528 !important;
+    --toolbarbutton-active-background: #38264f !important;
+    --toolbarbutton-icon-fill-attention: #b69af7 !important;
+    --tab-selected-bgcolor: #0d0a12 !important;
+    --tab-selected-textcolor: #faf5ff !important;
+    --tab-hover-background-color: #1c1528 !important;
+    --tab-loading-fill: #b69af7 !important;
+    --tab-attention-icon-color: #b69af7 !important;
+    --lwt-tab-line-color: #b69af7 !important;
+    --chrome-content-separator-color: #33263f !important;
+    --focus-outline-color: #b69af7 !important;
+    --arrowpanel-background: #16111f !important;
+    --arrowpanel-color: #e9e1f5 !important;
+    --arrowpanel-border-color: #33263f !important;
+    --panel-separator-color: #33263f !important;
+    --button-hover-bgcolor: #38264f !important;
+    --urlbarView-highlight-background: #38264f !important;
+    --urlbarView-highlight-color: #faf5ff !important;
+    --urlbarView-separator-color: #33263f !important;
+    --sidebar-background-color: #100d18 !important;
+    --sidebar-text-color: #c8bbde !important;
+    --sidebar-border-color: #33263f !important;
+    --newtab-background-color: #0d0a12 !important;
+    --color-accent-primary: #b69af7 !important;
+    --color-accent-primary-hover: #c4a5ff !important;
+    --color-accent-primary-active: #916dcf !important;
+    --button-text-color-primary: #100b1b !important;
+}
+::selection {
+    background-color: #563b7e !important;
+    color: #ffffff !important;
+}
+```
+
+## `apps/lazygit/config/lazygit/penumbra.yml`
+
+```yaml
+# PENUMBRA colours for lazygit. Generated by tools/build-palette.py from palette/palette.toml; do not edit.
+# Fish adds this file to LG_CONFIG_FILE after your own config.yml, so only the colours change.
+gui:
+  theme:
+    activeBorderColor:
+      - '#b69af7'
+      - bold
+    inactiveBorderColor:
+      - '#33263f'
+    searchingActiveBorderColor:
+      - '#e5c89a'
+      - bold
+    optionsTextColor:
+      - '#b69af7'
+    selectedLineBgColor:
+      - '#38264f'
+    inactiveViewSelectedLineBgColor:
+      - '#1c1528'
+    cherryPickedCommitFgColor:
+      - '#100b1b'
+    cherryPickedCommitBgColor:
+      - '#9ccbd2'
+    markedBaseCommitFgColor:
+      - '#100b1b'
+    markedBaseCommitBgColor:
+      - '#e5c89a'
+    unstagedChangesColor:
+      - '#ef8fa4'
+    defaultFgColor:
+      - '#e9e1f5'
+  authorColors:
+    '*': '#9c87c6'
+```
+
+## `apps/mpv/config/mpv/penumbra.conf`
+
+```ini
+# PENUMBRA colours for mpv. Generated by tools/build-palette.py from palette/palette.toml; do not edit.
+# ./install.sh adds include="~~/penumbra.conf" to your mpv.conf.
+osd-color='#e9e1f5'
+osd-border-color='#0d0a12'
+# The on-screen controller (mpv 0.38 and later).
+script-opts-append=osc-background_color=#0d0a12
+script-opts-append=osc-timecode_color=#c8bbde
+script-opts-append=osc-title_color=#e9e1f5
+script-opts-append=osc-buttons_color=#e9e1f5
+script-opts-append=osc-top_buttons_color=#c8bbde
+script-opts-append=osc-held_element_color=#c4a5ff
+script-opts-append=osc-seekbar_fg_color=#b69af7
+script-opts-append=osc-seekbar_bg_color=#1c1528
+script-opts-append=osc-seekbar_cache_color=#38264f
+script-opts-append=osc-window_title_color=#e9e1f5
+script-opts-append=osc-window_controls_color=#c8bbde
+script-opts-append=osc-window_controls_close_hover=#ef8fa4
+# uosc, if installed.
+script-opts-append=uosc-color=foreground=b69af7,foreground_text=100b1b,background=0d0a12,background_text=e9e1f5,curtain=07070b,success=a5ccb3,error=ef8fa4
+```
+
+## `apps/vesktop/config/vesktop/themes/penumbra.theme.css`
+
+```css
+/**
+ * @name Penumbra
+ * @author Penumbra
+ * @version 1.0.0
+ * @description The Penumbra desktop's colours: near-black, violet and soft pastels. Generated by
+ * tools/build-palette.py from palette/palette.toml; do not edit.
+ */
+
+/* Discord's dark themes, before and after its 2025 visual refresh. */
+.theme-dark, .theme-darker, .theme-midnight, .visual-refresh.theme-dark, .visual-refresh .theme-dark {
+    --background-primary: #0d0a12;
+    --background-secondary: #100d18;
+    --background-secondary-alt: #16111f;
+    --background-tertiary: #100d18;
+    --background-accent: #1c1528;
+    --background-floating: #16111f;
+    --background-nested-floating: #16111f;
+    --background-mobile-primary: #0d0a12;
+    --background-mobile-secondary: #100d18;
+    --background-modifier-hover: #1c1528;
+    --background-modifier-active: #38264f;
+    --background-modifier-selected: #38264f;
+    --background-modifier-accent: #33263f;
+    --background-message-hover: #100d18;
+    --channeltextarea-background: #1c1528;
+    --modal-background: #100d18;
+    --modal-footer-background: #16111f;
+    --input-background: #1c1528;
+    --scrollbar-thin-thumb: #59446a;
+    --scrollbar-auto-thumb: #59446a;
+    --scrollbar-auto-track: #100d18;
+
+    --background-base-lowest: #07070b;
+    --background-base-lower: #0d0a12;
+    --background-base-low: #100d18;
+    --background-surface-high: #16111f;
+    --background-surface-higher: #1c1528;
+    --background-surface-highest: #1f182b;
+    --chat-background-default: #0d0a12;
+    --panel-bg: #100d18;
+    --border-subtle: #33263f;
+    --border-normal: #33263f;
+    --border-strong: #42344f;
+
+    --text-normal: #e9e1f5;
+    --text-default: #e9e1f5;
+    --text-strong: #faf5ff;
+    --text-subtle: #aa9cbd;
+    --text-muted: #8f809f;
+    --text-link: #c4a5ff;
+    --text-positive: #a5ccb3;
+    --text-warning: #e5c89a;
+    --text-danger: #ef8fa4;
+    --text-brand: #b69af7;
+    --header-primary: #faf5ff;
+    --header-secondary: #c8bbde;
+    --channels-default: #8f809f;
+    --channel-icon: #8f809f;
+    --interactive-normal: #c8bbde;
+    --interactive-hover: #e9e1f5;
+    --interactive-active: #faf5ff;
+    --interactive-muted: #71637f;
+    --icon-default: #c8bbde;
+    --icon-muted: #8f809f;
+
+    --brand-experiment: #b69af7;
+    --brand-500: #b69af7;
+    --brand-560: #916dcf;
+    --brand-600: #7655ae;
+    --control-brand-foreground: #b69af7;
+    --control-brand-foreground-new: #b69af7;
+    --mention-background: #38264f;
+    --mention-foreground: #c4a5ff;
+    --info-positive-foreground: #a5ccb3;
+    --info-warning-foreground: #e5c89a;
+    --info-danger-foreground: #ef8fa4;
+    --status-positive: #a5ccb3;
+    --status-warning: #e5c89a;
+    --status-danger: #ef8fa4;
+}
+
+::selection {
+    background: #563b7e;
+    color: #ffffff;
+}
+```
+
+## `apps/vscode/vsix/[Content_Types].xml`
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension=".json" ContentType="application/json"/>
+  <Default Extension=".vsixmanifest" ContentType="text/xml"/>
+</Types>
+```
+
+## `apps/vscode/vsix/extension/package.json`
+
+```json
+{
+  "name": "penumbra-theme",
+  "displayName": "Penumbra",
+  "description": "The Penumbra desktop's colours: near-black, violet and soft pastels.",
+  "version": "1.0.0",
+  "publisher": "penumbra",
+  "license": "MIT",
+  "engines": { "vscode": "^1.70.0" },
+  "categories": ["Themes"],
+  "contributes": {
+    "themes": [
+      { "label": "Penumbra", "uiTheme": "vs-dark", "path": "./themes/penumbra-color-theme.json" }
+    ]
+  }
+}
+```
+
+## `apps/vscode/vsix/extension/themes/penumbra-color-theme.json`
+
+```json
+// PENUMBRA colours for VS Code and VSCodium. Generated by tools/build-palette.py from palette/palette.toml; do not edit.
+{
+  "name": "Penumbra",
+  "type": "dark",
+  "semanticHighlighting": true,
+  "colors": {
+    "foreground": "#e9e1f5",
+    "descriptionForeground": "#8f809f",
+    "disabledForeground": "#71637f",
+    "errorForeground": "#ef8fa4",
+    "focusBorder": "#b69af780",
+    "icon.foreground": "#c8bbde",
+    "selection.background": "#563b7e",
+    "widget.border": "#33263f",
+    "widget.shadow": "#07070ba0",
+    "sash.hoverBorder": "#b69af7",
+    "textLink.foreground": "#c4a5ff",
+    "textLink.activeForeground": "#c4a5ff",
+    "textBlockQuote.background": "#100d18",
+    "textBlockQuote.border": "#b69af7",
+    "textCodeBlock.background": "#100d18",
+    "textPreformat.foreground": "#a5ccb3",
+    "textSeparator.foreground": "#33263f",
+
+    "button.background": "#b69af7",
+    "button.foreground": "#100b1b",
+    "button.hoverBackground": "#c4a5ff",
+    "button.secondaryBackground": "#1c1528",
+    "button.secondaryForeground": "#e9e1f5",
+    "button.secondaryHoverBackground": "#38264f",
+    "checkbox.background": "#1c1528",
+    "checkbox.border": "#33263f",
+    "checkbox.foreground": "#b69af7",
+    "dropdown.background": "#1c1528",
+    "dropdown.border": "#33263f",
+    "dropdown.foreground": "#e9e1f5",
+    "dropdown.listBackground": "#100d18",
+    "input.background": "#1c1528",
+    "input.border": "#33263f",
+    "input.foreground": "#e9e1f5",
+    "input.placeholderForeground": "#71637f",
+    "inputOption.activeBackground": "#38264f",
+    "inputOption.activeBorder": "#b69af7",
+    "inputOption.activeForeground": "#faf5ff",
+    "inputValidation.errorBackground": "#38202d",
+    "inputValidation.errorBorder": "#ef8fa4",
+    "inputValidation.warningBackground": "#16111f",
+    "inputValidation.warningBorder": "#e5c89a",
+    "inputValidation.infoBackground": "#16111f",
+    "inputValidation.infoBorder": "#a1a5e9",
+    "badge.background": "#b69af7",
+    "badge.foreground": "#100b1b",
+    "progressBar.background": "#b69af7",
+    "scrollbar.shadow": "#07070b",
+    "scrollbarSlider.background": "#59446a50",
+    "scrollbarSlider.hoverBackground": "#59446a80",
+    "scrollbarSlider.activeBackground": "#b69af780",
+
+    "list.activeSelectionBackground": "#38264f",
+    "list.activeSelectionForeground": "#faf5ff",
+    "list.inactiveSelectionBackground": "#1c1528",
+    "list.inactiveSelectionForeground": "#e9e1f5",
+    "list.hoverBackground": "#1c1528",
+    "list.hoverForeground": "#e9e1f5",
+    "list.focusOutline": "#b69af780",
+    "list.highlightForeground": "#c4a5ff",
+    "list.dropBackground": "#38264f",
+    "list.errorForeground": "#ef8fa4",
+    "list.warningForeground": "#e5c89a",
+    "tree.indentGuidesStroke": "#33263f",
+
+    "activityBar.background": "#100d18",
+    "activityBar.foreground": "#b69af7",
+    "activityBar.inactiveForeground": "#71637f",
+    "activityBar.border": "#100d18",
+    "activityBar.activeBorder": "#b69af7",
+    "activityBarBadge.background": "#b69af7",
+    "activityBarBadge.foreground": "#100b1b",
+    "sideBar.background": "#100d18",
+    "sideBar.foreground": "#c8bbde",
+    "sideBar.border": "#100d18",
+    "sideBarTitle.foreground": "#aa9cbd",
+    "sideBarSectionHeader.background": "#100d18",
+    "sideBarSectionHeader.foreground": "#aa9cbd",
+    "sideBarSectionHeader.border": "#33263f",
+
+    "titleBar.activeBackground": "#100d18",
+    "titleBar.activeForeground": "#c8bbde",
+    "titleBar.inactiveBackground": "#100d18",
+    "titleBar.inactiveForeground": "#71637f",
+    "titleBar.border": "#100d18",
+    "menu.background": "#16111f",
+    "menu.foreground": "#e9e1f5",
+    "menu.selectionBackground": "#38264f",
+    "menu.selectionForeground": "#faf5ff",
+    "menu.separatorBackground": "#33263f",
+    "menu.border": "#33263f",
+    "menubar.selectionBackground": "#1c1528",
+    "commandCenter.background": "#1c1528",
+    "commandCenter.foreground": "#c8bbde",
+    "commandCenter.border": "#33263f",
+    "commandCenter.activeBackground": "#38264f",
+
+    "editor.background": "#0d0a12",
+    "editor.foreground": "#e9e1f5",
+    "editorCursor.foreground": "#b69af7",
+    "editor.lineHighlightBackground": "#1c152880",
+    "editor.lineHighlightBorder": "#1c152800",
+    "editor.selectionBackground": "#563b7e",
+    "editor.inactiveSelectionBackground": "#563b7e80",
+    "editor.selectionHighlightBackground": "#38264fa0",
+    "editor.wordHighlightBackground": "#38264f80",
+    "editor.wordHighlightStrongBackground": "#38264fc0",
+    "editor.findMatchBackground": "#e5c89a60",
+    "editor.findMatchBorder": "#e5c89a",
+    "editor.findMatchHighlightBackground": "#e5c89a30",
+    "editor.findRangeHighlightBackground": "#1c1528",
+    "editor.hoverHighlightBackground": "#38264f60",
+    "editor.rangeHighlightBackground": "#1c152880",
+    "editorLineNumber.foreground": "#8f809f",
+    "editorLineNumber.activeForeground": "#b69af7",
+    "editorIndentGuide.background1": "#33263f",
+    "editorIndentGuide.activeBackground1": "#59446a",
+    "editorWhitespace.foreground": "#33263f",
+    "editorRuler.foreground": "#33263f",
+    "editorBracketMatch.background": "#33263f",
+    "editorBracketMatch.border": "#b69af7",
+    "editorBracketHighlight.foreground1": "#b69af7",
+    "editorBracketHighlight.foreground2": "#d5a4dc",
+    "editorBracketHighlight.foreground3": "#a1a5e9",
+    "editorBracketHighlight.foreground4": "#9ccbd2",
+    "editorBracketHighlight.foreground5": "#e5c89a",
+    "editorBracketHighlight.foreground6": "#a5ccb3",
+    "editorBracketHighlight.unexpectedBracket.foreground": "#ef8fa4",
+    "editorCodeLens.foreground": "#71637f",
+    "editorLink.activeForeground": "#c4a5ff",
+    "editorInlayHint.background": "#100d18",
+    "editorInlayHint.foreground": "#8f809f",
+    "editorGhostText.foreground": "#71637f",
+    "editorError.foreground": "#ef8fa4",
+    "editorWarning.foreground": "#e5c89a",
+    "editorInfo.foreground": "#a1a5e9",
+    "editorHint.foreground": "#b69af7",
+    "editorGutter.background": "#0d0a12",
+    "editorGutter.addedBackground": "#a5ccb3",
+    "editorGutter.modifiedBackground": "#b69af7",
+    "editorGutter.deletedBackground": "#ef8fa4",
+    "editorOverviewRuler.border": "#0d0a12",
+    "editorOverviewRuler.addedForeground": "#a5ccb380",
+    "editorOverviewRuler.modifiedForeground": "#b69af780",
+    "editorOverviewRuler.deletedForeground": "#ef8fa480",
+    "editorOverviewRuler.errorForeground": "#ef8fa4",
+    "editorOverviewRuler.warningForeground": "#e5c89a",
+    "editorWidget.background": "#100d18",
+    "editorWidget.border": "#33263f",
+    "editorSuggestWidget.background": "#100d18",
+    "editorSuggestWidget.border": "#33263f",
+    "editorSuggestWidget.selectedBackground": "#38264f",
+    "editorSuggestWidget.highlightForeground": "#c4a5ff",
+    "editorHoverWidget.background": "#100d18",
+    "editorHoverWidget.border": "#33263f",
+    "editorStickyScroll.background": "#0d0a12",
+    "editorStickyScrollHover.background": "#1c1528",
+    "peekView.border": "#b69af7",
+    "peekViewEditor.background": "#100d18",
+    "peekViewResult.background": "#100d18",
+    "peekViewResult.selectionBackground": "#38264f",
+    "peekViewTitle.background": "#16111f",
+
+    "diffEditor.insertedLineBackground": "#1c3029",
+    "diffEditor.insertedTextBackground": "#2a4a3c",
+    "diffEditor.removedLineBackground": "#38202d",
+    "diffEditor.removedTextBackground": "#552b40",
+    "diffEditor.diagonalFill": "#33263f",
+    "merge.currentHeaderBackground": "#2a4a3c",
+    "merge.currentContentBackground": "#1c3029",
+    "merge.incomingHeaderBackground": "#403457",
+    "merge.incomingContentBackground": "#27243f",
+
+    "editorGroup.border": "#33263f",
+    "editorGroup.dropBackground": "#38264f60",
+    "editorGroupHeader.tabsBackground": "#100d18",
+    "editorGroupHeader.tabsBorder": "#100d18",
+    "tab.activeBackground": "#0d0a12",
+    "tab.activeForeground": "#e9e1f5",
+    "tab.activeBorderTop": "#b69af7",
+    "tab.inactiveBackground": "#100d18",
+    "tab.inactiveForeground": "#8f809f",
+    "tab.hoverBackground": "#1c1528",
+    "tab.border": "#100d18",
+    "tab.unfocusedActiveBorderTop": "#59446a",
+    "breadcrumb.foreground": "#8f809f",
+    "breadcrumb.focusForeground": "#e9e1f5",
+    "breadcrumb.activeSelectionForeground": "#b69af7",
+    "breadcrumbPicker.background": "#100d18",
+
+    "panel.background": "#100d18",
+    "panel.border": "#33263f",
+    "panelTitle.activeForeground": "#e9e1f5",
+    "panelTitle.activeBorder": "#b69af7",
+    "panelTitle.inactiveForeground": "#71637f",
+    "statusBar.background": "#100d18",
+    "statusBar.foreground": "#aa9cbd",
+    "statusBar.border": "#100d18",
+    "statusBar.debuggingBackground": "#e5c89a",
+    "statusBar.debuggingForeground": "#100b1b",
+    "statusBar.noFolderBackground": "#100d18",
+    "statusBarItem.hoverBackground": "#1c1528",
+    "statusBarItem.remoteBackground": "#b69af7",
+    "statusBarItem.remoteForeground": "#100b1b",
+    "statusBarItem.errorBackground": "#ef8fa4",
+    "statusBarItem.errorForeground": "#100b1b",
+    "statusBarItem.warningBackground": "#e5c89a",
+    "statusBarItem.warningForeground": "#100b1b",
+    "quickInput.background": "#100d18",
+    "quickInputList.focusBackground": "#38264f",
+    "quickInputTitle.background": "#16111f",
+    "pickerGroup.foreground": "#b69af7",
+    "pickerGroup.border": "#33263f",
+    "keybindingLabel.background": "#1c1528",
+    "keybindingLabel.foreground": "#e9e1f5",
+    "keybindingLabel.border": "#33263f",
+    "keybindingLabel.bottomBorder": "#33263f",
+    "notifications.background": "#100d18",
+    "notifications.foreground": "#e9e1f5",
+    "notifications.border": "#33263f",
+    "notificationCenterHeader.background": "#16111f",
+    "notificationLink.foreground": "#c4a5ff",
+    "notificationsErrorIcon.foreground": "#ef8fa4",
+    "notificationsWarningIcon.foreground": "#e5c89a",
+    "notificationsInfoIcon.foreground": "#a1a5e9",
+
+    "gitDecoration.addedResourceForeground": "#a5ccb3",
+    "gitDecoration.untrackedResourceForeground": "#a5ccb3",
+    "gitDecoration.modifiedResourceForeground": "#b69af7",
+    "gitDecoration.deletedResourceForeground": "#ef8fa4",
+    "gitDecoration.renamedResourceForeground": "#9ccbd2",
+    "gitDecoration.conflictingResourceForeground": "#e5c89a",
+    "gitDecoration.ignoredResourceForeground": "#71637f",
+    "gitDecoration.submoduleResourceForeground": "#a1a5e9",
+
+    "terminal.background": "#0d0a12",
+    "terminal.foreground": "#e9e1f5",
+    "terminal.selectionBackground": "#563b7e",
+    "terminalCursor.foreground": "#b69af7",
+    "terminal.ansiBlack": "#231d2e",
+    "terminal.ansiRed": "#ef8fa4",
+    "terminal.ansiGreen": "#a5ccb3",
+    "terminal.ansiYellow": "#e5c89a",
+    "terminal.ansiBlue": "#a1a5e9",
+    "terminal.ansiMagenta": "#b69af7",
+    "terminal.ansiCyan": "#9ccbd2",
+    "terminal.ansiWhite": "#ded5e8",
+    "terminal.ansiBrightBlack": "#71637f",
+    "terminal.ansiBrightRed": "#f7a3b6",
+    "terminal.ansiBrightGreen": "#b9e0c6",
+    "terminal.ansiBrightYellow": "#f4dab0",
+    "terminal.ansiBrightBlue": "#b8bdf5",
+    "terminal.ansiBrightMagenta": "#c4a5ff",
+    "terminal.ansiBrightCyan": "#b4e0e5",
+    "terminal.ansiBrightWhite": "#faf5ff"
+  },
+  "tokenColors": [
+    { "scope": ["comment", "punctuation.definition.comment"], "settings": { "foreground": "#71637f", "fontStyle": "italic" } },
+    { "scope": ["string", "constant.other.symbol"], "settings": { "foreground": "#a5ccb3" } },
+    { "scope": ["constant.character.escape", "string.regexp"], "settings": { "foreground": "#d5a4dc" } },
+    { "scope": ["constant.numeric", "constant.language", "constant.other", "constant.character"], "settings": { "foreground": "#e5c89a" } },
+    { "scope": ["support.constant"], "settings": { "foreground": "#e5c89a", "fontStyle": "italic" } },
+    { "scope": ["variable", "variable.other"], "settings": { "foreground": "#e9e1f5" } },
+    { "scope": ["variable.language"], "settings": { "foreground": "#d5a4dc", "fontStyle": "italic" } },
+    { "scope": ["variable.parameter"], "settings": { "foreground": "#c8bbde" } },
+    { "scope": ["variable.other.member", "variable.other.property", "support.type.property-name", "meta.object-literal.key"], "settings": { "foreground": "#c8bbde" } },
+    { "scope": ["keyword", "keyword.control", "storage.modifier", "storage.type"], "settings": { "foreground": "#b69af7" } },
+    { "scope": ["storage.type.function", "keyword.declaration.function"], "settings": { "foreground": "#b69af7", "fontStyle": "italic" } },
+    { "scope": ["keyword.control.import", "keyword.other.import", "keyword.control.include"], "settings": { "foreground": "#d5a4dc" } },
+    { "scope": ["keyword.operator"], "settings": { "foreground": "#d5a4dc" } },
+    { "scope": ["entity.name.type", "entity.name.class", "entity.name.struct", "entity.name.enum", "support.type", "support.class", "entity.other.inherited-class"], "settings": { "foreground": "#e5c89a" } },
+    { "scope": ["storage.type.primitive", "support.type.primitive", "support.type.builtin"], "settings": { "foreground": "#e5c89a", "fontStyle": "italic" } },
+    { "scope": ["entity.name.function", "meta.function-call", "variable.function", "support.function"], "settings": { "foreground": "#a1a5e9" } },
+    { "scope": ["entity.name.namespace", "entity.name.module", "support.module"], "settings": { "foreground": "#9ccbd2" } },
+    { "scope": ["entity.other.attribute-name", "meta.decorator", "meta.annotation", "entity.name.label"], "settings": { "foreground": "#9ccbd2" } },
+    { "scope": ["entity.name.tag"], "settings": { "foreground": "#b69af7" } },
+    { "scope": ["punctuation", "meta.brace", "punctuation.definition.tag"], "settings": { "foreground": "#8f809f" } },
+    { "scope": ["punctuation.section.embedded", "punctuation.definition.template-expression"], "settings": { "foreground": "#d5a4dc" } },
+    { "scope": ["markup.heading", "entity.name.section"], "settings": { "foreground": "#b69af7", "fontStyle": "bold" } },
+    { "scope": ["markup.bold"], "settings": { "fontStyle": "bold" } },
+    { "scope": ["markup.italic"], "settings": { "fontStyle": "italic" } },
+    { "scope": ["markup.underline.link", "string.other.link"], "settings": { "foreground": "#a1a5e9", "fontStyle": "underline" } },
+    { "scope": ["markup.raw", "markup.inline.raw", "markup.fenced_code"], "settings": { "foreground": "#a5ccb3" } },
+    { "scope": ["markup.list punctuation.definition.list", "punctuation.definition.list.begin"], "settings": { "foreground": "#d5a4dc" } },
+    { "scope": ["markup.quote"], "settings": { "foreground": "#8f809f", "fontStyle": "italic" } },
+    { "scope": ["markup.inserted"], "settings": { "foreground": "#a5ccb3" } },
+    { "scope": ["markup.deleted"], "settings": { "foreground": "#ef8fa4" } },
+    { "scope": ["markup.changed"], "settings": { "foreground": "#b69af7" } },
+    { "scope": ["invalid"], "settings": { "foreground": "#ef8fa4" } },
+    { "scope": ["invalid.deprecated"], "settings": { "foreground": "#e5c89a", "fontStyle": "strikethrough" } }
+  ],
+  "semanticTokenColors": {
+    "namespace": "#9ccbd2",
+    "parameter": "#c8bbde",
+    "property": "#c8bbde",
+    "enumMember": "#e5c89a",
+    "macro": "#e5c89a",
+    "*.defaultLibrary": { "fontStyle": "italic" },
+    "*.deprecated": { "fontStyle": "strikethrough" }
+  }
+}
+```
+
+## `apps/vscode/vsix/extension.vsixmanifest`
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The package description `code --install-extension` reads; ./install.sh zips this folder. -->
+<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">
+  <Metadata>
+    <Identity Language="en-US" Id="penumbra-theme" Version="1.0.0" Publisher="penumbra"/>
+    <DisplayName>Penumbra</DisplayName>
+    <Description xml:space="preserve">The Penumbra desktop's colours: near-black, violet and soft pastels.</Description>
+    <Categories>Themes</Categories>
+    <Properties>
+      <Property Id="Microsoft.VisualStudio.Code.Engine" Value="^1.70.0"/>
+    </Properties>
+  </Metadata>
+  <Installation>
+    <InstallationTarget Id="Microsoft.VisualStudio.Code"/>
+  </Installation>
+  <Dependencies/>
+  <Assets>
+    <Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json" Addressable="true"/>
+  </Assets>
+</PackageManifest>
+```
+
+## `apps/yazi/config/yazi/flavors/penumbra.yazi/flavor.toml`
+
+```toml
+# PENUMBRA colours for yazi. Generated by tools/build-palette.py from palette/palette.toml; do not edit.
+# ./install.sh puts the syntax colours next to it (tmtheme.xml, bat's theme) and selects the flavor
+# in your theme.toml. Unset keys keep yazi's defaults.
+
+[mgr]
+cwd = { fg = "#9ccbd2" }
+find_keyword = { fg = "#e5c89a", bold = true, italic = true, underline = true }
+find_position = { fg = "#d5a4dc", bg = "reset", bold = true, italic = true }
+symlink_target = { fg = "#9ccbd2", italic = true }
+marker_copied = { fg = "#a5ccb3", bg = "#a5ccb3" }
+marker_cut = { fg = "#ef8fa4", bg = "#ef8fa4" }
+marker_marked = { fg = "#9ccbd2", bg = "#9ccbd2" }
+marker_selected = { fg = "#b69af7", bg = "#b69af7" }
+count_copied = { fg = "#100b1b", bg = "#a5ccb3" }
+count_cut = { fg = "#100b1b", bg = "#ef8fa4" }
+count_selected = { fg = "#100b1b", bg = "#b69af7" }
+border_style = { fg = "#33263f" }
+
+[tabs]
+active = { fg = "#100b1b", bg = "#b69af7", bold = true }
+inactive = { fg = "#8f809f", bg = "#1c1528" }
+
+[mode]
+normal_main = { fg = "#100b1b", bg = "#b69af7", bold = true }
+normal_alt = { fg = "#b69af7", bg = "#1c1528" }
+select_main = { fg = "#100b1b", bg = "#d5a4dc", bold = true }
+select_alt = { fg = "#d5a4dc", bg = "#1c1528" }
+unset_main = { fg = "#100b1b", bg = "#ef8fa4", bold = true }
+unset_alt = { fg = "#ef8fa4", bg = "#1c1528" }
+
+[indicator]
+parent = { fg = "#faf5ff", bg = "#1c1528" }
+current = { fg = "#faf5ff", bg = "#38264f" }
+preview = { fg = "#faf5ff", bg = "#1c1528" }
+
+[status]
+perm_sep = { fg = "#71637f" }
+perm_type = { fg = "#b69af7" }
+perm_read = { fg = "#e5c89a" }
+perm_write = { fg = "#ef8fa4" }
+perm_exec = { fg = "#a5ccb3" }
+progress_label = { fg = "#e9e1f5", bold = true }
+progress_normal = { fg = "#b69af7", bg = "#1c1528" }
+progress_error = { fg = "#ef8fa4", bg = "#1c1528" }
+
+[which]
+cand = { fg = "#b69af7" }
+rest = { fg = "#71637f" }
+desc = { fg = "#c8bbde" }
+separator_style = { fg = "#71637f" }
+
+[confirm]
+border = { fg = "#b69af7" }
+title = { fg = "#b69af7" }
+btn_yes = { fg = "#100b1b", bg = "#b69af7" }
+
+[spot]
+border = { fg = "#b69af7" }
+title = { fg = "#b69af7" }
+tbl_col = { fg = "#b69af7" }
+tbl_cell = { fg = "#faf5ff", bg = "#38264f" }
+
+[notify]
+title_info = { fg = "#a5ccb3" }
+title_warn = { fg = "#e5c89a" }
+title_error = { fg = "#ef8fa4" }
+
+[pick]
+border = { fg = "#b69af7" }
+active = { fg = "#b69af7", bold = true }
+
+[input]
+border = { fg = "#b69af7" }
+selected = { bg = "#563b7e" }
+
+[cmp]
+border = { fg = "#b69af7" }
+active = { fg = "#faf5ff", bg = "#38264f" }
+
+[tasks]
+border = { fg = "#b69af7" }
+hovered = { fg = "#b69af7", bold = true }
+
+[help]
+border = { fg = "#b69af7" }
+chord = { fg = "#b69af7" }
+hovered = { bg = "#38264f", bold = true }
+```
+
+## `apps/zathura/config/zathura/penumbra-colors`
+
+```text
+# PENUMBRA colours for zathura. Generated by tools/build-palette.py from palette/palette.toml; do not edit.
+# ./install.sh adds "include penumbra-colors" to your zathurarc.
+set default-bg "#0d0a12"
+set default-fg "#e9e1f5"
+set statusbar-bg "#100d18"
+set statusbar-fg "#c8bbde"
+set inputbar-bg "#100d18"
+set inputbar-fg "#e9e1f5"
+set notification-bg "#100d18"
+set notification-fg "#e9e1f5"
+set notification-error-bg "#100d18"
+set notification-error-fg "#ef8fa4"
+set notification-warning-bg "#100d18"
+set notification-warning-fg "#e5c89a"
+set completion-bg "#100d18"
+set completion-fg "#c8bbde"
+set completion-group-bg "#16111f"
+set completion-group-fg "#b69af7"
+set completion-highlight-bg "#38264f"
+set completion-highlight-fg "#faf5ff"
+set index-bg "#100d18"
+set index-fg "#c8bbde"
+set index-active-bg "#38264f"
+set index-active-fg "#faf5ff"
+set highlight-color "rgba(229,200,154,0.35)"
+set highlight-fg "#100b1b"
+set highlight-active-color "rgba(182,154,247,0.45)"
+set render-loading-bg "#0d0a12"
+set render-loading-fg "#8f809f"
+# Ctrl+R: dark pages in the palette's colours.
+set recolor-lightcolor "#0d0a12"
+set recolor-darkcolor "#e9e1f5"
+set recolor-keephue true
 ```
 
 ## `share/color-schemes/Penumbra.colors`

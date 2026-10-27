@@ -528,6 +528,157 @@ disable_dunst() {
     systemctl --user daemon-reload
 }
 
+# ─── Colours for other apps ──────────────────────────────────────────────────
+# apps/NAME/ holds Penumbra's colours for an app Penumbra doesn't install. It is used only when one
+# of the app's commands exists (NAME, unless APP_COMMANDS lists others): its config/ is copied to
+# ~/.config and its share/ to ~/.local/share, then color_NAME, if there is one, turns the colours on.
+# Your own settings files are only added to, and kept in the backup like everything else.
+declare -A APP_COMMANDS=([vscode]='code codium')
+
+install_app_colors() {
+    local dir app command found
+    for dir in "$ROOT"/apps/*/; do
+        dir=${dir%/} app=${dir##*/} found=
+        for command in ${APP_COMMANDS[$app]:-$app}; do
+            command -v "$command" >/dev/null && found=1
+        done
+        [[ -n $found ]] || continue
+        [[ ! -d $dir/config ]] || install_tree "$dir/config" "$HOME/.config"
+        [[ ! -d $dir/share ]] || install_tree "$dir/share" "$HOME/.local/share"
+        if declare -F "color_$app" >/dev/null; then "color_$app" "$dir"; fi
+        echo "Penumbra colours for $app."
+    done
+}
+
+# install_file FROM TO: copy one file, keeping what it replaces.
+install_file() {
+    backup_file "$2" "${2#"$HOME/"}"
+    mkdir -p "$(dirname "$2")"
+    cp "$1" "$2"
+}
+
+# add_line FILE LINE [top]: add LINE at the end of FILE, or at the top, unless FILE already has it.
+# FILE is created if missing, and written in place so a symbolic link stays one.
+add_line() {
+    local file=$1 line=$2 text=''
+    [[ -f $file ]] && grep -qxF -- "$line" "$file" && return 0
+    backup_file "$file" "${file#"$HOME/"}"
+    mkdir -p "$(dirname "$file")"
+    [[ -f $file ]] && text=$(<"$file")
+    if [[ ${3:-} == top ]]; then
+        printf '%s\n%s' "$line" "${text:+$text$'\n'}" > "$file"
+    else
+        printf '%s%s\n' "${text:+$text$'\n'}" "$line" > "$file"
+    fi
+}
+
+# btop: choose the theme in btop.conf (btop fills in the rest of a new file).
+color_btop() {
+    local conf=$HOME/.config/btop/btop.conf
+    if [[ -f $conf ]] && grep -q '^color_theme *=' "$conf"; then
+        grep -qx 'color_theme = "penumbra"' "$conf" && return 0
+        backup_file "$conf" .config/btop/btop.conf
+        sed --follow-symlinks -i 's/^color_theme *=.*/color_theme = "penumbra"/' "$conf"
+    else
+        add_line "$conf" 'color_theme = "penumbra"'
+    fi
+}
+
+# bat: use the theme unless your bat config already picks one, and rebuild bat's theme cache, which
+# delta reads too.
+color_bat() {
+    local conf
+    conf=$(bat --config-file)
+    [[ -f $conf ]] && grep -q '^--theme[= ]' "$conf" || add_line "$conf" '--theme="Penumbra"'
+    bat cache --build >/dev/null
+}
+
+# delta: include the "penumbra" feature from your Git configuration and add it to delta.features,
+# after the features you already use.
+color_delta() {
+    local conf=$HOME/.gitconfig features
+    # shellcheck disable=SC2088  # Git expands the ~ itself.
+    local include='~/.config/git/penumbra-delta.gitconfig'
+    [[ -e $conf || ! -e $HOME/.config/git/config ]] || conf=$HOME/.config/git/config
+    # Syntax highlighting in the Penumbra colours comes from bat's theme cache.
+    if command -v bat >/dev/null; then
+        git config --file "$HOME/.config/git/penumbra-delta.gitconfig" delta.penumbra.syntax-theme Penumbra
+    fi
+    features=$(git config --file "$conf" delta.features || true)
+    if git config --file "$conf" --get-all include.path 2>/dev/null | grep -qxF "$include" \
+        && [[ " $features " == *' penumbra '* ]]; then
+        return 0
+    fi
+    backup_file "$conf" "${conf#"$HOME/"}"
+    git config --file "$conf" --get-all include.path 2>/dev/null | grep -qxF "$include" \
+        || git config --file "$conf" --add include.path "$include"
+    [[ " $features " == *' penumbra '* ]] || git config --file "$conf" delta.features "${features:+$features }penumbra"
+}
+
+# yazi: the flavor's code previews use bat's theme; choose the flavor unless theme.toml has one.
+color_yazi() {
+    local theme=$HOME/.config/yazi/theme.toml
+    install_file "$ROOT/apps/bat/config/bat/themes/Penumbra.tmTheme" \
+        "$HOME/.config/yazi/flavors/penumbra.yazi/tmtheme.xml"
+    if [[ -f $theme ]] && grep -q '^\[flavor\]' "$theme"; then
+        grep -q '"penumbra"' "$theme" || echo 'yazi: your theme.toml chooses its own flavor; set dark = "penumbra" there to use Penumbra.'
+        return 0
+    fi
+    add_line "$theme" $'[flavor]\ndark = "penumbra"'
+}
+
+color_zathura() { add_line "$HOME/.config/zathura/zathurarc" 'include penumbra-colors'; }
+
+# mpv: at the top of mpv.conf, so it isn't read as part of a [profile].
+color_mpv() { add_line "$HOME/.config/mpv/mpv.conf" 'include="~~/penumbra.conf"' top; }
+
+# VS Code, Code - OSS and VSCodium: package the theme as an extension and install it with the editor's
+# own command (a copied folder is ignored once the editor keeps a list of its extensions).
+color_vscode() {
+    local vsix=$BACKUP/penumbra-theme.vsix command
+    (cd "$1/vsix" && python3 -m zipfile -c "$vsix" extension.vsixmanifest '[Content_Types].xml' extension)
+    for command in ${APP_COMMANDS[vscode]}; do
+        command -v "$command" >/dev/null || continue
+        "$command" --install-extension "$vsix" --force >/dev/null 2>&1 \
+            || warn "$command could not install the Penumbra theme ($vsix)."
+    done
+    echo 'VS Code: choose Penumbra in Preferences: Color Theme.'
+}
+
+# Vesktop: turn the theme on in its settings, which it writes on first start. A running Vesktop
+# keeps its own copy, so this shows after a restart.
+color_vesktop() {
+    local settings=$HOME/.config/vesktop/settings/settings.json
+    [[ -f $settings ]] || return 0
+    python3 -c 'import json, sys; sys.exit("penumbra.theme.css" in json.load(open(sys.argv[1])).get("enabledThemes", []))' \
+        "$settings" || return 0
+    backup_file "$settings" .config/vesktop/settings/settings.json
+    python3 - "$settings" <<'EOF'
+import json, sys
+with open(sys.argv[1]) as file:
+    settings = json.load(file)
+settings.setdefault('enabledThemes', []).append('penumbra.theme.css')
+with open(sys.argv[1], 'w') as file:
+    json.dump(settings, file, indent=4)
+EOF
+}
+
+# Firefox: every profile imports the colours from its chrome/userChrome.css, which Firefox reads
+# once user.js allows it (on its next start).
+color_firefox() {
+    local root profile
+    for root in "$HOME/.mozilla/firefox" "$HOME/.config/mozilla/firefox"; do
+        [[ -r $root/profiles.ini ]] || continue
+        while IFS= read -r profile; do
+            [[ $profile == /* ]] || profile=$root/$profile
+            [[ -d $profile ]] || continue
+            install_file "$1/chrome/penumbra.css" "$profile/chrome/penumbra.css"
+            add_line "$profile/chrome/userChrome.css" '@import "penumbra.css";' top
+            add_line "$profile/user.js" 'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);'
+        done < <(sed -n 's/^Path=//p' "$root/profiles.ini")
+    done
+}
+
 run_user_part() {
     BACKUP=$HOME/.local/state/penumbra/backups/$STAMP
     mkdir -p "$BACKUP"
@@ -560,6 +711,7 @@ run_user_part() {
 
     step 'Applying themes and starting services'
     apply_gtk_settings
+    install_app_colors
     configure_keyring
     disable_dunst
     systemctl --user daemon-reload
@@ -588,8 +740,8 @@ backup_runs() {
 # copy is what you had before uninstalling.
 keep_once() { [[ -e $BACKUP/$2 || -L $BACKUP/$2 ]] || backup_file "$1" "$2"; }
 
-# undo_runs DIR TARGET TOPS...: undo every run in DIR. Saved files live under TOPS (e.g. ".config",
-# or "etc"), relative to TARGET ($HOME or /); new-files.txt paths must be under TARGET.
+# undo_runs DIR TARGET TOPS...: undo every run in DIR. Saved files are TOPS or under them (e.g. ".config",
+# ".gitconfig" or "etc"), relative to TARGET ($HOME or /); new-files.txt paths must be under TARGET.
 undo_runs() {
     local dir=$1 target=$2 run path rel top
     shift 2
@@ -606,7 +758,7 @@ undo_runs() {
             done < "$dir/$run/new-files.txt"
         fi
         for top in "$@"; do
-            [[ -d $dir/$run/$top ]] || continue
+            [[ -e $dir/$run/$top ]] || continue
             while IFS= read -r -d '' path; do
                 rel=${path#"$dir/$run/"}
                 keep_once "${target%/}/$rel" "$rel"
@@ -629,17 +781,22 @@ oldest_backup() {
 }
 
 uninstall_user() {
-    local dir=$HOME/.local/state/penumbra/backups file key value schema
+    local dir=$HOME/.local/state/penumbra/backups file key value schema editor
     [[ -n $(backup_runs "$dir") ]] || die "No Penumbra backups in $dir; nothing to undo."
     BACKUP=$dir/uninstall-$STAMP
     mkdir -p "$BACKUP"
     step 'Removing Penumbra from your account'
     systemctl --user stop penumbra-shell.service 2>/dev/null || true
-    undo_runs "$dir" "$HOME" .config .local
+    undo_runs "$dir" "$HOME" .config .local .gitconfig .mozilla
     # The lock screen's link to the current wallpaper, and folders left empty.
     [[ -L $HOME/.local/share/penumbra/lock.png ]] && rm -f "$HOME/.local/share/penumbra/lock.png"
     find "$HOME/.config/quickshell/penumbra" "$HOME/.local/share/penumbra" "$HOME/.config/nvim/lua/penumbra" \
         -depth -type d -empty -delete 2>/dev/null || true
+    # The editor's theme extension, which the editor installed itself.
+    for editor in ${APP_COMMANDS[vscode]}; do
+        command -v "$editor" >/dev/null || continue
+        "$editor" --uninstall-extension penumbra.penumbra-theme >/dev/null 2>&1 || true
+    done
     systemctl --user daemon-reload
     # GSettings Penumbra changed, as they were before the first install.
     if command -v gsettings >/dev/null; then

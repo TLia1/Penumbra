@@ -71,11 +71,32 @@ This undoes every install run, newest first, from the backups the runs left: fil
 | Wallpaper | Three original SVG scenes, night, dawn and eclipse, plus pre-rendered PNGs and wordmark-free variants for the lock screen and greeter (`tools/build-wallpapers.py`); awww switches them with a transition that grows out of the planet. The shell animates dawn (twinkling stars, a breathing glow and rim light, a moonlet riding the ring, the odd shooting star) and eclipse (a drifting nebula, glinting stars, a swaying corona and diamond-ring flare, two backlit moons that pass in front of and behind the eclipse, an aurora on the near world's horizon, a blinking satellite, shooting stars); both pause under fullscreen windows. Your own images, GIFs and videos work too; see "Your own wallpapers" |
 | Neovim | Penumbra colour scheme with Treesitter highlighting, file tree, tabs, fuzzy search, Git markers; see "Neovim coding workspace" |
 | Passwords | gnome-keyring keeps the passwords apps save (browsers, editors, Git credential helpers, Flatpak apps through the portal) and unlocks with your password when you sign in through SDDM; Seahorse ("Passwords and Keys") manages them |
+| Other apps | Penumbra colours for btop, bat, delta, fzf, lazygit, yazi, ls/eza, zathura, mpv (and uosc), VS Code / VSCodium, Vesktop and Firefox's toolbars, added only for the apps you have installed; see "Colours for other apps" |
 | Tools | Screen recording (wf-recorder), clipboard history (cliphist), color picker (hyprpicker), screenshot annotation (Satty), night light (hyprsunset), audio visualizer (cava) |
 
 ### Palette
 
-Every colour is defined once, in [`palette/palette.toml`](palette/palette.toml): near-black `#0d0a12`, surface `#100d18`, violet `#b69af7`, text `#e9e1f5`, muted `#8f809f`, plus the signal and terminal colours. `python tools/build-palette.py` renders the templates in `palette/templates/` into the colour files each app reads: Kitty's `penumbra-colors.conf`, the GTK 3/4 stylesheets, the Qt6ct and KDE colour schemes, rofi's `colors.rasi`, Hyprland's `colors.lua` and `hyprlock-colors.conf`, Fish's `conf.d/penumbra-colors.fish`, Starship, Satty, Fastfetch, Neovim's `lua/penumbra/palette.lua`, the shell's `palette.js` and the greeter's. Change a colour there, run the script, then `./install.sh --user-only` (or `./install.sh` for the greeter). Generated files say so in their first line; `tests/test_generated.py` checks they are current. The animated wallpapers, boot artwork and cursors keep their own colours in their build tools.
+Every colour is defined once, in [`palette/palette.toml`](palette/palette.toml): near-black `#0d0a12`, surface `#100d18`, violet `#b69af7`, text `#e9e1f5`, muted `#8f809f`, plus the signal and terminal colours. `python tools/build-palette.py` renders the templates in `palette/templates/` into the colour files each app reads: Kitty's `penumbra-colors.conf`, the GTK 3/4 stylesheets, the Qt6ct and KDE colour schemes, rofi's `colors.rasi`, Hyprland's `colors.lua` and `hyprlock-colors.conf`, Fish's `conf.d/penumbra-colors.fish`, Starship, Satty, Fastfetch, Neovim's `lua/penumbra/palette.lua`, the shell's `palette.js` and the greeter's. Change a colour there, run the script, then `./install.sh --user-only` (or `./install.sh` for the greeter). Generated files say so in their first line; `tests/test_generated.py` checks they are current.
+
+### Colours for other apps
+
+Apps Penumbra doesn't install get their colours from `apps/NAME/`, also rendered from the palette. The installer uses a folder only when the app's command is there, so the package list stays the same; installing the app later and running `./install.sh --user-only` again picks it up. Each app's own settings file is only added to (and kept in the backup like everything else); if it already chooses a theme of its own, that choice stays.
+
+| App | What the installer does |
+|---|---|
+| btop | `~/.config/btop/themes/penumbra.theme`, chosen as `color_theme` in `btop.conf` |
+| bat | `~/.config/bat/themes/Penumbra.tmTheme`, `--theme="Penumbra"` in bat's config unless it names a theme, then `bat cache --build` |
+| delta | `~/.config/git/penumbra-delta.gitconfig`, included from your Git configuration, with `penumbra` added to `delta.features` (syntax colours from bat's theme when bat is installed) |
+| fzf, ls, eza | `FZF_DEFAULT_OPTS`, `LS_COLORS` and `EZA_COLORS` in Fish's colours file, unless you set them yourself |
+| lazygit | `~/.config/lazygit/penumbra.yml`, which Fish adds to `LG_CONFIG_FILE` after your own `config.yml` |
+| yazi | the `penumbra` flavor in `~/.config/yazi/flavors/`, chosen in `theme.toml` unless it has a `[flavor]` section |
+| zathura | `~/.config/zathura/penumbra-colors`, included from `zathurarc` (Ctrl+R recolours pages in the palette) |
+| mpv | `~/.config/mpv/penumbra.conf` (OSD, on-screen controller, uosc), included at the top of `mpv.conf` |
+| VS Code, Code - OSS, VSCodium | a Penumbra theme extension installed with `--install-extension`; choose it in Preferences: Color Theme |
+| Vesktop | `~/.config/vesktop/themes/penumbra.theme.css`, turned on in its settings (restart Vesktop) |
+| Firefox | `chrome/penumbra.css` in every profile, imported from `userChrome.css`, with the `user.js` preference that lets Firefox read it (restart Firefox); toolbars, tabs and menus only, pages keep their colours |
+
+`./install.sh --uninstall` puts those files back as they were and removes the editor extension. The animated wallpapers, boot artwork and cursors keep their own colours in their build tools.
 
 Fonts: Inter, with Inter Display for large text (the lock and greeter clocks, panel headlines), and JetBrainsMono Nerd Font for the terminal, code and icons.
 
@@ -130,6 +151,7 @@ Bar: click the Arch logo for the launcher (right-click for the clipboard) and th
 - `assets/wallpaper*.png` (night, dawn and eclipse, each with a wordmark-free variant) → `~/.local/share/penumbra/`; `lock.png` there links to the clean variant of the current scene. After editing a wallpaper SVG, run `tools/build-wallpapers.py` to re-render them and the SDDM copy; it also splits the dawn and eclipse scenes into the layers under `config/quickshell/penumbra/dawn/` and `eclipse/` that the animated wallpapers move, and compiles the aurora shader (needs `qt6-shadertools`).
 - `system/` mirrors absolute system paths: SDDM configuration and complete theme, and the cursor theme.
 - `palette/` holds the palette and the templates of the generated colour files (see Palette).
+- `apps/` holds colours for apps Penumbra doesn't install, used only when the app is (see "Colours for other apps").
 - `share/kio/servicemenus/penumbra-wallpaper.desktop` → Dolphin's right-click **Set as Wallpaper** for images, GIFs and videos.
 - `CONFIGURATION.md` contains the installer, palette, tools, scripts, every authored configuration and the wallpaper SVGs in one Markdown document. It is generated by `python tools/build-configuration.py`; run that after changing a file.
 - `previews/` contains screenshots: `greeter.png` is current; `desktop.png` and `terminal.png` are of an earlier version, from before the theme was renamed, and still show the former name, Nocturne.

@@ -2,7 +2,7 @@
 """Write every PENUMBRA colour file from palette/palette.toml.
 
 Each file under palette/templates/ is rendered to the same path in the repository, with
-{{name}} replaced by that colour as #rrggbb, {{name:hex}} as rrggbb and {{name:rgb}} as r,g,b.
+{{name}} replaced by that colour as #rrggbb, {{name:hex}} as rrggbb, {{name:rgb}} as r,g,b and {{name:sgr}} as r;g;b (for terminal colour codes).
 `--check` only reports generated files that are out of date (exit status 1).
 """
 from pathlib import Path
@@ -13,7 +13,7 @@ import tomllib
 ROOT = Path(__file__).resolve().parent.parent
 PALETTE = ROOT / 'palette' / 'palette.toml'
 TEMPLATES = ROOT / 'palette' / 'templates'
-TOKEN = re.compile(r'\{\{\s*([A-Za-z]+)(?::(hex|rgb))?\s*\}\}')
+TOKEN = re.compile(r'\{\{\s*([A-Za-z]+)(?::(hex|rgb|sgr))?\s*\}\}')
 
 
 def load_palette():
@@ -32,8 +32,8 @@ def render(template, colors):
         value = colors[name]
         if form == 'hex':
             return value[1:]
-        if form == 'rgb':
-            return ','.join(str(int(value[i:i + 2], 16)) for i in (1, 3, 5))
+        if form in ('rgb', 'sgr'):
+            return (',' if form == 'rgb' else ';').join(str(int(value[i:i + 2], 16)) for i in (1, 3, 5))
         return value
     return TOKEN.sub(color, template.read_text())
 

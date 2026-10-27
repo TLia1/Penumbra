@@ -20,6 +20,7 @@ SECTIONS = [
     ['tests/*'],
     ['bin/*'],
     ['config/**/*'],
+    ['apps/**/*'],
     ['share/color-schemes/*', 'share/icons/*/index.theme', 'share/kio/servicemenus/*'],
     ['system/**/*'],
     ['boot/grub/theme.txt', 'boot/plymouth/*.plymouth'],
@@ -34,7 +35,8 @@ LANGUAGES = {
     '.sh': 'bash', '.py': 'python', '.lua': 'lua', '.qml': 'qml', '.js': 'javascript', '.toml': 'toml',
     '.css': 'css', '.ini': 'ini', '.conf': 'ini', '.jsonc': 'jsonc', '.json': 'json', '.fish': 'fish',
     '.rasi': 'css', '.svg': 'xml', '.frag': 'glsl', '.service': 'ini', '.desktop': 'ini', '.theme': 'ini',
-    '.colors': 'ini', '.plymouth': 'ini', '.txt': 'text',
+    '.colors': 'ini', '.plymouth': 'ini', '.txt': 'text', '.tmTheme': 'xml', '.xml': 'xml',
+    '.vsixmanifest': 'xml', '.yml': 'yaml', '.gitconfig': 'ini',
 }
 
 INTRO = '''# Complete Penumbra configuration
