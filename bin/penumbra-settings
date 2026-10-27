@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+"""Read, change and apply Penumbra's settings in ~/.config/penumbra/settings.conf.
+
+The installer asks for them; the shell's Settings pages change them through this script, which
+applies each change at once: the keyboard to Hyprland, the idle timings to a new hypridle.conf (and
+a restart of hypridle). install.sh runs `apply` after copying, so both stay in step.
+
+  penumbra-settings get                  every setting, as JSON
+  penumbra-settings set KEY=VALUE...     check, save and apply; nothing changes if one is wrong
+  penumbra-settings check KEY=VALUE...   only check
+  penumbra-settings apply [--no-restart] write hypridle.conf and apply everything
+  penumbra-settings layouts              keyboard layouts and their variants, as JSON
+"""
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+
+CONFIG = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config')
+SETTINGS = CONFIG / 'penumbra' / 'settings.conf'
+HYPRIDLE = CONFIG / 'hypr' / 'hypridle.conf'
+XKB_RULES = Path('/usr/share/X11/xkb/rules/base.lst')
+
+# The same keys, order and defaults as install.sh (SETTING_KEYS, detect_settings), which also
+# detects the keyboard on a first install. Idle timings are minutes, or "never".
+DEFAULTS = {
+    'kb_layout': 'us', 'kb_variant': '', 'kb_options': '', 'scale': 'auto', 'numlock': 'on',
+    'shell': 'fish', 'terminal': 'kitty', 'file_manager': 'org.kde.dolphin',
+    'idle_dim': '9.5', 'idle_lock': '10', 'idle_screen_off': '11', 'idle_suspend': '30',
+}
+IDLE = re.compile(r'^(never|[0-9]+(\.[0-9]+)?)$')
+
+
+def xkb_section(name):
+    """{code: description} for a section of the XKB rules ("layout", "variant")."""
+    found, section = {}, None
+    try:
+        lines = XKB_RULES.read_text().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        if line.startswith('!'):
+            section = line[1:].strip()
+        elif section == name and line.strip():
+            code, _, description = line.strip().partition(' ')
+            found.setdefault(code, description.strip())
+    return found
+
+
+def problem(key, value):
+    """Why VALUE won't do for KEY, or None."""
+    if key == 'kb_layout':
+        if not re.fullmatch(r'[a-z0-9_]+(,[a-z0-9_]+)*', value):
+            return "Layout should look like 'us' or 'us,fr'."
+        known = xkb_section('layout')
+        for layout in value.split(','):
+            if known is not None and layout not in known:
+                return f"Unknown keyboard layout '{layout}'."
+    elif key == 'kb_variant':
+        if not re.fullmatch(r'[A-Za-z0-9_,-]*', value):
+            return f"Invalid layout variant '{value}'."
+    elif key == 'kb_options':
+        if not re.fullmatch(r'[A-Za-z0-9_,:+-]*', value):
+            return f"Invalid keyboard options '{value}'."
+    elif key == 'scale':
+        if not re.fullmatch(r'auto|[0-9]+(\.[0-9]+)?', value):
+            return "Scale should be 'auto' or a number such as 1.25."
+    elif key == 'numlock':
+        if value not in ('on', 'off'):
+            return "Num Lock should be 'on' or 'off'."
+    elif key == 'shell':
+        if value not in ('fish', 'keep'):
+            return "Login shell should be 'fish' or 'keep'."
+    elif key in ('terminal', 'file_manager'):
+        if not re.fullmatch(r'[A-Za-z0-9._-]+', value):
+            return "Apps are named by their desktop file, such as kitty or org.kde.dolphin."
+    elif key.startswith('idle_') and key in DEFAULTS:
+        if not IDLE.fullmatch(value) or value != 'never' and float(value) <= 0:
+            return 'Idle timings are minutes, such as 10 or 2.5, or never.'
+    else:
+        return f"Unknown setting '{key}'."
+    return None
+
+
+def load():
+    values = dict(DEFAULTS)
+    try:
+        for line in SETTINGS.read_text().splitlines():
+            key, sep, value = line.partition('=')
+            if sep and re.fullmatch(r'[a-z_]+', key) and key in DEFAULTS:
+                values[key] = value
+    except OSError:
+        pass
+    return values
+
+
+def save(values):
+    SETTINGS.parent.mkdir(parents=True, exist_ok=True)
+    lines = ['# Penumbra settings, written by install.sh and the shell\'s Settings pages.',
+             '# Edit them, then run ./install.sh --user-only (or penumbra-settings apply) to apply.']
+    lines += [f'{key}={values[key]}' for key in DEFAULTS]
+    temporary = SETTINGS.with_suffix('.tmp')
+    temporary.write_text('\n'.join(lines) + '\n')
+    temporary.replace(SETTINGS)
+
+
+def seconds(minutes):
+    return None if minutes == 'never' else max(1, round(float(minutes) * 60))
+
+
+def hypridle(values):
+    """hypridle.conf for the idle timings: dim, lock, screens off, suspend on battery."""
+    text = ['# Written by penumbra-settings from ~/.config/penumbra/settings.conf (idle_*); change',
+            '# the timings in the shell\'s Settings → Idle and sleep, which rewrites this file.',
+            'general {',
+            '    # The shell\'s lock screen; hyprlock when the shell isn\'t running.',
+            '    lock_cmd = quickshell -c penumbra ipc call lock lock || pidof hyprlock || hyprlock',
+            '    before_sleep_cmd = loginctl lock-session',
+            '    after_sleep_cmd = hyprctl dispatch \'hl.dsp.dpms({action = "on"})\'',
+            '}']
+    steps = [
+        ('idle_dim', '# Dim the backlight; any input brings it back.',
+         ['on-timeout = ~/.local/bin/penumbra-idle dim', 'on-resume = ~/.local/bin/penumbra-idle undim']),
+        ('idle_lock', '# Lock the screen.', ['on-timeout = loginctl lock-session']),
+        ('idle_screen_off', '# Turn the screens off.',
+         ['on-timeout = hyprctl dispatch \'hl.dsp.dpms({action = "off"})\'',
+          'on-resume = hyprctl dispatch \'hl.dsp.dpms({action = "on"})\'']),
+        ('idle_suspend', '# Suspend, only on battery.', ['on-timeout = ~/.local/bin/penumbra-idle suspend']),
+    ]
+    for key, comment, actions in steps:
+        timeout = seconds(values[key])
+        if timeout is None:
+            text.append(f'# {key} is never: no listener.')
+            continue
+        text += [comment, 'listener {', f'    timeout = {timeout}'] + [f'    {a}' for a in actions] + ['}']
+    return '\n'.join(text) + '\n'
+
+
+def hyprland(values, keyboard, scale):
+    """The Lua that applies the keyboard, or the default scale, to a running Hyprland."""
+    lua = []
+    if keyboard:
+        lua.append('hl.config({input = {kb_layout = "%s", kb_variant = "%s", kb_options = "%s", numlock_by_default = %s}})'
+                   % (values['kb_layout'], values['kb_variant'], values['kb_options'],
+                      'true' if values['numlock'] == 'on' else 'false'))
+    if scale:
+        # The rule for every screen, then the screens' own rules from Settings → Displays again.
+        lua.append('hl.monitor({output = "", mode = "preferred", position = "auto", scale = "%s"}) '
+                   'local m = io.open(os.getenv("HOME") .. "/.config/penumbra/monitors.lua") '
+                   'if m then m:close(); dofile(os.getenv("HOME") .. "/.config/penumbra/monitors.lua") end'
+                   % values['scale'])
+    return ' '.join(lua)
+
+
+def apply(values, changed=None, restart=True):
+    """Apply the settings in CHANGED (every one when None) to the running desktop."""
+    def touched(*keys):
+        return changed is None or any(k in changed for k in keys)
+
+    if touched('idle_dim', 'idle_lock', 'idle_screen_off', 'idle_suspend'):
+        HYPRIDLE.parent.mkdir(parents=True, exist_ok=True)
+        HYPRIDLE.write_text(hypridle(values))
+        # hypridle reads its configuration once; start it again with the new timings.
+        if restart and subprocess.run(['pgrep', '-u', str(os.getuid()), '-x', 'hypridle'],
+                                      capture_output=True).returncode == 0:
+            subprocess.run(['pkill', '-u', str(os.getuid()), '-x', 'hypridle'])
+            subprocess.Popen(['systemd-run', '--user', '--scope', '--slice=app.slice', '--collect', '--quiet', 'hypridle'],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    lua = hyprland(values, touched('kb_layout', 'kb_variant', 'kb_options', 'numlock'), touched('scale'))
+    if lua and os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and shutil.which('hyprctl'):
+        subprocess.run(['hyprctl', 'eval', lua], capture_output=True)
+
+
+def parse(pairs):
+    updates = {}
+    for pair in pairs:
+        key, sep, value = pair.partition('=')
+        if not sep:
+            sys.exit(f'penumbra-settings: expected KEY=VALUE, got {pair!r}')
+        updates[key] = value.strip()
+    errors = [p for p in (problem(k, v) for k, v in updates.items()) if p]
+    if errors:
+        print('\n'.join(errors), file=sys.stderr)
+        sys.exit(2)
+    return updates
+
+
+def main():
+    command, args = (sys.argv[1], sys.argv[2:]) if len(sys.argv) > 1 else ('', [])
+    if command == 'get':
+        print(json.dumps(load()))
+    elif command == 'check':
+        parse(args)
+    elif command == 'set':
+        values = load()
+        updates = parse(args)
+        changed = {k for k, v in updates.items() if values[k] != v}
+        values.update(updates)
+        save(values)
+        apply(values, changed)
+    elif command == 'apply':
+        apply(load(), restart='--no-restart' not in args)
+    elif command == 'layouts':
+        layouts = xkb_section('layout') or {}
+        variants = {}
+        try:
+            section = None
+            for line in XKB_RULES.read_text().splitlines():
+                if line.startswith('!'):
+                    section = line[1:].strip()
+                elif section == 'variant' and line.strip():
+                    code, _, rest = line.strip().partition(' ')
+                    layout, _, description = rest.strip().partition(':')
+                    variants.setdefault(layout, []).append([code, description.strip()])
+        except OSError:
+            pass
+        print(json.dumps({'layouts': sorted(layouts.items(), key=lambda l: l[1]), 'variants': variants}))
+    else:
+        sys.exit(__doc__.strip())
+
+
+if __name__ == '__main__':
+    main()

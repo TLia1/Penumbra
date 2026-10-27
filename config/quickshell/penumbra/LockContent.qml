@@ -201,6 +201,41 @@ Rectangle {
                 }
             }
 
+            // The fingerprint reader, pulsing while it waits; click it to try again after it paused.
+            RowLayout {
+                Layout.alignment: Qt.AlignHCenter
+                visible: surface.lock.fingerprint
+                spacing: 8
+                Glyph {
+                    property real pulse: 1
+                    text: "󰈷"
+                    size: 20
+                    color: surface.lock.fingerWaiting ? Theme.violetBright : Theme.dim
+                    opacity: surface.lock.fingerWaiting ? pulse : 1
+                    SequentialAnimation on pulse {
+                        running: surface.lock.fingerWaiting
+                        loops: Animation.Infinite
+                        NumberAnimation { to: 0.35; duration: 900; easing.type: Easing.InOutSine }
+                        NumberAnimation { to: 1; duration: 900; easing.type: Easing.InOutSine }
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        anchors.margins: -8
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            surface.lock.fingerTries = 0;
+                            surface.lock.startFinger();
+                            input.forceActiveFocus();
+                        }
+                    }
+                }
+                Label {
+                    text: surface.lock.fingerMessage || "Touch the fingerprint reader, or type your password"
+                    font.pixelSize: Theme.textSmall
+                    color: Theme.textSoft
+                }
+            }
+
             // With several keyboard layouts, the one the password is typed in; click to switch.
             Rectangle {
                 Layout.alignment: Qt.AlignHCenter

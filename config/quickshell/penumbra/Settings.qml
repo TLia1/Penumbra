@@ -8,6 +8,12 @@ import Quickshell.Io
 Singleton {
     property alias animatedWallpapers: adapter.animatedWallpapers
     property alias hotCorner: adapter.hotCorner
+    // Night light: its warmth in kelvin, and when it comes on (see NightLight).
+    property alias nightTemperature: adapter.nightTemperature
+    property alias nightSchedule: adapter.nightSchedule // manual, times or sun
+    property alias nightFrom: adapter.nightFrom
+    property alias nightTo: adapter.nightTo
+    property alias nightPlace: adapter.nightPlace // a city or "latitude, longitude"; empty: the time zone's
 
     FileView {
         path: Quickshell.env("HOME") + "/.config/penumbra/shell.json"
@@ -25,6 +31,11 @@ Singleton {
             id: adapter
             property bool animatedWallpapers: true
             property bool hotCorner: true
+            property int nightTemperature: 4500
+            property string nightSchedule: "manual"
+            property string nightFrom: "21:00"
+            property string nightTo: "07:00"
+            property string nightPlace: ""
         }
     }
 }

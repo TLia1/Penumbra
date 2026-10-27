@@ -5,12 +5,20 @@ import Quickshell.Services.Polkit
 import Quickshell.Wayland
 
 // The polkit agent: when an app asks for administrator rights, a password card over the dimmed screen.
+// When the system's polkit stack asks for a finger first (install.sh adds pam_fprintd to it once
+// fprintd is installed), a fingerprint glyph pulses; a password typed meanwhile goes in as soon as
+// the stack asks for it.
 Scope {
     id: root
 
     readonly property var flow: agent.flow
     property bool shown: false
     property string error: ""
+    // The fingerprint reader is waiting: pam_fprintd said so and nothing is asked for yet.
+    readonly property bool fingerWaiting: !!flow && !flow.isResponseRequired && !flow.isCompleted
+        && /finger|swipe/i.test(flow.supplementaryMessage ?? "") && !flow.supplementaryIsError
+    // A password typed while the reader waited.
+    property string queued: ""
 
     PolkitAgent {
         id: agent
@@ -33,14 +41,28 @@ Scope {
     }
     onFlowChanged: {
         input.text = "";
+        queued = "";
         if (!flow)
             shown = false;
+    }
+    Connections {
+        target: root.flow
+        ignoreUnknownSignals: true
+        function onIsResponseRequiredChanged() {
+            if (root.flow?.isResponseRequired && root.queued !== "") {
+                root.flow.submit(root.queued);
+                root.queued = "";
+            }
+        }
     }
 
     function submit() {
         if (flow && flow.isResponseRequired) {
             error = "";
             flow.submit(input.text);
+            input.text = "";
+        } else if (fingerWaiting && input.text !== "") {
+            queued = input.text;
             input.text = "";
         }
     }
@@ -161,7 +183,7 @@ Scope {
                         font.pixelSize: Theme.textLarge
                         font.letterSpacing: echoMode === TextInput.Password ? 2 : 0
                         selectionColor: Theme.violetDeep
-                        enabled: !!root.flow?.isResponseRequired
+                        enabled: !!root.flow?.isResponseRequired || root.fingerWaiting
                         focus: root.shown
                         onVisibleChanged: if (visible) forceActiveFocus()
                         Keys.onReturnPressed: root.submit()
@@ -176,17 +198,25 @@ Scope {
                         }
                     }
                     Glyph {
+                        property real pulse: 1
                         anchors { right: parent.right; rightMargin: 18; verticalCenter: parent.verticalCenter }
-                        text: root.flow?.isResponseRequired === false ? "󰔟" : "󰌆"
-                        size: 15
-                        color: Theme.dim
+                        text: root.fingerWaiting ? "󰈷" : root.flow?.isResponseRequired === false ? "󰔟" : "󰌆"
+                        size: root.fingerWaiting ? 18 : 15
+                        color: root.fingerWaiting ? Theme.violetBright : Theme.dim
+                        opacity: root.fingerWaiting ? pulse : 1
+                        SequentialAnimation on pulse {
+                            running: root.fingerWaiting
+                            loops: Animation.Infinite
+                            NumberAnimation { to: 0.35; duration: 900; easing.type: Easing.InOutSine }
+                            NumberAnimation { to: 1; duration: 900; easing.type: Easing.InOutSine }
+                        }
                     }
                 }
 
                 Label {
                     Layout.fillWidth: true
                     visible: text !== ""
-                    text: root.error || (root.flow?.supplementaryMessage ?? "")
+                    text: root.error || (root.queued !== "" ? "Your password goes in once the reader gives up" : root.fingerWaiting ? "Touch the fingerprint reader, or type your password" : root.flow?.supplementaryMessage ?? "")
                     wrapMode: Text.Wrap
                     font.pixelSize: Theme.textBody
                     color: root.error || root.flow?.supplementaryIsError ? Theme.rose : Theme.muted
@@ -208,7 +238,7 @@ Scope {
                         primary: true
                         implicitHeight: 36
                         implicitWidth: 124
-                        available: !!root.flow?.isResponseRequired
+                        available: !!root.flow?.isResponseRequired || root.fingerWaiting && input.text !== ""
                         onClicked: root.submit()
                     }
                 }

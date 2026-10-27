@@ -120,12 +120,15 @@ Singleton {
     function nextLayout() {
         Quickshell.execDetached(["hyprctl", "switchxkblayout", "all", "next"]);
     }
+    // Whether the next reading follows a layout switch, which shows in the popup.
+    property bool layoutSwitched: false
     Process {
         id: keyboards
         running: true
         command: ["hyprctl", "devices", "-j"]
         stdout: StdioCollector {
             onStreamFinished: {
+                const before = root.layoutName;
                 try {
                     const all = JSON.parse(text).keyboards;
                     const main = all.find(k => k.main) ?? all[all.length - 1];
@@ -135,14 +138,42 @@ Singleton {
                 } catch (e) {
                     root.layouts = [];
                 }
+                if (root.layoutSwitched && before !== "" && root.layoutName !== before)
+                    Ui.showOsd("layout", 0, false, root.layoutName);
+                root.layoutSwitched = false;
             }
         }
     }
     Connections {
         target: Hyprland
         function onRawEvent(event) {
-            if (event.name === "activelayout" || event.name === "configreloaded")
+            if (event.name === "activelayout" || event.name === "configreloaded") {
+                if (event.name === "activelayout")
+                    root.layoutSwitched = true;
                 keyboards.running = true;
+            }
         }
+    }
+
+    // Caps Lock: Hyprland runs `ipc call osd capsLock` when the key is released (hyprland.lua),
+    // and says whether it is now on. Laptops often have no light for it.
+    property bool capsLock: false
+    Process {
+        id: capsCheck
+        command: ["hyprctl", "devices", "-j"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const all = JSON.parse(text).keyboards;
+                    root.capsLock = all.some(k => k.capsLock);
+                } catch (e) {
+                    return;
+                }
+                Ui.showOsd("capslock", 0, !root.capsLock, root.capsLock ? "Caps Lock on" : "Caps Lock off");
+            }
+        }
+    }
+    function showCapsLock() {
+        capsCheck.running = true;
     }
 }

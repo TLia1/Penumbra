@@ -35,6 +35,14 @@ Settings (detected on the first run, then remembered in $SETTINGS_FILE):
   --scale SCALE        Display scale: auto, 1, 1.25, 1.5, 2...
   --numlock on|off     Turn Num Lock on when you log in.
   --shell fish|keep    Make fish your login shell, or keep the current one.
+  --terminal APP       Terminal for Super+Enter, by its desktop file: kitty, foot...
+  --file-manager APP   File manager for Super+E, by its desktop file: org.kde.dolphin...
+  --idle-dim MIN       Minutes idle before the screen dims, or never.
+  --idle-lock MIN      Minutes idle before the screen locks, or never.
+  --idle-screen-off MIN
+                       Minutes idle before the screens turn off, or never.
+  --idle-suspend MIN   Minutes idle before suspending on battery, or never.
+The shell's Settings pages (Super+,) change all but the login shell, at once.
 
 Other options:
   -y, --yes            Don't ask about the settings; use the saved or detected ones.
@@ -112,10 +120,11 @@ load_distro() {
 # Each setting comes from, in order: a command-line option, the saved settings
 # file, then what this machine already uses. Templates get each one as @@KEY@@ (kb_layout →
 # @@KB_LAYOUT@@). A new setting needs a line in SETTING_KEYS, SETTING_OPTIONS and SETTING_LABELS,
-# a default in detect_settings and a check in valid_setting.
+# a default in detect_settings and a check in valid_setting, and the same in bin/penumbra-settings,
+# which the shell's Settings pages use to change them later.
 
 declare -A settings=()
-SETTING_KEYS=(kb_layout kb_variant kb_options scale numlock shell)
+SETTING_KEYS=(kb_layout kb_variant kb_options scale numlock shell terminal file_manager idle_dim idle_lock idle_screen_off idle_suspend)
 declare -A SETTING_OPTIONS=(
     [kb_layout]=--layout
     [kb_variant]=--variant
@@ -123,6 +132,12 @@ declare -A SETTING_OPTIONS=(
     [scale]=--scale
     [numlock]=--numlock
     [shell]=--shell
+    [terminal]=--terminal
+    [file_manager]=--file-manager
+    [idle_dim]=--idle-dim
+    [idle_lock]=--idle-lock
+    [idle_screen_off]=--idle-screen-off
+    [idle_suspend]=--idle-suspend
 )
 declare -A SETTING_LABELS=(
     [kb_layout]='Keyboard layout'
@@ -131,6 +146,12 @@ declare -A SETTING_LABELS=(
     [scale]='Display scale'
     [numlock]='Num Lock at login (on/off)'
     [shell]='Login shell (fish/keep)'
+    [terminal]='Terminal (desktop file)'
+    [file_manager]='File manager (desktop file)'
+    [idle_dim]='Dim after (minutes/never)'
+    [idle_lock]='Lock after (minutes/never)'
+    [idle_screen_off]='Screens off after (min/never)'
+    [idle_suspend]='Suspend on battery after (min)'
 )
 
 # option_setting --layout → kb_layout; false for any other option.
@@ -156,8 +177,8 @@ load_saved_settings() {
 save_settings() {
     mkdir -p "$(dirname "$SETTINGS_FILE")"
     {
-        echo '# Penumbra settings, written by install.sh.'
-        echo '# Edit them, then run ./install.sh --user-only to apply.'
+        echo "# Penumbra settings, written by install.sh and the shell's Settings pages."
+        echo '# Edit them, then run ./install.sh --user-only (or penumbra-settings apply) to apply.'
         local key
         for key in "${SETTING_KEYS[@]}"; do printf '%s=%s\n' "$key" "${settings[$key]}"; done
     } > "$SETTINGS_FILE"
@@ -194,6 +215,12 @@ detect_settings() {
     set_default scale auto
     set_default numlock on
     set_default shell fish
+    set_default terminal kitty
+    set_default file_manager org.kde.dolphin
+    set_default idle_dim 9.5
+    set_default idle_lock 10
+    set_default idle_screen_off 11
+    set_default idle_suspend 30
 }
 
 # valid_setting KEY VALUE → true if VALUE is acceptable, otherwise explains why.
@@ -210,6 +237,9 @@ valid_setting() {
         scale) [[ $value =~ ^(auto|[0-9]+(\.[0-9]+)?)$ ]] || { warn "Scale should be 'auto' or a number such as 1.25."; return 1; } ;;
         numlock) [[ $value == on || $value == off ]] || { warn "Num Lock should be 'on' or 'off'."; return 1; } ;;
         shell) [[ $value == fish || $value == keep ]] || { warn "Login shell should be 'fish' or 'keep'."; return 1; } ;;
+        terminal|file_manager) [[ $value =~ ^[A-Za-z0-9._-]+$ ]] || { warn "Apps are named by their desktop file, such as kitty or org.kde.dolphin."; return 1; } ;;
+        idle_*) [[ $value == never || ( $value =~ ^[0-9]+(\.[0-9]+)?$ && ! $value =~ ^0+(\.0+)?$ ) ]] \
+            || { warn 'Idle timings are minutes, such as 10 or 2.5, or never.'; return 1; } ;;
     esac
 }
 
@@ -425,12 +455,32 @@ enable_keyring_unlock() {
     echo "Added gnome-keyring to $pam, so the keyring unlocks when you sign in."
 }
 
+# Administrator prompts take a fingerprint once fprintd is installed: pam_fprintd goes first in
+# polkit's PAM stack, for one scan or ten seconds, then the password as before. It steps aside at
+# once when no finger is enrolled, and "-" skips it if fprintd is removed. The lock screen has a
+# stack of its own in the shell (config/quickshell/penumbra/pam/fingerprint).
+enable_fingerprint_polkit() {
+    local pam=/etc/pam.d/polkit-1 vendor=/usr/lib/pam.d/polkit-1 from
+    command -v fprintd-list >/dev/null || return 0
+    if [[ -f $pam ]]; then from=$pam; elif [[ -f $vendor ]]; then from=$vendor; else return 0; fi
+    grep -Eq '^-?auth[[:space:]].*pam_fprintd\.so' "$from" && return 0
+    backup_file "$pam" "${pam#/}"
+    awk '!done && /^-?auth[[:space:]]/ { print "-auth      sufficient   pam_fprintd.so max-tries=1 timeout=10"; done = 1 } { print }' \
+        "$from" > "$pam.penumbra" && mv "$pam.penumbra" "$pam"
+    chmod 644 "$pam"
+    echo "Added fingerprint sign-in to $pam, for administrator prompts."
+}
+
 enable_services() {
-    local unit
+    local unit units=()
     for unit in "${SERVICES[@]}" sddm; do
         systemctl is-enabled "$unit" > "$BACKUP/$unit.enabled" 2>&1 || true
     done
-    systemctl enable --now "${SERVICES[@]}"
+    # Only units that are installed: --skip-packages may have left one out.
+    for unit in "${SERVICES[@]}"; do
+        if systemctl cat "$unit.service" >/dev/null 2>&1; then units+=("$unit"); else warn "$unit is not installed; not enabling it."; fi
+    done
+    (( ${#units[@]} == 0 )) || systemctl enable --now "${units[@]}"
     # Not started now: that would end the current session.
     systemctl enable sddm
 }
@@ -451,6 +501,7 @@ run_system_part() {
     set_login_keyboard
     set_login_shell "$user"
     enable_keyring_unlock
+    enable_fingerprint_polkit
     enable_services
 
     step 'Boot themes (optional)'
@@ -706,6 +757,9 @@ run_user_part() {
     chmod +x "$HOME/.local/share/kio/servicemenus/penumbra-wallpaper.desktop"
     # The configs above come rounded; put back sharp corners if that was the choice.
     "$HOME/.local/bin/penumbra-corners" restore
+    # hypridle.conf comes from the idle settings; penumbra-settings writes it (and applies the rest).
+    backup_file "$HOME/.config/hypr/hypridle.conf" .config/hypr/hypridle.conf
+    "$HOME/.local/bin/penumbra-settings" apply
     install_wallpapers
     retire_legacy_desktop
 

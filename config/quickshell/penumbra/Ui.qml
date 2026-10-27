@@ -9,7 +9,7 @@ Singleton {
     id: root
 
     property bool controlOpen: false
-    property string controlPage: "main" // main, wifi, bluetooth, mixer or settings
+    property string controlPage: "main" // main, wifi, bluetooth, mixer, night, settings or a settings page
     property bool calendarOpen: false
     property bool monitorOpen: false
     property bool updatesOpen: false
@@ -18,12 +18,13 @@ Singleton {
     property bool launcherOpen: false
     property string launcherMode: "apps" // apps, clipboard, emoji or symbols
     property bool shotOpen: false
+    property bool overviewOpen: false
     property bool caffeine: false
-    property bool nightLight: false
 
-    property string osdKind: "volume"
+    property string osdKind: "volume" // volume, microphone, brightness, or capslock and layout (text only)
     property int osdValue: 0
     property bool osdMuted: false
+    property string osdText: ""
     property bool osdVisible: false
 
     // Panels follow the monitor that has focus.
@@ -42,6 +43,7 @@ Singleton {
         sessionOpen = false;
         launcherOpen = false;
         shotOpen = false;
+        overviewOpen = false;
     }
     // A click outside a panel closes it; ignore that same click reopening it from the bar.
     property double closedAt: 0
@@ -91,15 +93,21 @@ Singleton {
         launcherMode = mode;
         launcherOpen = reopen;
     }
+    function toggleOverview() {
+        const reopen = !overviewOpen;
+        closeOverlays();
+        overviewOpen = reopen;
+    }
     function openShot() {
         closeOverlays();
         shotOpen = true;
     }
 
-    function showOsd(kind, value, muted) {
+    function showOsd(kind, value, muted, text) {
         osdKind = kind;
         osdValue = Math.max(0, Math.min(100, value));
         osdMuted = muted;
+        osdText = text ?? "";
         osdVisible = true;
         osdTimer.restart();
     }
@@ -150,22 +158,18 @@ Singleton {
     property bool hasNightLight: false
     property bool hasVisualizer: false
     property bool hasTyping: false // wtype types emoji and symbols into the focused window
+    property bool hasPowerProfiles: false // power-profiles-daemon (or another daemon with its D-Bus API)
     Process {
         running: true
-        command: ["bash", "-c", "command -v hyprsunset; command -v cava; command -v wtype"]
+        command: ["bash", "-c", "command -v hyprsunset; command -v cava; command -v wtype; busctl --system list --no-pager 2>/dev/null | grep -qE \"^(org.freedesktop.UPower.PowerProfiles|net.hadess.PowerProfiles) \" && echo /power-profiles"]
         stdout: StdioCollector {
             onStreamFinished: {
                 root.hasNightLight = text.includes("/hyprsunset");
                 root.hasVisualizer = text.includes("/cava");
                 root.hasTyping = text.includes("/wtype");
+                root.hasPowerProfiles = text.includes("/power-profiles");
             }
         }
-    }
-    // Night light: hyprsunset warms the screen for as long as it runs.
-    readonly property int nightTemperature: 4500
-    Process {
-        running: root.nightLight && root.hasNightLight
-        command: ["hyprsunset", "--temperature", String(root.nightTemperature)]
     }
 
     // Start a program in its own systemd scope (under app.slice), so it outlives the shell: the

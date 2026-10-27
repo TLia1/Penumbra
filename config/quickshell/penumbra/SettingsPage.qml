@@ -1,54 +1,18 @@
 import QtQuick
 import QtQuick.Layouts
+import Quickshell
 
-// Settings: the corner style, the wallpaper and a few shell behaviours.
+// Settings: screens, keyboard, idle timings and default apps (each a page of its own), the corner
+// style, the wallpaper and a few shell behaviours.
 ColumnLayout {
     id: root
 
     spacing: 12
+    onVisibleChanged: if (visible) Config.loadLayouts()
 
     component Section: Overline {
         Layout.fillWidth: true
         Layout.topMargin: 2
-    }
-
-    // A labelled on/off switch; the whole row toggles.
-    component SwitchRow: Rectangle {
-        id: row
-        property string glyph
-        property string title
-        property string subtitle
-        property bool checked: false
-        signal toggled()
-
-        Layout.fillWidth: true
-        implicitHeight: 52
-        radius: Theme.radiusSmall
-        color: rowArea.containsMouse ? Theme.raised : "transparent"
-        Behavior on color { ColorAnimation { duration: Theme.fast } }
-
-        MouseArea {
-            id: rowArea
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: row.toggled()
-        }
-        RowLayout {
-            anchors { fill: parent; leftMargin: 10; rightMargin: 10 }
-            spacing: 11
-            Glyph { Layout.preferredWidth: 22; text: row.glyph; size: 17 }
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 0
-                Label { Layout.fillWidth: true; text: row.title }
-                Label { Layout.fillWidth: true; text: row.subtitle; font.pixelSize: Theme.textSmall; color: Theme.muted }
-            }
-            Switch {
-                checked: row.checked
-                onToggled: row.toggled()
-            }
-        }
     }
 
     PageHeader {
@@ -57,6 +21,28 @@ ColumnLayout {
         status: "Super+, opens this page"
         showSwitch: false
         onBack: Ui.controlPage = "main"
+    }
+
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: 2
+        Repeater {
+            model: [
+                { page: "displays", glyph: "󰍹", title: "Displays", subtitle: Quickshell.screens.length > 1 ? `${Quickshell.screens.length} screens · arrangement, resolution, scale` : "Resolution, refresh rate, scale" },
+                { page: "keyboard", glyph: "󰌌", title: "Keyboard", subtitle: (Config.values.kb_layout ?? "").split(",").map(l => Config.layoutName(l)).join(", ") },
+                { page: "idle", glyph: "󰒲", title: "Idle and sleep", subtitle: `Lock after ${Config.duration(Config.values.idle_lock).toLowerCase()}` },
+                { page: "apps", glyph: "󰀻", title: "Default apps", subtitle: "Browser, file manager, terminal" }
+            ]
+            delegate: ListRow {
+                required property var modelData
+                Layout.fillWidth: true
+                glyph: modelData.glyph
+                title: modelData.title
+                subtitle: modelData.subtitle
+                trailing: "󰅂"
+                onClicked: Ui.controlPage = modelData.page
+            }
+        }
     }
 
     Section { text: "Corners" }

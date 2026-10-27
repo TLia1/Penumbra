@@ -3,13 +3,19 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell.Widgets
 
-// Glyph (or app icon) button for mute, plus a soft violet slider, 0–100.
+// Glyph (or app icon) button for mute, plus a soft violet slider, 0–100 unless `from` and `to` say
+// otherwise.
 RowLayout {
     id: root
 
     property string glyph
     property string icon: ""
     property real value: 0
+    property real from: 0
+    property real to: 100
+    property real stepSize: 0
+    property string label: Math.round(value) + "%"
+    property int labelWidth: 34
     property bool muted: false
     signal moved(real value)
     signal glyphClicked()
@@ -49,8 +55,9 @@ RowLayout {
         Layout.fillWidth: true
         // The custom background and handle give no implicit height, which would leave a 0 px hit area.
         implicitHeight: 36
-        from: 0
-        to: 100
+        from: root.from
+        to: root.to
+        stepSize: root.stepSize
         value: root.value
         onMoved: root.moved(value)
         background: Rectangle {
@@ -85,9 +92,9 @@ RowLayout {
     }
 
     Label {
-        Layout.preferredWidth: 34
+        Layout.preferredWidth: root.labelWidth
         horizontalAlignment: Text.AlignRight
-        text: Math.round(root.value) + "%"
+        text: root.label
         font.pixelSize: Theme.textSmall
         color: Theme.muted
     }

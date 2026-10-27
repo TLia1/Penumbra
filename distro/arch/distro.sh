@@ -52,3 +52,11 @@ pkg_versions() { pacman -Q "$@"; }
 # pkg_remove PACKAGE...: remove them without asking (the installer already asked). -s also drops
 # their now-unneeded dependencies, never explicitly installed packages.
 pkg_remove() { pacman -Rns --noconfirm "$@"; }
+
+# Power profiles (Power saver, Balanced, Performance) for the control center, unless a power
+# manager that conflicts with power-profiles-daemon is installed: pacman would stop the whole
+# install to ask about it.
+if [[ -z $(pkg_installed tlp auto-cpufreq tuned-ppd system76-power) ]]; then
+    PACKAGES+=(power-profiles-daemon)
+    SERVICES=(bluetooth NetworkManager power-profiles-daemon)
+fi

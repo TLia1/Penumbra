@@ -1,11 +1,29 @@
 -- PENUMBRA / Hyprland 0.56 Lua configuration
--- Keyboard, Num Lock, scale and the cursor mode come from ~/.config/penumbra/settings.conf (see
--- ./install.sh --help). Put your own settings in ~/.config/hypr/user.lua, which is read last and
--- survives ./install.sh.
+-- Keyboard, Num Lock, scale and the terminal come from ~/.config/penumbra/settings.conf, which
+-- ./install.sh and the shell's Settings write; screens from ~/.config/penumbra/monitors.lua, which
+-- Settings → Displays writes. Put your own settings in ~/.config/hypr/user.lua, which is read last
+-- and survives ./install.sh.
 local home = os.getenv("HOME")
 -- Colours come from palette/palette.toml (tools/build-palette.py).
 local c = dofile(home .. "/.config/hypr/colors.lua")
-hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "@@SCALE@@" })
+-- settings.conf as a table, read afresh each time (bindings below call it when pressed).
+local function settings()
+ local s = {kb_layout = "us", kb_variant = "", kb_options = "", scale = "auto", numlock = "on", terminal = "kitty", file_manager = "org.kde.dolphin"}
+ local file = io.open(home .. "/.config/penumbra/settings.conf")
+ if file then
+  for line in file:lines() do
+   local key, value = line:match("^([a-z_]+)=(.*)$")
+   if key then s[key] = value end
+  end
+  file:close()
+ end
+ return s
+end
+local s = settings()
+-- Every screen without a rule of its own in monitors.lua.
+hl.monitor({ output = "", mode = "preferred", position = "auto", scale = s.scale })
+local monitors = io.open(home .. "/.config/penumbra/monitors.lua")
+if monitors then monitors:close(); dofile(home .. "/.config/penumbra/monitors.lua") end
 hl.env("XCURSOR_THEME", "Penumbra-Cursors")
 hl.env("XCURSOR_SIZE", "28")
 hl.env("HYPRCURSOR_SIZE", "28")
@@ -28,7 +46,7 @@ hl.config({
   blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = 0.9, popups = true} },
  animations = {enabled = true},
  dwindle = {preserve_split = true},
- input = {kb_layout = "@@KB_LAYOUT@@", kb_variant = "@@KB_VARIANT@@", kb_options = "@@KB_OPTIONS@@", numlock_by_default = "@@NUMLOCK@@" == "on",
+ input = {kb_layout = s.kb_layout, kb_variant = s.kb_variant, kb_options = s.kb_options, numlock_by_default = s.numlock == "on",
   follow_mouse = 1, sensitivity = 0, touchpad = {natural_scroll = true}},
  -- A fresh lock screen (hyprlock from a TTY) can take over if the shell's ever dies while locked.
  misc = {disable_hyprland_logo = true, disable_splash_rendering = true, force_default_wallpaper = 0, allow_session_lock_restore = true},
@@ -44,12 +62,15 @@ for _, a in ipairs({
  {"layers", 3.5, "penumbra", "fade"}
 }) do hl.animation({leaf=a[1], enabled=true, speed=a[2], bezier=a[3], style=a[4]}) end
 local function exec(key, cmd) hl.bind(key, hl.dsp.exec_cmd(cmd)) end
-exec("SUPER + Return", "kitty")
-exec("SUPER + Q", "kitty")
-exec("SUPER + E", "dolphin")
+-- The terminal chosen in Settings → Default apps (its desktop file, e.g. kitty or foot).
+local function terminal() hl.exec_cmd("gtk-launch " .. settings().terminal .. " || kitty") end
+hl.bind("SUPER + Return", terminal)
+hl.bind("SUPER + Q", terminal)
+-- The file manager chosen in Settings → Default apps.
+hl.bind("SUPER + E", function() hl.exec_cmd("gtk-launch " .. settings().file_manager .. " || dolphin") end)
 exec("SUPER + R", "~/.local/bin/penumbra-launcher")
 exec("SUPER + space", "~/.local/bin/penumbra-launcher")
--- Your default web browser (xdg-settings set default-web-browser NAME.desktop to change it).
+-- Your default web browser (Settings → Default apps, or xdg-settings set default-web-browser NAME.desktop).
 exec("SUPER + B", "gtk-launch \"$(xdg-settings get default-web-browser)\"")
 exec("SUPER + M", "~/.local/bin/penumbra-power")
 exec("SUPER + L", "loginctl lock-session")
@@ -62,6 +83,12 @@ exec("SUPER + SHIFT + C", "~/.local/bin/penumbra-picker")
 exec("SUPER + W", "~/.local/bin/penumbra-wallpaper next")
 exec("SUPER + SHIFT + W", "quickshell -c penumbra ipc call panel wallpapers")
 exec("SUPER + SHIFT + R", "~/.local/bin/penumbra-session restart")
+-- Every workspace at a glance: Super and the key left of 1 (` on QWERTY, ² on AZERTY), or four
+-- fingers up on a touchpad.
+exec("SUPER + code:49", "quickshell -c penumbra ipc call panel overview")
+hl.gesture({fingers=4, direction="up", action=function() hl.exec_cmd("quickshell -c penumbra ipc call panel overview") end})
+-- Caps Lock shows a popup saying whether it is on; the key still reaches the window.
+hl.bind("Caps_Lock", hl.dsp.exec_cmd("quickshell -c penumbra ipc call osd capsLock"), {release=true, non_consuming=true, ignore_mods=true})
 exec("Print", "~/.local/bin/penumbra-shot")
 exec("SHIFT + Print", "~/.local/bin/penumbra-shot annotate")
 -- Record the screen; press again (or click the red capsule) to stop.

@@ -1,0 +1,5 @@
+#%PAM-1.0
+# The lock screen's fingerprint check (LockScreen.qml), which runs next to the password check (the
+# system's "login" stack): one scan per attempt, and the shell starts the next one itself.
+auth     required  pam_fprintd.so  max-tries=1
+account  required  pam_unix.so

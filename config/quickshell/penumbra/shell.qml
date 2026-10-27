@@ -1,7 +1,7 @@
 //@ pragma UseQApplication
 //@ pragma IconTheme Penumbra
 // PENUMBRA shell: animated wallpapers, bar, control center, notifications, OSD, calendar, session
-// overlay, launcher, lock screen, polkit agent and screenshot/recording overlay.
+// overlay, launcher, workspace overview, lock screen, polkit agent and screenshot/recording overlay.
 // Run with `quickshell -c penumbra`; scripts talk to it with `quickshell -c penumbra ipc call …`.
 import QtQuick
 import Quickshell
@@ -32,6 +32,7 @@ ShellRoot {
     ScreenshotOverlay {
         id: shot
     }
+    Overview {}
     LockScreen {
         id: lockScreen
     }
@@ -46,6 +47,10 @@ ShellRoot {
         function adjust(control: string, action: string): bool {
             return control === "brightness" ? Sys.stepBrightness(action) : Devices.adjust(control, action);
         }
+        // Hyprland calls this when Caps Lock is released; the popup says whether it is on.
+        function capsLock(): void {
+            Devices.showCapsLock();
+        }
     }
 
     IpcHandler {
@@ -55,6 +60,9 @@ ShellRoot {
         function bluetooth(): void { Ui.openControl("bluetooth"); }
         function mixer(): void { Ui.openControl("mixer"); }
         function settings(): void { Ui.openControl("settings"); }
+        // A page of Settings: displays, keyboard, idle or apps; or night (night light).
+        function page(name: string): void { Ui.openControl(name); }
+        function overview(): void { Ui.toggleOverview(); }
         function calendar(): void { Ui.toggleCalendar(); }
         function monitor(): void { Ui.toggleMonitor(); }
         function session(): void { Ui.openSession(); }
@@ -89,6 +97,12 @@ ShellRoot {
         target: "lock"
         function lock(): void { lockScreen.lock(); }
         function isLocked(): bool { return lockScreen.locked; }
+    }
+
+    IpcHandler {
+        target: "nightlight"
+        function toggle(): void { NightLight.toggle(); }
+        function isOn(): bool { return NightLight.on; }
     }
 
     IpcHandler {

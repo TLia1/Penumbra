@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Networking
 import Quickshell.Services.Mpris
+import Quickshell.Services.UPower
 import Quickshell.Widgets
 
 // Quick settings, sliders, media and notification history, under the status capsule.
@@ -30,7 +31,8 @@ Panel {
         }
     }
 
-    // One page at a time: the main view, or Wi-Fi, Bluetooth, sound or shell settings.
+    // One page at a time: the main view, or Wi-Fi, Bluetooth, sound, night light, settings and
+    // the settings' own pages.
     ColumnLayout {
         id: pages
         x: 18
@@ -66,9 +68,34 @@ Panel {
             active: root.open && visible
         }
 
+        NightLightPage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "night"
+        }
+
         SettingsPage {
             Layout.fillWidth: true
             visible: Ui.controlPage === "settings"
+        }
+
+        DisplaysPage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "displays"
+        }
+
+        KeyboardPage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "keyboard"
+        }
+
+        IdlePage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "idle"
+        }
+
+        AppsPage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "apps"
         }
 
         ColumnLayout {
@@ -159,10 +186,12 @@ Panel {
                     Layout.fillWidth: true
                     glyph: "󱩌"
                     title: "Night light"
-                    subtitle: !Ui.hasNightLight ? "Needs hyprsunset" : Ui.nightLight ? `Warm · ${Ui.nightTemperature} K` : "Off"
-                    on: Ui.nightLight
-                    available: Ui.hasNightLight
-                    onToggled: Ui.nightLight = !Ui.nightLight
+                    subtitle: NightLight.status
+                    on: NightLight.on
+                    available: NightLight.available
+                    hasMore: true
+                    onToggled: NightLight.toggle()
+                    onMore: Ui.controlPage = "night"
                 }
                 Tile {
                     Layout.fillWidth: true
@@ -170,6 +199,34 @@ Panel {
                     title: "Screenshot"
                     subtitle: "Picture or video"
                     onToggled: Ui.openShot()
+                }
+            }
+
+            // Power profile, through power-profiles-daemon.
+            ColumnLayout {
+                Layout.fillWidth: true
+                visible: Ui.hasPowerProfiles
+                spacing: 6
+                Segmented {
+                    Layout.fillWidth: true
+                    current: PowerProfiles.profile
+                    options: [
+                        { value: PowerProfile.PowerSaver, glyph: "󰌪", title: "Power saver" },
+                        { value: PowerProfile.Balanced, glyph: "󰗑", title: "Balanced" },
+                        { value: PowerProfile.Performance, glyph: "󰓅", title: "Performance", available: PowerProfiles.hasPerformanceProfile }
+                    ]
+                    onChosen: value => PowerProfiles.profile = value
+                }
+                // Performance can be held back by the hardware; say why.
+                Label {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 4
+                    visible: PowerProfiles.profile === PowerProfile.Performance && PowerProfiles.degradationReason !== PerformanceDegradationReason.None
+                    text: PowerProfiles.degradationReason === PerformanceDegradationReason.LapDetected
+                        ? "Performance is limited while the laptop is on your lap"
+                        : "Performance is limited while the computer is hot"
+                    font.pixelSize: Theme.textSmall
+                    color: Theme.amber
                 }
             }
 

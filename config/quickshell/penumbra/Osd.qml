@@ -3,7 +3,8 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Wayland
 
-// Volume / microphone / brightness feedback, floating above the bottom edge.
+// Volume / microphone / brightness feedback, floating above the bottom edge; Caps Lock and the
+// keyboard layout show as text in the same pill.
 PanelWindow {
     id: root
     screen: Ui.screen
@@ -20,7 +21,12 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "penumbra-osd"
 
+    readonly property bool textOnly: Ui.osdKind === "capslock" || Ui.osdKind === "layout"
     readonly property string glyph: {
+        if (Ui.osdKind === "capslock")
+            return Ui.osdMuted ? "󰘲" : "󰪛";
+        if (Ui.osdKind === "layout")
+            return "󰌌";
         if (Ui.osdKind === "brightness")
             return Ui.osdValue > 66 ? "󰃠" : Ui.osdValue > 33 ? "󰃟" : "󰃞";
         if (Ui.osdKind === "microphone")
@@ -51,8 +57,17 @@ PanelWindow {
                 color: Ui.osdMuted ? Theme.dim : Theme.violetBright
                 Layout.preferredWidth: 22
             }
+            Label {
+                Layout.fillWidth: true
+                visible: root.textOnly
+                text: Ui.osdText
+                font.pixelSize: Theme.textMedium
+                font.weight: Font.DemiBold
+                color: Ui.osdMuted ? Theme.textSoft : Theme.text
+            }
             Rectangle {
                 Layout.fillWidth: true
+                visible: !root.textOnly
                 implicitHeight: 8
                 radius: Theme.corner(4)
                 color: Theme.raised
@@ -70,6 +85,7 @@ PanelWindow {
             }
             Label {
                 Layout.preferredWidth: 38
+                visible: !root.textOnly
                 horizontalAlignment: Text.AlignRight
                 text: Ui.osdMuted ? "Muted" : Ui.osdValue + "%"
                 font.pixelSize: Theme.textSmall
