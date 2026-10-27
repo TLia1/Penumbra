@@ -11,6 +11,14 @@ Type=exec
 # Only while the compositor is up: after logging out its socket is gone, and the unit is skipped
 # rather than restarted in a loop.
 ExecCondition=/bin/sh -c 'test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"'
+# Video wallpapers decode through VA-API before CUDA: Qt otherwise opens a CUDA context on a
+# hybrid laptop's NVIDIA card, which costs ~50 MB and keeps that card awake.
+Environment=QT_FFMPEG_DECODING_HW_DEVICE_TYPES=vaapi,cuda
+Environment=QT_FFMPEG_ENCODING_HW_DEVICE_TYPES=vaapi,cuda
+# Quickshell allocates with jemalloc, which by default keeps an arena per thread per core and
+# holds on to what they free: one arena, purged after a second, about halves the shell's memory.
+# Ui.spawn keeps this from the apps it starts.
+Environment=MALLOC_CONF=narenas:1,background_thread:true,dirty_decay_ms:1000,muzzy_decay_ms:0
 ExecStart=/usr/bin/quickshell -c penumbra
 # If the shell dies (even while the screen is locked) it comes back, and locks again if it was.
 Restart=on-failure

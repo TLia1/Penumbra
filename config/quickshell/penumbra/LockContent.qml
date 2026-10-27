@@ -18,7 +18,9 @@ Rectangle {
     // ── Wallpaper ───────────────────────────────────────────────────
     Image {
         anchors.fill: parent
-        source: Ui.fileUrl(Ui.wallpaperStill)
+        // Not before the surface has a size, so it decodes at the screen's size, not the file's.
+        source: width > 0 ? Ui.fileUrl(Ui.wallpaperStill) : ""
+        sourceSize: Qt.size(Math.ceil(width * surface.pixelRatio), Math.ceil(height * surface.pixelRatio))
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
     }
@@ -253,6 +255,7 @@ Rectangle {
                     Image {
                         anchors.fill: parent
                         source: surface.player?.trackArtUrl ?? ""
+                        sourceSize: Qt.size(96, 96)
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                     }

@@ -172,7 +172,8 @@ Singleton {
     // shell runs as penumbra-shell.service, and restarting it must not take the apps along.
     // `command` is an argument list, or { command, workingDirectory }.
     function spawn(command) {
-        const scope = ["systemd-run", "--user", "--scope", "--slice=app.slice", "--collect", "--quiet", "--"];
+        // Without the shell's allocator tuning (penumbra-shell.service).
+        const scope = ["systemd-run", "--user", "--scope", "--slice=app.slice", "--collect", "--quiet", "--", "env", "-u", "MALLOC_CONF"];
         if (Array.isArray(command))
             Quickshell.execDetached(scope.concat(command));
         else

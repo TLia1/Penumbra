@@ -283,6 +283,7 @@ Panel {
                             Image {
                                 anchors.fill: parent
                                 source: root.player?.trackArtUrl ?? ""
+                                sourceSize: Qt.size(112, 112)
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                             }

@@ -21,10 +21,13 @@ Rectangle {
         return icon.startsWith("/") || icon.includes("://") ? icon : Quickshell.iconPath(icon, true);
     }
     readonly property string iconSource: notification?.image && !largeImage ? notification.image : appIconSource
+    // Decoded no wider than 240: an image only ever shrinks to fit, so it still tells which are
+    // that wide, and their shape, without holding a whole screenshot.
     Image {
         id: probe
         visible: false
         source: root.notification?.image ?? ""
+        sourceSize.width: 240
         asynchronous: true
     }
 
@@ -154,6 +157,8 @@ Rectangle {
                 Image {
                     anchors.fill: parent
                     source: root.largeImage ? root.notification.image : ""
+                    // Twice the card's width, at most 360.
+                    sourceSize.width: 720
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                 }

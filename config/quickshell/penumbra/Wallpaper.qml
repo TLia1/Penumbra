@@ -77,8 +77,10 @@ Scope {
                         anchors.centerIn: parent
                         scale: item && item.width > 0 && item.height > 0 ? Math.max(window.width / item.width, window.height / item.height) : 1
                         opacity: root.fade
+                        // Nothing for a still or no scene: a video player with no video would
+                        // still load FFmpeg and wake the GPUs' video decoders.
                         sourceComponent: ({ "wallpaper-dawn": dawn, "wallpaper-eclipse": eclipse })[root.scene]
-                            ?? (Ui.wallpaperKind(root.scene) === "gif" ? gif : video)
+                            ?? ({ "gif": gif, "video": video })[Ui.wallpaperKind(root.scene)] ?? null
 
                         Component {
                             id: dawn
