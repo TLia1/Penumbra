@@ -15,8 +15,8 @@
   "display": {
     "separator": " : ",
     "color": {
-      "keys": "{{violet}}",
-      "title": "{{violetBright}}",
+      "keys": "{{accent}}",
+      "title": "{{accentBright}}",
       "output": "{{text}}",
       "separator": "{{dim}}"
     },
@@ -44,12 +44,12 @@
     {
       "type": "os",
       "key": "  󰣇 OS",
-      "keyColor": "{{violet}}"
+      "keyColor": "{{accent}}"
     },
     {
       "type": "kernel",
       "key": "   Kernel",
-      "keyColor": "{{violetBright}}"
+      "keyColor": "{{accentBright}}"
     },
     {
       "type": "packages",
@@ -70,7 +70,7 @@
     {
       "type": "wm",
       "key": "   WM",
-      "keyColor": "{{violet}}"
+      "keyColor": "{{accent}}"
     },
     {
       "type": "custom",
@@ -102,13 +102,13 @@
     {
       "type": "gpu",
       "key": "   Driver",
-      "keyColor": "{{violet}}",
+      "keyColor": "{{accent}}",
       "format": "{driver}"
     },
     {
       "type": "memory",
       "key": "   Memory",
-      "keyColor": "{{violetBright}}"
+      "keyColor": "{{accentBright}}"
     },
     {
       "type": "disk",

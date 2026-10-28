@@ -24,7 +24,7 @@ return {
   { 'nvim-lualine/lualine.nvim', opts = function()
     local c = require('penumbra.palette')
     return { options = { theme = {
-      normal = { a = { fg = c.bg, bg = c.violet, gui = 'bold' }, b = { fg = c.fg, bg = c.raised }, c = { fg = c.muted, bg = c.panel } },
+      normal = { a = { fg = c.bg, bg = c.accent, gui = 'bold' }, b = { fg = c.fg, bg = c.raised }, c = { fg = c.muted, bg = c.panel } },
       insert = { a = { fg = c.bg, bg = c.green } },
       visual = { a = { fg = c.bg, bg = c.pink } },
       replace = { a = { fg = c.bg, bg = c.rose } },

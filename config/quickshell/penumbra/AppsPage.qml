@@ -97,7 +97,7 @@ ColumnLayout {
                         Layout.fillWidth: true
                         implicitHeight: 34
                         radius: Theme.radiusSmall
-                        color: chosen ? Theme.alpha(Theme.violet, 0.16) : choice.containsMouse ? Theme.hover : "transparent"
+                        color: chosen ? Theme.alpha(Theme.accent, 0.16) : choice.containsMouse ? Theme.hover : "transparent"
                         RowLayout {
                             anchors { fill: parent; leftMargin: 8; rightMargin: 10 }
                             spacing: 10
@@ -107,7 +107,7 @@ ColumnLayout {
                                 asynchronous: true
                             }
                             Label { Layout.fillWidth: true; text: modelData.name; font.weight: chosen ? Font.DemiBold : Font.Normal }
-                            Glyph { visible: chosen; text: "󰄬"; size: 13; color: Theme.violetBright }
+                            Glyph { visible: chosen; text: "󰄬"; size: 13; color: Theme.accentBright }
                         }
                         MouseArea {
                             id: choice

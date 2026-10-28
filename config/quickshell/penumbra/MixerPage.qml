@@ -147,7 +147,7 @@ ColumnLayout {
         Layout.alignment: Qt.AlignRight
         text: "Advanced sound settings"
         font.pixelSize: Theme.textSmall
-        color: advancedArea.containsMouse ? Theme.violetBright : Theme.muted
+        color: advancedArea.containsMouse ? Theme.accentBright : Theme.muted
         MouseArea {
             id: advancedArea
             anchors.fill: parent

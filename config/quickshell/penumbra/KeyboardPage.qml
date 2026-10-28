@@ -45,7 +45,7 @@ ColumnLayout {
                 RowLayout {
                     anchors { fill: parent; leftMargin: 12; rightMargin: 12 }
                     spacing: 10
-                    Label { Layout.preferredWidth: 90; text: modelData[0]; font.family: Theme.mono; font.pixelSize: Theme.textSmall; color: Theme.violetBright }
+                    Label { Layout.preferredWidth: 90; text: modelData[0]; font.family: Theme.mono; font.pixelSize: Theme.textSmall; color: Theme.accentBright }
                     Label { Layout.fillWidth: true; text: modelData[1]; font.pixelSize: Theme.textSmall; color: Theme.textSoft }
                 }
                 MouseArea {

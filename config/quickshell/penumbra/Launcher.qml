@@ -376,13 +376,13 @@ PanelWindow {
                 Glyph {
                     text: root.clipboard || root.characters ? root.modes.find(m => m.mode === Ui.launcherMode).glyph : search.text.startsWith(">") ? "󰆍" : "󰍉"
                     size: 20
-                    color: Theme.violetBright
+                    color: Theme.accentBright
                 }
                 TextInput {
                     id: search
                     Layout.fillWidth: true
                     color: Theme.text
-                    selectionColor: Theme.violetDeep
+                    selectionColor: Theme.accentDeep
                     selectedTextColor: Theme.text
                     font.family: Theme.sans
                     font.pixelSize: Theme.textTitle
@@ -433,15 +433,15 @@ PanelWindow {
                         implicitWidth: current ? modeRow.implicitWidth + 22 : 30
                         implicitHeight: 30
                         radius: Theme.corner(15)
-                        color: current ? Theme.violet : modeArea.containsMouse ? Theme.hover : Theme.raised
-                        border.color: current ? Theme.violetBright : Theme.line
+                        color: current ? Theme.accent : modeArea.containsMouse ? Theme.hover : Theme.raised
+                        border.color: current ? Theme.accentBright : Theme.line
                         Behavior on color { ColorAnimation { duration: Theme.fast } }
                         RowLayout {
                             id: modeRow
                             anchors.centerIn: parent
                             spacing: 6
-                            Glyph { text: modelData.glyph; size: 13; color: current ? Theme.violetInk : Theme.textSoft }
-                            Label { visible: current; text: modelData.label; font.pixelSize: Theme.textSmall; font.weight: Font.DemiBold; color: current ? Theme.violetInk : Theme.text }
+                            Glyph { text: modelData.glyph; size: 13; color: current ? Theme.onAccent : Theme.textSoft }
+                            Label { visible: current; text: modelData.label; font.pixelSize: Theme.textSmall; font.weight: Font.DemiBold; color: current ? Theme.onAccent : Theme.text }
                         }
                         MouseArea {
                             id: modeArea
@@ -519,7 +519,7 @@ PanelWindow {
                                     visible: !parent.swatch
                                     text: ({ run: "󰆍", calc: "󰃬", clip: "󰅍" })[row.modelData.kind] ?? ""
                                     size: 16
-                                    color: Theme.violetBright
+                                    color: Theme.accentBright
                                 }
                             }
                         }
@@ -564,7 +564,7 @@ PanelWindow {
                                 font.pixelSize: row.modelData.kind === "calc" ? 17 : 13
                                 font.family: row.modelData.kind === "run" || row.modelData.kind === "calc" ? Theme.mono : Theme.sans
                                 font.weight: row.current ? Font.DemiBold : Font.Normal
-                                color: row.modelData.kind === "calc" ? Theme.violetBright : Theme.text
+                                color: row.modelData.kind === "calc" ? Theme.accentBright : Theme.text
                             }
                             Label {
                                 Layout.fillWidth: true
@@ -588,7 +588,7 @@ PanelWindow {
                             visible: row.current
                             text: "󰌑"
                             size: 14
-                            color: Theme.violet
+                            color: Theme.accent
                         }
                     }
                 }

@@ -50,7 +50,7 @@ Rectangle {
    Text {
     Layout.alignment: Qt.AlignHCenter
     text: Qt.formatDate(root.now, "dddd d MMMM")
-    color: P.violet; font.family: "Inter"; font.pixelSize: 14 * root.u; font.letterSpacing: 3 * root.u; font.capitalization: Font.AllUppercase
+    color: P.accent; font.family: "Inter"; font.pixelSize: 14 * root.u; font.letterSpacing: 3 * root.u; font.capitalization: Font.AllUppercase
    }
   }
 
@@ -64,12 +64,12 @@ Rectangle {
    Rectangle {
     Layout.alignment: Qt.AlignHCenter
     width: 76 * root.u; height: width; radius: width / 2
-    border.width: 2; border.color: P.violet
-    gradient: Gradient { GradientStop { position: 0; color: P.violet } GradientStop { position: 1; color: P.violetDeep } }
+    border.width: 2; border.color: P.accent
+    gradient: Gradient { GradientStop { position: 0; color: P.accent } GradientStop { position: 1; color: P.accentDeep } }
     Text {
      anchors.centerIn: parent
      text: username.text.charAt(0).toUpperCase()
-     color: P.violetInk; font.family: "Inter Display"; font.bold: true; font.pixelSize: 30 * root.u
+     color: P.onAccent; font.family: "Inter Display"; font.bold: true; font.pixelSize: 30 * root.u
     }
    }
    TextField {
@@ -81,7 +81,7 @@ Rectangle {
     background: Rectangle {
      radius: height / 2
      color: username.activeFocus || username.hovered ? root.alpha(P.surface, 0.7) : "transparent"
-     border.color: username.activeFocus ? P.violet : "transparent"
+     border.color: username.activeFocus ? P.accent : "transparent"
     }
     onAccepted: password.forceActiveFocus()
    }
@@ -99,7 +99,7 @@ Rectangle {
      radius: height / 2
      color: root.alpha(P.surface, 0.88)
      border.width: password.activeFocus ? 2 : 1
-     border.color: root.error !== "" ? P.rose : password.activeFocus ? P.violet : root.alpha(P.violet, 0.34)
+     border.color: root.error !== "" ? P.rose : password.activeFocus ? P.accent : root.alpha(P.accent, 0.34)
     }
     onAccepted: root.login()
     // With several keyboard layouts, the one the password is typed in; click to switch.
@@ -124,10 +124,10 @@ Rectangle {
      id: submit
      anchors.right: parent.right; anchors.rightMargin: 6 * root.u; anchors.verticalCenter: parent.verticalCenter
      width: 40 * root.u; height: width; radius: width / 2
-     color: submitArea.containsMouse ? P.violetBright : P.violet
+     color: submitArea.containsMouse ? P.accentBright : P.accent
      opacity: root.busy ? 0.5 : 1
      Behavior on color { ColorAnimation { duration: 160 } }
-     Text { anchors.centerIn: parent; text: "→"; color: P.violetInk; font.family: "Inter"; font.bold: true; font.pixelSize: 18 * root.u }
+     Text { anchors.centerIn: parent; text: "→"; color: P.onAccent; font.family: "Inter"; font.bold: true; font.pixelSize: 18 * root.u }
      MouseArea { id: submitArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.login() }
     }
    }
@@ -145,7 +145,7 @@ Rectangle {
   Text {
    anchors.left: parent.left; anchors.bottom: parent.bottom; anchors.margins: 32 * root.u
    text: "PENUMBRA"
-   color: root.alpha(P.violet, 0.8); font.family: "Inter"; font.pixelSize: 11 * root.u; font.weight: Font.DemiBold; font.letterSpacing: 5 * root.u
+   color: root.alpha(P.accent, 0.8); font.family: "Inter"; font.pixelSize: 11 * root.u; font.weight: Font.DemiBold; font.letterSpacing: 5 * root.u
   }
   RowLayout {
    anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 24 * root.u
@@ -155,7 +155,7 @@ Rectangle {
     model: sessionModel; textRole: "name"; currentIndex: sessionModel.lastIndex
     palette.button: P.raised; palette.buttonText: P.textSoft; palette.text: P.text; palette.base: P.raised; palette.highlight: P.selection; palette.highlightedText: P.selectionText; palette.window: P.surfaceAlt
     font.family: "Inter"; font.pixelSize: 12 * root.u
-    background: Rectangle { color: session.hovered ? root.alpha(P.hover, 0.8) : root.alpha(P.surface, 0.6); radius: height / 2; border.color: root.alpha(P.violet, 0.16) }
+    background: Rectangle { color: session.hovered ? root.alpha(P.hover, 0.8) : root.alpha(P.surface, 0.6); radius: height / 2; border.color: root.alpha(P.accent, 0.16) }
    }
    Repeater {
     model: [
@@ -179,7 +179,7 @@ Rectangle {
  Dialog {
   id: powerDialog; property string action: ""; anchors.centerIn: parent; title: action === "restart" ? "Restart computer?" : "Shut down computer?"; modal: true
   standardButtons: Dialog.Ok | Dialog.Cancel; font.family: "Inter"; font.pixelSize: 13 * root.u
-  palette.window: P.surfaceAlt; palette.windowText: P.text; palette.button: P.hover; palette.buttonText: P.violet
+  palette.window: P.surfaceAlt; palette.windowText: P.text; palette.button: P.hover; palette.buttonText: P.accent
   onAccepted: { if (action === "restart") sddm.reboot(); else sddm.powerOff(); }
  }
  Connections {

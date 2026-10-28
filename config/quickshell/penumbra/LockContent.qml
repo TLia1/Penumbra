@@ -102,7 +102,7 @@ Rectangle {
                 font.pixelSize: Theme.textLarge
                 font.letterSpacing: 3
                 font.capitalization: Font.AllUppercase
-                color: Theme.violet
+                color: Theme.accent
             }
         }
 
@@ -134,7 +134,7 @@ Rectangle {
                 radius: Theme.corner(26)
                 color: Theme.glassStrong
                 border.width: input.activeFocus ? 2 : 1
-                border.color: surface.lock.message && !surface.lock.busy ? Theme.rose : input.activeFocus ? Theme.violet : Theme.lineStrong
+                border.color: surface.lock.message && !surface.lock.busy ? Theme.rose : input.activeFocus ? Theme.accent : Theme.lineStrong
                 Behavior on border.color { ColorAnimation { duration: Theme.fast } }
 
                 TextInput {
@@ -177,7 +177,7 @@ Rectangle {
                             width: 9
                             height: 9
                             radius: Theme.corner(4.5)
-                            color: Theme.violetBright
+                            color: Theme.accentBright
                             scale: 0
                             Component.onCompleted: scale = 1
                             Behavior on scale { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutBack } }
@@ -188,7 +188,7 @@ Rectangle {
                     anchors { right: parent.right; rightMargin: 18; verticalCenter: parent.verticalCenter }
                     text: surface.lock.busy ? "󰔟" : "󰌆"
                     size: 15
-                    color: surface.lock.busy ? Theme.violet : Theme.dim
+                    color: surface.lock.busy ? Theme.accent : Theme.dim
                     RotationAnimation on rotation { running: surface.lock.busy; from: 0; to: 360; duration: 1200; loops: Animation.Infinite }
                 }
 
@@ -210,7 +210,7 @@ Rectangle {
                     property real pulse: 1
                     text: "󰈷"
                     size: 20
-                    color: surface.lock.fingerWaiting ? Theme.violetBright : Theme.dim
+                    color: surface.lock.fingerWaiting ? Theme.accentBright : Theme.dim
                     opacity: surface.lock.fingerWaiting ? pulse : 1
                     SequentialAnimation on pulse {
                         running: surface.lock.fingerWaiting
@@ -299,7 +299,7 @@ Rectangle {
                         visible: !surface.player?.trackArtUrl
                         text: "󰎆"
                         size: 19
-                        color: Theme.violetBright
+                        color: Theme.accentBright
                     }
                 }
                 ColumnLayout {
@@ -319,8 +319,8 @@ Rectangle {
                         implicitWidth: modelData.main ? 36 : 28
                         implicitHeight: implicitWidth
                         radius: Theme.corner(implicitWidth / 2)
-                        color: modelData.main ? Theme.violet : lockMedia.containsMouse ? Theme.hover : "transparent"
-                        Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 15; color: modelData.main ? Theme.violetInk : Theme.text }
+                        color: modelData.main ? Theme.accent : lockMedia.containsMouse ? Theme.hover : "transparent"
+                        Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 15; color: modelData.main ? Theme.onAccent : Theme.text }
                         MouseArea {
                             id: lockMedia
                             anchors.fill: parent

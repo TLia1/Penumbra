@@ -13,18 +13,18 @@
     --toolbar-field-border-color: {{border}} !important;
     --toolbar-field-focus-background-color: {{raised}} !important;
     --toolbar-field-focus-color: {{white}} !important;
-    --toolbar-field-focus-border-color: {{violet}} !important;
+    --toolbar-field-focus-border-color: {{accent}} !important;
     --toolbarbutton-hover-background: {{raised}} !important;
     --toolbarbutton-active-background: {{hover}} !important;
-    --toolbarbutton-icon-fill-attention: {{violet}} !important;
+    --toolbarbutton-icon-fill-attention: {{accent}} !important;
     --tab-selected-bgcolor: {{base}} !important;
     --tab-selected-textcolor: {{white}} !important;
     --tab-hover-background-color: {{raised}} !important;
-    --tab-loading-fill: {{violet}} !important;
-    --tab-attention-icon-color: {{violet}} !important;
-    --lwt-tab-line-color: {{violet}} !important;
+    --tab-loading-fill: {{accent}} !important;
+    --tab-attention-icon-color: {{accent}} !important;
+    --lwt-tab-line-color: {{accent}} !important;
     --chrome-content-separator-color: {{border}} !important;
-    --focus-outline-color: {{violet}} !important;
+    --focus-outline-color: {{accent}} !important;
     --arrowpanel-background: {{surfaceAlt}} !important;
     --arrowpanel-color: {{text}} !important;
     --arrowpanel-border-color: {{border}} !important;
@@ -37,10 +37,10 @@
     --sidebar-text-color: {{textSoft}} !important;
     --sidebar-border-color: {{border}} !important;
     --newtab-background-color: {{base}} !important;
-    --color-accent-primary: {{violet}} !important;
-    --color-accent-primary-hover: {{violetBright}} !important;
+    --color-accent-primary: {{accent}} !important;
+    --color-accent-primary-hover: {{accentBright}} !important;
     --color-accent-primary-active: {{selection}} !important;
-    --button-text-color-primary: {{violetInk}} !important;
+    --button-text-color-primary: {{onAccent}} !important;
 }
 ::selection {
     background-color: {{textSelection}} !important;

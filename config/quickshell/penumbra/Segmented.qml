@@ -29,8 +29,8 @@ Rectangle {
                 Layout.fillHeight: true
                 Layout.preferredWidth: 1 // equal shares
                 radius: Theme.corner(Theme.radius - 4)
-                color: current ? Theme.alpha(Theme.violet, 0.22) : segmentArea.containsMouse ? Theme.hover : "transparent"
-                border.color: current ? Theme.alpha(Theme.violetBright, 0.55) : "transparent"
+                color: current ? Theme.alpha(Theme.accent, 0.22) : segmentArea.containsMouse ? Theme.hover : "transparent"
+                border.color: current ? Theme.alpha(Theme.accentBright, 0.55) : "transparent"
                 opacity: available ? 1 : 0.45
                 Behavior on color { ColorAnimation { duration: Theme.fast } }
                 RowLayout {
@@ -41,7 +41,7 @@ Rectangle {
                         visible: !!segment.modelData.glyph
                         text: segment.modelData.glyph ?? ""
                         size: 14
-                        color: segment.current ? Theme.violetBright : Theme.muted
+                        color: segment.current ? Theme.accentBright : Theme.muted
                     }
                     Label {
                         Layout.fillWidth: true

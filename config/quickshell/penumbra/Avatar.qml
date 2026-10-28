@@ -15,13 +15,13 @@ ClippingRectangle {
     implicitHeight: size
     radius: Theme.corner(size / 2)
     border.width: ring ? 2 : 0
-    border.color: Theme.violet
+    border.color: Theme.accent
 
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
-            GradientStop { position: 0; color: Theme.violet }
-            GradientStop { position: 1; color: Theme.violetDeep }
+            GradientStop { position: 0; color: Theme.accent }
+            GradientStop { position: 1; color: Theme.accentDeep }
         }
     }
     Label {
@@ -31,7 +31,7 @@ ClippingRectangle {
         font.family: Theme.display
         font.pixelSize: Math.round(root.size * 0.4)
         font.weight: Font.Bold
-        color: Theme.violetInk
+        color: Theme.onAccent
     }
     Image {
         id: face

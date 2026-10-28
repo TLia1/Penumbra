@@ -19,7 +19,7 @@ style = "Bold"
 
 [color-palette]
 palette = [
-    "{{violet}}ff",
+    "{{accent}}ff",
     "{{rose}}ff",
     "{{green}}ff",
     "{{amber}}ff",

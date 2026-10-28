@@ -44,7 +44,7 @@ Rectangle {
                 Layout.preferredWidth: 22
                 text: root.glyph
                 size: 17
-                color: root.highlighted ? Theme.violetBright : Theme.textSoft
+                color: root.highlighted ? Theme.accentBright : Theme.textSoft
             }
             ColumnLayout {
                 Layout.fillWidth: true
@@ -55,14 +55,14 @@ Rectangle {
                     visible: text !== ""
                     text: root.subtitle
                     font.pixelSize: Theme.textSmall
-                    color: root.danger ? Theme.rose : root.highlighted ? Theme.violet : Theme.muted
+                    color: root.danger ? Theme.rose : root.highlighted ? Theme.accent : Theme.muted
                 }
             }
             Glyph {
                 visible: root.busy
                 text: "󰔟"
                 size: 14
-                color: Theme.violet
+                color: Theme.accent
                 RotationAnimation on rotation { running: root.busy; from: 0; to: 360; duration: 1200; loops: Animation.Infinite }
             }
             Glyph {

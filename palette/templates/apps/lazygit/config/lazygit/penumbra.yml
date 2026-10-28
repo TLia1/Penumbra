@@ -3,7 +3,7 @@
 gui:
   theme:
     activeBorderColor:
-      - '{{violet}}'
+      - '{{accent}}'
       - bold
     inactiveBorderColor:
       - '{{border}}'
@@ -11,17 +11,17 @@ gui:
       - '{{amber}}'
       - bold
     optionsTextColor:
-      - '{{violet}}'
+      - '{{accent}}'
     selectedLineBgColor:
       - '{{hover}}'
     inactiveViewSelectedLineBgColor:
       - '{{raised}}'
     cherryPickedCommitFgColor:
-      - '{{violetInk}}'
+      - '{{onAccent}}'
     cherryPickedCommitBgColor:
       - '{{cyan}}'
     markedBaseCommitFgColor:
-      - '{{violetInk}}'
+      - '{{onAccent}}'
     markedBaseCommitBgColor:
       - '{{amber}}'
     unstagedChangesColor:
@@ -29,4 +29,4 @@ gui:
     defaultFgColor:
       - '{{text}}'
   authorColors:
-    '*': '{{violetSoft}}'
+    '*': '{{accentSoft}}'

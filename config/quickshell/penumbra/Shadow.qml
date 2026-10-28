@@ -11,7 +11,7 @@ RectangularShadow {
     offset.y: 6
     blur: 26
     spread: -4
-    color: Qt.rgba(0, 0, 0, 0.55)
+    color: Theme.shadow
     opacity: target.opacity
     scale: target.scale
 }

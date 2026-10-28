@@ -4,16 +4,16 @@
 window { width: 640px; padding: 26px; border: 1px; border-radius: 22px; background-color: @bg; }
 mainbox { spacing: 22px; children: [ inputbar, listview, mode-switcher ]; }
 inputbar { padding: 16px; border-radius: 12px; background-color: @field; spacing: 14px; children: [ prompt, entry ]; }
-prompt { text-color: @violet; font: "Inter Bold 11"; vertical-align: 0.5; }
+prompt { text-color: @accent; font: "Inter Bold 11"; vertical-align: 0.5; }
 entry { placeholder: "Search your applications…"; placeholder-color: @muted; }
 listview { lines: 6; columns: 1; spacing: 5px; fixed-height: true; }
 element { padding: 12px; border-radius: 10px; spacing: 14px; }
-element selected.normal { background-color: @selection; text-color: @violet; }
+element selected.normal { background-color: @selection; text-color: @accent; }
 element-icon { size: 28px; }
 element-text { vertical-align: 0.5; text-color: inherit; }
 mode-switcher { spacing: 10px; }
 button { padding: 8px; border-radius: 8px; text-color: @muted; font: "Inter 10"; }
-button selected { text-color: @violet; background-color: @field; }
+button selected { text-color: @accent; background-color: @field; }
 message { padding: 10px; }
 /* Corner style: penumbra-corners rewrites this to square everything off. */
 @import "corners"

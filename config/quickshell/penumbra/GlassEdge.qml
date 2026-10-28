@@ -16,8 +16,8 @@ Item {
         anchors.fill: parent
         visible: false
         gradient: Gradient {
-            GradientStop { position: 0; color: Qt.rgba(1, 1, 1, root.strength) }
-            GradientStop { position: 0.5; color: Qt.rgba(1, 1, 1, 0) }
+            GradientStop { position: 0; color: Theme.alpha(Theme.highlight, Math.min(1, root.strength * Theme.highlightGain)) }
+            GradientStop { position: 0.5; color: Theme.alpha(Theme.highlight, 0) }
         }
     }
     Rectangle {

@@ -169,7 +169,7 @@ Panel {
         id: meter
         property string glyph
         property string title
-        property color accent: Theme.violet
+        property color accent: Theme.accent
         property bool interactive: false
         // The graphs; the header's right side; the figures under the title.
         default property alias graphs: graphArea.data
@@ -266,7 +266,7 @@ Panel {
         readonly property bool current: root.sortBy === mode
         horizontalAlignment: Text.AlignRight
         font.weight: current ? Font.DemiBold : Font.Medium
-        color: current ? Theme.violetBright : headerArea.containsMouse ? Theme.textSoft : Theme.muted
+        color: current ? Theme.accentBright : headerArea.containsMouse ? Theme.textSoft : Theme.muted
         MouseArea {
             id: headerArea
             anchors.fill: parent
@@ -307,16 +307,16 @@ Panel {
                     implicitWidth: current ? pageRow.implicitWidth + 24 : 32
                     implicitHeight: 32
                     radius: Theme.corner(16)
-                    color: current ? Theme.violet : pageArea.containsMouse ? Theme.hover : Theme.raised
-                    border.color: current ? Theme.violetBright : Theme.line
+                    color: current ? Theme.accent : pageArea.containsMouse ? Theme.hover : Theme.raised
+                    border.color: current ? Theme.accentBright : Theme.line
                     Behavior on color { ColorAnimation { duration: Theme.fast } }
                     Behavior on implicitWidth { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
                     RowLayout {
                         id: pageRow
                         anchors.centerIn: parent
                         spacing: 6
-                        Glyph { text: modelData.glyph; size: 13; color: current ? Theme.violetInk : Theme.textSoft }
-                        Label { visible: current; text: modelData.label; font.pixelSize: Theme.textSmall; font.weight: Font.DemiBold; color: Theme.violetInk }
+                        Glyph { text: modelData.glyph; size: 13; color: current ? Theme.onAccent : Theme.textSoft }
+                        Label { visible: current; text: modelData.label; font.pixelSize: Theme.textSmall; font.weight: Font.DemiBold; color: Theme.onAccent }
                     }
                     MouseArea {
                         id: pageArea
@@ -351,7 +351,7 @@ Panel {
                 Meter {
                     glyph: "󰻠"
                     title: "Processor"
-                    accent: Theme.violet
+                    accent: Theme.accent
                     // One bar per thread.
                     corner: Row {
                         readonly property int count: Usage.coreLoads.length
@@ -364,13 +364,13 @@ Panel {
                                 width: parent.bar
                                 height: 14
                                 radius: Theme.corner(1)
-                                color: Theme.alpha(Theme.violet, 0.16)
+                                color: Theme.alpha(Theme.accent, 0.16)
                                 Rectangle {
                                     anchors.bottom: parent.bottom
                                     width: parent.width
                                     height: Math.max(1, parent.height * (Usage.coreLoads[index] ?? 0) / 100)
                                     radius: parent.radius
-                                    color: root.level(Usage.coreLoads[index] ?? 0, Theme.violet)
+                                    color: root.level(Usage.coreLoads[index] ?? 0, Theme.accent)
                                     Behavior on height { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
                                 }
                             }
@@ -383,7 +383,7 @@ Panel {
                     Graph {
                         anchors.fill: parent
                         values: Usage.cpuHistory
-                        color: Theme.violet
+                        color: Theme.accent
                         live: root.open
                     }
                 }
@@ -490,7 +490,7 @@ Panel {
                         Repeater {
                             model: [
                                 { glyph: "󰇚", value: Usage.netDown, total: Usage.netReceived, what: "received", color: Theme.cyan },
-                                { glyph: "󰕒", value: Usage.netUp, total: Usage.netSent, what: "sent", color: Theme.violetBright }
+                                { glyph: "󰕒", value: Usage.netUp, total: Usage.netSent, what: "sent", color: Theme.accentBright }
                             ]
                             delegate: RowLayout {
                                 required property var modelData
@@ -517,7 +517,7 @@ Panel {
                         anchors.fill: parent
                         values: Usage.upHistory
                         maximum: download.maximum
-                        color: Theme.violetBright
+                        color: Theme.accentBright
                         fillOpacity: 0.16
                         live: root.open
                     }

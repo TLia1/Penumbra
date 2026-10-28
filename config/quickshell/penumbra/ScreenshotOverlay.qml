@@ -147,7 +147,7 @@ PanelWindow {
             color: "transparent"
             radius: Theme.corner(4)
             border.width: 2
-            border.color: root.record ? Theme.rose : Theme.violet
+            border.color: root.record ? Theme.rose : Theme.accent
             Rectangle {
                 anchors { left: parent.left; top: parent.bottom; topMargin: 8 }
                 visible: parent.width > 60
@@ -197,7 +197,7 @@ PanelWindow {
             property string glyph
             property string text
             property bool on: false
-            property color tint: Theme.violet
+            property color tint: Theme.accent
             signal clicked()
             implicitWidth: chipRow.implicitWidth + 24
             implicitHeight: 38
@@ -251,14 +251,14 @@ PanelWindow {
                         implicitWidth: toolRow.implicitWidth + 24
                         implicitHeight: 38
                         radius: Theme.corner(19)
-                        color: current ? Theme.violet : toolArea.containsMouse ? Theme.hover : "transparent"
+                        color: current ? Theme.accent : toolArea.containsMouse ? Theme.hover : "transparent"
                         Behavior on color { ColorAnimation { duration: Theme.fast } }
                         RowLayout {
                             id: toolRow
                             anchors.centerIn: parent
                             spacing: 7
-                            Glyph { text: modelData.glyph; size: 15; color: current ? Theme.violetInk : Theme.textSoft }
-                            Label { text: modelData.label; font.weight: Font.DemiBold; color: current ? Theme.violetInk : Theme.text }
+                            Glyph { text: modelData.glyph; size: 15; color: current ? Theme.onAccent : Theme.textSoft }
+                            Label { text: modelData.label; font.weight: Font.DemiBold; color: current ? Theme.onAccent : Theme.text }
                         }
                         MouseArea {
                             id: toolArea

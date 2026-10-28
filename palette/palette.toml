@@ -25,11 +25,11 @@ selection = "#916dcf"     # selected items, with selectionText on top
 selectionText = "#ffffff"
 
 # The accent.
-violetInk = "#100b1b"     # text on a violet fill
-violetDeep = "#6d28d9"
-violetSoft = "#9c87c6"    # visited links
-violet = "#b69af7"
-violetBright = "#c4a5ff"
+onAccent = "#100b1b"     # text on an accent fill
+accentDeep = "#6d28d9"
+accentSoft = "#9c87c6"    # visited links
+accent = "#b69af7"
+accentBright = "#c4a5ff"
 
 # Text, brightest first.
 white = "#faf5ff"

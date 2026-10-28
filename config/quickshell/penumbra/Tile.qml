@@ -17,8 +17,8 @@ Rectangle {
     implicitHeight: 62
     radius: Theme.radius
     // On is a violet tint with the accent on the icon's disc; a solid fill outweighed the panel.
-    color: on ? Theme.alpha(Theme.violet, body.containsMouse ? 0.3 : 0.22) : body.containsMouse ? Theme.hover : Theme.raised
-    border.color: on ? Theme.alpha(Theme.violetBright, 0.55) : Theme.line
+    color: on ? Theme.alpha(Theme.accent, body.containsMouse ? 0.3 : 0.22) : body.containsMouse ? Theme.hover : Theme.raised
+    border.color: on ? Theme.alpha(Theme.accentBright, 0.55) : Theme.line
     opacity: available ? 1 : 0.45
     Behavior on color { ColorAnimation { duration: Theme.fast } }
 
@@ -38,13 +38,13 @@ Rectangle {
             implicitWidth: 36
             implicitHeight: 36
             radius: Theme.corner(18)
-            color: root.on ? Theme.violet : Theme.alpha(Theme.violet, 0.12)
+            color: root.on ? Theme.accent : Theme.alpha(Theme.accent, 0.12)
             Behavior on color { ColorAnimation { duration: Theme.fast } }
             Glyph {
                 anchors.centerIn: parent
                 text: root.glyph
                 size: 17
-                color: root.on ? Theme.violetInk : Theme.violetBright
+                color: root.on ? Theme.onAccent : Theme.accentBright
             }
         }
         ColumnLayout {
@@ -60,7 +60,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: root.subtitle
                 font.pixelSize: Theme.textSmall
-                color: root.on ? Theme.violetBright : Theme.muted
+                color: root.on ? Theme.accentBright : Theme.muted
             }
         }
         Rectangle {
@@ -68,11 +68,11 @@ Rectangle {
             implicitWidth: 30
             implicitHeight: 44
             radius: Theme.radiusSmall
-            color: more.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+            color: more.containsMouse ? Theme.overlay : "transparent"
             Glyph {
                 anchors.centerIn: parent
                 text: "󰅂"
-                color: root.on ? Theme.violetBright : Theme.muted
+                color: root.on ? Theme.accentBright : Theme.muted
             }
             MouseArea {
                 id: more

@@ -10,7 +10,7 @@ Item {
     // The value at the top edge; 0 scales to the largest value shown, but never below floor.
     property real maximum: 100
     property real floor: 1
-    property color color: Theme.violet
+    property color color: Theme.accent
     property real fillOpacity: 0.3
     property bool live: true
 

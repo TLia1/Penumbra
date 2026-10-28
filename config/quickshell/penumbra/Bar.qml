@@ -44,7 +44,7 @@ PanelWindow {
             tip: "Applications · right-click for the clipboard"
             active: Ui.launcherOpen
             onClicked: m => Ui.toggleLauncher(m.button === Qt.RightButton ? "clipboard" : "apps")
-            Glyph { text: Theme.distroGlyph; size: 20; color: Ui.launcherOpen ? Theme.violetInk : Theme.violetBright }
+            Glyph { text: Theme.distroGlyph; size: 20; color: Ui.launcherOpen ? Theme.onAccent : Theme.accentBright }
         }
 
         Capsule {
@@ -57,7 +57,7 @@ PanelWindow {
                 text: Qt.formatDateTime(Clock.date, "HH:mm")
                 font.pixelSize: Theme.textLarge
                 font.weight: Font.Bold
-                color: Ui.calendarOpen ? Theme.violetInk : Theme.text
+                color: Ui.calendarOpen ? Theme.onAccent : Theme.text
             }
         }
 
@@ -75,12 +75,12 @@ PanelWindow {
                     implicitWidth: Math.max(current ? 52 : Theme.barHeight, workspaceLabel.implicitWidth + 26)
                     padding: 0
                     active: current
-                    color: current ? Theme.violet : modelData.urgent ? Theme.rose : (hovered ? Theme.hover : Theme.glass)
+                    color: current ? Theme.accent : modelData.urgent ? Theme.rose : (hovered ? Theme.hover : Theme.glass)
                     onClicked: modelData.activate()
                     Label {
                         id: workspaceLabel
                         text: workspace.modelData.name
-                        color: workspace.current || workspace.modelData.urgent ? Theme.violetInk : workspace.hovered ? Theme.text : Theme.subtle
+                        color: workspace.current || workspace.modelData.urgent ? Theme.onAccent : workspace.hovered ? Theme.text : Theme.subtle
                         font.weight: workspace.current ? Font.Bold : Font.DemiBold
                     }
                 }
@@ -108,12 +108,12 @@ PanelWindow {
                         width: 3
                         height: 5 + modelData * 13
                         radius: Theme.corner(1.5)
-                        color: Theme.violetBright
+                        color: Theme.accentBright
                         Behavior on height { NumberAnimation { duration: 60 } }
                     }
                 }
             }
-            Glyph { visible: !Ui.hasVisualizer; text: "󰎆"; color: Theme.violetBright }
+            Glyph { visible: !Ui.hasVisualizer; text: "󰎆"; color: Theme.accentBright }
         }
     }
 
@@ -208,8 +208,8 @@ PanelWindow {
             active: Ui.updatesOpen
             tip: Sys.updatesDetail
             onClicked: Ui.toggleUpdates()
-            Glyph { text: "󰚰"; color: Ui.updatesOpen ? Theme.violetInk : Theme.violetBright }
-            Label { text: Sys.updates; color: Ui.updatesOpen ? Theme.violetInk : Theme.violetBright }
+            Glyph { text: "󰚰"; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
+            Label { text: Sys.updates; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
         }
 
         Capsule {
@@ -219,7 +219,7 @@ PanelWindow {
             active: Ui.monitorOpen
             tip: `CPU ${Usage.cpu}% · Memory ${Usage.memoryDetail}`
             onClicked: m => m.button === Qt.RightButton ? Ui.run("kitty --class penumbra-monitor htop") : Ui.toggleMonitor()
-            readonly property color tint: Ui.monitorOpen ? Theme.violetInk : Theme.subtle
+            readonly property color tint: Ui.monitorOpen ? Theme.onAccent : Theme.subtle
             Repeater {
                 model: [{ name: "CPU", value: Usage.cpu }, { name: "RAM", value: Usage.memory }]
                 delegate: RowLayout {
@@ -230,7 +230,7 @@ PanelWindow {
                         font.pixelSize: Theme.textTiny
                         font.weight: Font.DemiBold
                         font.letterSpacing: 0.6
-                        color: Ui.monitorOpen ? Theme.violetInk : Theme.dim
+                        color: Ui.monitorOpen ? Theme.onAccent : Theme.dim
                     }
                     Label { text: modelData.value + "%"; color: monitor.tint }
                 }
@@ -265,7 +265,7 @@ PanelWindow {
                         source: trayIcon
                         saturation: trayMouse.containsMouse ? 0 : -1
                         colorization: trayMouse.containsMouse ? 0 : 0.35
-                        colorizationColor: Theme.violet
+                        colorizationColor: Theme.accent
                         brightness: trayMouse.containsMouse ? 0 : 0.1
                         Behavior on saturation { NumberAnimation { duration: Theme.fast } }
                         Behavior on colorization { NumberAnimation { duration: Theme.fast } }
@@ -303,7 +303,7 @@ PanelWindow {
             tip: `${Devices.networkName} · Bluetooth ${Devices.bluetoothName}` + (Devices.hasBattery ? `\n${Devices.batteryDetail}` : "")
             onClicked: m => m.button === Qt.RightButton ? Ui.run("pavucontrol") : Ui.toggleControl()
             onScrolled: step => Devices.adjust("volume", step > 0 ? "up" : "down")
-            readonly property color tint: Ui.controlOpen ? Theme.violetInk : Theme.textSoft
+            readonly property color tint: Ui.controlOpen ? Theme.onAccent : Theme.textSoft
 
             Glyph { text: Devices.networkGlyph; color: Devices.networkName === "Offline" && !Ui.controlOpen ? Theme.dim : controls.tint }
             Glyph { text: Devices.bluetoothGlyph; color: !Devices.bluetoothOn && !Ui.controlOpen ? Theme.dim : controls.tint }
@@ -319,8 +319,8 @@ PanelWindow {
             RowLayout {
                 visible: Devices.hasBattery
                 spacing: 5
-                Glyph { text: Devices.batteryGlyph; color: Ui.controlOpen ? Theme.violetInk : Devices.batteryColor }
-                Label { text: Devices.batteryPercent + "%"; color: Ui.controlOpen ? Theme.violetInk : Devices.batteryColor }
+                Glyph { text: Devices.batteryGlyph; color: Ui.controlOpen ? Theme.onAccent : Devices.batteryColor }
+                Label { text: Devices.batteryPercent + "%"; color: Ui.controlOpen ? Theme.onAccent : Devices.batteryColor }
             }
             Item {
                 implicitWidth: bell.implicitWidth
@@ -328,12 +328,12 @@ PanelWindow {
                 Glyph {
                     id: bell
                     text: Notifs.dnd ? "󰂛" : Notifs.count ? "󰂚" : "󰂜"
-                    color: Ui.controlOpen ? Theme.violetInk : Notifs.dnd ? Theme.dim : Theme.textSoft
+                    color: Ui.controlOpen ? Theme.onAccent : Notifs.dnd ? Theme.dim : Theme.textSoft
                 }
                 Rectangle {
                     visible: Notifs.count > 0 && !Notifs.dnd
                     width: 6; height: 6; radius: Theme.corner(3)
-                    color: Ui.controlOpen ? Theme.violetInk : Theme.violetBright
+                    color: Ui.controlOpen ? Theme.onAccent : Theme.accentBright
                     anchors { right: bell.right; top: bell.top; rightMargin: -2; topMargin: 1 }
                 }
             }
@@ -343,7 +343,7 @@ PanelWindow {
             padding: 14
             tip: "Session & power"
             onClicked: Ui.openSession()
-            Glyph { text: "󰐥"; size: 16; color: Theme.violetBright }
+            Glyph { text: "󰐥"; size: 16; color: Theme.accentBright }
         }
     }
 

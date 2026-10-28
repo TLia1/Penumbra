@@ -128,7 +128,7 @@ Panel {
                         radius: Theme.corner(18)
                         color: headerArea.containsMouse ? Theme.hover : Theme.raised
                         border.color: Theme.line
-                        Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 15; color: Theme.violetBright }
+                        Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 15; color: Theme.accentBright }
                         MouseArea {
                             id: headerArea
                             anchors.fill: parent
@@ -349,7 +349,7 @@ Panel {
                                 visible: !root.player?.trackArtUrl
                                 text: "󰎆"
                                 size: 22
-                                color: Theme.violetBright
+                                color: Theme.accentBright
                             }
                         }
                         ColumnLayout {
@@ -392,8 +392,8 @@ Panel {
                                 implicitHeight: implicitWidth
                                 radius: Theme.corner(implicitWidth / 2)
                                 opacity: modelData.ok ? 1 : 0.4
-                                color: modelData.main ? Theme.violet : mediaArea.containsMouse ? Theme.hover : "transparent"
-                                Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 16; color: modelData.main ? Theme.violetInk : Theme.text }
+                                color: modelData.main ? Theme.accent : mediaArea.containsMouse ? Theme.hover : "transparent"
+                                Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 16; color: modelData.main ? Theme.onAccent : Theme.text }
                                 MouseArea {
                                     id: mediaArea
                                     anchors.fill: parent
@@ -423,13 +423,13 @@ Panel {
                                 width: parent.width
                                 height: seekArea.containsMouse ? 6 : 4
                                 radius: Theme.corner(height / 2)
-                                color: Qt.rgba(1, 1, 1, 0.12)
+                                color: Theme.overlayStrong
                                 Behavior on height { NumberAnimation { duration: Theme.fast } }
                                 Rectangle {
                                     width: parent.width * parent.parent.progress
                                     height: parent.height
                                     radius: Theme.corner(height / 2)
-                                    color: Theme.violet
+                                    color: Theme.accent
                                 }
                             }
                             MouseArea {
@@ -466,7 +466,7 @@ Panel {
                     visible: Notifs.count > 0
                     text: "Clear all"
                     font.pixelSize: Theme.textSmall
-                    color: clearArea.containsMouse ? Theme.violetBright : Theme.violet
+                    color: clearArea.containsMouse ? Theme.accentBright : Theme.accent
                     MouseArea {
                         id: clearArea
                         anchors.fill: parent
@@ -509,7 +509,7 @@ Panel {
                             visible: group.modelData.items.length > 1
                             text: group.expanded ? "Show less" : "Show all"
                             font.pixelSize: Theme.textSmall
-                            color: expandArea.containsMouse ? Theme.violetBright : Theme.violet
+                            color: expandArea.containsMouse ? Theme.accentBright : Theme.accent
                             MouseArea {
                                 id: expandArea
                                 anchors.fill: parent

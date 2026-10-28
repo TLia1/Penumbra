@@ -139,8 +139,8 @@ ColumnLayout {
                     echoMode: reveal.checked ? TextInput.Normal : TextInput.Password
                     color: Theme.text
                     placeholderTextColor: Theme.dim
-                    selectionColor: Theme.violet
-                    selectedTextColor: Theme.violetInk
+                    selectionColor: Theme.accent
+                    selectedTextColor: Theme.onAccent
                     font.family: Theme.sans
                     font.pixelSize: Theme.textBody
                     leftPadding: 12
@@ -149,7 +149,7 @@ ColumnLayout {
                         implicitHeight: 32
                         radius: Theme.corner(10)
                         color: Theme.glassStrong
-                        border.color: password.activeFocus ? Theme.violet : Theme.lineStrong
+                        border.color: password.activeFocus ? Theme.accent : Theme.lineStrong
                     }
                     onAccepted: row.connect()
                     Glyph {
@@ -220,7 +220,7 @@ ColumnLayout {
         Layout.alignment: Qt.AlignRight
         text: "Advanced network settings"
         font.pixelSize: Theme.textSmall
-        color: advancedArea.containsMouse ? Theme.violetBright : Theme.muted
+        color: advancedArea.containsMouse ? Theme.accentBright : Theme.muted
         MouseArea {
             id: advancedArea
             anchors.fill: parent

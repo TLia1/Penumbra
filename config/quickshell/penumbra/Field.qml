@@ -9,8 +9,8 @@ TextField {
 
     color: Theme.text
     placeholderTextColor: Theme.dim
-    selectionColor: Theme.violet
-    selectedTextColor: Theme.violetInk
+    selectionColor: Theme.accent
+    selectedTextColor: Theme.onAccent
     font.family: Theme.sans
     font.pixelSize: Theme.textBody
     leftPadding: 12
@@ -19,7 +19,7 @@ TextField {
         implicitHeight: 32
         radius: Theme.corner(10)
         color: Theme.glassStrong
-        border.color: root.invalid ? Theme.rose : root.activeFocus ? Theme.violet : Theme.lineStrong
+        border.color: root.invalid ? Theme.rose : root.activeFocus ? Theme.accent : Theme.lineStrong
         Behavior on border.color { ColorAnimation { duration: Theme.fast } }
     }
 }

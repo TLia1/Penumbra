@@ -184,7 +184,7 @@ ColumnLayout {
         visible: !!root.adapter
         text: "Advanced Bluetooth settings"
         font.pixelSize: Theme.textSmall
-        color: advancedArea.containsMouse ? Theme.violetBright : Theme.muted
+        color: advancedArea.containsMouse ? Theme.accentBright : Theme.muted
         MouseArea {
             id: advancedArea
             anchors.fill: parent

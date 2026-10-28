@@ -30,9 +30,9 @@ Rectangle {
     implicitHeight: Theme.barHeight
     implicitWidth: row.implicitWidth + padding * 2
     radius: Theme.corner(height / 2)
-    color: active ? Theme.violet : (interactive && hovered ? Theme.hover : Theme.glass)
+    color: active ? Theme.accent : (interactive && hovered ? Theme.hover : Theme.glass)
     border.width: 1
-    border.color: active ? Theme.violetBright : Theme.line
+    border.color: active ? Theme.accentBright : Theme.line
     Behavior on color { ColorAnimation { duration: Theme.fast } }
     Behavior on implicitWidth { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
 
@@ -56,7 +56,7 @@ Rectangle {
         onExited: root.wheelRest = 0
     }
 
-    // An active capsule takes the focused window's border: violet shading towards violetDeep.
+    // An active capsule takes the focused window's border: accent shading towards accentDeep.
     Rectangle {
         anchors.fill: parent
         radius: root.radius
@@ -65,8 +65,8 @@ Rectangle {
         Behavior on opacity { NumberAnimation { duration: Theme.fast } }
         gradient: Gradient {
             orientation: Gradient.Horizontal
-            GradientStop { position: 0; color: Theme.violetBright }
-            GradientStop { position: 1; color: Qt.tint(Theme.violet, Theme.alpha(Theme.violetDeep, 0.4)) }
+            GradientStop { position: 0; color: Theme.accentBright }
+            GradientStop { position: 1; color: Qt.tint(Theme.accent, Theme.alpha(Theme.accentDeep, 0.4)) }
         }
     }
     // The lit top edge the panels have, so the bar reads as the same glass.

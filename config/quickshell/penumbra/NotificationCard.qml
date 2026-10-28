@@ -92,7 +92,7 @@ Rectangle {
                     anchors.centerIn: parent
                     text: root.critical ? "󰀦" : "󰂚"
                     size: 17
-                    color: root.critical ? Theme.rose : Theme.violetBright
+                    color: root.critical ? Theme.rose : Theme.accentBright
                 }
             }
         }
@@ -109,7 +109,7 @@ Rectangle {
                     font.pixelSize: Theme.textTiny
                     font.letterSpacing: 1.2
                     font.capitalization: Font.AllUppercase
-                    color: root.critical ? Theme.rose : Theme.violet
+                    color: root.critical ? Theme.rose : Theme.accent
                 }
                 Label {
                     text: Notifs.age(root.notification, Clock.date.getTime())
@@ -144,7 +144,7 @@ Rectangle {
                 wrapMode: Text.Wrap
                 maximumLineCount: root.compact ? 2 : 4
                 color: Theme.textSoft
-                linkColor: Theme.violetBright
+                linkColor: Theme.accentBright
                 onLinkActivated: link => Qt.openUrlExternally(link)
             }
             ClippingRectangle {
@@ -172,7 +172,7 @@ Rectangle {
                 implicitHeight: 34
                 radius: Theme.corner(17)
                 color: Theme.raised
-                border.color: reply.activeFocus ? Theme.violet : Theme.line
+                border.color: reply.activeFocus ? Theme.accent : Theme.line
                 TextInput {
                     id: reply
                     anchors { fill: parent; leftMargin: 14; rightMargin: 40 }
@@ -180,7 +180,7 @@ Rectangle {
                     color: Theme.text
                     font.family: Theme.sans
                     font.pixelSize: Theme.textBody
-                    selectionColor: Theme.violetDeep
+                    selectionColor: Theme.accentDeep
                     clip: true
                     function send() {
                         if (!text.trim())
@@ -203,8 +203,8 @@ Rectangle {
                     width: 28
                     height: 28
                     radius: Theme.corner(14)
-                    color: reply.text ? Theme.violet : "transparent"
-                    Glyph { anchors.centerIn: parent; text: "󰒊"; size: 13; color: reply.text ? Theme.violetInk : Theme.dim }
+                    color: reply.text ? Theme.accent : "transparent"
+                    Glyph { anchors.centerIn: parent; text: "󰒊"; size: 13; color: reply.text ? Theme.onAccent : Theme.dim }
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
@@ -225,14 +225,14 @@ Rectangle {
                         implicitWidth: actionLabel.implicitWidth + 24
                         implicitHeight: 28
                         radius: Theme.corner(14)
-                        color: actionArea.containsMouse ? Theme.violet : Theme.raised
+                        color: actionArea.containsMouse ? Theme.accent : Theme.raised
                         border.color: Theme.line
                         Label {
                             id: actionLabel
                             anchors.centerIn: parent
                             text: modelData.text
                             font.pixelSize: Theme.textSmall
-                            color: actionArea.containsMouse ? Theme.violetInk : Theme.text
+                            color: actionArea.containsMouse ? Theme.onAccent : Theme.text
                         }
                         MouseArea {
                             id: actionArea

@@ -145,12 +145,12 @@ PanelWindow {
                 implicitHeight: 40
                 radius: Theme.corner(20)
                 color: Theme.glassStrong
-                border.color: root.query !== "" ? Theme.violet : Theme.line
+                border.color: root.query !== "" ? Theme.accent : Theme.line
                 RowLayout {
                     id: searchRow
                     anchors.centerIn: parent
                     spacing: 10
-                    Glyph { text: "󰍉"; size: 15; color: root.query !== "" ? Theme.violetBright : Theme.dim }
+                    Glyph { text: "󰍉"; size: 15; color: root.query !== "" ? Theme.accentBright : Theme.dim }
                     Label {
                         text: search.text !== "" ? search.text : "Type to find a window"
                         font.pixelSize: Theme.textMedium
@@ -193,9 +193,9 @@ PanelWindow {
                             Layout.preferredHeight: tile.screenHeight * tile.fit
                             radius: Theme.radius
                             clip: true
-                            color: drop.containsDrag ? Theme.alpha(Theme.violet, 0.2) : Theme.alpha(Theme.base, 0.55)
+                            color: drop.containsDrag ? Theme.alpha(Theme.accent, 0.2) : Theme.alpha(Theme.base, 0.55)
                             border.width: tile.current || drop.containsDrag ? 2 : 1
-                            border.color: tile.current || drop.containsDrag ? Theme.violet : Theme.line
+                            border.color: tile.current || drop.containsDrag ? Theme.accent : Theme.line
                             Behavior on color { ColorAnimation { duration: Theme.fast } }
 
                             // The wallpaper behind the windows.
@@ -225,7 +225,7 @@ PanelWindow {
                                 visible: !tile.workspace
                                 text: "󰐕"
                                 size: 26
-                                color: drop.containsDrag ? Theme.violetBright : Theme.dim
+                                color: drop.containsDrag ? Theme.accentBright : Theme.dim
                             }
 
                             Repeater {
@@ -251,7 +251,7 @@ PanelWindow {
                                         radius: Theme.corner(6)
                                         color: Theme.raised
                                         border.width: win.isChosen || pressArea.containsMouse ? 2 : 0
-                                        border.color: Theme.violetBright
+                                        border.color: Theme.accentBright
                                         ScreencopyView {
                                             anchors.fill: parent
                                             captureSource: root.visible ? win.modelData.wayland : null
@@ -310,7 +310,7 @@ PanelWindow {
                             Label {
                                 text: tile.workspace ? tile.workspace.name : "New workspace"
                                 font.weight: tile.current ? Font.Bold : Font.DemiBold
-                                color: tile.current ? Theme.violetBright : Theme.textSoft
+                                color: tile.current ? Theme.accentBright : Theme.textSoft
                             }
                             Label {
                                 Layout.fillWidth: true
@@ -351,7 +351,7 @@ PanelWindow {
                 radius: Theme.corner(6)
                 color: Theme.raised
                 border.width: 2
-                border.color: Theme.violet
+                border.color: Theme.accent
                 ScreencopyView {
                     anchors.fill: parent
                     captureSource: ghost.toplevel?.wayland ?? null

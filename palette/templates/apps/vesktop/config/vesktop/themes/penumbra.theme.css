@@ -47,11 +47,11 @@
     --text-strong: {{white}};
     --text-subtle: {{subtle}};
     --text-muted: {{muted}};
-    --text-link: {{violetBright}};
+    --text-link: {{accentBright}};
     --text-positive: {{green}};
     --text-warning: {{amber}};
     --text-danger: {{rose}};
-    --text-brand: {{violet}};
+    --text-brand: {{accent}};
     --header-primary: {{white}};
     --header-secondary: {{textSoft}};
     --channels-default: {{muted}};
@@ -63,14 +63,14 @@
     --icon-default: {{textSoft}};
     --icon-muted: {{muted}};
 
-    --brand-experiment: {{violet}};
-    --brand-500: {{violet}};
+    --brand-experiment: {{accent}};
+    --brand-500: {{accent}};
     --brand-560: {{selection}};
     --brand-600: {{selectionAlt}};
-    --control-brand-foreground: {{violet}};
-    --control-brand-foreground-new: {{violet}};
+    --control-brand-foreground: {{accent}};
+    --control-brand-foreground-new: {{accent}};
     --mention-background: {{hover}};
-    --mention-foreground: {{violetBright}};
+    --mention-foreground: {{accentBright}};
     --info-positive-foreground: {{green}};
     --info-warning-foreground: {{amber}};
     --info-danger-foreground: {{rose}};

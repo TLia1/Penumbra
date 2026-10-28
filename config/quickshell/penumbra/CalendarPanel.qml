@@ -29,7 +29,7 @@ Panel {
 
         Overline {
             text: Qt.formatDate(root.today, "dddd")
-            color: Theme.violet
+            color: Theme.accent
         }
         Label {
             text: Qt.formatDate(root.today, "d MMMM yyyy")
@@ -93,12 +93,12 @@ Panel {
                 implicitWidth: 34
                 implicitHeight: 34
                 radius: Theme.corner(17)
-                color: isToday ? Theme.violet : "transparent"
+                color: isToday ? Theme.accent : "transparent"
                 Label {
                     anchors.centerIn: parent
                     text: model.day
                     font.weight: parent.isToday ? Font.Bold : Font.Normal
-                    color: parent.isToday ? Theme.violetInk : model.month === root.month ? Theme.text : Theme.dim
+                    color: parent.isToday ? Theme.onAccent : model.month === root.month ? Theme.text : Theme.dim
                 }
             }
         }

@@ -88,9 +88,9 @@ ColumnLayout {
                 height: size.height * canvas.fit
                 z: area.pressed ? 2 : chosen ? 1 : 0
                 radius: Theme.corner(8)
-                color: chosen ? Theme.alpha(Theme.violet, 0.28) : Theme.raised
+                color: chosen ? Theme.alpha(Theme.accent, 0.28) : Theme.raised
                 border.width: chosen ? 2 : 1
-                border.color: chosen ? Theme.violet : Theme.lineStrong
+                border.color: chosen ? Theme.accent : Theme.lineStrong
                 Behavior on x { enabled: !area.pressed; NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
                 Behavior on y { enabled: !area.pressed; NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
                 Behavior on width { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
@@ -241,8 +241,8 @@ ColumnLayout {
         visible: Displays.countdown > 0
         implicitHeight: keepRow.implicitHeight + 20
         radius: Theme.radius
-        color: Theme.alpha(Theme.violet, 0.14)
-        border.color: Theme.alpha(Theme.violetBright, 0.45)
+        color: Theme.alpha(Theme.accent, 0.14)
+        border.color: Theme.alpha(Theme.accentBright, 0.45)
         RowLayout {
             id: keepRow
             anchors { fill: parent; margins: 10; leftMargin: 14 }

@@ -119,7 +119,7 @@ Panel {
             radius: Theme.radiusSmall
             color: Theme.raised
             border.width: choice.current ? 2 : 1
-            border.color: choice.current ? Theme.violet : choice.highlighted ? Theme.lineStrong : Theme.line
+            border.color: choice.current ? Theme.accent : choice.highlighted ? Theme.lineStrong : Theme.line
             contentUnderBorder: true
             Image {
                 id: thumb
@@ -162,7 +162,7 @@ Panel {
                     text: choice.badge
                     font.pixelSize: Theme.textTiny
                     font.weight: Font.DemiBold
-                    color: Theme.violetBright
+                    color: Theme.accentBright
                 }
             }
             MouseArea {
@@ -184,7 +184,7 @@ Panel {
                 width: 6
                 height: 6
                 radius: Theme.corner(3)
-                color: Theme.violet
+                color: Theme.accent
             }
             Label {
                 width: Math.min(implicitWidth, root.cell - 12)

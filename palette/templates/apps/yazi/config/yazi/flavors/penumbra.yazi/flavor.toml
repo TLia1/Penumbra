@@ -10,22 +10,22 @@ symlink_target = { fg = "{{cyan}}", italic = true }
 marker_copied = { fg = "{{green}}", bg = "{{green}}" }
 marker_cut = { fg = "{{rose}}", bg = "{{rose}}" }
 marker_marked = { fg = "{{cyan}}", bg = "{{cyan}}" }
-marker_selected = { fg = "{{violet}}", bg = "{{violet}}" }
-count_copied = { fg = "{{violetInk}}", bg = "{{green}}" }
-count_cut = { fg = "{{violetInk}}", bg = "{{rose}}" }
-count_selected = { fg = "{{violetInk}}", bg = "{{violet}}" }
+marker_selected = { fg = "{{accent}}", bg = "{{accent}}" }
+count_copied = { fg = "{{onAccent}}", bg = "{{green}}" }
+count_cut = { fg = "{{onAccent}}", bg = "{{rose}}" }
+count_selected = { fg = "{{onAccent}}", bg = "{{accent}}" }
 border_style = { fg = "{{border}}" }
 
 [tabs]
-active = { fg = "{{violetInk}}", bg = "{{violet}}", bold = true }
+active = { fg = "{{onAccent}}", bg = "{{accent}}", bold = true }
 inactive = { fg = "{{muted}}", bg = "{{raised}}" }
 
 [mode]
-normal_main = { fg = "{{violetInk}}", bg = "{{violet}}", bold = true }
-normal_alt = { fg = "{{violet}}", bg = "{{raised}}" }
-select_main = { fg = "{{violetInk}}", bg = "{{pink}}", bold = true }
+normal_main = { fg = "{{onAccent}}", bg = "{{accent}}", bold = true }
+normal_alt = { fg = "{{accent}}", bg = "{{raised}}" }
+select_main = { fg = "{{onAccent}}", bg = "{{pink}}", bold = true }
 select_alt = { fg = "{{pink}}", bg = "{{raised}}" }
-unset_main = { fg = "{{violetInk}}", bg = "{{rose}}", bold = true }
+unset_main = { fg = "{{onAccent}}", bg = "{{rose}}", bold = true }
 unset_alt = { fg = "{{rose}}", bg = "{{raised}}" }
 
 [indicator]
@@ -35,29 +35,29 @@ preview = { fg = "{{white}}", bg = "{{raised}}" }
 
 [status]
 perm_sep = { fg = "{{dim}}" }
-perm_type = { fg = "{{violet}}" }
+perm_type = { fg = "{{accent}}" }
 perm_read = { fg = "{{amber}}" }
 perm_write = { fg = "{{rose}}" }
 perm_exec = { fg = "{{green}}" }
 progress_label = { fg = "{{text}}", bold = true }
-progress_normal = { fg = "{{violet}}", bg = "{{raised}}" }
+progress_normal = { fg = "{{accent}}", bg = "{{raised}}" }
 progress_error = { fg = "{{rose}}", bg = "{{raised}}" }
 
 [which]
-cand = { fg = "{{violet}}" }
+cand = { fg = "{{accent}}" }
 rest = { fg = "{{dim}}" }
 desc = { fg = "{{textSoft}}" }
 separator_style = { fg = "{{dim}}" }
 
 [confirm]
-border = { fg = "{{violet}}" }
-title = { fg = "{{violet}}" }
-btn_yes = { fg = "{{violetInk}}", bg = "{{violet}}" }
+border = { fg = "{{accent}}" }
+title = { fg = "{{accent}}" }
+btn_yes = { fg = "{{onAccent}}", bg = "{{accent}}" }
 
 [spot]
-border = { fg = "{{violet}}" }
-title = { fg = "{{violet}}" }
-tbl_col = { fg = "{{violet}}" }
+border = { fg = "{{accent}}" }
+title = { fg = "{{accent}}" }
+tbl_col = { fg = "{{accent}}" }
 tbl_cell = { fg = "{{white}}", bg = "{{hover}}" }
 
 [notify]
@@ -66,22 +66,22 @@ title_warn = { fg = "{{amber}}" }
 title_error = { fg = "{{rose}}" }
 
 [pick]
-border = { fg = "{{violet}}" }
-active = { fg = "{{violet}}", bold = true }
+border = { fg = "{{accent}}" }
+active = { fg = "{{accent}}", bold = true }
 
 [input]
-border = { fg = "{{violet}}" }
+border = { fg = "{{accent}}" }
 selected = { bg = "{{textSelection}}" }
 
 [cmp]
-border = { fg = "{{violet}}" }
+border = { fg = "{{accent}}" }
 active = { fg = "{{white}}", bg = "{{hover}}" }
 
 [tasks]
-border = { fg = "{{violet}}" }
-hovered = { fg = "{{violet}}", bold = true }
+border = { fg = "{{accent}}" }
+hovered = { fg = "{{accent}}", bold = true }
 
 [help]
-border = { fg = "{{violet}}" }
-chord = { fg = "{{violet}}" }
+border = { fg = "{{accent}}" }
+chord = { fg = "{{accent}}" }
 hovered = { bg = "{{hover}}", bold = true }

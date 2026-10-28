@@ -10,8 +10,8 @@ Rectangle {
     implicitWidth: 44
     implicitHeight: 24
     radius: Theme.corner(12)
-    color: checked ? Theme.violet : Theme.raised
-    border.color: checked ? Theme.violetBright : Theme.lineStrong
+    color: checked ? Theme.accent : Theme.raised
+    border.color: checked ? Theme.accentBright : Theme.lineStrong
     Behavior on color { ColorAnimation { duration: Theme.fast } }
 
     Rectangle {
@@ -20,7 +20,7 @@ Rectangle {
         radius: Theme.corner(9)
         y: 3
         x: root.checked ? root.width - width - 3 : 3
-        color: root.checked ? Theme.violetInk : Theme.textSoft
+        color: root.checked ? Theme.onAccent : Theme.textSoft
         Behavior on x { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
     }
 

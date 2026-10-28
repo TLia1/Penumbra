@@ -2,11 +2,11 @@
 # ./install.sh includes this file from your Git configuration and adds "penumbra" to delta.features.
 [delta "penumbra"]
     dark = true
-    file-style = "{{violet}}" bold
+    file-style = "{{accent}}" bold
     file-decoration-style = "{{border}}" ul
     hunk-header-style = file line-number syntax
     hunk-header-decoration-style = "{{border}}" box
-    hunk-header-file-style = "{{violet}}"
+    hunk-header-file-style = "{{accent}}"
     hunk-header-line-number-style = "{{muted}}"
     minus-style = syntax "{{diffDelete}}"
     minus-non-emph-style = syntax "{{diffDelete}}"
@@ -28,5 +28,5 @@
     merge-conflict-begin-symbol = ▼
     merge-conflict-end-symbol = ▲
     merge-conflict-ours-diff-header-style = "{{amber}}" bold
-    merge-conflict-theirs-diff-header-style = "{{violet}}" bold
+    merge-conflict-theirs-diff-header-style = "{{accent}}" bold
     whitespace-error-style = "{{rose}}" reverse

@@ -10,13 +10,13 @@ BackgroundNormal={{base:rgb}}
 BackgroundAlternate={{viewAlt:rgb}}
 ForegroundNormal={{text:rgb}}
 ForegroundInactive={{muted:rgb}}
-ForegroundActive={{violetBright:rgb}}
-ForegroundLink={{violet:rgb}}
-ForegroundVisited={{violetSoft:rgb}}
+ForegroundActive={{accentBright:rgb}}
+ForegroundLink={{accent:rgb}}
+ForegroundVisited={{accentSoft:rgb}}
 ForegroundNegative={{rose:rgb}}
 ForegroundNeutral={{amber:rgb}}
 ForegroundPositive={{green:rgb}}
-DecorationFocus={{violet:rgb}}
+DecorationFocus={{accent:rgb}}
 DecorationHover={{selectionAlt:rgb}}
 
 [Colors:Window]
@@ -24,13 +24,13 @@ BackgroundNormal={{surface:rgb}}
 BackgroundAlternate={{surfaceAlt:rgb}}
 ForegroundNormal={{text:rgb}}
 ForegroundInactive={{muted:rgb}}
-ForegroundActive={{violetBright:rgb}}
-ForegroundLink={{violet:rgb}}
-ForegroundVisited={{violetSoft:rgb}}
+ForegroundActive={{accentBright:rgb}}
+ForegroundLink={{accent:rgb}}
+ForegroundVisited={{accentSoft:rgb}}
 ForegroundNegative={{rose:rgb}}
 ForegroundNeutral={{amber:rgb}}
 ForegroundPositive={{green:rgb}}
-DecorationFocus={{violet:rgb}}
+DecorationFocus={{accent:rgb}}
 DecorationHover={{selectionAlt:rgb}}
 
 [Colors:Button]
@@ -38,13 +38,13 @@ BackgroundNormal={{button:rgb}}
 BackgroundAlternate={{buttonAlt:rgb}}
 ForegroundNormal={{text:rgb}}
 ForegroundInactive={{muted:rgb}}
-ForegroundActive={{violetBright:rgb}}
-ForegroundLink={{violet:rgb}}
-ForegroundVisited={{violetSoft:rgb}}
+ForegroundActive={{accentBright:rgb}}
+ForegroundLink={{accent:rgb}}
+ForegroundVisited={{accentSoft:rgb}}
 ForegroundNegative={{rose:rgb}}
 ForegroundNeutral={{amber:rgb}}
 ForegroundPositive={{green:rgb}}
-DecorationFocus={{violet:rgb}}
+DecorationFocus={{accent:rgb}}
 DecorationHover={{selectionAlt:rgb}}
 
 [Colors:Selection]
@@ -52,13 +52,13 @@ BackgroundNormal={{selection:rgb}}
 BackgroundAlternate={{selectionAlt:rgb}}
 ForegroundNormal={{selectionText:rgb}}
 ForegroundInactive={{muted:rgb}}
-ForegroundActive={{violetBright:rgb}}
-ForegroundLink={{violet:rgb}}
-ForegroundVisited={{violetSoft:rgb}}
+ForegroundActive={{accentBright:rgb}}
+ForegroundLink={{accent:rgb}}
+ForegroundVisited={{accentSoft:rgb}}
 ForegroundNegative={{rose:rgb}}
 ForegroundNeutral={{amber:rgb}}
 ForegroundPositive={{green:rgb}}
-DecorationFocus={{violet:rgb}}
+DecorationFocus={{accent:rgb}}
 DecorationHover={{selectionAlt:rgb}}
 
 [Colors:Tooltip]
@@ -66,13 +66,13 @@ BackgroundNormal={{surfaceAlt:rgb}}
 BackgroundAlternate={{raised:rgb}}
 ForegroundNormal={{text:rgb}}
 ForegroundInactive={{muted:rgb}}
-ForegroundActive={{violetBright:rgb}}
-ForegroundLink={{violet:rgb}}
-ForegroundVisited={{violetSoft:rgb}}
+ForegroundActive={{accentBright:rgb}}
+ForegroundLink={{accent:rgb}}
+ForegroundVisited={{accentSoft:rgb}}
 ForegroundNegative={{rose:rgb}}
 ForegroundNeutral={{amber:rgb}}
 ForegroundPositive={{green:rgb}}
-DecorationFocus={{violet:rgb}}
+DecorationFocus={{accent:rgb}}
 DecorationHover={{selectionAlt:rgb}}
 
 [Colors:Complementary]
@@ -80,13 +80,13 @@ BackgroundNormal={{base:rgb}}
 BackgroundAlternate={{surfaceAlt:rgb}}
 ForegroundNormal={{text:rgb}}
 ForegroundInactive={{muted:rgb}}
-ForegroundActive={{violetBright:rgb}}
-ForegroundLink={{violet:rgb}}
-ForegroundVisited={{violetSoft:rgb}}
+ForegroundActive={{accentBright:rgb}}
+ForegroundLink={{accent:rgb}}
+ForegroundVisited={{accentSoft:rgb}}
 ForegroundNegative={{rose:rgb}}
 ForegroundNeutral={{amber:rgb}}
 ForegroundPositive={{green:rgb}}
-DecorationFocus={{violet:rgb}}
+DecorationFocus={{accent:rgb}}
 DecorationHover={{selectionAlt:rgb}}
 
 [Colors:Header]
@@ -94,13 +94,13 @@ BackgroundNormal={{viewAlt:rgb}}
 BackgroundAlternate={{raised:rgb}}
 ForegroundNormal={{text:rgb}}
 ForegroundInactive={{muted:rgb}}
-ForegroundActive={{violetBright:rgb}}
-ForegroundLink={{violet:rgb}}
-ForegroundVisited={{violetSoft:rgb}}
+ForegroundActive={{accentBright:rgb}}
+ForegroundLink={{accent:rgb}}
+ForegroundVisited={{accentSoft:rgb}}
 ForegroundNegative={{rose:rgb}}
 ForegroundNeutral={{amber:rgb}}
 ForegroundPositive={{green:rgb}}
-DecorationFocus={{violet:rgb}}
+DecorationFocus={{accent:rgb}}
 DecorationHover={{selectionAlt:rgb}}
 
 [Icons]

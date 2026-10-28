@@ -15,7 +15,7 @@
         <key>foreground</key>
         <string>{{text}}</string>
         <key>caret</key>
-        <string>{{violet}}</string>
+        <string>{{accent}}</string>
         <key>lineHighlight</key>
         <string>{{raised}}</string>
         <key>selection</key>
@@ -33,13 +33,13 @@
         <key>findHighlightForeground</key>
         <string>{{base}}</string>
         <key>bracketsForeground</key>
-        <string>{{violet}}</string>
+        <string>{{accent}}</string>
         <key>guide</key>
         <string>{{border}}</string>
         <key>activeGuide</key>
         <string>{{mid}}</string>
         <key>accent</key>
-        <string>{{violet}}</string>
+        <string>{{accent}}</string>
       </dict>
     </dict>
     <dict>
@@ -155,7 +155,7 @@
       <key>settings</key>
       <dict>
         <key>foreground</key>
-        <string>{{violet}}</string>
+        <string>{{accent}}</string>
       </dict>
     </dict>
     <dict>
@@ -166,7 +166,7 @@
       <key>settings</key>
       <dict>
         <key>foreground</key>
-        <string>{{violet}}</string>
+        <string>{{accent}}</string>
         <key>fontStyle</key>
         <string>italic</string>
       </dict>
@@ -201,7 +201,7 @@
       <key>settings</key>
       <dict>
         <key>foreground</key>
-        <string>{{violet}}</string>
+        <string>{{accent}}</string>
       </dict>
     </dict>
     <dict>
@@ -293,7 +293,7 @@
       <key>settings</key>
       <dict>
         <key>foreground</key>
-        <string>{{violet}}</string>
+        <string>{{accent}}</string>
       </dict>
     </dict>
     <dict>
@@ -337,7 +337,7 @@
       <key>settings</key>
       <dict>
         <key>foreground</key>
-        <string>{{violet}}</string>
+        <string>{{accent}}</string>
         <key>fontStyle</key>
         <string>bold</string>
       </dict>
@@ -442,7 +442,7 @@
       <key>settings</key>
       <dict>
         <key>foreground</key>
-        <string>{{violet}}</string>
+        <string>{{accent}}</string>
       </dict>
     </dict>
     <dict>

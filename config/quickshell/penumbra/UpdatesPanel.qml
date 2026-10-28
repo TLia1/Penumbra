@@ -24,10 +24,10 @@ Panel {
                 implicitHeight: 42
                 radius: Theme.corner(21)
                 gradient: Gradient {
-                    GradientStop { position: 0; color: Theme.violet }
-                    GradientStop { position: 1; color: Theme.violetDeep }
+                    GradientStop { position: 0; color: Theme.accent }
+                    GradientStop { position: 1; color: Theme.accentDeep }
                 }
-                Glyph { anchors.centerIn: parent; text: "󰚰"; size: 19; color: Theme.violetInk }
+                Glyph { anchors.centerIn: parent; text: "󰚰"; size: 19; color: Theme.onAccent }
             }
             ColumnLayout {
                 Layout.fillWidth: true
@@ -92,7 +92,7 @@ Panel {
                                     Layout.maximumWidth: 190
                                     font.family: Theme.mono
                                     font.pixelSize: Theme.textTiny
-                                    color: Theme.violet
+                                    color: Theme.accent
                                 }
                             }
                         }

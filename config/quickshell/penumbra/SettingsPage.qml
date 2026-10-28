@@ -60,16 +60,16 @@ ColumnLayout {
                 id: choice
                 required property var modelData
                 readonly property bool current: Theme.corners === modelData.name
-                readonly property color ink: current ? Theme.violet : Theme.lineStrong
+                readonly property color ink: current ? Theme.accent : Theme.lineStrong
                 function r(px) { return modelData.round ? px : 0; }
 
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1 // equal halves
                 implicitHeight: 118
                 radius: Theme.radius
-                color: current ? Theme.alpha(Theme.violet, 0.12) : area.containsMouse ? Theme.hover : Theme.raised
+                color: current ? Theme.alpha(Theme.accent, 0.12) : area.containsMouse ? Theme.hover : Theme.raised
                 border.width: current ? 2 : 1
-                border.color: current ? Theme.violet : Theme.line
+                border.color: current ? Theme.accent : Theme.line
                 Behavior on color { ColorAnimation { duration: Theme.fast } }
 
                 Item {
@@ -105,7 +105,7 @@ ColumnLayout {
                         implicitWidth: 6
                         implicitHeight: 6
                         radius: Theme.corner(3)
-                        color: Theme.violet
+                        color: Theme.accent
                     }
                     Label {
                         text: choice.modelData.title

@@ -32,7 +32,7 @@ RowLayout {
             visible: root.icon === ""
             text: root.glyph
             size: 16
-            color: root.muted ? Theme.dim : Theme.violetBright
+            color: root.muted ? Theme.dim : Theme.accentBright
         }
         IconImage {
             anchors.centerIn: parent
@@ -73,8 +73,8 @@ RowLayout {
                 radius: Theme.corner(4)
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
-                    GradientStop { position: 0; color: Theme.violetDeep }
-                    GradientStop { position: 1; color: root.muted ? Theme.dim : Theme.violet }
+                    GradientStop { position: 0; color: Theme.accentDeep }
+                    GradientStop { position: 1; color: root.muted ? Theme.dim : Theme.accent }
                 }
             }
         }
@@ -85,7 +85,7 @@ RowLayout {
             height: width
             radius: Theme.corner(width / 2)
             color: Theme.white
-            border.color: Theme.violet
+            border.color: Theme.accent
             border.width: 2
             Behavior on width { NumberAnimation { duration: Theme.fast } }
         }

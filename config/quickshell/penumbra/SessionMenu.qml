@@ -75,7 +75,7 @@ PanelWindow {
                 Layout.alignment: Qt.AlignHCenter
                 text: "S E S S I O N"
                 font.pixelSize: Theme.textBody
-                color: Theme.violet
+                color: Theme.accent
             }
 
             RowLayout {
@@ -93,7 +93,7 @@ PanelWindow {
                         radius: Theme.radiusLarge
                         color: isArmed ? Theme.alpha(Theme.rose, 0.22) : current ? Theme.raised : Theme.glassStrong
                         border.width: current ? 2 : 1
-                        border.color: isArmed ? Theme.rose : current ? Theme.violet : Theme.line
+                        border.color: isArmed ? Theme.rose : current ? Theme.accent : Theme.line
                         scale: current ? 1.04 : 1
                         Behavior on scale { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
                         Behavior on color { ColorAnimation { duration: Theme.fast } }
@@ -105,7 +105,7 @@ PanelWindow {
                                 Layout.alignment: Qt.AlignHCenter
                                 text: tile.modelData.glyph
                                 size: 34
-                                color: tile.isArmed ? Theme.rose : tile.current ? Theme.violetBright : Theme.textSoft
+                                color: tile.isArmed ? Theme.rose : tile.current ? Theme.accentBright : Theme.textSoft
                             }
                             Label {
                                 Layout.alignment: Qt.AlignHCenter

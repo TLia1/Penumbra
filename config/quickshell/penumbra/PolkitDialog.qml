@@ -125,10 +125,10 @@ Scope {
                         implicitHeight: 48
                         radius: Theme.corner(24)
                         gradient: Gradient {
-                            GradientStop { position: 0; color: Theme.violet }
-                            GradientStop { position: 1; color: Theme.violetDeep }
+                            GradientStop { position: 0; color: Theme.accent }
+                            GradientStop { position: 1; color: Theme.accentDeep }
                         }
-                        Glyph { anchors.centerIn: parent; text: "󰒃"; size: 22; color: Theme.violetInk }
+                        Glyph { anchors.centerIn: parent; text: "󰒃"; size: 22; color: Theme.onAccent }
                     }
                     ColumnLayout {
                         Layout.fillWidth: true
@@ -136,7 +136,7 @@ Scope {
                         Label {
                             text: "A U T H E N T I C A T E"
                             font.pixelSize: Theme.textTiny
-                            color: Theme.violet
+                            color: Theme.accent
                         }
                         Label {
                             Layout.fillWidth: true
@@ -169,7 +169,7 @@ Scope {
                     radius: Theme.corner(24)
                     color: Theme.raised
                     border.width: input.activeFocus ? 2 : 1
-                    border.color: root.error ? Theme.rose : input.activeFocus ? Theme.violet : Theme.lineStrong
+                    border.color: root.error ? Theme.rose : input.activeFocus ? Theme.accent : Theme.lineStrong
                     Behavior on border.color { ColorAnimation { duration: Theme.fast } }
 
                     TextInput {
@@ -182,7 +182,7 @@ Scope {
                         font.family: Theme.sans
                         font.pixelSize: Theme.textLarge
                         font.letterSpacing: echoMode === TextInput.Password ? 2 : 0
-                        selectionColor: Theme.violetDeep
+                        selectionColor: Theme.accentDeep
                         enabled: !!root.flow?.isResponseRequired || root.fingerWaiting
                         focus: root.shown
                         onVisibleChanged: if (visible) forceActiveFocus()
@@ -202,7 +202,7 @@ Scope {
                         anchors { right: parent.right; rightMargin: 18; verticalCenter: parent.verticalCenter }
                         text: root.fingerWaiting ? "󰈷" : root.flow?.isResponseRequired === false ? "󰔟" : "󰌆"
                         size: root.fingerWaiting ? 18 : 15
-                        color: root.fingerWaiting ? Theme.violetBright : Theme.dim
+                        color: root.fingerWaiting ? Theme.accentBright : Theme.dim
                         opacity: root.fingerWaiting ? pulse : 1
                         SequentialAnimation on pulse {
                             running: root.fingerWaiting

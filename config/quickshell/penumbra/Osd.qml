@@ -54,7 +54,7 @@ PanelWindow {
             Glyph {
                 text: root.glyph
                 size: 19
-                color: Ui.osdMuted ? Theme.dim : Theme.violetBright
+                color: Ui.osdMuted ? Theme.dim : Theme.accentBright
                 Layout.preferredWidth: 22
             }
             Label {
@@ -77,8 +77,8 @@ PanelWindow {
                     radius: Theme.corner(4)
                     gradient: Gradient {
                         orientation: Gradient.Horizontal
-                        GradientStop { position: 0; color: Theme.violetDeep }
-                        GradientStop { position: 1; color: Theme.violet }
+                        GradientStop { position: 0; color: Theme.accentDeep }
+                        GradientStop { position: 1; color: Theme.accent }
                     }
                     Behavior on width { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
                 }

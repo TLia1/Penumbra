@@ -14,8 +14,8 @@ Rectangle {
     implicitHeight: 30
     radius: Theme.corner(height / 2)
     opacity: available ? 1 : 0.45
-    color: primary ? (area.containsMouse ? Theme.violetBright : Theme.violet) : area.containsMouse ? Theme.hover : Theme.raised
-    border.color: danger ? Theme.alpha(Theme.rose, 0.5) : primary ? Theme.violetBright : Theme.line
+    color: primary ? (area.containsMouse ? Theme.accentBright : Theme.accent) : area.containsMouse ? Theme.hover : Theme.raised
+    border.color: danger ? Theme.alpha(Theme.rose, 0.5) : primary ? Theme.accentBright : Theme.line
     Behavior on color { ColorAnimation { duration: Theme.fast } }
 
     Label {
@@ -24,7 +24,7 @@ Rectangle {
         text: root.text
         font.pixelSize: Theme.textSmall
         font.weight: Font.DemiBold
-        color: root.primary ? Theme.violetInk : root.danger ? Theme.rose : Theme.text
+        color: root.primary ? Theme.onAccent : root.danger ? Theme.rose : Theme.text
     }
     MouseArea {
         id: area

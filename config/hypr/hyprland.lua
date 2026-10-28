@@ -39,10 +39,10 @@ hl.config({
  -- Software cursors in virtual machines, where hardware cursors often draw wrongly; automatic elsewhere.
  cursor = { no_hardware_cursors = @@SOFTWARE_CURSOR@@, enable_hyprcursor = false },
  general = { gaps_in = 6, gaps_out = 14, border_size = 2, resize_on_border = true, layout = "dwindle",
-  col = { active_border = {colors = {"rgba(" .. c.violet .. "ee)", "rgba(" .. c.violetDeep .. "bb)"}, angle = 45}, inactive_border = "rgba(" .. c.black .. "ff)" } },
+  col = { active_border = {colors = {"rgba(" .. c.accent .. "ee)", "rgba(" .. c.accentDeep .. "bb)"}, angle = 45}, inactive_border = "rgba(" .. c.black .. "ff)" } },
  decoration = { rounding = sharp and 0 or 16, rounding_power = 2, active_opacity = 1, inactive_opacity = 0.97,
-  shadow = {enabled = true, range = 28, render_power = 3, color = "rgba(" .. c.violetInk .. "88)", color_inactive = "rgba(00000055)"},
-  glow = {enabled = true, range = 18, render_power = 3, color = "rgba(" .. c.violetDeep .. "40)", color_inactive = "rgba(00000000)"},
+  shadow = {enabled = true, range = 28, render_power = 3, color = "rgba(" .. c.onAccent .. "88)", color_inactive = "rgba(00000055)"},
+  glow = {enabled = true, range = 18, render_power = 3, color = "rgba(" .. c.accentDeep .. "40)", color_inactive = "rgba(00000000)"},
   blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = 0.9, popups = true} },
  animations = {enabled = true},
  dwindle = {preserve_split = true},
