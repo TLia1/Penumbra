@@ -2,7 +2,7 @@
 <!-- The package description `code --install-extension` reads; ./install.sh zips this folder. -->
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">
   <Metadata>
-    <Identity Language="en-US" Id="penumbra-theme" Version="1.1.0" Publisher="penumbra"/>
+    <Identity Language="en-US" Id="penumbra-theme" Version="1.2.0" Publisher="penumbra"/>
     <DisplayName>Penumbra</DisplayName>
     <Description xml:space="preserve">The Penumbra desktop's colours: near-black, violet and soft pastels.</Description>
     <Categories>Themes</Categories>

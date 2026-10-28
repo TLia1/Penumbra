@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import "oklch.js" as Oklch
 
-// Look: dark or light, the accent colours (Penumbra's, your own or the wallpaper's) and the corner
+// Look: dark, light or auto, the accent colours (Penumbra's, your own or the wallpaper's) and the corner
 // style, for the shell and the apps at once.
 // Look and penumbra-theme apply a change; the shell fades to it.
 ColumnLayout {
@@ -215,9 +215,19 @@ ColumnLayout {
         current: Look.choice.mode
         options: [
             { value: "dark", title: "Dark", glyph: "󰖔" },
-            { value: "light", title: "Light", glyph: "󰖙" }
+            { value: "light", title: "Light", glyph: "󰖙" },
+            { value: "auto", title: "Auto", glyph: "󰔎" }
         ]
-        onChosen: value => Look.set({ mode: value })
+        // Auto starts from the time of day, so the screen changes now if it should.
+        onChosen: value => Look.set(value === "auto" ? { mode: value, auto: Look.daylight } : { mode: value })
+    }
+    Label {
+        Layout.fillWidth: true
+        visible: Look.choice.mode === "auto"
+        text: Look.autoStatus
+        wrapMode: Text.Wrap
+        font.pixelSize: Theme.textSmall
+        color: Theme.dim
     }
 
     Section { text: "Colours" }
@@ -234,7 +244,7 @@ ColumnLayout {
             delegate: Choice {
                 id: colours
                 required property var modelData
-                readonly property var swatches: Look.swatches(Look.choice.mode, modelData.name, custom.hue, custom.vividness)
+                readonly property var swatches: Look.swatches(Look.mode, modelData.name, custom.hue, custom.vividness)
                 current: Look.choice.colors === modelData.name
                 title: modelData.title
                 onPicked: Look.set({ colors: modelData.name })
@@ -271,7 +281,7 @@ ColumnLayout {
         readonly property real hue: hueSlider.value
         readonly property real vividness: vividSlider.value
         // The accent a hue and vividness give in the current mode.
-        function accentAt(hue, vividness) { return Look.swatches(Look.choice.mode, "custom", hue, vividness)[1]; }
+        function accentAt(hue, vividness) { return Look.swatches(Look.mode, "custom", hue, vividness)[1]; }
         readonly property color accent: accentAt(hue, vividness)
 
         readonly property var presets: [
@@ -311,7 +321,7 @@ ColumnLayout {
             const lch = Oklch.fromHex(text);
             if (!lch)
                 return false;
-            const chroma = Look.accents[Look.choice.mode === "light" ? "light" : "dark"][1][1];
+            const chroma = Look.accents[Look.mode === "light" ? "light" : "dark"][1][1];
             Look.set({
                 // A grey has no hue of its own; it keeps the current one.
                 hue: lch[1] < 0.01 ? Math.round(Look.choice.hue) : Math.round(lch[2]) % 360,
@@ -455,7 +465,7 @@ ColumnLayout {
                     required property int index
                     width: 34
                     height: 34
-                    color: Look.swatches(Look.choice.mode, "custom", modelData.hue, modelData.vividness)[1]
+                    color: Look.swatches(Look.mode, "custom", modelData.hue, modelData.vividness)[1]
                     selected: index === Math.min(Look.choice.pick ?? 0, Look.candidates.length - 1)
                     onPicked: Look.set({ pick: index })
                 }
@@ -471,6 +481,17 @@ ColumnLayout {
             font.pixelSize: Theme.textSmall
             color: Theme.dim
         }
+    }
+
+    // Custom and wallpaper accents can pull the signal colours (red, green, amber…) a little toward
+    // themselves, so they sit together; they keep their meaning.
+    SwitchRow {
+        visible: Look.choice.colors !== "default"
+        glyph: "󰢵"
+        title: "Blend signal colours"
+        subtitle: "Red, green, amber and blue lean a little toward the accent"
+        checked: Look.choice.harmonize === true
+        onToggled: Look.set({ harmonize: !(Look.choice.harmonize === true) })
     }
 
     Section { text: "Corners" }

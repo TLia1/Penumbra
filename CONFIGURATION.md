@@ -704,6 +704,7 @@ color_vscode() {
         "$command" --install-extension "$vsix" --force >/dev/null 2>&1 \
             || warn "$command could not install the Penumbra theme ($vsix)."
     done
+    # penumbra-theme rewrites the installed extension's themes for your accent; open windows follow.
     echo 'VS Code: choose Penumbra or Penumbra Light in Preferences: Color Theme. To follow the theme'"'"'s mode, turn on'
     echo '"window.autoDetectColorScheme" with Penumbra and Penumbra Light as the preferred dark and light themes.'
 }
@@ -750,6 +751,7 @@ run_user_part() {
     prune_tree "$ROOT/config/quickshell/penumbra" "$HOME/.config/quickshell/penumbra"
     prune_tree "$ROOT/config/nvim/lua/penumbra" "$HOME/.config/nvim/lua/penumbra"
     prune_tree "$ROOT/palette/templates" "$HOME/.local/share/penumbra/palette/templates"
+    prune_tree "$ROOT/share/icons/Penumbra" "$HOME/.local/share/penumbra/icons/Penumbra"
     local script from
     for script in "$HOME"/.local/bin/penumbra-*; do
         [[ -e $script && ! -e $ROOT/bin/${script##*/} && ! -e $DISTRO_DIR/bin/${script##*/} ]] || continue
@@ -766,6 +768,8 @@ run_user_part() {
     done
     # The palette and colour templates, which penumbra-theme renders when you change the theme.
     install_tree "$ROOT/palette" "$HOME/.local/share/penumbra/palette"
+    # The icon theme as shipped, which penumbra-theme recolours the installed one from.
+    install_tree "$ROOT/share/icons/Penumbra" "$HOME/.local/share/penumbra/icons/Penumbra"
     create_user_files
     chmod +x "$HOME"/.local/bin/penumbra-*
     # Dolphin only reads service menus in your account that are executable.
@@ -3210,6 +3214,33 @@ class Engine(unittest.TestCase):
         for value in PALETTES['dark'].values():
             self.assertEqual(palette.oklch_to_hex(*palette.hex_to_oklch(value)), value)
 
+    def test_harmonized_signals_lean_toward_the_accent(self):
+        for mode in palette.MODES:
+            for hue in range(0, 360, 30):
+                plain = palette.generate(PALETTES[mode], hue, 1.0)
+                blended = palette.generate(PALETTES[mode], hue, 1.0, harmonize=True)
+                for name in palette.HARMONIZED:
+                    with self.subTest(mode=mode, hue=hue, name=name):
+                        L, C, H = palette.hex_to_oklch(plain[name])
+                        L2, _, H2 = palette.hex_to_oklch(blended[name])
+                        self.assertAlmostEqual(L, L2, delta=0.01)
+                        if C > 0.02:  # a hue that means something
+                            self.assertLessEqual(palette.angle(H, H2), palette.HARMONY + 3)  # 8-bit rounding
+                            self.assertLessEqual(palette.angle(H2, hue), palette.angle(H, hue) + 3)
+                # Everything else is the plain palette.
+                self.assertEqual({k: v for k, v in blended.items() if k not in palette.HARMONIZED},
+                                 {k: v for k, v in plain.items() if k not in palette.HARMONIZED})
+        # A grey accent pulls nothing.
+        grey = palette.generate(PALETTES['dark'], 150, 0, harmonize=True)
+        self.assertEqual(grey, palette.generate(PALETTES['dark'], 150, 0))
+
+    def test_icon_colours(self):
+        self.assertEqual(palette.icon_colors(palette.BASE_HUE, 1.0), {c: c for c in palette.ICON_COLORS})
+        teal = palette.icon_colors(190, 1.0)
+        for old, new in teal.items():
+            self.assertAlmostEqual(palette.hex_to_oklch(old)[0], palette.hex_to_oklch(new)[0], delta=0.01)
+        self.assertEqual(len(set(teal.values())), 3)
+
 
 def pixels(*colours):
     """A picture made of COLOURS ({'#rrggbb': how many pixels}), as wallpaper_pixels gives it."""
@@ -3264,12 +3295,24 @@ STUB = '#!/bin/sh\necho "${0##*/} $*" >> "$HOME/calls"\n'
 STUBS = ['gsettings', 'hyprctl', 'dbus-send', 'pkill', 'fish', 'nvim', 'bat']
 
 
+def remove(path):
+    """Remove the throwaway home. A fade's Hyprland steps may write there for a moment longer; once
+    palette.json is gone they stop."""
+    for _ in range(30):
+        try:
+            shutil.rmtree(path)
+            return
+        except OSError:
+            time.sleep(0.1)
+    shutil.rmtree(path)
+
+
 class Command(unittest.TestCase):
     """penumbra-theme in a throwaway home with Penumbra's files installed as install.sh does."""
 
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, self.home)
+        self.addCleanup(remove, self.home)
         share = self.home / '.local/share/penumbra'
         shutil.copytree(ROOT / 'palette', share / 'palette')
         shutil.copy(ROOT / 'share/penumbra/palette.py', share)
@@ -3288,6 +3331,11 @@ class Command(unittest.TestCase):
         shutil.copytree(ROOT / 'apps/bat/config', self.home / '.config', dirs_exist_ok=True)
         for version in ('gtk-3.0', 'gtk-4.0'):
             shutil.copy(ROOT / 'config' / version / 'settings.ini', self.home / '.config' / version)
+        # The icon theme, as shipped and as installed, and VS Code's copy of the theme extension.
+        shutil.copytree(ROOT / 'share/icons/Penumbra', share / 'icons/Penumbra')
+        shutil.copytree(ROOT / 'share/icons/Penumbra', self.home / '.local/share/icons/Penumbra')
+        self.vscode = self.home / '.vscode/extensions/penumbra.penumbra-theme-1.2.0'
+        shutil.copytree(ROOT / 'apps/vscode/vsix/extension', self.vscode)
         stubs = self.home / 'stubs'
         stubs.mkdir()
         for name in STUBS:
@@ -3312,6 +3360,14 @@ class Command(unittest.TestCase):
     def calls(self):
         path = self.home / 'calls'
         return path.read_text() if path.exists() else ''
+
+    def wait_for(self, check):
+        """Wait up to 3 s for CHECK() to hold, for what penumbra-theme finishes in the background."""
+        for _ in range(60):
+            if check():
+                return
+            time.sleep(0.05)
+        self.fail(f'gave up waiting; calls:\n{self.calls()}')
 
     def palette_json(self):
         return json.loads((self.home / '.local/state/penumbra/palette.json').read_text())
@@ -3349,11 +3405,7 @@ class Command(unittest.TestCase):
                      f'nvim --server {self.home}/run/nvim.123.0 --remote-expr'):
             self.assertIn(call, calls)
         # bat's cache is rebuilt in the background.
-        for _ in range(50):
-            if 'bat cache --build' in self.calls():
-                break
-            time.sleep(0.05)
-        self.assertIn('bat cache --build', self.calls())
+        self.wait_for(lambda: 'bat cache --build' in self.calls())
 
     def test_custom_accent(self):
         self.theme('set', 'colors=custom', 'hue=190', 'vividness=0.8')
@@ -3362,7 +3414,71 @@ class Command(unittest.TestCase):
         self.assertIn(f'cursor {colors["accent"]}', (self.home / '.config/kitty/penumbra-colors.conf').read_text())
         self.assertEqual(json.loads(self.theme('get')),
                          {'mode': 'dark', 'colors': 'custom', 'hue': 190.0, 'vividness': 0.8, 'pick': 0,
+                          'harmonize': False, 'auto': 'dark',
                           'candidates': json.loads((ROOT / 'share/penumbra/wallpaper-colors.json').read_text())['wallpaper']})
+
+    def test_harmonize(self):
+        self.theme('set', 'colors=custom', 'hue=190', 'harmonize=true')
+        self.assertEqual(self.palette_json()['colors'], palette.generate(PALETTES['dark'], 190, 1.0, harmonize=True))
+        self.assertIs(json.loads(self.theme('get'))['harmonize'], True)
+        # Penumbra's own colours are never blended.
+        self.theme('set', 'colors=default')
+        self.assertEqual(self.palette_json()['colors'], PALETTES['dark'])
+
+    def test_auto_mode(self):
+        """mode=auto shows what auto= says; the shell sets that at sunrise and sunset."""
+        self.theme('set', 'mode=auto', 'auto=light')
+        self.assertEqual(self.palette_json()['mode'], 'light')
+        self.assertIn("mode = 'light'", (self.home / '.config/nvim/lua/penumbra/palette.lua').read_text())
+        self.theme('set', 'auto=dark', '--duration', '2000')
+        self.assertEqual(self.palette_json(), {'mode': 'dark', 'duration': 2000, 'colors': PALETTES['dark']})
+        self.assertEqual(json.loads(self.theme('get'))['mode'], 'auto')
+        # auto= alone doesn't change a fixed mode.
+        self.theme('set', 'mode=light')
+        self.theme('set', 'auto=dark')
+        self.assertEqual(self.palette_json()['mode'], 'light')
+
+    def test_hyprland_borders_step(self):
+        """Hyprland's borders step from the colours on screen to the new ones, after penumbra-theme returns."""
+        self.theme('restore')
+        before = self.calls().count('hyprctl eval hl.config({general')
+        self.theme('set', 'colors=custom', 'hue=190')
+        accent = palette.generate(PALETTES['dark'], 190, 1.0)['accent'][1:]
+        self.wait_for(lambda: f'rgba({accent}ee)' in self.calls())
+        steps = self.calls().count('hyprctl eval hl.config({general') - before
+        self.assertTrue(2 <= steps <= 8, steps)
+        # Without a fade, one step.
+        before = self.calls().count('hyprctl eval hl.config({general')
+        self.theme('set', 'colors=default', '--duration', '0')
+        self.assertEqual(self.calls().count('hyprctl eval hl.config({general') - before, 1)
+
+    def test_icons_follow_the_accent(self):
+        live = self.home / '.local/share/icons/Penumbra'
+        shipped = sorted(ROOT.joinpath('share/icons/Penumbra').rglob('*.svg'))
+        self.theme('set', 'colors=custom', 'hue=190')
+        teal = palette.icon_colors(190, 1.0)
+        icons = ''.join(path.read_text() for path in live.rglob('*.svg'))
+        for old, new in teal.items():
+            self.assertNotIn(old, icons)
+            self.assertIn(new, icons)
+        self.assertIn('dbus-send --session --type=signal /KIconLoader', self.calls())
+        # The shipped copy stays, and Penumbra's colours bring every icon back.
+        self.theme('set', 'colors=default')
+        for icon in shipped:
+            rel = icon.relative_to(ROOT / 'share/icons/Penumbra')
+            self.assertEqual((live / rel).read_bytes(), icon.read_bytes())
+            self.assertEqual((self.home / '.local/share/penumbra/icons/Penumbra' / rel).read_bytes(), icon.read_bytes())
+
+    def test_vscode_themes_follow(self):
+        self.theme('set', 'colors=custom', 'hue=190')
+        dark = palette.generate(PALETTES['dark'], 190, 1.0)
+        light = palette.generate(PALETTES['light'], 190, 1.0)
+        themes = self.vscode / 'themes'
+        self.assertIn(dark['accent'], (themes / 'penumbra-color-theme.json').read_text())
+        self.assertIn(light['accent'], (themes / 'penumbra-light-color-theme.json').read_text())
+        # Open windows reload a theme only when it asks to be watched.
+        manifest = json.loads((self.vscode / 'package.json').read_text())
+        self.assertTrue(all(theme['_watch'] for theme in manifest['contributes']['themes']))
 
     def wallpaper(self, name):
         state = self.home / '.local/state/penumbra'
@@ -3420,7 +3536,7 @@ class Command(unittest.TestCase):
         self.assertEqual(self.calls(), '')
 
     def test_bad_values_change_nothing(self):
-        for args in (['mode=dim'], ['hue=400'], ['vividness=2'], ['colors=sunset'], ['pick=4'], ['pick=1.5'],
+        for args in (['mode=dim'], ['auto=auto'], ['harmonize=maybe'], ['hue=400'], ['vividness=2'], ['colors=sunset'], ['pick=4'], ['pick=1.5'],
                      ['colors=custom', 'shade=red'], ['nonsense']):
             with self.subTest(args=args):
                 self.theme('set', *args, code=2 if '=' in args[0] else 1)
@@ -4176,7 +4292,9 @@ notify-send -a Penumbra -i "$file" 'Screenshot saved' "Copied to clipboard · ${
 The choice is kept in ~/.local/state/penumbra/theme.json. The palette it makes goes to palette.json
 next to it, which the shell watches and fades to, and into every colour file Penumbra installed,
 rendered again from the templates install.sh keeps in ~/.local/share/penumbra/palette/. Apps that
-can reload their colours are told to; the others show them on their next start.
+can reload their colours are told to; the others show them on their next start. Hyprland's
+borders step through the fade with the shell, the folder icons take the accent, and VS Code's
+Penumbra themes are rewritten in place, which open windows follow.
 
   penumbra-theme get                     the choice, as JSON
   penumbra-theme set KEY=VALUE...        check, save and apply; nothing changes if one is wrong
@@ -4185,8 +4303,10 @@ can reload their colours are told to; the others show them on their next start.
   penumbra-theme wallpaper [NAME|FILE]   the wallpaper changed (default: to the current one): print
                                          its accents, and with colors=wallpaper take the strongest
 
-  mode=dark|light  colors=default|custom|wallpaper  hue=0-360 (custom)  vividness=0-1.3 (custom;
-  0 is grey)  pick=0-3 (wallpaper: which of its accents, the strongest first)
+  mode=dark|light|auto  colors=default|custom|wallpaper  hue=0-360 (custom)  vividness=0-1.3
+  (custom; 0 is grey)  pick=0-3 (wallpaper: which of its accents, the strongest first)
+  harmonize=true|false (custom and wallpaper: signal colours lean toward the accent)
+  auto=dark|light  what mode=auto shows now; the shell sets it at sunrise and sunset
   --duration MS    how long the shell fades (default: 420 for set, 160 for preview, 0 for restore,
                    1400 for wallpaper, as long as the wallpaper's transition)
 
@@ -4215,6 +4335,11 @@ TEMPLATES = SHARE / 'palette' / 'templates'
 WALLPAPER = STATE / 'wallpaper'  # penumbra-wallpaper's choice: one of Penumbra's, or a path
 BUILT_IN = ('wallpaper', 'wallpaper-dawn', 'wallpaper-eclipse')
 CACHE = HOME / '.cache' / 'penumbra' / 'theme'
+# The icon theme as Penumbra ships it (install.sh keeps a copy), and the one apps use.
+ICONS = SHARE / 'icons' / 'Penumbra'
+ICONS_LIVE = DATA / 'icons' / 'Penumbra'
+# Where VS Code (Code - OSS, VSCodium) installed Penumbra's theme extension.
+VSCODE = [HOME / '.vscode' / 'extensions', HOME / '.vscode-oss' / 'extensions']
 
 sys.path.insert(0, str(SHARE))
 sys.dont_write_bytecode = True
@@ -4223,18 +4348,28 @@ try:
 except ImportError:
     sys.exit('penumbra-theme: ~/.local/share/penumbra/palette.py is missing; run ./install.sh --user-only.')
 
-DEFAULTS = {'mode': 'dark', 'colors': 'default', 'hue': palette.BASE_HUE, 'vividness': 1.0, 'pick': 0}
+DEFAULTS = {'mode': 'dark', 'colors': 'default', 'hue': palette.BASE_HUE, 'vividness': 1.0, 'pick': 0,
+            'harmonize': False, 'auto': 'dark'}
 DURATIONS = {'set': 420, 'preview': 160, 'restore': 0, 'wallpaper': 1400}
 # Templates the engine leaves alone: the shell reads palette.json instead (a new palette.js would
 # restart it), and the login screen's files belong to root.
-SKIPPED = ('config/quickshell/', 'system/', 'apps/vscode/')
+SKIPPED = ('config/quickshell/', 'system/')
+# How many colours Hyprland's borders step through during a fade (it can't fade them itself).
+BORDER_STEPS = 8
+BOOLEANS = {'true': True, 'false': False, '1': True, '0': False}
 
 
 def problem(key, value):
     """Why VALUE won't do for KEY, or None."""
     if key == 'mode':
+        if value not in palette.MODES + ('auto',):
+            return "Mode should be 'dark', 'light' or 'auto'."
+    elif key == 'auto':
         if value not in palette.MODES:
-            return "Mode should be 'dark' or 'light'."
+            return "Auto should be 'dark' or 'light'."
+    elif key == 'harmonize':
+        if str(value).lower() not in BOOLEANS:
+            return "Harmonize should be 'true' or 'false'."
     elif key == 'colors':
         if value not in ('default', 'custom', 'wallpaper'):
             return "Colours should be 'default', 'custom' or 'wallpaper'."
@@ -4259,6 +4394,8 @@ def problem(key, value):
 def typed(key, value):
     if key == 'pick':
         return int(value)
+    if key == 'harmonize':
+        return BOOLEANS[str(value).lower()]
     return float(value) % 360 if key == 'hue' else float(value) if key == 'vividness' else value
 
 
@@ -4274,6 +4411,11 @@ def load():
             if key in DEFAULTS and not problem(key, value):
                 choice[key] = typed(key, value)
     return choice
+
+
+def shown_mode(choice):
+    """dark or light: the mode, or what mode=auto shows at this time of day."""
+    return choice['auto'] if choice['mode'] == 'auto' else choice['mode']
 
 
 def current_wallpaper():
@@ -4352,6 +4494,13 @@ def firefox_profiles():
                 yield root / line[5:]
 
 
+def vscode_extensions():
+    """Each installed copy of Penumbra's VS Code extension. Its themes set VS Code's _watch, so open
+    windows show a rewritten theme at once; install.sh installs the extension only."""
+    for root in VSCODE:
+        yield from sorted(root.glob('penumbra.penumbra-theme-*'))
+
+
 def targets(rel):
     """Where the template at REL (relative to the templates folder) is installed. Only files that are
     already there count: install.sh decides what is installed, for example an app's colours only
@@ -4365,6 +4514,8 @@ def targets(rel):
         found = [DATA.joinpath(*parts[1:])]
     elif parts[0] == 'apps' and parts[1] == 'firefox':
         found = [profile / 'chrome' / parts[-1] for profile in firefox_profiles()]
+    elif parts[0] == 'apps' and parts[1] == 'vscode':
+        found = [extension / 'themes' / parts[-1] for extension in vscode_extensions()]
     elif parts[0] == 'apps' and len(parts) > 3 and parts[2] in ('config', 'share'):
         found = [(CONFIG if parts[2] == 'config' else DATA).joinpath(*parts[3:])]
         # yazi's flavor previews code with bat's theme (install.sh's color_yazi).
@@ -4426,6 +4577,56 @@ def hyprland_lua(colors, mode):
             % (c['accent'], c['accentDeep'], c['black'], shadow, inactive, c['accentDeep'], brightness))
 
 
+def fade_hyprland(old, colors, mode, duration):
+    """Give a running Hyprland the new borders, shadow and blur. From OLD colours (the palette on
+    screen), they step there over DURATION ms alongside the shell's fade, from a child process so
+    the files are written meanwhile; a newer palette stops it."""
+    steps = min(BORDER_STEPS, duration // 50) if old and old.keys() == colors.keys() and old != colors else 0
+    if steps < 2:
+        quiet(['hyprctl', 'eval', hyprland_lua(colors, mode)])
+        return
+    if os.fork():
+        return
+    try:
+        # Nothing to say; the caller (the shell, a test) needn't wait for its output to end.
+        null = os.open(os.devnull, os.O_RDWR)
+        for fd in (0, 1, 2):
+            os.dup2(null, fd)
+        start = time.monotonic()
+        for step in range(1, steps + 1):
+            time.sleep(max(0.0, start + duration / 1000 * step / steps - time.monotonic()))
+            try:
+                if json.loads(PALETTE_JSON.read_text())['colors'] != colors:
+                    break
+            except (OSError, ValueError, KeyError, TypeError):
+                break
+            t = step / steps
+            eased = 2 * t * t if t < 0.5 else 1 - (-2 * t + 2) ** 2 / 2  # the shell's InOutQuad
+            shown = colors if step == steps else {k: palette.mix(old[k], v, eased) for k, v in colors.items()}
+            quiet(['hyprctl', 'eval', hyprland_lua(shown, mode)])
+    finally:
+        os._exit(0)
+
+
+def recolor_icons(accent):
+    """The folder icons in the accent: Penumbra's icon theme from its pristine copy, each of its
+    violets turned as the palette is (ACCENT is resolve's (colors, hue, vividness)). Only the icons
+    install.sh installed are written; True if one changed."""
+    kind, hue, vividness = accent
+    colors = {} if kind == 'default' else palette.icon_colors(hue, vividness)
+    pattern = re.compile('|'.join(colors), re.IGNORECASE) if colors else None
+    changed = False
+    for source in sorted(ICONS.rglob('*.svg')):
+        target = ICONS_LIVE / source.relative_to(ICONS)
+        if not target.is_file():
+            continue
+        text = source.read_text()
+        if pattern:
+            text = pattern.sub(lambda match: colors[match.group().lower()], text)
+        changed |= write(target, text)
+    return changed
+
+
 def quiet(command, timeout=5):
     try:
         subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout)
@@ -4433,13 +4634,12 @@ def quiet(command, timeout=5):
         pass
 
 
-def reload_apps(colors, mode, changed):
-    """Tell the running apps whose files CHANGED (template paths) to read their colours again."""
+def reload_apps(colors, mode, changed, icons):
+    """Tell the running apps whose files CHANGED (template paths) to read their colours again, and
+    the ones that cache icons when ICONS changed."""
     def has(command):
         return shutil.which(command) is not None
 
-    if os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and has('hyprctl'):
-        quiet(['hyprctl', 'eval', hyprland_lua(colors, mode)])
     if changed & {'config/kdeglobals', 'share/color-schemes/Penumbra.colors'} and has('dbus-send'):
         quiet(['dbus-send', '--session', '--type=signal', '/KGlobalSettings',
                'org.kde.KGlobalSettings.notifyChange', 'int32:0', 'int32:0'])
@@ -4459,6 +4659,13 @@ def reload_apps(colors, mode, changed):
         corners = HOME / '.local' / 'bin' / 'penumbra-corners'
         if os.access(corners, os.X_OK):
             quiet([str(corners), 'restore'])
+    if icons:
+        if (ICONS_LIVE / 'icon-theme.cache').exists() and has('gtk-update-icon-cache'):
+            quiet(['gtk-update-icon-cache', '--quiet', '--force', str(ICONS_LIVE)], timeout=20)
+        # KDE apps drop their icon cache.
+        if has('dbus-send'):
+            quiet(['dbus-send', '--session', '--type=signal', '/KIconLoader',
+                   'org.kde.KIconLoader.iconChanged', 'int32:0'])
     # bat's theme cache, which delta reads too; slow, so it finishes in the background.
     if 'apps/bat/config/bat/themes/Penumbra.tmTheme' in changed and has('bat'):
         subprocess.Popen(['bat', 'cache', '--build'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -4475,19 +4682,26 @@ def apply(choice, duration, everything=True, wallpaper=None):
         palettes = palette.load(SHARE / 'palette' / 'palette.toml')
     except (OSError, ValueError) as error:
         sys.exit(f'penumbra-theme: {error}; run ./install.sh --user-only.')
-    mode = choice['mode']
-    kind, hue, vividness = accent(choice, wallpaper)
-    colors = palette.resolve(palettes, mode, kind, hue, vividness)
-    # The shell first, so it starts fading while the files are written.
+    mode = shown_mode(choice)
+    picked = accent(choice, wallpaper)
+    colors = palette.resolve(palettes, mode, *picked, choice['harmonize'])
+    try:
+        old = json.loads(PALETTE_JSON.read_text())['colors']
+    except (OSError, ValueError, KeyError, TypeError):
+        old = None
+    # The shell first, so it starts fading while the files are written, and Hyprland with it.
     show(colors, mode, duration)
     if not everything:
         return
+    if os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and shutil.which('hyprctl'):
+        fade_hyprland(old, colors, mode, duration)
     # The files' other mode comes from the same choice, for the ones that hold both ({{light.name}}).
     other = 'light' if mode == 'dark' else 'dark'
-    palettes = {mode: colors, other: palette.resolve(palettes, other, kind, hue, vividness)}
+    palettes = {mode: colors, other: palette.resolve(palettes, other, *picked, choice['harmonize'])}
     changed = render_files(palettes, mode)
+    icons = recolor_icons(picked)
     apply_mode(mode)
-    reload_apps(colors, mode, changed)
+    reload_apps(colors, mode, changed, icons)
 
 
 def parse(args):
@@ -10552,15 +10766,19 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "oklch.js" as Oklch
+import "sun.js" as Sun
 
-// The theme choice penumbra-theme keeps in ~/.local/state/penumbra/theme.json: dark or light, and
-// the accent (Penumbra's, your own, or one of the wallpaper's). A change shows here at once;
+// The theme choice penumbra-theme keeps in ~/.local/state/penumbra/theme.json: dark, light or auto
+// (light from sunrise to sunset), and the accent (Penumbra's, your own, or one of the wallpaper's).
+// A change shows here at once;
 // penumbra-theme saves and applies it (palette.json, which Theme fades to, then every app's
 // colours), and the file, read back, has the last word.
 Singleton {
     id: root
 
-    property var choice: ({ mode: "dark", colors: "default", hue: 297, vividness: 1, pick: 0 })
+    property var choice: ({ mode: "dark", colors: "default", hue: 297, vividness: 1, pick: 0, harmonize: false, auto: "dark" })
+    // "dark" or "light": the mode, or what auto mode shows now.
+    readonly property string mode: choice.mode === "auto" ? (choice.auto === "light" ? "light" : "dark") : choice.mode
     // The accents penumbra-theme found in the current wallpaper, the strongest first: [{ hue, vividness }].
     property var candidates: []
     // The one colors=wallpaper uses, or null when the wallpaper has none (the default accent then).
@@ -10569,18 +10787,21 @@ Singleton {
     readonly property bool busy: setter.running
 
     // "Dark · Default colours · Rounded", for the Settings row.
-    readonly property string summary: [choice.mode === "light" ? "Light" : "Dark",
+    readonly property string summary: [({ light: "Light", auto: "Auto" })[choice.mode] ?? "Dark",
         ({ custom: "Custom colours", wallpaper: "Wallpaper colours" })[choice.colors] ?? "Default colours",
         Theme.sharp ? "Sharp" : "Rounded"].join(" · ")
 
-    // Change some: { mode: "light" }. `error` says why when one is refused.
-    function set(changes) {
+    // Change some: { mode: "light" }, faded in over `duration` ms (penumbra-theme's own when
+    // left out). `error` says why when one is refused.
+    function set(changes, duration) {
         pending = Object.assign({}, pending, changes);
+        pendingDuration = duration ?? -1;
         choice = Object.assign({}, choice, changes);
         if (!setter.running)
             flush();
     }
     property var pending: ({})
+    property int pendingDuration: -1
     function flush() {
         const changes = pending;
         pending = {};
@@ -10588,7 +10809,8 @@ Singleton {
         if (!keys.length)
             return;
         error = "";
-        setter.command = [Ui.bin + "penumbra-theme", "set"].concat(keys.map(key => `${key}=${changes[key]}`));
+        setter.command = [Ui.bin + "penumbra-theme", "set"].concat(keys.map(key => `${key}=${changes[key]}`),
+            pendingDuration >= 0 ? ["--duration", String(pendingDuration)] : []);
         setter.running = true;
     }
     Process {
@@ -10638,6 +10860,7 @@ Singleton {
             getter.running = true;
     }
     property bool stale: false
+    property bool loaded: false
     Process {
         id: getter
         running: true
@@ -10654,7 +10877,8 @@ Singleton {
                 delete got.candidates;
                 // A change still on its way would be undone for a moment.
                 if (!setter.running && !Object.keys(root.pending).length)
-                    root.choice = got;
+                    root.choice = Object.assign({}, root.choice, got);
+                root.loaded = true;
             }
         }
         onExited: {
@@ -10673,6 +10897,47 @@ Singleton {
     Connections {
         target: Ui
         function onWallpaperChanged() { root.refresh(); }
+    }
+
+    // ── Auto mode ───────────────────────────────────────────────────
+    // Light from sunrise to sunset where night light places you (the place typed there, or your
+    // time zone's city); 07:00 to 19:00 while that is unknown. At each change the shell tells
+    // penumbra-theme (auto=light or dark), which keeps it for the next login and fades slowly.
+    readonly property var place: NightLight.place
+    readonly property var day: {
+        const sun = place ? Sun.times(Clock.date, place.latitude, place.longitude) : null;
+        if (!sun)
+            return { from: 7 * 60, to: 19 * 60 };
+        return sun.polar ? { polar: sun.polar } : { from: sun.rise, to: sun.set };
+    }
+    readonly property string daylight: {
+        if (day.polar)
+            return day.polar === "day" ? "light" : "dark";
+        return Sun.between(Clock.date.getHours() * 60 + Clock.date.getMinutes(), day.from, day.to) ? "light" : "dark";
+    }
+    // "Light until 19:42 · sunrise and sunset in Paris", for the Look page.
+    readonly property string autoStatus: {
+        const where = place ? `sunrise and sunset in ${place.name}` : "07:00 to 19:00 until night light knows where you are";
+        if (day.polar)
+            return `${daylight === "light" ? "Light" : "Dark"} all day · ${where}`;
+        return `${daylight === "light" ? "Light" : "Dark"} until ${Sun.clock(daylight === "light" ? day.to : day.from)} · ${where}`;
+    }
+    function followDaylight() {
+        if (ready && choice.mode === "auto" && choice.auto !== daylight)
+            set({ auto: daylight }, 2000);
+    }
+    onDaylightChanged: followDaylight()
+    onChoiceChanged: followDaylight()
+    // The saved choice, and the place (night light's settings and its list of cities), load just
+    // after the shell starts; until then the time of day isn't known.
+    property bool ready: false
+    Timer {
+        interval: 1500
+        running: root.loaded
+        onTriggered: {
+            root.ready = true;
+            root.followDaylight();
+        }
     }
 
     // The default accent family's OKLCH in each mode (palette.toml's accentDeep, accent, accentBright);
@@ -10700,7 +10965,7 @@ import QtQuick
 import QtQuick.Layouts
 import "oklch.js" as Oklch
 
-// Look: dark or light, the accent colours (Penumbra's, your own or the wallpaper's) and the corner
+// Look: dark, light or auto, the accent colours (Penumbra's, your own or the wallpaper's) and the corner
 // style, for the shell and the apps at once.
 // Look and penumbra-theme apply a change; the shell fades to it.
 ColumnLayout {
@@ -10913,9 +11178,19 @@ ColumnLayout {
         current: Look.choice.mode
         options: [
             { value: "dark", title: "Dark", glyph: "󰖔" },
-            { value: "light", title: "Light", glyph: "󰖙" }
+            { value: "light", title: "Light", glyph: "󰖙" },
+            { value: "auto", title: "Auto", glyph: "󰔎" }
         ]
-        onChosen: value => Look.set({ mode: value })
+        // Auto starts from the time of day, so the screen changes now if it should.
+        onChosen: value => Look.set(value === "auto" ? { mode: value, auto: Look.daylight } : { mode: value })
+    }
+    Label {
+        Layout.fillWidth: true
+        visible: Look.choice.mode === "auto"
+        text: Look.autoStatus
+        wrapMode: Text.Wrap
+        font.pixelSize: Theme.textSmall
+        color: Theme.dim
     }
 
     Section { text: "Colours" }
@@ -10932,7 +11207,7 @@ ColumnLayout {
             delegate: Choice {
                 id: colours
                 required property var modelData
-                readonly property var swatches: Look.swatches(Look.choice.mode, modelData.name, custom.hue, custom.vividness)
+                readonly property var swatches: Look.swatches(Look.mode, modelData.name, custom.hue, custom.vividness)
                 current: Look.choice.colors === modelData.name
                 title: modelData.title
                 onPicked: Look.set({ colors: modelData.name })
@@ -10969,7 +11244,7 @@ ColumnLayout {
         readonly property real hue: hueSlider.value
         readonly property real vividness: vividSlider.value
         // The accent a hue and vividness give in the current mode.
-        function accentAt(hue, vividness) { return Look.swatches(Look.choice.mode, "custom", hue, vividness)[1]; }
+        function accentAt(hue, vividness) { return Look.swatches(Look.mode, "custom", hue, vividness)[1]; }
         readonly property color accent: accentAt(hue, vividness)
 
         readonly property var presets: [
@@ -11009,7 +11284,7 @@ ColumnLayout {
             const lch = Oklch.fromHex(text);
             if (!lch)
                 return false;
-            const chroma = Look.accents[Look.choice.mode === "light" ? "light" : "dark"][1][1];
+            const chroma = Look.accents[Look.mode === "light" ? "light" : "dark"][1][1];
             Look.set({
                 // A grey has no hue of its own; it keeps the current one.
                 hue: lch[1] < 0.01 ? Math.round(Look.choice.hue) : Math.round(lch[2]) % 360,
@@ -11153,7 +11428,7 @@ ColumnLayout {
                     required property int index
                     width: 34
                     height: 34
-                    color: Look.swatches(Look.choice.mode, "custom", modelData.hue, modelData.vividness)[1]
+                    color: Look.swatches(Look.mode, "custom", modelData.hue, modelData.vividness)[1]
                     selected: index === Math.min(Look.choice.pick ?? 0, Look.candidates.length - 1)
                     onPicked: Look.set({ pick: index })
                 }
@@ -11169,6 +11444,17 @@ ColumnLayout {
             font.pixelSize: Theme.textSmall
             color: Theme.dim
         }
+    }
+
+    // Custom and wallpaper accents can pull the signal colours (red, green, amber…) a little toward
+    // themselves, so they sit together; they keep their meaning.
+    SwitchRow {
+        visible: Look.choice.colors !== "default"
+        glyph: "󰢵"
+        title: "Blend signal colours"
+        subtitle: "Red, green, amber and blue lean a little toward the accent"
+        checked: Look.choice.harmonize === true
+        onToggled: Look.set({ harmonize: !(Look.choice.harmonize === true) })
     }
 
     Section { text: "Corners" }
@@ -18284,15 +18570,15 @@ script-opts-append=uosc-color=foreground=b69af7,foreground_text=100b1b,backgroun
   "name": "penumbra-theme",
   "displayName": "Penumbra",
   "description": "The Penumbra desktop's colours: near-black, violet and soft pastels.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "penumbra",
   "license": "MIT",
   "engines": { "vscode": "^1.70.0" },
   "categories": ["Themes"],
   "contributes": {
     "themes": [
-      { "label": "Penumbra", "uiTheme": "vs-dark", "path": "./themes/penumbra-color-theme.json" },
-      { "label": "Penumbra Light", "uiTheme": "vs", "path": "./themes/penumbra-light-color-theme.json" }
+      { "label": "Penumbra", "uiTheme": "vs-dark", "path": "./themes/penumbra-color-theme.json", "_watch": true },
+      { "label": "Penumbra Light", "uiTheme": "vs", "path": "./themes/penumbra-light-color-theme.json", "_watch": true }
     ]
   }
 }
@@ -18929,7 +19215,7 @@ script-opts-append=uosc-color=foreground=b69af7,foreground_text=100b1b,backgroun
 <!-- The package description `code --install-extension` reads; ./install.sh zips this folder. -->
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">
   <Metadata>
-    <Identity Language="en-US" Id="penumbra-theme" Version="1.1.0" Publisher="penumbra"/>
+    <Identity Language="en-US" Id="penumbra-theme" Version="1.2.0" Publisher="penumbra"/>
     <DisplayName>Penumbra</DisplayName>
     <Description xml:space="preserve">The Penumbra desktop's colours: near-black, violet and soft pastels.</Description>
     <Categories>Themes</Categories>

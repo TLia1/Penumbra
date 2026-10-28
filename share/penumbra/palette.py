@@ -37,6 +37,16 @@ INKS = {'onAccent': ('accent', 4.5), 'selectionText': ('selection', 3)}
 # (colour, against, least WCAG contrast) every generated palette keeps; the first one's lightness moves.
 # The accent moves rather than its ink, which is already as dark or as light as it goes.
 GUARDS = [('text', 'base', 7), ('muted', 'surface', 4.5), ('accent', 'surface', 3), ('accent', 'onAccent', 4.5)]
+# Signal and diff colours a harmonized palette turns toward the accent, keeping their meaning: half
+# the way, at most HARMONY degrees (as Material You does), and less for a nearly grey accent.
+HARMONIZED = {
+    'rose', 'green', 'amber', 'blue', 'pink', 'cyan',
+    'roseBright', 'greenBright', 'amberBright', 'blueBright', 'cyanBright',
+    'diffAdd', 'diffDelete', 'diffAddEmph', 'diffDeleteEmph',
+}
+HARMONY = 15
+# The fixed violets of the Penumbra icon theme's folders (share/icons/Penumbra): light, mid, dark.
+ICON_COLORS = ('#7e57c2', '#5d399b', '#2c1e44')
 
 
 def load(path):
@@ -136,22 +146,48 @@ def contrast(a, b):
 
 # ─── Palettes for any accent ─────────────────────────────────────────────────
 
-def generate(base, hue, vividness):
+def turned(value, turn, vividness, floor=0.0):
+    """VALUE with its hue turned by TURN degrees and its chroma scaled by VIVIDNESS (at least FLOOR),
+    at the same lightness."""
+    L, C, H = hex_to_oklch(value)
+    return oklch_to_hex(L, max(C * vividness, floor), (H + turn) % 360)
+
+
+def generate(base, hue, vividness, harmonize=False):
     """BASE (a mode's default palette) moved to the accent HUE (degrees) at VIVIDNESS (chroma scale,
     0 grey to 1.3), keeping every lightness, so contrast stays the default's. Then the inks on
-    accent fills are chosen and the guarded pairs checked (GUARDS)."""
+    accent fills are chosen and the guarded pairs checked (GUARDS). HARMONIZE turns the signal
+    colours a little toward the accent too (HARMONIZED)."""
     turn = hue - BASE_HUE
     colors = dict(base)
     for name in HUE_KEYS:
-        L, C, H = hex_to_oklch(base[name])
-        C *= vividness
-        if name in ACCENT_KEYS:
-            C = max(C, ACCENT_FLOOR)
-        colors[name] = oklch_to_hex(L, C, (H + turn) % 360)
+        colors[name] = turned(base[name], turn, vividness, ACCENT_FLOOR if name in ACCENT_KEYS else 0.0)
+    if harmonize:
+        for name in HARMONIZED:
+            colors[name] = harmonized(base[name], hue, vividness)
     for ink, (fill, least) in INKS.items():
         colors[ink] = choose_ink(base, colors, ink, fill, least, turn, vividness)
     guard(colors)
     return colors
+
+
+def harmonized(value, hue, vividness):
+    """VALUE's hue turned half the way toward HUE, at most HARMONY degrees; a grey accent (VIVIDNESS
+    under 1) has less pull."""
+    L, C, H = hex_to_oklch(value)
+    distance = (hue - H + 180) % 360 - 180  # signed, the short way round
+    pull = min(abs(distance) / 2, HARMONY) * min(1.0, vividness)
+    return oklch_to_hex(L, C, (H + math.copysign(pull, distance)) % 360)
+
+
+def icon_colors(hue, vividness):
+    """{icon violet: its colour for the accent HUE and VIVIDNESS}, turned like the accent family."""
+    return {value: turned(value, hue - BASE_HUE, vividness, ACCENT_FLOOR) for value in ICON_COLORS}
+
+
+def mix(a, b, t):
+    """The #rrggbb colour T (0–1) of the way from A to B, in sRGB as the shell's fades go."""
+    return '#' + ''.join(f'{round(x + (y - x) * t):02x}' for x, y in zip(rgb255(a), rgb255(b)))
 
 
 def darkest_ink(base, turn, vividness):
@@ -185,11 +221,11 @@ def guard(colors):
             colors[moved] = oklch_to_hex(L, C, H)
 
 
-def resolve(palettes, mode, colors='default', hue=BASE_HUE, vividness=1.0):
+def resolve(palettes, mode, colors='default', hue=BASE_HUE, vividness=1.0, harmonize=False):
     """The palette for a theme choice: the mode's default, or it moved to an accent."""
     if colors == 'default':
         return dict(palettes[mode])
-    return generate(palettes[mode], hue, vividness)
+    return generate(palettes[mode], hue, vividness, harmonize)
 
 
 # ─── Accents from a wallpaper ────────────────────────────────────────────────

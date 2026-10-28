@@ -2,15 +2,15 @@
   "name": "penumbra-theme",
   "displayName": "Penumbra",
   "description": "The Penumbra desktop's colours: near-black, violet and soft pastels.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "penumbra",
   "license": "MIT",
   "engines": { "vscode": "^1.70.0" },
   "categories": ["Themes"],
   "contributes": {
     "themes": [
-      { "label": "Penumbra", "uiTheme": "vs-dark", "path": "./themes/penumbra-color-theme.json" },
-      { "label": "Penumbra Light", "uiTheme": "vs", "path": "./themes/penumbra-light-color-theme.json" }
+      { "label": "Penumbra", "uiTheme": "vs-dark", "path": "./themes/penumbra-color-theme.json", "_watch": true },
+      { "label": "Penumbra Light", "uiTheme": "vs", "path": "./themes/penumbra-light-color-theme.json", "_watch": true }
     ]
   }
 }

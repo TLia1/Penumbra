@@ -693,6 +693,7 @@ color_vscode() {
         "$command" --install-extension "$vsix" --force >/dev/null 2>&1 \
             || warn "$command could not install the Penumbra theme ($vsix)."
     done
+    # penumbra-theme rewrites the installed extension's themes for your accent; open windows follow.
     echo 'VS Code: choose Penumbra or Penumbra Light in Preferences: Color Theme. To follow the theme'"'"'s mode, turn on'
     echo '"window.autoDetectColorScheme" with Penumbra and Penumbra Light as the preferred dark and light themes.'
 }
@@ -739,6 +740,7 @@ run_user_part() {
     prune_tree "$ROOT/config/quickshell/penumbra" "$HOME/.config/quickshell/penumbra"
     prune_tree "$ROOT/config/nvim/lua/penumbra" "$HOME/.config/nvim/lua/penumbra"
     prune_tree "$ROOT/palette/templates" "$HOME/.local/share/penumbra/palette/templates"
+    prune_tree "$ROOT/share/icons/Penumbra" "$HOME/.local/share/penumbra/icons/Penumbra"
     local script from
     for script in "$HOME"/.local/bin/penumbra-*; do
         [[ -e $script && ! -e $ROOT/bin/${script##*/} && ! -e $DISTRO_DIR/bin/${script##*/} ]] || continue
@@ -755,6 +757,8 @@ run_user_part() {
     done
     # The palette and colour templates, which penumbra-theme renders when you change the theme.
     install_tree "$ROOT/palette" "$HOME/.local/share/penumbra/palette"
+    # The icon theme as shipped, which penumbra-theme recolours the installed one from.
+    install_tree "$ROOT/share/icons/Penumbra" "$HOME/.local/share/penumbra/icons/Penumbra"
     create_user_files
     chmod +x "$HOME"/.local/bin/penumbra-*
     # Dolphin only reads service menus in your account that are executable.

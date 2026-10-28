@@ -45,6 +45,33 @@ class Engine(unittest.TestCase):
         for value in PALETTES['dark'].values():
             self.assertEqual(palette.oklch_to_hex(*palette.hex_to_oklch(value)), value)
 
+    def test_harmonized_signals_lean_toward_the_accent(self):
+        for mode in palette.MODES:
+            for hue in range(0, 360, 30):
+                plain = palette.generate(PALETTES[mode], hue, 1.0)
+                blended = palette.generate(PALETTES[mode], hue, 1.0, harmonize=True)
+                for name in palette.HARMONIZED:
+                    with self.subTest(mode=mode, hue=hue, name=name):
+                        L, C, H = palette.hex_to_oklch(plain[name])
+                        L2, _, H2 = palette.hex_to_oklch(blended[name])
+                        self.assertAlmostEqual(L, L2, delta=0.01)
+                        if C > 0.02:  # a hue that means something
+                            self.assertLessEqual(palette.angle(H, H2), palette.HARMONY + 3)  # 8-bit rounding
+                            self.assertLessEqual(palette.angle(H2, hue), palette.angle(H, hue) + 3)
+                # Everything else is the plain palette.
+                self.assertEqual({k: v for k, v in blended.items() if k not in palette.HARMONIZED},
+                                 {k: v for k, v in plain.items() if k not in palette.HARMONIZED})
+        # A grey accent pulls nothing.
+        grey = palette.generate(PALETTES['dark'], 150, 0, harmonize=True)
+        self.assertEqual(grey, palette.generate(PALETTES['dark'], 150, 0))
+
+    def test_icon_colours(self):
+        self.assertEqual(palette.icon_colors(palette.BASE_HUE, 1.0), {c: c for c in palette.ICON_COLORS})
+        teal = palette.icon_colors(190, 1.0)
+        for old, new in teal.items():
+            self.assertAlmostEqual(palette.hex_to_oklch(old)[0], palette.hex_to_oklch(new)[0], delta=0.01)
+        self.assertEqual(len(set(teal.values())), 3)
+
 
 def pixels(*colours):
     """A picture made of COLOURS ({'#rrggbb': how many pixels}), as wallpaper_pixels gives it."""
@@ -99,12 +126,24 @@ STUB = '#!/bin/sh\necho "${0##*/} $*" >> "$HOME/calls"\n'
 STUBS = ['gsettings', 'hyprctl', 'dbus-send', 'pkill', 'fish', 'nvim', 'bat']
 
 
+def remove(path):
+    """Remove the throwaway home. A fade's Hyprland steps may write there for a moment longer; once
+    palette.json is gone they stop."""
+    for _ in range(30):
+        try:
+            shutil.rmtree(path)
+            return
+        except OSError:
+            time.sleep(0.1)
+    shutil.rmtree(path)
+
+
 class Command(unittest.TestCase):
     """penumbra-theme in a throwaway home with Penumbra's files installed as install.sh does."""
 
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, self.home)
+        self.addCleanup(remove, self.home)
         share = self.home / '.local/share/penumbra'
         shutil.copytree(ROOT / 'palette', share / 'palette')
         shutil.copy(ROOT / 'share/penumbra/palette.py', share)
@@ -123,6 +162,11 @@ class Command(unittest.TestCase):
         shutil.copytree(ROOT / 'apps/bat/config', self.home / '.config', dirs_exist_ok=True)
         for version in ('gtk-3.0', 'gtk-4.0'):
             shutil.copy(ROOT / 'config' / version / 'settings.ini', self.home / '.config' / version)
+        # The icon theme, as shipped and as installed, and VS Code's copy of the theme extension.
+        shutil.copytree(ROOT / 'share/icons/Penumbra', share / 'icons/Penumbra')
+        shutil.copytree(ROOT / 'share/icons/Penumbra', self.home / '.local/share/icons/Penumbra')
+        self.vscode = self.home / '.vscode/extensions/penumbra.penumbra-theme-1.2.0'
+        shutil.copytree(ROOT / 'apps/vscode/vsix/extension', self.vscode)
         stubs = self.home / 'stubs'
         stubs.mkdir()
         for name in STUBS:
@@ -147,6 +191,14 @@ class Command(unittest.TestCase):
     def calls(self):
         path = self.home / 'calls'
         return path.read_text() if path.exists() else ''
+
+    def wait_for(self, check):
+        """Wait up to 3 s for CHECK() to hold, for what penumbra-theme finishes in the background."""
+        for _ in range(60):
+            if check():
+                return
+            time.sleep(0.05)
+        self.fail(f'gave up waiting; calls:\n{self.calls()}')
 
     def palette_json(self):
         return json.loads((self.home / '.local/state/penumbra/palette.json').read_text())
@@ -184,11 +236,7 @@ class Command(unittest.TestCase):
                      f'nvim --server {self.home}/run/nvim.123.0 --remote-expr'):
             self.assertIn(call, calls)
         # bat's cache is rebuilt in the background.
-        for _ in range(50):
-            if 'bat cache --build' in self.calls():
-                break
-            time.sleep(0.05)
-        self.assertIn('bat cache --build', self.calls())
+        self.wait_for(lambda: 'bat cache --build' in self.calls())
 
     def test_custom_accent(self):
         self.theme('set', 'colors=custom', 'hue=190', 'vividness=0.8')
@@ -197,7 +245,71 @@ class Command(unittest.TestCase):
         self.assertIn(f'cursor {colors["accent"]}', (self.home / '.config/kitty/penumbra-colors.conf').read_text())
         self.assertEqual(json.loads(self.theme('get')),
                          {'mode': 'dark', 'colors': 'custom', 'hue': 190.0, 'vividness': 0.8, 'pick': 0,
+                          'harmonize': False, 'auto': 'dark',
                           'candidates': json.loads((ROOT / 'share/penumbra/wallpaper-colors.json').read_text())['wallpaper']})
+
+    def test_harmonize(self):
+        self.theme('set', 'colors=custom', 'hue=190', 'harmonize=true')
+        self.assertEqual(self.palette_json()['colors'], palette.generate(PALETTES['dark'], 190, 1.0, harmonize=True))
+        self.assertIs(json.loads(self.theme('get'))['harmonize'], True)
+        # Penumbra's own colours are never blended.
+        self.theme('set', 'colors=default')
+        self.assertEqual(self.palette_json()['colors'], PALETTES['dark'])
+
+    def test_auto_mode(self):
+        """mode=auto shows what auto= says; the shell sets that at sunrise and sunset."""
+        self.theme('set', 'mode=auto', 'auto=light')
+        self.assertEqual(self.palette_json()['mode'], 'light')
+        self.assertIn("mode = 'light'", (self.home / '.config/nvim/lua/penumbra/palette.lua').read_text())
+        self.theme('set', 'auto=dark', '--duration', '2000')
+        self.assertEqual(self.palette_json(), {'mode': 'dark', 'duration': 2000, 'colors': PALETTES['dark']})
+        self.assertEqual(json.loads(self.theme('get'))['mode'], 'auto')
+        # auto= alone doesn't change a fixed mode.
+        self.theme('set', 'mode=light')
+        self.theme('set', 'auto=dark')
+        self.assertEqual(self.palette_json()['mode'], 'light')
+
+    def test_hyprland_borders_step(self):
+        """Hyprland's borders step from the colours on screen to the new ones, after penumbra-theme returns."""
+        self.theme('restore')
+        before = self.calls().count('hyprctl eval hl.config({general')
+        self.theme('set', 'colors=custom', 'hue=190')
+        accent = palette.generate(PALETTES['dark'], 190, 1.0)['accent'][1:]
+        self.wait_for(lambda: f'rgba({accent}ee)' in self.calls())
+        steps = self.calls().count('hyprctl eval hl.config({general') - before
+        self.assertTrue(2 <= steps <= 8, steps)
+        # Without a fade, one step.
+        before = self.calls().count('hyprctl eval hl.config({general')
+        self.theme('set', 'colors=default', '--duration', '0')
+        self.assertEqual(self.calls().count('hyprctl eval hl.config({general') - before, 1)
+
+    def test_icons_follow_the_accent(self):
+        live = self.home / '.local/share/icons/Penumbra'
+        shipped = sorted(ROOT.joinpath('share/icons/Penumbra').rglob('*.svg'))
+        self.theme('set', 'colors=custom', 'hue=190')
+        teal = palette.icon_colors(190, 1.0)
+        icons = ''.join(path.read_text() for path in live.rglob('*.svg'))
+        for old, new in teal.items():
+            self.assertNotIn(old, icons)
+            self.assertIn(new, icons)
+        self.assertIn('dbus-send --session --type=signal /KIconLoader', self.calls())
+        # The shipped copy stays, and Penumbra's colours bring every icon back.
+        self.theme('set', 'colors=default')
+        for icon in shipped:
+            rel = icon.relative_to(ROOT / 'share/icons/Penumbra')
+            self.assertEqual((live / rel).read_bytes(), icon.read_bytes())
+            self.assertEqual((self.home / '.local/share/penumbra/icons/Penumbra' / rel).read_bytes(), icon.read_bytes())
+
+    def test_vscode_themes_follow(self):
+        self.theme('set', 'colors=custom', 'hue=190')
+        dark = palette.generate(PALETTES['dark'], 190, 1.0)
+        light = palette.generate(PALETTES['light'], 190, 1.0)
+        themes = self.vscode / 'themes'
+        self.assertIn(dark['accent'], (themes / 'penumbra-color-theme.json').read_text())
+        self.assertIn(light['accent'], (themes / 'penumbra-light-color-theme.json').read_text())
+        # Open windows reload a theme only when it asks to be watched.
+        manifest = json.loads((self.vscode / 'package.json').read_text())
+        self.assertTrue(all(theme['_watch'] for theme in manifest['contributes']['themes']))
 
     def wallpaper(self, name):
         state = self.home / '.local/state/penumbra'
@@ -255,7 +367,7 @@ class Command(unittest.TestCase):
         self.assertEqual(self.calls(), '')
 
     def test_bad_values_change_nothing(self):
-        for args in (['mode=dim'], ['hue=400'], ['vividness=2'], ['colors=sunset'], ['pick=4'], ['pick=1.5'],
+        for args in (['mode=dim'], ['auto=auto'], ['harmonize=maybe'], ['hue=400'], ['vividness=2'], ['colors=sunset'], ['pick=4'], ['pick=1.5'],
                      ['colors=custom', 'shade=red'], ['nonsense']):
             with self.subTest(args=args):
                 self.theme('set', *args, code=2 if '=' in args[0] else 1)

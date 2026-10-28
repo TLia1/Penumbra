@@ -4,7 +4,9 @@
 The choice is kept in ~/.local/state/penumbra/theme.json. The palette it makes goes to palette.json
 next to it, which the shell watches and fades to, and into every colour file Penumbra installed,
 rendered again from the templates install.sh keeps in ~/.local/share/penumbra/palette/. Apps that
-can reload their colours are told to; the others show them on their next start.
+can reload their colours are told to; the others show them on their next start. Hyprland's
+borders step through the fade with the shell, the folder icons take the accent, and VS Code's
+Penumbra themes are rewritten in place, which open windows follow.
 
   penumbra-theme get                     the choice, as JSON
   penumbra-theme set KEY=VALUE...        check, save and apply; nothing changes if one is wrong
@@ -13,8 +15,10 @@ can reload their colours are told to; the others show them on their next start.
   penumbra-theme wallpaper [NAME|FILE]   the wallpaper changed (default: to the current one): print
                                          its accents, and with colors=wallpaper take the strongest
 
-  mode=dark|light  colors=default|custom|wallpaper  hue=0-360 (custom)  vividness=0-1.3 (custom;
-  0 is grey)  pick=0-3 (wallpaper: which of its accents, the strongest first)
+  mode=dark|light|auto  colors=default|custom|wallpaper  hue=0-360 (custom)  vividness=0-1.3
+  (custom; 0 is grey)  pick=0-3 (wallpaper: which of its accents, the strongest first)
+  harmonize=true|false (custom and wallpaper: signal colours lean toward the accent)
+  auto=dark|light  what mode=auto shows now; the shell sets it at sunrise and sunset
   --duration MS    how long the shell fades (default: 420 for set, 160 for preview, 0 for restore,
                    1400 for wallpaper, as long as the wallpaper's transition)
 
@@ -43,6 +47,11 @@ TEMPLATES = SHARE / 'palette' / 'templates'
 WALLPAPER = STATE / 'wallpaper'  # penumbra-wallpaper's choice: one of Penumbra's, or a path
 BUILT_IN = ('wallpaper', 'wallpaper-dawn', 'wallpaper-eclipse')
 CACHE = HOME / '.cache' / 'penumbra' / 'theme'
+# The icon theme as Penumbra ships it (install.sh keeps a copy), and the one apps use.
+ICONS = SHARE / 'icons' / 'Penumbra'
+ICONS_LIVE = DATA / 'icons' / 'Penumbra'
+# Where VS Code (Code - OSS, VSCodium) installed Penumbra's theme extension.
+VSCODE = [HOME / '.vscode' / 'extensions', HOME / '.vscode-oss' / 'extensions']
 
 sys.path.insert(0, str(SHARE))
 sys.dont_write_bytecode = True
@@ -51,18 +60,28 @@ try:
 except ImportError:
     sys.exit('penumbra-theme: ~/.local/share/penumbra/palette.py is missing; run ./install.sh --user-only.')
 
-DEFAULTS = {'mode': 'dark', 'colors': 'default', 'hue': palette.BASE_HUE, 'vividness': 1.0, 'pick': 0}
+DEFAULTS = {'mode': 'dark', 'colors': 'default', 'hue': palette.BASE_HUE, 'vividness': 1.0, 'pick': 0,
+            'harmonize': False, 'auto': 'dark'}
 DURATIONS = {'set': 420, 'preview': 160, 'restore': 0, 'wallpaper': 1400}
 # Templates the engine leaves alone: the shell reads palette.json instead (a new palette.js would
 # restart it), and the login screen's files belong to root.
-SKIPPED = ('config/quickshell/', 'system/', 'apps/vscode/')
+SKIPPED = ('config/quickshell/', 'system/')
+# How many colours Hyprland's borders step through during a fade (it can't fade them itself).
+BORDER_STEPS = 8
+BOOLEANS = {'true': True, 'false': False, '1': True, '0': False}
 
 
 def problem(key, value):
     """Why VALUE won't do for KEY, or None."""
     if key == 'mode':
+        if value not in palette.MODES + ('auto',):
+            return "Mode should be 'dark', 'light' or 'auto'."
+    elif key == 'auto':
         if value not in palette.MODES:
-            return "Mode should be 'dark' or 'light'."
+            return "Auto should be 'dark' or 'light'."
+    elif key == 'harmonize':
+        if str(value).lower() not in BOOLEANS:
+            return "Harmonize should be 'true' or 'false'."
     elif key == 'colors':
         if value not in ('default', 'custom', 'wallpaper'):
             return "Colours should be 'default', 'custom' or 'wallpaper'."
@@ -87,6 +106,8 @@ def problem(key, value):
 def typed(key, value):
     if key == 'pick':
         return int(value)
+    if key == 'harmonize':
+        return BOOLEANS[str(value).lower()]
     return float(value) % 360 if key == 'hue' else float(value) if key == 'vividness' else value
 
 
@@ -102,6 +123,11 @@ def load():
             if key in DEFAULTS and not problem(key, value):
                 choice[key] = typed(key, value)
     return choice
+
+
+def shown_mode(choice):
+    """dark or light: the mode, or what mode=auto shows at this time of day."""
+    return choice['auto'] if choice['mode'] == 'auto' else choice['mode']
 
 
 def current_wallpaper():
@@ -180,6 +206,13 @@ def firefox_profiles():
                 yield root / line[5:]
 
 
+def vscode_extensions():
+    """Each installed copy of Penumbra's VS Code extension. Its themes set VS Code's _watch, so open
+    windows show a rewritten theme at once; install.sh installs the extension only."""
+    for root in VSCODE:
+        yield from sorted(root.glob('penumbra.penumbra-theme-*'))
+
+
 def targets(rel):
     """Where the template at REL (relative to the templates folder) is installed. Only files that are
     already there count: install.sh decides what is installed, for example an app's colours only
@@ -193,6 +226,8 @@ def targets(rel):
         found = [DATA.joinpath(*parts[1:])]
     elif parts[0] == 'apps' and parts[1] == 'firefox':
         found = [profile / 'chrome' / parts[-1] for profile in firefox_profiles()]
+    elif parts[0] == 'apps' and parts[1] == 'vscode':
+        found = [extension / 'themes' / parts[-1] for extension in vscode_extensions()]
     elif parts[0] == 'apps' and len(parts) > 3 and parts[2] in ('config', 'share'):
         found = [(CONFIG if parts[2] == 'config' else DATA).joinpath(*parts[3:])]
         # yazi's flavor previews code with bat's theme (install.sh's color_yazi).
@@ -254,6 +289,56 @@ def hyprland_lua(colors, mode):
             % (c['accent'], c['accentDeep'], c['black'], shadow, inactive, c['accentDeep'], brightness))
 
 
+def fade_hyprland(old, colors, mode, duration):
+    """Give a running Hyprland the new borders, shadow and blur. From OLD colours (the palette on
+    screen), they step there over DURATION ms alongside the shell's fade, from a child process so
+    the files are written meanwhile; a newer palette stops it."""
+    steps = min(BORDER_STEPS, duration // 50) if old and old.keys() == colors.keys() and old != colors else 0
+    if steps < 2:
+        quiet(['hyprctl', 'eval', hyprland_lua(colors, mode)])
+        return
+    if os.fork():
+        return
+    try:
+        # Nothing to say; the caller (the shell, a test) needn't wait for its output to end.
+        null = os.open(os.devnull, os.O_RDWR)
+        for fd in (0, 1, 2):
+            os.dup2(null, fd)
+        start = time.monotonic()
+        for step in range(1, steps + 1):
+            time.sleep(max(0.0, start + duration / 1000 * step / steps - time.monotonic()))
+            try:
+                if json.loads(PALETTE_JSON.read_text())['colors'] != colors:
+                    break
+            except (OSError, ValueError, KeyError, TypeError):
+                break
+            t = step / steps
+            eased = 2 * t * t if t < 0.5 else 1 - (-2 * t + 2) ** 2 / 2  # the shell's InOutQuad
+            shown = colors if step == steps else {k: palette.mix(old[k], v, eased) for k, v in colors.items()}
+            quiet(['hyprctl', 'eval', hyprland_lua(shown, mode)])
+    finally:
+        os._exit(0)
+
+
+def recolor_icons(accent):
+    """The folder icons in the accent: Penumbra's icon theme from its pristine copy, each of its
+    violets turned as the palette is (ACCENT is resolve's (colors, hue, vividness)). Only the icons
+    install.sh installed are written; True if one changed."""
+    kind, hue, vividness = accent
+    colors = {} if kind == 'default' else palette.icon_colors(hue, vividness)
+    pattern = re.compile('|'.join(colors), re.IGNORECASE) if colors else None
+    changed = False
+    for source in sorted(ICONS.rglob('*.svg')):
+        target = ICONS_LIVE / source.relative_to(ICONS)
+        if not target.is_file():
+            continue
+        text = source.read_text()
+        if pattern:
+            text = pattern.sub(lambda match: colors[match.group().lower()], text)
+        changed |= write(target, text)
+    return changed
+
+
 def quiet(command, timeout=5):
     try:
         subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout)
@@ -261,13 +346,12 @@ def quiet(command, timeout=5):
         pass
 
 
-def reload_apps(colors, mode, changed):
-    """Tell the running apps whose files CHANGED (template paths) to read their colours again."""
+def reload_apps(colors, mode, changed, icons):
+    """Tell the running apps whose files CHANGED (template paths) to read their colours again, and
+    the ones that cache icons when ICONS changed."""
     def has(command):
         return shutil.which(command) is not None
 
-    if os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and has('hyprctl'):
-        quiet(['hyprctl', 'eval', hyprland_lua(colors, mode)])
     if changed & {'config/kdeglobals', 'share/color-schemes/Penumbra.colors'} and has('dbus-send'):
         quiet(['dbus-send', '--session', '--type=signal', '/KGlobalSettings',
                'org.kde.KGlobalSettings.notifyChange', 'int32:0', 'int32:0'])
@@ -287,6 +371,13 @@ def reload_apps(colors, mode, changed):
         corners = HOME / '.local' / 'bin' / 'penumbra-corners'
         if os.access(corners, os.X_OK):
             quiet([str(corners), 'restore'])
+    if icons:
+        if (ICONS_LIVE / 'icon-theme.cache').exists() and has('gtk-update-icon-cache'):
+            quiet(['gtk-update-icon-cache', '--quiet', '--force', str(ICONS_LIVE)], timeout=20)
+        # KDE apps drop their icon cache.
+        if has('dbus-send'):
+            quiet(['dbus-send', '--session', '--type=signal', '/KIconLoader',
+                   'org.kde.KIconLoader.iconChanged', 'int32:0'])
     # bat's theme cache, which delta reads too; slow, so it finishes in the background.
     if 'apps/bat/config/bat/themes/Penumbra.tmTheme' in changed and has('bat'):
         subprocess.Popen(['bat', 'cache', '--build'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -303,19 +394,26 @@ def apply(choice, duration, everything=True, wallpaper=None):
         palettes = palette.load(SHARE / 'palette' / 'palette.toml')
     except (OSError, ValueError) as error:
         sys.exit(f'penumbra-theme: {error}; run ./install.sh --user-only.')
-    mode = choice['mode']
-    kind, hue, vividness = accent(choice, wallpaper)
-    colors = palette.resolve(palettes, mode, kind, hue, vividness)
-    # The shell first, so it starts fading while the files are written.
+    mode = shown_mode(choice)
+    picked = accent(choice, wallpaper)
+    colors = palette.resolve(palettes, mode, *picked, choice['harmonize'])
+    try:
+        old = json.loads(PALETTE_JSON.read_text())['colors']
+    except (OSError, ValueError, KeyError, TypeError):
+        old = None
+    # The shell first, so it starts fading while the files are written, and Hyprland with it.
     show(colors, mode, duration)
     if not everything:
         return
+    if os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and shutil.which('hyprctl'):
+        fade_hyprland(old, colors, mode, duration)
     # The files' other mode comes from the same choice, for the ones that hold both ({{light.name}}).
     other = 'light' if mode == 'dark' else 'dark'
-    palettes = {mode: colors, other: palette.resolve(palettes, other, kind, hue, vividness)}
+    palettes = {mode: colors, other: palette.resolve(palettes, other, *picked, choice['harmonize'])}
     changed = render_files(palettes, mode)
+    icons = recolor_icons(picked)
     apply_mode(mode)
-    reload_apps(colors, mode, changed)
+    reload_apps(colors, mode, changed, icons)
 
 
 def parse(args):
