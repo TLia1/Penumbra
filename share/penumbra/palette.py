@@ -190,3 +190,81 @@ def resolve(palettes, mode, colors='default', hue=BASE_HUE, vividness=1.0):
     if colors == 'default':
         return dict(palettes[mode])
     return generate(palettes[mode], hue, vividness)
+
+
+# ─── Accents from a wallpaper ────────────────────────────────────────────────
+
+# The default accent's chroma; a wallpaper colour this vivid is vividness 1.
+BASE_CHROMA = 0.134
+WALLPAPER_VIVIDNESS = (0.35, 1.3)
+# A wallpaper with less colour than this (share of its pixels) gives one nearly grey accent.
+NEUTRAL_SHARE = 0.03
+NEUTRAL_VIVIDNESS = 0.15
+MOVING = ('gif', 'mp4', 'webm', 'mkv', 'mov', 'm4v')
+
+
+def wallpaper_pixels(path):
+    """PATH (an image, GIF or video) as a small list of (r, g, b), through ffmpeg. A GIF or video
+    gives its most typical frame among the first hundred, rather than the first, which is often
+    black or a title."""
+    import subprocess
+    scale = 'scale=96:64:flags=area'
+    moving = str(path).rpartition('.')[2].lower() in MOVING
+    data = subprocess.run(['ffmpeg', '-nostdin', '-v', 'error', '-i', str(path),
+                           '-vf', f'thumbnail=100,{scale}' if moving else scale, '-frames:v', '1',
+                           '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'],
+                          capture_output=True, check=True, timeout=60).stdout
+    return [tuple(data[i:i + 3]) for i in range(0, len(data) - 2, 3)]
+
+
+def wallpaper_accents(pixels, count=4):
+    """Up to COUNT accents found in PIXELS, the strongest first, as {'hue', 'vividness'}: the peaks
+    of a hue histogram of the coloured pixels, weighted by chroma, at least 40° apart. Too little
+    colour gives one nearly grey accent, at the wallpaper's hue if it has one."""
+    def oklch(rgb):
+        return hex_to_oklch('#%02x%02x%02x' % rgb)
+
+    times = {}
+    for rgb in pixels:
+        times[rgb] = times.get(rgb, 0) + 1
+    colored = []  # (chroma, hue, pixels) of each colour that counts
+    for rgb, n in times.items():
+        L, C, H = oklch(rgb)
+        if 0.12 <= L <= 0.97 and C >= 0.03:
+            colored.append((C, H, n))
+    if sum(n for _, _, n in colored) < NEUTRAL_SHARE * max(1, len(pixels)):
+        hue = circular_mean([(H, C * n) for C, H, n in colored]) if colored else BASE_HUE
+        return [{'hue': round(hue) % 360, 'vividness': NEUTRAL_VIVIDNESS}]
+
+    bins = [0.0] * 36
+    for C, H, n in colored:
+        bins[int(H // 10) % 36] += C * n
+    smooth = [(bins[i - 1] + 2 * bins[i] + bins[(i + 1) % 36]) / 4 for i in range(36)]
+    peaks = sorted((i for i in range(36) if smooth[i] > 0 and smooth[i] >= smooth[i - 1]
+                    and smooth[i] >= smooth[(i + 1) % 36]), key=lambda i: -smooth[i])
+    accents = []
+    for i in peaks:
+        # Faint peaks are the edges of strong ones, or specks.
+        if smooth[i] < 0.1 * smooth[peaks[0]] or len(accents) == count:
+            break
+        centre = i * 10 + 5
+        if any(angle(centre, a['centre']) < 40 for a in accents):
+            continue
+        near = [(C, H, n) for C, H, n in colored if angle(H, centre) <= 20]
+        chromas = sorted(c for C, _, n in near for c in [C] * n)
+        vividness = chromas[int(0.9 * (len(chromas) - 1))] / BASE_CHROMA
+        accents.append({'centre': centre, 'hue': round(circular_mean([(H, C * n) for C, H, n in near])) % 360,
+                        'vividness': round(min(max(vividness, WALLPAPER_VIVIDNESS[0]), WALLPAPER_VIVIDNESS[1]), 2)})
+    return [{'hue': a['hue'], 'vividness': a['vividness']} for a in accents]
+
+
+def angle(a, b):
+    """The distance between two hues, 0 to 180 degrees."""
+    return abs((a - b + 180) % 360 - 180)
+
+
+def circular_mean(weighted):
+    """The mean of [(hue, weight)], around the circle."""
+    x = sum(w * math.cos(math.radians(h)) for h, w in weighted)
+    y = sum(w * math.sin(math.radians(h)) for h, w in weighted)
+    return math.degrees(math.atan2(y, x)) % 360

@@ -849,9 +849,11 @@ uninstall_user() {
     step 'Removing Penumbra from your account'
     systemctl --user stop penumbra-shell.service 2>/dev/null || true
     undo_runs "$dir" "$HOME" .config .local .gitconfig .mozilla
-    # The lock screen's link to the current wallpaper, the theme choice and its palette, and folders left empty.
+    # The lock screen's link to the current wallpaper, the theme choice, its palette and the colours
+    # found in wallpapers, and folders left empty.
     [[ -L $HOME/.local/share/penumbra/lock.png ]] && rm -f "$HOME/.local/share/penumbra/lock.png"
     rm -f "$HOME/.local/state/penumbra/theme.json" "$HOME/.local/state/penumbra/palette.json"
+    rm -rf "$HOME/.cache/penumbra/theme"
     find "$HOME/.config/quickshell/penumbra" "$HOME/.local/share/penumbra" "$HOME/.config/nvim/lua/penumbra" \
         -depth -type d -empty -delete 2>/dev/null || true
     # The editor's theme extension, which the editor installed itself.

@@ -1,0 +1,5 @@
+{
+ "wallpaper": [{"hue": 300, "vividness": 1.0}, {"hue": 302, "vividness": 0.5}],
+ "wallpaper-dawn": [{"hue": 313, "vividness": 0.95}, {"hue": 297, "vividness": 1.0}, {"hue": 316, "vividness": 0.45}],
+ "wallpaper-eclipse": [{"hue": 296, "vividness": 1.1}, {"hue": 298, "vividness": 0.6}]
+}

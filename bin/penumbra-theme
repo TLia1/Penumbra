@@ -10,10 +10,19 @@ can reload their colours are told to; the others show them on their next start.
   penumbra-theme set KEY=VALUE...        check, save and apply; nothing changes if one is wrong
   penumbra-theme preview KEY=VALUE...    show a choice in the shell only, without saving it
   penumbra-theme restore                 apply the saved choice again (install.sh, after copying)
+  penumbra-theme wallpaper [NAME|FILE]   the wallpaper changed (default: to the current one): print
+                                         its accents, and with colors=wallpaper take the strongest
 
-  mode=dark|light  colors=default|custom  hue=0-360 (custom)  vividness=0-1.3 (custom; 0 is grey)
-  --duration MS    how long the shell fades (default: 420 for set, 160 for preview, 0 for restore)
+  mode=dark|light  colors=default|custom|wallpaper  hue=0-360 (custom)  vividness=0-1.3 (custom;
+  0 is grey)  pick=0-3 (wallpaper: which of its accents, the strongest first)
+  --duration MS    how long the shell fades (default: 420 for set, 160 for preview, 0 for restore,
+                   1400 for wallpaper, as long as the wallpaper's transition)
+
+`get` adds the current wallpaper's accents to the choice, as "candidates". They are found in the
+picture once (a GIF's or video's most typical frame) and kept in ~/.cache/penumbra/theme/;
+Penumbra's own wallpapers have theirs in ~/.local/share/penumbra/wallpaper-colors.json.
 """
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -31,6 +40,9 @@ CHOICE = STATE / 'theme.json'
 PALETTE_JSON = STATE / 'palette.json'
 SHARE = DATA / 'penumbra'
 TEMPLATES = SHARE / 'palette' / 'templates'
+WALLPAPER = STATE / 'wallpaper'  # penumbra-wallpaper's choice: one of Penumbra's, or a path
+BUILT_IN = ('wallpaper', 'wallpaper-dawn', 'wallpaper-eclipse')
+CACHE = HOME / '.cache' / 'penumbra' / 'theme'
 
 sys.path.insert(0, str(SHARE))
 sys.dont_write_bytecode = True
@@ -39,8 +51,8 @@ try:
 except ImportError:
     sys.exit('penumbra-theme: ~/.local/share/penumbra/palette.py is missing; run ./install.sh --user-only.')
 
-DEFAULTS = {'mode': 'dark', 'colors': 'default', 'hue': palette.BASE_HUE, 'vividness': 1.0}
-DURATIONS = {'set': 420, 'preview': 160, 'restore': 0}
+DEFAULTS = {'mode': 'dark', 'colors': 'default', 'hue': palette.BASE_HUE, 'vividness': 1.0, 'pick': 0}
+DURATIONS = {'set': 420, 'preview': 160, 'restore': 0, 'wallpaper': 1400}
 # Templates the engine leaves alone: the shell reads palette.json instead (a new palette.js would
 # restart it), and the login screen's files belong to root.
 SKIPPED = ('config/quickshell/', 'system/', 'apps/vscode/')
@@ -52,8 +64,12 @@ def problem(key, value):
         if value not in palette.MODES:
             return "Mode should be 'dark' or 'light'."
     elif key == 'colors':
-        if value not in ('default', 'custom'):
-            return "Colours should be 'default' or 'custom'."
+        if value not in ('default', 'custom', 'wallpaper'):
+            return "Colours should be 'default', 'custom' or 'wallpaper'."
+    elif key == 'pick':
+        if str(value) not in ('0', '1', '2', '3'):
+            return 'Pick should be 0 to 3.'
+
     elif key in ('hue', 'vividness'):
         try:
             number = float(value)
@@ -69,6 +85,8 @@ def problem(key, value):
 
 
 def typed(key, value):
+    if key == 'pick':
+        return int(value)
     return float(value) % 360 if key == 'hue' else float(value) if key == 'vividness' else value
 
 
@@ -84,6 +102,54 @@ def load():
             if key in DEFAULTS and not problem(key, value):
                 choice[key] = typed(key, value)
     return choice
+
+
+def current_wallpaper():
+    try:
+        return WALLPAPER.read_text().strip() or 'wallpaper'
+    except OSError:
+        return 'wallpaper'
+
+
+def wallpaper_accents(name):
+    """The accents of wallpaper NAME (one of Penumbra's, or a path), the strongest first, as
+    [{'hue', 'vividness'}]; none when it can't be read."""
+    if name in BUILT_IN:
+        try:
+            return json.loads((SHARE / 'wallpaper-colors.json').read_text()).get(name, [])
+        except (OSError, ValueError):
+            return []
+    path = Path(name)
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return []
+    # Found once per file, like penumbra-wallpaper's first frames, and again when it changes.
+    cached = CACHE / (hashlib.md5(name.encode()).hexdigest() + '.json')
+    try:
+        saved = json.loads(cached.read_text())
+        if saved['mtime'] == mtime:
+            return saved['accents']
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    try:
+        accents = palette.wallpaper_accents(palette.wallpaper_pixels(path))
+    except (OSError, subprocess.SubprocessError):
+        return []
+    write(cached, json.dumps({'path': name, 'mtime': mtime, 'accents': accents}) + '\n')
+    return accents
+
+
+def accent(choice, wallpaper=None):
+    """The (colors, hue, vividness) palette.resolve makes the choice's palette from: a wallpaper's
+    accent is a custom one, and a wallpaper without any gives the default."""
+    if choice['colors'] != 'wallpaper':
+        return choice['colors'], choice['hue'], choice['vividness']
+    accents = wallpaper_accents(wallpaper or current_wallpaper())
+    if not accents:
+        return 'default', palette.BASE_HUE, 1.0
+    picked = accents[min(choice['pick'], len(accents) - 1)]
+    return 'custom', picked['hue'], picked['vividness']
 
 
 def write(path, text):
@@ -232,20 +298,21 @@ def show(colors, mode, duration):
     write(PALETTE_JSON, json.dumps({'mode': mode, 'duration': duration, 'colors': colors}, indent=1) + '\n')
 
 
-def apply(choice, duration, everything=True):
+def apply(choice, duration, everything=True, wallpaper=None):
     try:
         palettes = palette.load(SHARE / 'palette' / 'palette.toml')
     except (OSError, ValueError) as error:
         sys.exit(f'penumbra-theme: {error}; run ./install.sh --user-only.')
     mode = choice['mode']
-    colors = palette.resolve(palettes, mode, choice['colors'], choice['hue'], choice['vividness'])
+    kind, hue, vividness = accent(choice, wallpaper)
+    colors = palette.resolve(palettes, mode, kind, hue, vividness)
     # The shell first, so it starts fading while the files are written.
     show(colors, mode, duration)
     if not everything:
         return
     # The files' other mode comes from the same choice, for the ones that hold both ({{light.name}}).
     other = 'light' if mode == 'dark' else 'dark'
-    palettes = {mode: colors, other: palette.resolve(palettes, other, choice['colors'], choice['hue'], choice['vividness'])}
+    palettes = {mode: colors, other: palette.resolve(palettes, other, kind, hue, vividness)}
     changed = render_files(palettes, mode)
     apply_mode(mode)
     reload_apps(colors, mode, changed)
@@ -277,7 +344,27 @@ def parse(args):
 def main():
     command, args = (sys.argv[1], sys.argv[2:]) if len(sys.argv) > 1 else ('', [])
     if command == 'get':
-        print(json.dumps(load()))
+        print(json.dumps({**load(), 'candidates': wallpaper_accents(current_wallpaper())}))
+    elif command == 'wallpaper':
+        name = args.pop(0) if args and not args[0].startswith('--') else current_wallpaper()
+        if name not in BUILT_IN:
+            name = str(Path(name).absolute())
+        updates, duration = parse(args)
+        if updates:
+            sys.exit('penumbra-theme: wallpaper takes no settings; use set.')
+        accents = wallpaper_accents(name)
+        print(json.dumps(accents))
+        # Only for the wallpaper on screen: not one just looked at, nor one replaced while its
+        # colours were being found.
+        if name != current_wallpaper():
+            return
+        choice = load()
+        # A new wallpaper starts from its strongest accent.
+        if choice['pick']:
+            choice['pick'] = 0
+            write(CHOICE, json.dumps(choice) + '\n')
+        if choice['colors'] == 'wallpaper':
+            apply(choice, DURATIONS['wallpaper'] if duration is None else duration, wallpaper=name)
     elif command in ('set', 'preview', 'restore'):
         updates, duration = parse(args)
         if command == 'restore' and updates:

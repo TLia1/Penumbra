@@ -860,9 +860,11 @@ uninstall_user() {
     step 'Removing Penumbra from your account'
     systemctl --user stop penumbra-shell.service 2>/dev/null || true
     undo_runs "$dir" "$HOME" .config .local .gitconfig .mozilla
-    # The lock screen's link to the current wallpaper, the theme choice and its palette, and folders left empty.
+    # The lock screen's link to the current wallpaper, the theme choice, its palette and the colours
+    # found in wallpapers, and folders left empty.
     [[ -L $HOME/.local/share/penumbra/lock.png ]] && rm -f "$HOME/.local/share/penumbra/lock.png"
     rm -f "$HOME/.local/state/penumbra/theme.json" "$HOME/.local/state/penumbra/palette.json"
+    rm -rf "$HOME/.cache/penumbra/theme"
     find "$HOME/.config/quickshell/penumbra" "$HOME/.local/share/penumbra" "$HOME/.config/nvim/lua/penumbra" \
         -depth -type d -empty -delete 2>/dev/null || true
     # The editor's theme extension, which the editor installed itself.
@@ -3209,6 +3211,54 @@ class Engine(unittest.TestCase):
             self.assertEqual(palette.oklch_to_hex(*palette.hex_to_oklch(value)), value)
 
 
+def pixels(*colours):
+    """A picture made of COLOURS ({'#rrggbb': how many pixels}), as wallpaper_pixels gives it."""
+    return [palette.rgb255(value) for colours in colours for value, n in colours.items() for _ in range(n)]
+
+
+class WallpaperAccents(unittest.TestCase):
+    def test_peaks_strongest_first(self):
+        # Mostly dark, some teal, less orange, and a speck of green too faint to count.
+        found = palette.wallpaper_accents(pixels({'#0b0b10': 4000, '#2a9d8f': 900, '#e76f51': 400, '#40c040': 5}))
+        self.assertEqual(len(found), 2)
+        self.assertLess(palette.angle(found[0]['hue'], palette.hex_to_oklch('#2a9d8f')[2]), 3)
+        self.assertLess(palette.angle(found[1]['hue'], palette.hex_to_oklch('#e76f51')[2]), 3)
+        for accent in found:
+            self.assertTrue(0.35 <= accent['vividness'] <= 1.3)
+
+    def test_at_most_four_and_apart(self):
+        hues = [palette.oklch_to_hex(0.7, 0.12, hue) for hue in range(0, 360, 30)]
+        found = palette.wallpaper_accents(pixels({value: 100 + i for i, value in enumerate(hues)}))
+        self.assertEqual(len(found), 4)
+        for i, a in enumerate(found):
+            for b in found[i + 1:]:
+                self.assertGreaterEqual(palette.angle(a['hue'], b['hue']), 30)
+
+    def test_grey_gives_one_neutral_accent(self):
+        for picture in (pixels({'#808080': 3000, '#202020': 1000}), pixels({'#000000': 100}), []):
+            self.assertEqual(palette.wallpaper_accents(picture),
+                             [{'hue': palette.BASE_HUE, 'vividness': palette.NEUTRAL_VIVIDNESS}])
+        # A little colour in a grey picture gives the neutral accent its hue.
+        found = palette.wallpaper_accents(pixels({'#808080': 3000, '#2a9d8f': 30}))
+        self.assertEqual(len(found), 1)
+        self.assertLess(palette.angle(found[0]['hue'], palette.hex_to_oklch('#2a9d8f')[2]), 3)
+
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'needs ffmpeg')
+    def test_built_in_wallpapers(self):
+        """Penumbra's wallpapers have hand-picked accents; the first is the picture's own hue."""
+        shipped = json.loads((ROOT / 'share/penumbra/wallpaper-colors.json').read_text())
+        self.assertEqual(set(shipped), {'wallpaper', 'wallpaper-dawn', 'wallpaper-eclipse'})
+        for name, accents in shipped.items():
+            with self.subTest(name=name):
+                picture = palette.wallpaper_pixels(ROOT / 'assets' / f'{name}-clean.png')
+                found = palette.wallpaper_accents(picture)
+                self.assertEqual(palette.wallpaper_accents(picture), found)
+                self.assertLess(palette.angle(found[0]['hue'], accents[0]['hue']), 10)
+                self.assertTrue(1 <= len(accents) <= 4)
+                for accent in accents:
+                    self.assertEqual(set(accent), {'hue', 'vividness'})
+
+
 # Stand-ins for the programs penumbra-theme tells about a change: each records how it was called.
 STUB = '#!/bin/sh\necho "${0##*/} $*" >> "$HOME/calls"\n'
 STUBS = ['gsettings', 'hyprctl', 'dbus-send', 'pkill', 'fish', 'nvim', 'bat']
@@ -3223,6 +3273,7 @@ class Command(unittest.TestCase):
         share = self.home / '.local/share/penumbra'
         shutil.copytree(ROOT / 'palette', share / 'palette')
         shutil.copy(ROOT / 'share/penumbra/palette.py', share)
+        shutil.copy(ROOT / 'share/penumbra/wallpaper-colors.json', share)
         for name in ('penumbra-theme', 'penumbra-corners'):
             (self.home / '.local/bin').mkdir(parents=True, exist_ok=True)
             shutil.copy(ROOT / 'bin' / name, self.home / '.local/bin')
@@ -3310,7 +3361,54 @@ class Command(unittest.TestCase):
         self.assertEqual(self.palette_json()['colors'], colors)
         self.assertIn(f'cursor {colors["accent"]}', (self.home / '.config/kitty/penumbra-colors.conf').read_text())
         self.assertEqual(json.loads(self.theme('get')),
-                         {'mode': 'dark', 'colors': 'custom', 'hue': 190.0, 'vividness': 0.8})
+                         {'mode': 'dark', 'colors': 'custom', 'hue': 190.0, 'vividness': 0.8, 'pick': 0,
+                          'candidates': json.loads((ROOT / 'share/penumbra/wallpaper-colors.json').read_text())['wallpaper']})
+
+    def wallpaper(self, name):
+        state = self.home / '.local/state/penumbra'
+        state.mkdir(parents=True, exist_ok=True)
+        (state / 'wallpaper').write_text(name + '\n')
+
+    def test_wallpaper_colours(self):
+        shipped = json.loads((ROOT / 'share/penumbra/wallpaper-colors.json').read_text())['wallpaper-dawn']
+        self.wallpaper('wallpaper-dawn')
+        self.assertEqual(json.loads(self.theme('get'))['candidates'], shipped)
+        self.theme('set', 'colors=wallpaper', 'pick=1')
+        self.assertEqual(self.palette_json()['colors'], palette.generate(PALETTES['dark'], shipped[1]['hue'], shipped[1]['vividness']))
+        # A pick past the last accent takes the last.
+        self.theme('set', 'pick=3')
+        self.assertEqual(self.palette_json()['colors'], palette.generate(PALETTES['dark'], shipped[-1]['hue'], shipped[-1]['vividness']))
+        # A wallpaper that can't be read gives the default colours.
+        self.wallpaper('/nowhere/gone.png')
+        self.theme('restore')
+        self.assertEqual(self.palette_json()['colors'], PALETTES['dark'])
+
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'needs ffmpeg')
+    def test_new_wallpaper(self):
+        """penumbra-wallpaper's hook: the theme takes the new wallpaper's strongest accent as it grows in."""
+        image = self.home / 'Pictures' / 'sea.png'
+        image.parent.mkdir()
+        subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=0x2a9d8f:s=64x40', '-frames:v', '1',
+                        str(image)], check=True)
+        self.theme('set', 'colors=wallpaper', 'pick=1')
+        self.wallpaper(str(image))
+        found = json.loads(self.theme('wallpaper', str(image)))
+        self.assertEqual(len(found), 1)
+        self.assertLess(palette.angle(found[0]['hue'], palette.hex_to_oklch('#2a9d8f')[2]), 3)
+        self.assertEqual(self.palette_json(), {'mode': 'dark', 'duration': 1400,
+                                               'colors': palette.generate(PALETTES['dark'], found[0]['hue'], found[0]['vividness'])})
+        self.assertEqual(json.loads(self.theme('get'))['pick'], 0)
+        self.assertIn(f'cursor {self.palette_json()["colors"]["accent"]}',
+                      (self.home / '.config/kitty/penumbra-colors.conf').read_text())
+        # Found once, then read from the cache.
+        cached = list((self.home / '.cache/penumbra/theme').glob('*.json'))
+        self.assertEqual(len(cached), 1)
+        self.assertEqual(json.loads(cached[0].read_text())['accents'], found)
+        # A wallpaper that isn't the current one is only looked at.
+        before = self.palette_json()
+        self.assertEqual(json.loads(self.theme('wallpaper', 'wallpaper-eclipse')),
+                         json.loads((ROOT / 'share/penumbra/wallpaper-colors.json').read_text())['wallpaper-eclipse'])
+        self.assertEqual(self.palette_json(), before)
 
     def test_preview_only_touches_the_shell(self):
         before = self.files()
@@ -3322,7 +3420,8 @@ class Command(unittest.TestCase):
         self.assertEqual(self.calls(), '')
 
     def test_bad_values_change_nothing(self):
-        for args in (['mode=dim'], ['hue=400'], ['vividness=2'], ['colors=custom', 'shade=red'], ['nonsense']):
+        for args in (['mode=dim'], ['hue=400'], ['vividness=2'], ['colors=sunset'], ['pick=4'], ['pick=1.5'],
+                     ['colors=custom', 'shade=red'], ['nonsense']):
             with self.subTest(args=args):
                 self.theme('set', *args, code=2 if '=' in args[0] else 1)
         self.assertFalse((self.home / '.local/state/penumbra/theme.json').exists())
@@ -4083,10 +4182,19 @@ can reload their colours are told to; the others show them on their next start.
   penumbra-theme set KEY=VALUE...        check, save and apply; nothing changes if one is wrong
   penumbra-theme preview KEY=VALUE...    show a choice in the shell only, without saving it
   penumbra-theme restore                 apply the saved choice again (install.sh, after copying)
+  penumbra-theme wallpaper [NAME|FILE]   the wallpaper changed (default: to the current one): print
+                                         its accents, and with colors=wallpaper take the strongest
 
-  mode=dark|light  colors=default|custom  hue=0-360 (custom)  vividness=0-1.3 (custom; 0 is grey)
-  --duration MS    how long the shell fades (default: 420 for set, 160 for preview, 0 for restore)
+  mode=dark|light  colors=default|custom|wallpaper  hue=0-360 (custom)  vividness=0-1.3 (custom;
+  0 is grey)  pick=0-3 (wallpaper: which of its accents, the strongest first)
+  --duration MS    how long the shell fades (default: 420 for set, 160 for preview, 0 for restore,
+                   1400 for wallpaper, as long as the wallpaper's transition)
+
+`get` adds the current wallpaper's accents to the choice, as "candidates". They are found in the
+picture once (a GIF's or video's most typical frame) and kept in ~/.cache/penumbra/theme/;
+Penumbra's own wallpapers have theirs in ~/.local/share/penumbra/wallpaper-colors.json.
 """
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -4104,6 +4212,9 @@ CHOICE = STATE / 'theme.json'
 PALETTE_JSON = STATE / 'palette.json'
 SHARE = DATA / 'penumbra'
 TEMPLATES = SHARE / 'palette' / 'templates'
+WALLPAPER = STATE / 'wallpaper'  # penumbra-wallpaper's choice: one of Penumbra's, or a path
+BUILT_IN = ('wallpaper', 'wallpaper-dawn', 'wallpaper-eclipse')
+CACHE = HOME / '.cache' / 'penumbra' / 'theme'
 
 sys.path.insert(0, str(SHARE))
 sys.dont_write_bytecode = True
@@ -4112,8 +4223,8 @@ try:
 except ImportError:
     sys.exit('penumbra-theme: ~/.local/share/penumbra/palette.py is missing; run ./install.sh --user-only.')
 
-DEFAULTS = {'mode': 'dark', 'colors': 'default', 'hue': palette.BASE_HUE, 'vividness': 1.0}
-DURATIONS = {'set': 420, 'preview': 160, 'restore': 0}
+DEFAULTS = {'mode': 'dark', 'colors': 'default', 'hue': palette.BASE_HUE, 'vividness': 1.0, 'pick': 0}
+DURATIONS = {'set': 420, 'preview': 160, 'restore': 0, 'wallpaper': 1400}
 # Templates the engine leaves alone: the shell reads palette.json instead (a new palette.js would
 # restart it), and the login screen's files belong to root.
 SKIPPED = ('config/quickshell/', 'system/', 'apps/vscode/')
@@ -4125,8 +4236,12 @@ def problem(key, value):
         if value not in palette.MODES:
             return "Mode should be 'dark' or 'light'."
     elif key == 'colors':
-        if value not in ('default', 'custom'):
-            return "Colours should be 'default' or 'custom'."
+        if value not in ('default', 'custom', 'wallpaper'):
+            return "Colours should be 'default', 'custom' or 'wallpaper'."
+    elif key == 'pick':
+        if str(value) not in ('0', '1', '2', '3'):
+            return 'Pick should be 0 to 3.'
+
     elif key in ('hue', 'vividness'):
         try:
             number = float(value)
@@ -4142,6 +4257,8 @@ def problem(key, value):
 
 
 def typed(key, value):
+    if key == 'pick':
+        return int(value)
     return float(value) % 360 if key == 'hue' else float(value) if key == 'vividness' else value
 
 
@@ -4157,6 +4274,54 @@ def load():
             if key in DEFAULTS and not problem(key, value):
                 choice[key] = typed(key, value)
     return choice
+
+
+def current_wallpaper():
+    try:
+        return WALLPAPER.read_text().strip() or 'wallpaper'
+    except OSError:
+        return 'wallpaper'
+
+
+def wallpaper_accents(name):
+    """The accents of wallpaper NAME (one of Penumbra's, or a path), the strongest first, as
+    [{'hue', 'vividness'}]; none when it can't be read."""
+    if name in BUILT_IN:
+        try:
+            return json.loads((SHARE / 'wallpaper-colors.json').read_text()).get(name, [])
+        except (OSError, ValueError):
+            return []
+    path = Path(name)
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return []
+    # Found once per file, like penumbra-wallpaper's first frames, and again when it changes.
+    cached = CACHE / (hashlib.md5(name.encode()).hexdigest() + '.json')
+    try:
+        saved = json.loads(cached.read_text())
+        if saved['mtime'] == mtime:
+            return saved['accents']
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    try:
+        accents = palette.wallpaper_accents(palette.wallpaper_pixels(path))
+    except (OSError, subprocess.SubprocessError):
+        return []
+    write(cached, json.dumps({'path': name, 'mtime': mtime, 'accents': accents}) + '\n')
+    return accents
+
+
+def accent(choice, wallpaper=None):
+    """The (colors, hue, vividness) palette.resolve makes the choice's palette from: a wallpaper's
+    accent is a custom one, and a wallpaper without any gives the default."""
+    if choice['colors'] != 'wallpaper':
+        return choice['colors'], choice['hue'], choice['vividness']
+    accents = wallpaper_accents(wallpaper or current_wallpaper())
+    if not accents:
+        return 'default', palette.BASE_HUE, 1.0
+    picked = accents[min(choice['pick'], len(accents) - 1)]
+    return 'custom', picked['hue'], picked['vividness']
 
 
 def write(path, text):
@@ -4305,20 +4470,21 @@ def show(colors, mode, duration):
     write(PALETTE_JSON, json.dumps({'mode': mode, 'duration': duration, 'colors': colors}, indent=1) + '\n')
 
 
-def apply(choice, duration, everything=True):
+def apply(choice, duration, everything=True, wallpaper=None):
     try:
         palettes = palette.load(SHARE / 'palette' / 'palette.toml')
     except (OSError, ValueError) as error:
         sys.exit(f'penumbra-theme: {error}; run ./install.sh --user-only.')
     mode = choice['mode']
-    colors = palette.resolve(palettes, mode, choice['colors'], choice['hue'], choice['vividness'])
+    kind, hue, vividness = accent(choice, wallpaper)
+    colors = palette.resolve(palettes, mode, kind, hue, vividness)
     # The shell first, so it starts fading while the files are written.
     show(colors, mode, duration)
     if not everything:
         return
     # The files' other mode comes from the same choice, for the ones that hold both ({{light.name}}).
     other = 'light' if mode == 'dark' else 'dark'
-    palettes = {mode: colors, other: palette.resolve(palettes, other, choice['colors'], choice['hue'], choice['vividness'])}
+    palettes = {mode: colors, other: palette.resolve(palettes, other, kind, hue, vividness)}
     changed = render_files(palettes, mode)
     apply_mode(mode)
     reload_apps(colors, mode, changed)
@@ -4350,7 +4516,27 @@ def parse(args):
 def main():
     command, args = (sys.argv[1], sys.argv[2:]) if len(sys.argv) > 1 else ('', [])
     if command == 'get':
-        print(json.dumps(load()))
+        print(json.dumps({**load(), 'candidates': wallpaper_accents(current_wallpaper())}))
+    elif command == 'wallpaper':
+        name = args.pop(0) if args and not args[0].startswith('--') else current_wallpaper()
+        if name not in BUILT_IN:
+            name = str(Path(name).absolute())
+        updates, duration = parse(args)
+        if updates:
+            sys.exit('penumbra-theme: wallpaper takes no settings; use set.')
+        accents = wallpaper_accents(name)
+        print(json.dumps(accents))
+        # Only for the wallpaper on screen: not one just looked at, nor one replaced while its
+        # colours were being found.
+        if name != current_wallpaper():
+            return
+        choice = load()
+        # A new wallpaper starts from its strongest accent.
+        if choice['pick']:
+            choice['pick'] = 0
+            write(CHOICE, json.dumps(choice) + '\n')
+        if choice['colors'] == 'wallpaper':
+            apply(choice, DURATIONS['wallpaper'] if duration is None else duration, wallpaper=name)
     elif command in ('set', 'preview', 'restore'):
         updates, duration = parse(args)
         if command == 'restore' and updates:
@@ -4514,7 +4700,8 @@ if __name__ == "__main__":
 # Switch wallpapers with an awww transition: Penumbra's own scenes by name, or any image, GIF or
 # video by path. `next` cycles through Penumbra's, then those in ~/Pictures/Wallpapers. GIFs and
 # videos show as their first frame in awww and the shell plays them over it, as it animates dawn
-# and eclipse. The lock screen follows the choice.
+# and eclipse. The lock screen follows the choice, and so do the theme's colours when they are
+# taken from the wallpaper.
 set -euo pipefail
 dir="$HOME/.local/share/penumbra"
 state="$HOME/.local/state/penumbra/wallpaper"
@@ -4566,6 +4753,7 @@ still() {
 
 current=$(cat "$state" 2>/dev/null || echo wallpaper)
 valid "$current" || current=wallpaper
+previous=$current
 transition=(--transition-type grow --transition-duration 1.4 --transition-fps 120)
 case "${1:-next}" in
  next)
@@ -4606,6 +4794,11 @@ esac
 mkdir -p "${state%/*}"
 printf '%s\n' "$current" > "$state"
 ln -sfn "$lock" "$dir/lock.png"
+# penumbra-theme finds the new wallpaper's colours and, if the theme takes them from it, fades the
+# shell to them while the wallpaper grows in.
+if [[ ${1:-next} != restore && $current != "$previous" ]]; then
+ "$HOME/.local/bin/penumbra-theme" wallpaper "$current" >/dev/null 2>&1 &
+fi
 # The shell animates dawn, eclipse, GIFs and videos over awww's still image, once the transition has finished.
 [[ ${1:-next} = restore ]] && delay=0 || delay=1400
 quickshell -c penumbra ipc call wallpaper set "$current" "$delay" >/dev/null 2>&1 || true
@@ -10361,18 +10554,23 @@ import Quickshell.Io
 import "oklch.js" as Oklch
 
 // The theme choice penumbra-theme keeps in ~/.local/state/penumbra/theme.json: dark or light, and
-// the accent. A change shows here at once; penumbra-theme saves and applies it (palette.json, which
-// Theme fades to, then every app's colours), and the file, read back, has the last word.
+// the accent (Penumbra's, your own, or one of the wallpaper's). A change shows here at once;
+// penumbra-theme saves and applies it (palette.json, which Theme fades to, then every app's
+// colours), and the file, read back, has the last word.
 Singleton {
     id: root
 
-    property var choice: ({ mode: "dark", colors: "default", hue: 297, vividness: 1 })
+    property var choice: ({ mode: "dark", colors: "default", hue: 297, vividness: 1, pick: 0 })
+    // The accents penumbra-theme found in the current wallpaper, the strongest first: [{ hue, vividness }].
+    property var candidates: []
+    // The one colors=wallpaper uses, or null when the wallpaper has none (the default accent then).
+    readonly property var wallpaperAccent: candidates.length ? candidates[Math.min(choice.pick ?? 0, candidates.length - 1)] : null
     property string error: ""
     readonly property bool busy: setter.running
 
     // "Dark · Default colours · Rounded", for the Settings row.
     readonly property string summary: [choice.mode === "light" ? "Light" : "Dark",
-        choice.colors === "custom" ? "Custom colours" : "Default colours",
+        ({ custom: "Custom colours", wallpaper: "Wallpaper colours" })[choice.colors] ?? "Default colours",
         Theme.sharp ? "Sharp" : "Rounded"].join(" · ")
 
     // Change some: { mode: "light" }. `error` says why when one is refused.
@@ -10401,7 +10599,7 @@ Singleton {
         onExited: {
             root.flush();
             if (!setter.running)
-                getter.running = true;
+                root.refresh();
         }
     }
 
@@ -10431,19 +10629,38 @@ Singleton {
         onExited: root.showPreview()
     }
 
-    // The saved choice with its defaults filled in, whenever the file changes.
+    // The saved choice with its defaults filled in, and the wallpaper's accents, whenever the file
+    // or the wallpaper changes.
+    function refresh() {
+        if (getter.running)
+            stale = true;
+        else
+            getter.running = true;
+    }
+    property bool stale: false
     Process {
         id: getter
         running: true
         command: [Ui.bin + "penumbra-theme", "get"]
         stdout: StdioCollector {
             onStreamFinished: {
-                // A change still on its way would be undone for a moment.
-                if (setter.running || Object.keys(root.pending).length)
-                    return;
+                let got;
                 try {
-                    root.choice = JSON.parse(text);
-                } catch (e) {}
+                    got = JSON.parse(text);
+                } catch (e) {
+                    return;
+                }
+                root.candidates = got.candidates ?? [];
+                delete got.candidates;
+                // A change still on its way would be undone for a moment.
+                if (!setter.running && !Object.keys(root.pending).length)
+                    root.choice = got;
+            }
+        }
+        onExited: {
+            if (root.stale) {
+                root.stale = false;
+                getter.running = true;
             }
         }
     }
@@ -10451,7 +10668,11 @@ Singleton {
         path: Quickshell.env("HOME") + "/.local/state/penumbra/theme.json"
         watchChanges: true
         printErrors: false
-        onFileChanged: if (!getter.running) getter.running = true
+        onFileChanged: root.refresh()
+    }
+    Connections {
+        target: Ui
+        function onWallpaperChanged() { root.refresh(); }
     }
 
     // The default accent family's OKLCH in each mode (palette.toml's accentDeep, accent, accentBright);
@@ -10460,8 +10681,11 @@ Singleton {
         dark: [[0.491, 0.241, 292.6], [0.747, 0.134, 296.9], [0.783, 0.129, 299.3]],
         light: [[0.420, 0.200, 292.8], [0.520, 0.170, 296.8], [0.450, 0.170, 299.3]]
     })
-    // [deep, accent, bright] for a choice, close to what penumbra-theme will make of it.
+    // [deep, accent, bright] for a choice, close to what penumbra-theme will make of it. The
+    // wallpaper's colours take their hue and vividness from wallpaperAccent.
     function swatches(mode, colors, hue, vividness) {
+        if (colors === "wallpaper")
+            return wallpaperAccent ? swatches(mode, "custom", wallpaperAccent.hue, wallpaperAccent.vividness) : swatches(mode, "default");
         const turn = colors === "custom" ? hue - 297 : 0;
         const scale = colors === "custom" ? vividness : 1;
         return accents[mode === "light" ? "light" : "dark"].map(([L, C, H]) => Oklch.color(L, Math.max(C * scale, 0.02), (H + turn + 360) % 360));
@@ -10476,7 +10700,8 @@ import QtQuick
 import QtQuick.Layouts
 import "oklch.js" as Oklch
 
-// Look: dark or light, the accent colours and the corner style, for the shell and the apps at once.
+// Look: dark or light, the accent colours (Penumbra's, your own or the wallpaper's) and the corner
+// style, for the shell and the apps at once.
 // Look and penumbra-theme apply a change; the shell fades to it.
 ColumnLayout {
     id: root
@@ -10701,7 +10926,8 @@ ColumnLayout {
         Repeater {
             model: [
                 { name: "default", title: "Default" },
-                { name: "custom", title: "Custom" }
+                { name: "custom", title: "Custom" },
+                { name: "wallpaper", title: "Wallpaper" }
             ]
             delegate: Choice {
                 id: colours
@@ -10904,6 +11130,41 @@ ColumnLayout {
         Label {
             Layout.fillWidth: true
             text: "A colour you type gives its hue and vividness; the lightness stays the mode's, so text keeps reading on it"
+            wrapMode: Text.Wrap
+            font.pixelSize: Theme.textSmall
+            color: Theme.dim
+        }
+    }
+
+    // The wallpaper's accents, the strongest first. penumbra-wallpaper hands a new wallpaper to
+    // penumbra-theme, which finds its own and fades the shell to the strongest as it grows in.
+    ColumnLayout {
+        Layout.fillWidth: true
+        visible: Look.choice.colors === "wallpaper"
+        spacing: 10
+
+        Row {
+            visible: Look.candidates.length > 0
+            spacing: 8
+            Repeater {
+                model: Look.candidates
+                delegate: Swatch {
+                    required property var modelData
+                    required property int index
+                    width: 34
+                    height: 34
+                    color: Look.swatches(Look.choice.mode, "custom", modelData.hue, modelData.vividness)[1]
+                    selected: index === Math.min(Look.choice.pick ?? 0, Look.candidates.length - 1)
+                    onPicked: Look.set({ pick: index })
+                }
+            }
+        }
+        Label {
+            Layout.fillWidth: true
+            text: Look.candidates.length
+                ? "Found in " + Ui.wallpaperTitle(Ui.wallpaper) + (Look.candidates.length > 1 ? ", the strongest first" : "")
+                    + "; a new wallpaper brings its own colours as it grows in"
+                : "No colours could be read from this wallpaper, so the default ones show"
             wrapMode: Text.Wrap
             font.pixelSize: Theme.textSmall
             color: Theme.dim

@@ -2,7 +2,8 @@ import QtQuick
 import QtQuick.Layouts
 import "oklch.js" as Oklch
 
-// Look: dark or light, the accent colours and the corner style, for the shell and the apps at once.
+// Look: dark or light, the accent colours (Penumbra's, your own or the wallpaper's) and the corner
+// style, for the shell and the apps at once.
 // Look and penumbra-theme apply a change; the shell fades to it.
 ColumnLayout {
     id: root
@@ -227,7 +228,8 @@ ColumnLayout {
         Repeater {
             model: [
                 { name: "default", title: "Default" },
-                { name: "custom", title: "Custom" }
+                { name: "custom", title: "Custom" },
+                { name: "wallpaper", title: "Wallpaper" }
             ]
             delegate: Choice {
                 id: colours
@@ -430,6 +432,41 @@ ColumnLayout {
         Label {
             Layout.fillWidth: true
             text: "A colour you type gives its hue and vividness; the lightness stays the mode's, so text keeps reading on it"
+            wrapMode: Text.Wrap
+            font.pixelSize: Theme.textSmall
+            color: Theme.dim
+        }
+    }
+
+    // The wallpaper's accents, the strongest first. penumbra-wallpaper hands a new wallpaper to
+    // penumbra-theme, which finds its own and fades the shell to the strongest as it grows in.
+    ColumnLayout {
+        Layout.fillWidth: true
+        visible: Look.choice.colors === "wallpaper"
+        spacing: 10
+
+        Row {
+            visible: Look.candidates.length > 0
+            spacing: 8
+            Repeater {
+                model: Look.candidates
+                delegate: Swatch {
+                    required property var modelData
+                    required property int index
+                    width: 34
+                    height: 34
+                    color: Look.swatches(Look.choice.mode, "custom", modelData.hue, modelData.vividness)[1]
+                    selected: index === Math.min(Look.choice.pick ?? 0, Look.candidates.length - 1)
+                    onPicked: Look.set({ pick: index })
+                }
+            }
+        }
+        Label {
+            Layout.fillWidth: true
+            text: Look.candidates.length
+                ? "Found in " + Ui.wallpaperTitle(Ui.wallpaper) + (Look.candidates.length > 1 ? ", the strongest first" : "")
+                    + "; a new wallpaper brings its own colours as it grows in"
+                : "No colours could be read from this wallpaper, so the default ones show"
             wrapMode: Text.Wrap
             font.pixelSize: Theme.textSmall
             color: Theme.dim

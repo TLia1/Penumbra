@@ -2,7 +2,8 @@
 # Switch wallpapers with an awww transition: Penumbra's own scenes by name, or any image, GIF or
 # video by path. `next` cycles through Penumbra's, then those in ~/Pictures/Wallpapers. GIFs and
 # videos show as their first frame in awww and the shell plays them over it, as it animates dawn
-# and eclipse. The lock screen follows the choice.
+# and eclipse. The lock screen follows the choice, and so do the theme's colours when they are
+# taken from the wallpaper.
 set -euo pipefail
 dir="$HOME/.local/share/penumbra"
 state="$HOME/.local/state/penumbra/wallpaper"
@@ -54,6 +55,7 @@ still() {
 
 current=$(cat "$state" 2>/dev/null || echo wallpaper)
 valid "$current" || current=wallpaper
+previous=$current
 transition=(--transition-type grow --transition-duration 1.4 --transition-fps 120)
 case "${1:-next}" in
  next)
@@ -94,6 +96,11 @@ esac
 mkdir -p "${state%/*}"
 printf '%s\n' "$current" > "$state"
 ln -sfn "$lock" "$dir/lock.png"
+# penumbra-theme finds the new wallpaper's colours and, if the theme takes them from it, fades the
+# shell to them while the wallpaper grows in.
+if [[ ${1:-next} != restore && $current != "$previous" ]]; then
+ "$HOME/.local/bin/penumbra-theme" wallpaper "$current" >/dev/null 2>&1 &
+fi
 # The shell animates dawn, eclipse, GIFs and videos over awww's still image, once the transition has finished.
 [[ ${1:-next} = restore ]] && delay=0 || delay=1400
 quickshell -c penumbra ipc call wallpaper set "$current" "$delay" >/dev/null 2>&1 || true

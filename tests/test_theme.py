@@ -46,6 +46,54 @@ class Engine(unittest.TestCase):
             self.assertEqual(palette.oklch_to_hex(*palette.hex_to_oklch(value)), value)
 
 
+def pixels(*colours):
+    """A picture made of COLOURS ({'#rrggbb': how many pixels}), as wallpaper_pixels gives it."""
+    return [palette.rgb255(value) for colours in colours for value, n in colours.items() for _ in range(n)]
+
+
+class WallpaperAccents(unittest.TestCase):
+    def test_peaks_strongest_first(self):
+        # Mostly dark, some teal, less orange, and a speck of green too faint to count.
+        found = palette.wallpaper_accents(pixels({'#0b0b10': 4000, '#2a9d8f': 900, '#e76f51': 400, '#40c040': 5}))
+        self.assertEqual(len(found), 2)
+        self.assertLess(palette.angle(found[0]['hue'], palette.hex_to_oklch('#2a9d8f')[2]), 3)
+        self.assertLess(palette.angle(found[1]['hue'], palette.hex_to_oklch('#e76f51')[2]), 3)
+        for accent in found:
+            self.assertTrue(0.35 <= accent['vividness'] <= 1.3)
+
+    def test_at_most_four_and_apart(self):
+        hues = [palette.oklch_to_hex(0.7, 0.12, hue) for hue in range(0, 360, 30)]
+        found = palette.wallpaper_accents(pixels({value: 100 + i for i, value in enumerate(hues)}))
+        self.assertEqual(len(found), 4)
+        for i, a in enumerate(found):
+            for b in found[i + 1:]:
+                self.assertGreaterEqual(palette.angle(a['hue'], b['hue']), 30)
+
+    def test_grey_gives_one_neutral_accent(self):
+        for picture in (pixels({'#808080': 3000, '#202020': 1000}), pixels({'#000000': 100}), []):
+            self.assertEqual(palette.wallpaper_accents(picture),
+                             [{'hue': palette.BASE_HUE, 'vividness': palette.NEUTRAL_VIVIDNESS}])
+        # A little colour in a grey picture gives the neutral accent its hue.
+        found = palette.wallpaper_accents(pixels({'#808080': 3000, '#2a9d8f': 30}))
+        self.assertEqual(len(found), 1)
+        self.assertLess(palette.angle(found[0]['hue'], palette.hex_to_oklch('#2a9d8f')[2]), 3)
+
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'needs ffmpeg')
+    def test_built_in_wallpapers(self):
+        """Penumbra's wallpapers have hand-picked accents; the first is the picture's own hue."""
+        shipped = json.loads((ROOT / 'share/penumbra/wallpaper-colors.json').read_text())
+        self.assertEqual(set(shipped), {'wallpaper', 'wallpaper-dawn', 'wallpaper-eclipse'})
+        for name, accents in shipped.items():
+            with self.subTest(name=name):
+                picture = palette.wallpaper_pixels(ROOT / 'assets' / f'{name}-clean.png')
+                found = palette.wallpaper_accents(picture)
+                self.assertEqual(palette.wallpaper_accents(picture), found)
+                self.assertLess(palette.angle(found[0]['hue'], accents[0]['hue']), 10)
+                self.assertTrue(1 <= len(accents) <= 4)
+                for accent in accents:
+                    self.assertEqual(set(accent), {'hue', 'vividness'})
+
+
 # Stand-ins for the programs penumbra-theme tells about a change: each records how it was called.
 STUB = '#!/bin/sh\necho "${0##*/} $*" >> "$HOME/calls"\n'
 STUBS = ['gsettings', 'hyprctl', 'dbus-send', 'pkill', 'fish', 'nvim', 'bat']
@@ -60,6 +108,7 @@ class Command(unittest.TestCase):
         share = self.home / '.local/share/penumbra'
         shutil.copytree(ROOT / 'palette', share / 'palette')
         shutil.copy(ROOT / 'share/penumbra/palette.py', share)
+        shutil.copy(ROOT / 'share/penumbra/wallpaper-colors.json', share)
         for name in ('penumbra-theme', 'penumbra-corners'):
             (self.home / '.local/bin').mkdir(parents=True, exist_ok=True)
             shutil.copy(ROOT / 'bin' / name, self.home / '.local/bin')
@@ -147,7 +196,54 @@ class Command(unittest.TestCase):
         self.assertEqual(self.palette_json()['colors'], colors)
         self.assertIn(f'cursor {colors["accent"]}', (self.home / '.config/kitty/penumbra-colors.conf').read_text())
         self.assertEqual(json.loads(self.theme('get')),
-                         {'mode': 'dark', 'colors': 'custom', 'hue': 190.0, 'vividness': 0.8})
+                         {'mode': 'dark', 'colors': 'custom', 'hue': 190.0, 'vividness': 0.8, 'pick': 0,
+                          'candidates': json.loads((ROOT / 'share/penumbra/wallpaper-colors.json').read_text())['wallpaper']})
+
+    def wallpaper(self, name):
+        state = self.home / '.local/state/penumbra'
+        state.mkdir(parents=True, exist_ok=True)
+        (state / 'wallpaper').write_text(name + '\n')
+
+    def test_wallpaper_colours(self):
+        shipped = json.loads((ROOT / 'share/penumbra/wallpaper-colors.json').read_text())['wallpaper-dawn']
+        self.wallpaper('wallpaper-dawn')
+        self.assertEqual(json.loads(self.theme('get'))['candidates'], shipped)
+        self.theme('set', 'colors=wallpaper', 'pick=1')
+        self.assertEqual(self.palette_json()['colors'], palette.generate(PALETTES['dark'], shipped[1]['hue'], shipped[1]['vividness']))
+        # A pick past the last accent takes the last.
+        self.theme('set', 'pick=3')
+        self.assertEqual(self.palette_json()['colors'], palette.generate(PALETTES['dark'], shipped[-1]['hue'], shipped[-1]['vividness']))
+        # A wallpaper that can't be read gives the default colours.
+        self.wallpaper('/nowhere/gone.png')
+        self.theme('restore')
+        self.assertEqual(self.palette_json()['colors'], PALETTES['dark'])
+
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'needs ffmpeg')
+    def test_new_wallpaper(self):
+        """penumbra-wallpaper's hook: the theme takes the new wallpaper's strongest accent as it grows in."""
+        image = self.home / 'Pictures' / 'sea.png'
+        image.parent.mkdir()
+        subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=0x2a9d8f:s=64x40', '-frames:v', '1',
+                        str(image)], check=True)
+        self.theme('set', 'colors=wallpaper', 'pick=1')
+        self.wallpaper(str(image))
+        found = json.loads(self.theme('wallpaper', str(image)))
+        self.assertEqual(len(found), 1)
+        self.assertLess(palette.angle(found[0]['hue'], palette.hex_to_oklch('#2a9d8f')[2]), 3)
+        self.assertEqual(self.palette_json(), {'mode': 'dark', 'duration': 1400,
+                                               'colors': palette.generate(PALETTES['dark'], found[0]['hue'], found[0]['vividness'])})
+        self.assertEqual(json.loads(self.theme('get'))['pick'], 0)
+        self.assertIn(f'cursor {self.palette_json()["colors"]["accent"]}',
+                      (self.home / '.config/kitty/penumbra-colors.conf').read_text())
+        # Found once, then read from the cache.
+        cached = list((self.home / '.cache/penumbra/theme').glob('*.json'))
+        self.assertEqual(len(cached), 1)
+        self.assertEqual(json.loads(cached[0].read_text())['accents'], found)
+        # A wallpaper that isn't the current one is only looked at.
+        before = self.palette_json()
+        self.assertEqual(json.loads(self.theme('wallpaper', 'wallpaper-eclipse')),
+                         json.loads((ROOT / 'share/penumbra/wallpaper-colors.json').read_text())['wallpaper-eclipse'])
+        self.assertEqual(self.palette_json(), before)
 
     def test_preview_only_touches_the_shell(self):
         before = self.files()
@@ -159,7 +255,8 @@ class Command(unittest.TestCase):
         self.assertEqual(self.calls(), '')
 
     def test_bad_values_change_nothing(self):
-        for args in (['mode=dim'], ['hue=400'], ['vividness=2'], ['colors=custom', 'shade=red'], ['nonsense']):
+        for args in (['mode=dim'], ['hue=400'], ['vividness=2'], ['colors=sunset'], ['pick=4'], ['pick=1.5'],
+                     ['colors=custom', 'shade=red'], ['nonsense']):
             with self.subTest(args=args):
                 self.theme('set', *args, code=2 if '=' in args[0] else 1)
         self.assertFalse((self.home / '.local/state/penumbra/theme.json').exists())
