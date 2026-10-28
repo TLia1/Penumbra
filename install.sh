@@ -549,8 +549,7 @@ apply_gtk_settings() {
     command -v gsettings >/dev/null || return 0
     gsettings list-recursively org.gnome.desktop.interface > "$BACKUP/gsettings-interface.txt"
     gsettings list-recursively org.gnome.desktop.wm.preferences > "$BACKUP/gsettings-wm.txt"
-    gsettings set org.gnome.desktop.interface color-scheme prefer-dark
-    gsettings set org.gnome.desktop.interface gtk-theme Breeze-Dark
+    # color-scheme and gtk-theme follow the theme's mode; penumbra-theme sets them.
     gsettings set org.gnome.desktop.interface icon-theme Penumbra
     gsettings set org.gnome.desktop.interface cursor-theme Penumbra-Cursors
     gsettings set org.gnome.desktop.interface cursor-size 28
@@ -672,10 +671,11 @@ color_yazi() {
     install_file "$ROOT/apps/bat/config/bat/themes/Penumbra.tmTheme" \
         "$HOME/.config/yazi/flavors/penumbra.yazi/tmtheme.xml"
     if [[ -f $theme ]] && grep -q '^\[flavor\]' "$theme"; then
-        grep -q '"penumbra"' "$theme" || echo 'yazi: your theme.toml chooses its own flavor; set dark = "penumbra" there to use Penumbra.'
+        grep -q '"penumbra"' "$theme" || echo 'yazi: your theme.toml chooses its own flavor; set dark = "penumbra" and light = "penumbra" there to use Penumbra.'
         return 0
     fi
-    add_line "$theme" $'[flavor]\ndark = "penumbra"'
+    # The same flavor both ways: penumbra-theme rewrites it for dark or light mode.
+    add_line "$theme" $'[flavor]\ndark = "penumbra"\nlight = "penumbra"'
 }
 
 color_zathura() { add_line "$HOME/.config/zathura/zathurarc" 'include penumbra-colors'; }
@@ -693,7 +693,8 @@ color_vscode() {
         "$command" --install-extension "$vsix" --force >/dev/null 2>&1 \
             || warn "$command could not install the Penumbra theme ($vsix)."
     done
-    echo 'VS Code: choose Penumbra in Preferences: Color Theme.'
+    echo 'VS Code: choose Penumbra or Penumbra Light in Preferences: Color Theme. To follow the theme'"'"'s mode, turn on'
+    echo '"window.autoDetectColorScheme" with Penumbra and Penumbra Light as the preferred dark and light themes.'
 }
 
 # Vesktop: turn the theme on in its settings, which it writes on first start. A running Vesktop
@@ -737,6 +738,7 @@ run_user_part() {
     step 'Installing your configuration'
     prune_tree "$ROOT/config/quickshell/penumbra" "$HOME/.config/quickshell/penumbra"
     prune_tree "$ROOT/config/nvim/lua/penumbra" "$HOME/.config/nvim/lua/penumbra"
+    prune_tree "$ROOT/palette/templates" "$HOME/.local/share/penumbra/palette/templates"
     local script from
     for script in "$HOME"/.local/bin/penumbra-*; do
         [[ -e $script && ! -e $ROOT/bin/${script##*/} && ! -e $DISTRO_DIR/bin/${script##*/} ]] || continue
@@ -751,6 +753,8 @@ run_user_part() {
         [[ ! -d $from/bin ]] || install_tree "$from/bin" "$HOME/.local/bin"
         [[ ! -d $from/share ]] || install_tree "$from/share" "$HOME/.local/share"
     done
+    # The palette and colour templates, which penumbra-theme renders when you change the theme.
+    install_tree "$ROOT/palette" "$HOME/.local/share/penumbra/palette"
     create_user_files
     chmod +x "$HOME"/.local/bin/penumbra-*
     # Dolphin only reads service menus in your account that are executable.
@@ -766,6 +770,9 @@ run_user_part() {
     step 'Applying themes and starting services'
     apply_gtk_settings
     install_app_colors
+    # Every colour file above comes in the default dark palette; render them again for the chosen
+    # theme (and set the GTK theme for its mode).
+    "$HOME/.local/bin/penumbra-theme" restore
     configure_keyring
     disable_dunst
     systemctl --user daemon-reload
@@ -842,8 +849,9 @@ uninstall_user() {
     step 'Removing Penumbra from your account'
     systemctl --user stop penumbra-shell.service 2>/dev/null || true
     undo_runs "$dir" "$HOME" .config .local .gitconfig .mozilla
-    # The lock screen's link to the current wallpaper, and folders left empty.
+    # The lock screen's link to the current wallpaper, the theme choice and its palette, and folders left empty.
     [[ -L $HOME/.local/share/penumbra/lock.png ]] && rm -f "$HOME/.local/share/penumbra/lock.png"
+    rm -f "$HOME/.local/state/penumbra/theme.json" "$HOME/.local/state/penumbra/palette.json"
     find "$HOME/.config/quickshell/penumbra" "$HOME/.local/share/penumbra" "$HOME/.config/nvim/lua/penumbra" \
         -depth -type d -empty -delete 2>/dev/null || true
     # The editor's theme extension, which the editor installed itself.

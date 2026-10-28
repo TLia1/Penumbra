@@ -2,10 +2,11 @@
 -- palette/palette.toml).
 vim.cmd('highlight clear')
 if vim.g.syntax_on then vim.cmd('syntax reset') end
-vim.o.background = 'dark'
-vim.g.colors_name = 'penumbra'
+-- penumbra-theme rewrites the palette for the theme you choose and runs :colorscheme penumbra again.
 package.loaded['penumbra.palette'] = nil
 local c = require('penumbra.palette')
+vim.o.background = c.mode or 'dark'
+vim.g.colors_name = 'penumbra'
 local groups = {
   Normal = { fg = c.fg, bg = c.bg }, NormalNC = { fg = c.fg, bg = c.bg },
   NormalFloat = { fg = c.fg, bg = c.panel }, FloatBorder = { fg = c.accent, bg = c.panel },

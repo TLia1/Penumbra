@@ -114,7 +114,7 @@ class AppColors(unittest.TestCase):
             '--theme="Penumbra"', '2',
             'side-by-side penumbra', '~/.config/git/penumbra-delta.gitconfig',
             'Penumbra',
-            '[flavor]', 'dark = "penumbra"', 'tmtheme',
+            '[flavor]', 'dark = "penumbra"', 'light = "penumbra"', 'tmtheme',
             'include penumbra-colors', 'include="~~/penumbra.conf"', '[quiet]', 'volume=50',
             "['mine.css', 'penumbra.theme.css']",
             '@import "penumbra.css";', '#nav-bar { padding: 0 }',

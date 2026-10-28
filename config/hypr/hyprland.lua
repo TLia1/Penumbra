@@ -4,8 +4,11 @@
 -- Settings → Displays writes. Put your own settings in ~/.config/hypr/user.lua, which is read last
 -- and survives ./install.sh.
 local home = os.getenv("HOME")
--- Colours come from palette/palette.toml (tools/build-palette.py).
+-- Colours come from palette/palette.toml (tools/build-palette.py), and penumbra-theme rewrites them
+-- with the theme you choose. In light mode the shadow is fainter and the blur doesn't darken;
+-- penumbra-theme gives a running Hyprland the same (hyprland_lua there).
 local c = dofile(home .. "/.config/hypr/colors.lua")
+local light = c.mode == "light"
 -- settings.conf as a table, read afresh each time (bindings below call it when pressed).
 local function settings()
  local s = {kb_layout = "us", kb_variant = "", kb_options = "", scale = "auto", numlock = "on", terminal = "kitty", file_manager = "org.kde.dolphin"}
@@ -41,9 +44,10 @@ hl.config({
  general = { gaps_in = 6, gaps_out = 14, border_size = 2, resize_on_border = true, layout = "dwindle",
   col = { active_border = {colors = {"rgba(" .. c.accent .. "ee)", "rgba(" .. c.accentDeep .. "bb)"}, angle = 45}, inactive_border = "rgba(" .. c.black .. "ff)" } },
  decoration = { rounding = sharp and 0 or 16, rounding_power = 2, active_opacity = 1, inactive_opacity = 0.97,
-  shadow = {enabled = true, range = 28, render_power = 3, color = "rgba(" .. c.onAccent .. "88)", color_inactive = "rgba(00000055)"},
+  shadow = {enabled = true, range = 28, render_power = 3, color = light and "rgba(" .. c.shade .. "30)" or "rgba(" .. c.onAccent .. "88)",
+   color_inactive = light and "rgba(00000022)" or "rgba(00000055)"},
   glow = {enabled = true, range = 18, render_power = 3, color = "rgba(" .. c.accentDeep .. "40)", color_inactive = "rgba(00000000)"},
-  blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = 0.9, popups = true} },
+  blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = light and 1 or 0.9, popups = true} },
  animations = {enabled = true},
  dwindle = {preserve_split = true},
  input = {kb_layout = s.kb_layout, kb_variant = s.kb_variant, kb_options = s.kb_options, numlock_by_default = s.numlock == "on",

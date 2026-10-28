@@ -1,0 +1,294 @@
+#!/usr/bin/env python3
+"""Choose Penumbra's theme: dark or light, and the accent colour, for the shell and the apps at once.
+
+The choice is kept in ~/.local/state/penumbra/theme.json. The palette it makes goes to palette.json
+next to it, which the shell watches and fades to, and into every colour file Penumbra installed,
+rendered again from the templates install.sh keeps in ~/.local/share/penumbra/palette/. Apps that
+can reload their colours are told to; the others show them on their next start.
+
+  penumbra-theme get                     the choice, as JSON
+  penumbra-theme set KEY=VALUE...        check, save and apply; nothing changes if one is wrong
+  penumbra-theme preview KEY=VALUE...    show a choice in the shell only, without saving it
+  penumbra-theme restore                 apply the saved choice again (install.sh, after copying)
+
+  mode=dark|light  colors=default|custom  hue=0-360 (custom)  vividness=0-1.3 (custom; 0 is grey)
+  --duration MS    how long the shell fades (default: 420 for set, 160 for preview, 0 for restore)
+"""
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+HOME = Path.home()
+CONFIG = Path(os.environ.get('XDG_CONFIG_HOME') or HOME / '.config')
+DATA = HOME / '.local' / 'share'
+STATE = HOME / '.local' / 'state' / 'penumbra'
+CHOICE = STATE / 'theme.json'
+PALETTE_JSON = STATE / 'palette.json'
+SHARE = DATA / 'penumbra'
+TEMPLATES = SHARE / 'palette' / 'templates'
+
+sys.path.insert(0, str(SHARE))
+sys.dont_write_bytecode = True
+try:
+    import palette  # ~/.local/share/penumbra/palette.py, shared with tools/build-palette.py
+except ImportError:
+    sys.exit('penumbra-theme: ~/.local/share/penumbra/palette.py is missing; run ./install.sh --user-only.')
+
+DEFAULTS = {'mode': 'dark', 'colors': 'default', 'hue': palette.BASE_HUE, 'vividness': 1.0}
+DURATIONS = {'set': 420, 'preview': 160, 'restore': 0}
+# Templates the engine leaves alone: the shell reads palette.json instead (a new palette.js would
+# restart it), and the login screen's files belong to root.
+SKIPPED = ('config/quickshell/', 'system/', 'apps/vscode/')
+
+
+def problem(key, value):
+    """Why VALUE won't do for KEY, or None."""
+    if key == 'mode':
+        if value not in palette.MODES:
+            return "Mode should be 'dark' or 'light'."
+    elif key == 'colors':
+        if value not in ('default', 'custom'):
+            return "Colours should be 'default' or 'custom'."
+    elif key in ('hue', 'vividness'):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return f'{key.capitalize()} should be a number.'
+        if key == 'hue' and not 0 <= number <= 360:
+            return 'Hue should be 0 to 360.'
+        if key == 'vividness' and not 0 <= number <= 1.3:
+            return 'Vividness should be 0 to 1.3.'
+    else:
+        return f"Unknown theme setting '{key}'."
+    return None
+
+
+def typed(key, value):
+    return float(value) % 360 if key == 'hue' else float(value) if key == 'vividness' else value
+
+
+def load():
+    """The saved choice; a missing or unreadable file, or a bad value in it, means the default."""
+    choice = dict(DEFAULTS)
+    try:
+        saved = json.loads(CHOICE.read_text())
+    except (OSError, ValueError):
+        saved = {}
+    if isinstance(saved, dict):
+        for key, value in saved.items():
+            if key in DEFAULTS and not problem(key, value):
+                choice[key] = typed(key, value)
+    return choice
+
+
+def write(path, text):
+    """Write TEXT to PATH through a temporary file, only when it changes; True if it did. File
+    watchers see one change, and a symbolic link stays one (its target is written)."""
+    try:
+        if path.read_text() == text:
+            return False
+    except OSError:
+        pass
+    path = path.resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f'.{path.name}.penumbra-tmp')
+    temporary.write_text(text)
+    temporary.replace(path)
+    return True
+
+
+def firefox_profiles():
+    """Every Firefox profile folder, as install.sh's color_firefox finds them."""
+    for root in (HOME / '.mozilla' / 'firefox', CONFIG / 'mozilla' / 'firefox'):
+        try:
+            lines = (root / 'profiles.ini').read_text().splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            if line.startswith('Path='):
+                yield root / line[5:]
+
+
+def targets(rel):
+    """Where the template at REL (relative to the templates folder) is installed. Only files that are
+    already there count: install.sh decides what is installed, for example an app's colours only
+    when the app is."""
+    if rel.startswith(SKIPPED):
+        return []
+    parts = rel.split('/')
+    if parts[0] == 'config':
+        found = [CONFIG.joinpath(*parts[1:])]
+    elif parts[0] == 'share':
+        found = [DATA.joinpath(*parts[1:])]
+    elif parts[0] == 'apps' and parts[1] == 'firefox':
+        found = [profile / 'chrome' / parts[-1] for profile in firefox_profiles()]
+    elif parts[0] == 'apps' and len(parts) > 3 and parts[2] in ('config', 'share'):
+        found = [(CONFIG if parts[2] == 'config' else DATA).joinpath(*parts[3:])]
+        # yazi's flavor previews code with bat's theme (install.sh's color_yazi).
+        if rel == 'apps/bat/config/bat/themes/Penumbra.tmTheme':
+            found.append(CONFIG / 'yazi' / 'flavors' / 'penumbra.yazi' / 'tmtheme.xml')
+    else:
+        found = []
+    return [path for path in found if path.is_file()]
+
+
+def render_files(palettes, mode):
+    """Render every installed colour file with PALETTES[MODE]; the set of templates whose files changed."""
+    changed = set()
+    for template in sorted(p for p in TEMPLATES.rglob('*') if p.is_file()):
+        rel = template.relative_to(TEMPLATES).as_posix()
+        paths = targets(rel)
+        if not paths:
+            continue
+        text = palette.render(template.read_text(), palettes, mode, rel)
+        for path in paths:
+            if write(path, text):
+                changed.add(rel)
+    return changed
+
+
+def apply_mode(mode):
+    """The settings that follow the mode besides colours: the GTK theme and its dark preference,
+    which GTK, libadwaita, Qt and the portal (for web pages) read."""
+    dark = mode == 'dark'
+    for version in ('gtk-3.0', 'gtk-4.0'):
+        path = CONFIG / version / 'settings.ini'
+        try:
+            text = path.read_text()
+        except OSError:
+            continue
+        text = re.sub(r'(?m)^gtk-theme-name=.*$', 'gtk-theme-name=' + ('Breeze-Dark' if dark else 'Breeze'), text)
+        text = re.sub(r'(?m)^gtk-application-prefer-dark-theme=.*$',
+                      'gtk-application-prefer-dark-theme=' + ('true' if dark else 'false'), text)
+        write(path, text)
+    if shutil.which('gsettings'):
+        interface = ['gsettings', 'set', 'org.gnome.desktop.interface']
+        # Older GNOME schemas have no prefer-light; default means light there.
+        if subprocess.run(interface + ['color-scheme', 'prefer-dark' if dark else 'prefer-light'],
+                          capture_output=True).returncode and not dark:
+            subprocess.run(interface + ['color-scheme', 'default'], capture_output=True)
+        subprocess.run(interface + ['gtk-theme', 'Breeze-Dark' if dark else 'Breeze'], capture_output=True)
+
+
+def hyprland_lua(colors, mode):
+    """The Lua that gives a running Hyprland the borders, shadow and blur hyprland.lua makes from colors.lua."""
+    c = {key: value[1:] for key, value in colors.items()}
+    if mode == 'light':
+        shadow, inactive, brightness = f'rgba({c["shade"]}30)', 'rgba(00000022)', '1'
+    else:
+        shadow, inactive, brightness = f'rgba({c["onAccent"]}88)', 'rgba(00000055)', '0.9'
+    return ('hl.config({general = {col = {active_border = {colors = {"rgba(%see)", "rgba(%sbb)"}, angle = 45}, '
+            'inactive_border = "rgba(%sff)"}}, decoration = {shadow = {color = "%s", color_inactive = "%s"}, '
+            'glow = {color = "rgba(%s40)"}, blur = {brightness = %s}}})'
+            % (c['accent'], c['accentDeep'], c['black'], shadow, inactive, c['accentDeep'], brightness))
+
+
+def quiet(command, timeout=5):
+    try:
+        subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def reload_apps(colors, mode, changed):
+    """Tell the running apps whose files CHANGED (template paths) to read their colours again."""
+    def has(command):
+        return shutil.which(command) is not None
+
+    if os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and has('hyprctl'):
+        quiet(['hyprctl', 'eval', hyprland_lua(colors, mode)])
+    if changed & {'config/kdeglobals', 'share/color-schemes/Penumbra.colors'} and has('dbus-send'):
+        quiet(['dbus-send', '--session', '--type=signal', '/KGlobalSettings',
+               'org.kde.KGlobalSettings.notifyChange', 'int32:0', 'int32:0'])
+    if 'config/kitty/penumbra-colors.conf' in changed and has('pkill'):
+        quiet(['pkill', '-USR1', '-u', str(os.getuid()), '-x', 'kitty'])
+    # Every running fish sources its colours again when this universal variable changes.
+    if 'config/fish/conf.d/penumbra-colors.fish' in changed and has('fish'):
+        quiet(['fish', '-c', f'set -U penumbra_theme {time.time_ns()}'])
+    if 'config/nvim/lua/penumbra/palette.lua' in changed and has('nvim'):
+        runtime = Path(os.environ.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}')
+        for server in runtime.glob('nvim.*'):
+            # Only the editors that show Penumbra's colour scheme.
+            quiet(['nvim', '--server', str(server), '--remote-expr',
+                   'execute(get(g:, "colors_name", "") ==# "penumbra" ? "colorscheme penumbra" : "")'], timeout=2)
+    # The rounded or sharp corners are edited into some colour files after they are installed.
+    if changed & {'config/fastfetch/config.jsonc', 'config/satty/config.toml'}:
+        corners = HOME / '.local' / 'bin' / 'penumbra-corners'
+        if os.access(corners, os.X_OK):
+            quiet([str(corners), 'restore'])
+    # bat's theme cache, which delta reads too; slow, so it finishes in the background.
+    if 'apps/bat/config/bat/themes/Penumbra.tmTheme' in changed and has('bat'):
+        subprocess.Popen(['bat', 'cache', '--build'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+
+
+def show(colors, mode, duration):
+    """Hand the palette to the shell, which fades to it over DURATION ms."""
+    write(PALETTE_JSON, json.dumps({'mode': mode, 'duration': duration, 'colors': colors}, indent=1) + '\n')
+
+
+def apply(choice, duration, everything=True):
+    try:
+        palettes = palette.load(SHARE / 'palette' / 'palette.toml')
+    except (OSError, ValueError) as error:
+        sys.exit(f'penumbra-theme: {error}; run ./install.sh --user-only.')
+    mode = choice['mode']
+    colors = palette.resolve(palettes, mode, choice['colors'], choice['hue'], choice['vividness'])
+    # The shell first, so it starts fading while the files are written.
+    show(colors, mode, duration)
+    if not everything:
+        return
+    # The files' other mode comes from the same choice, for the ones that hold both ({{light.name}}).
+    other = 'light' if mode == 'dark' else 'dark'
+    palettes = {mode: colors, other: palette.resolve(palettes, other, choice['colors'], choice['hue'], choice['vividness'])}
+    changed = render_files(palettes, mode)
+    apply_mode(mode)
+    reload_apps(colors, mode, changed)
+
+
+def parse(args):
+    """KEY=VALUE pairs (checked, typed) and the --duration option."""
+    updates, duration = {}, None
+    args = list(args)
+    while args:
+        arg = args.pop(0)
+        if arg == '--duration' or arg.startswith('--duration='):
+            value = arg.partition('=')[2] or (args.pop(0) if args else '')
+            if not value.isdigit():
+                sys.exit('penumbra-theme: --duration needs milliseconds, such as 400.')
+            duration = int(value)
+            continue
+        key, sep, value = arg.partition('=')
+        if not sep:
+            sys.exit(f'penumbra-theme: expected KEY=VALUE, got {arg!r}')
+        updates[key] = value.strip()
+    errors = [p for p in (problem(k, v) for k, v in updates.items()) if p]
+    if errors:
+        print('\n'.join(errors), file=sys.stderr)
+        sys.exit(2)
+    return {k: typed(k, v) for k, v in updates.items()}, duration
+
+
+def main():
+    command, args = (sys.argv[1], sys.argv[2:]) if len(sys.argv) > 1 else ('', [])
+    if command == 'get':
+        print(json.dumps(load()))
+    elif command in ('set', 'preview', 'restore'):
+        updates, duration = parse(args)
+        if command == 'restore' and updates:
+            sys.exit('penumbra-theme: restore takes no settings; use set.')
+        choice = {**load(), **updates}
+        if command == 'set':
+            write(CHOICE, json.dumps(choice) + '\n')
+        apply(choice, DURATIONS[command] if duration is None else duration, everything=command != 'preview')
+    else:
+        sys.exit(__doc__.strip())
+
+
+if __name__ == '__main__':
+    main()

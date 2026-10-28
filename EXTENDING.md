@@ -8,7 +8,7 @@ How the bundle is put together, and where to make each kind of change: a new dis
 |---|---|---|
 | Common files, the same everywhere | `config/`, `bin/`, `share/`, `system/` | `~/.config`, `~/.local/bin`, `~/.local/share`, `/` |
 | One distribution's differences | `distro/NAME/` | the same places, over the common files |
-| Colours | `palette/palette.toml` → `palette/templates/` | rendered into the common files and `apps/` by `tools/build-palette.py` |
+| Colours | `palette/palette.toml` → `palette/templates/` | rendered into the common files and `apps/` by `tools/build-palette.py`; installed to `~/.local/share/penumbra/palette/`, where `penumbra-theme` renders them again for the chosen theme |
 | Other apps' colours | `apps/NAME/` | the same places, only when the command `NAME` exists |
 | Per-user values | `@@PLACEHOLDERS@@` in any text file | filled in by `install.sh` as it copies |
 | Boot themes | `boot/` | only through `tools/install-boot.py`, after asking |
@@ -108,7 +108,9 @@ The shell is `config/quickshell/penumbra/`. `shell.qml` lists the top-level surf
 
 ## Adding a colour
 
-Add it to `palette/palette.toml`, use it as `{{name}}` (or `{{name:hex}}`, `{{name:rgb}}`, `{{name:sgr}}` for terminal codes) in a file under `palette/templates/`, and run `python tools/build-palette.py`. In the shell, expose it in `Theme.qml` as `P.name`. A new app's colour file is a new template at the path the file has in the bundle.
+Add it to `palette/palette.toml` twice: in `[colors]` (dark mode) and in `[light]`, which must have the same keys. Use it as `{{name}}` (or `{{name:hex}}`, `{{name:rgb}}`, `{{name:sgr}}` for terminal codes) in a file under `palette/templates/`, and run `python tools/build-palette.py`. `{{mode}}` is `dark` or `light`, for settings that aren't colours (delta's `dark = true`), and `{{dark.name}}` or `{{light.name}}` take one mode's colour whatever the theme, for a file that holds both (VS Code's two themes). In the shell, expose it in `Theme.qml` as `mix("name")`. A new app's colour file is a new template at the path the file has in the bundle.
+
+The renderer is `share/penumbra/palette.py`, shared by `tools/build-palette.py` (the bundle's files, always dark and default) and `bin/penumbra-theme` (your installed files, in the theme you choose). For a custom accent, `palette.py` turns every key in `HUE_KEYS` to the new hue and scales its chroma, keeping its lightness; signal and diff colours keep theirs. If the new colour is a surface, text or accent shade, add it to `HUE_KEYS`. `penumbra-theme` rewrites only files that are already installed, skips the shell's `palette.js` (the shell reads `~/.local/state/penumbra/palette.json`) and the login screen's, and tells running apps to reload in `reload_apps`; add your app there if it can. `tests/test_theme.py` checks both modes render and that every accent keeps its contrast.
 
 For an app Penumbra doesn't install, put the template under `palette/templates/apps/NAME/config/` (or `share/`), where `NAME` is the app's command; `install.sh` copies `apps/NAME/` only when that command exists (`APP_COMMANDS` maps a folder to other commands, as for VS Code). If the app needs its settings file told about the colours, add a `color_NAME` function next to the others in `install.sh`: use `add_line` and `install_file`, which keep what they change in the backup, and leave a theme the user chose alone. `tests/test_install.py` runs them all against stand-in commands; add your app's checks there.
 

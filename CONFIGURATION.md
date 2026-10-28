@@ -560,8 +560,7 @@ apply_gtk_settings() {
     command -v gsettings >/dev/null || return 0
     gsettings list-recursively org.gnome.desktop.interface > "$BACKUP/gsettings-interface.txt"
     gsettings list-recursively org.gnome.desktop.wm.preferences > "$BACKUP/gsettings-wm.txt"
-    gsettings set org.gnome.desktop.interface color-scheme prefer-dark
-    gsettings set org.gnome.desktop.interface gtk-theme Breeze-Dark
+    # color-scheme and gtk-theme follow the theme's mode; penumbra-theme sets them.
     gsettings set org.gnome.desktop.interface icon-theme Penumbra
     gsettings set org.gnome.desktop.interface cursor-theme Penumbra-Cursors
     gsettings set org.gnome.desktop.interface cursor-size 28
@@ -683,10 +682,11 @@ color_yazi() {
     install_file "$ROOT/apps/bat/config/bat/themes/Penumbra.tmTheme" \
         "$HOME/.config/yazi/flavors/penumbra.yazi/tmtheme.xml"
     if [[ -f $theme ]] && grep -q '^\[flavor\]' "$theme"; then
-        grep -q '"penumbra"' "$theme" || echo 'yazi: your theme.toml chooses its own flavor; set dark = "penumbra" there to use Penumbra.'
+        grep -q '"penumbra"' "$theme" || echo 'yazi: your theme.toml chooses its own flavor; set dark = "penumbra" and light = "penumbra" there to use Penumbra.'
         return 0
     fi
-    add_line "$theme" $'[flavor]\ndark = "penumbra"'
+    # The same flavor both ways: penumbra-theme rewrites it for dark or light mode.
+    add_line "$theme" $'[flavor]\ndark = "penumbra"\nlight = "penumbra"'
 }
 
 color_zathura() { add_line "$HOME/.config/zathura/zathurarc" 'include penumbra-colors'; }
@@ -704,7 +704,8 @@ color_vscode() {
         "$command" --install-extension "$vsix" --force >/dev/null 2>&1 \
             || warn "$command could not install the Penumbra theme ($vsix)."
     done
-    echo 'VS Code: choose Penumbra in Preferences: Color Theme.'
+    echo 'VS Code: choose Penumbra or Penumbra Light in Preferences: Color Theme. To follow the theme'"'"'s mode, turn on'
+    echo '"window.autoDetectColorScheme" with Penumbra and Penumbra Light as the preferred dark and light themes.'
 }
 
 # Vesktop: turn the theme on in its settings, which it writes on first start. A running Vesktop
@@ -748,6 +749,7 @@ run_user_part() {
     step 'Installing your configuration'
     prune_tree "$ROOT/config/quickshell/penumbra" "$HOME/.config/quickshell/penumbra"
     prune_tree "$ROOT/config/nvim/lua/penumbra" "$HOME/.config/nvim/lua/penumbra"
+    prune_tree "$ROOT/palette/templates" "$HOME/.local/share/penumbra/palette/templates"
     local script from
     for script in "$HOME"/.local/bin/penumbra-*; do
         [[ -e $script && ! -e $ROOT/bin/${script##*/} && ! -e $DISTRO_DIR/bin/${script##*/} ]] || continue
@@ -762,6 +764,8 @@ run_user_part() {
         [[ ! -d $from/bin ]] || install_tree "$from/bin" "$HOME/.local/bin"
         [[ ! -d $from/share ]] || install_tree "$from/share" "$HOME/.local/share"
     done
+    # The palette and colour templates, which penumbra-theme renders when you change the theme.
+    install_tree "$ROOT/palette" "$HOME/.local/share/penumbra/palette"
     create_user_files
     chmod +x "$HOME"/.local/bin/penumbra-*
     # Dolphin only reads service menus in your account that are executable.
@@ -777,6 +781,9 @@ run_user_part() {
     step 'Applying themes and starting services'
     apply_gtk_settings
     install_app_colors
+    # Every colour file above comes in the default dark palette; render them again for the chosen
+    # theme (and set the GTK theme for its mode).
+    "$HOME/.local/bin/penumbra-theme" restore
     configure_keyring
     disable_dunst
     systemctl --user daemon-reload
@@ -853,8 +860,9 @@ uninstall_user() {
     step 'Removing Penumbra from your account'
     systemctl --user stop penumbra-shell.service 2>/dev/null || true
     undo_runs "$dir" "$HOME" .config .local .gitconfig .mozilla
-    # The lock screen's link to the current wallpaper, and folders left empty.
+    # The lock screen's link to the current wallpaper, the theme choice and its palette, and folders left empty.
     [[ -L $HOME/.local/share/penumbra/lock.png ]] && rm -f "$HOME/.local/share/penumbra/lock.png"
+    rm -f "$HOME/.local/state/penumbra/theme.json" "$HOME/.local/state/penumbra/palette.json"
     find "$HOME/.config/quickshell/penumbra" "$HOME/.local/share/penumbra" "$HOME/.config/nvim/lua/penumbra" \
         -depth -type d -empty -delete 2>/dev/null || true
     # The editor's theme extension, which the editor installed itself.
@@ -1119,8 +1127,11 @@ def upgrades():
 
 ```toml
 # PENUMBRA palette: the one place the desktop's colours are defined.
+# [colors] is dark mode, [light] light mode; both have the same keys, so a new colour goes in both.
 # After changing a colour, run `python tools/build-palette.py` to rewrite every generated
-# colour file (the templates are in palette/templates/), then `./install.sh --user-only`.
+# colour file (the templates are in palette/templates/, rendered with [colors]), then
+# `./install.sh --user-only`. penumbra-theme renders the same templates with either table, or with
+# either moved to another accent, when you change the theme.
 
 [colors]
 # Surfaces, darkest first.
@@ -1182,6 +1193,69 @@ diffText = "#403457"
 # The changed words inside an added or deleted line (delta, VS Code).
 diffAddEmph = "#2a4a3c"
 diffDeleteEmph = "#552b40"
+
+# Light mode: the same roles for a light background (shade, white and black keep their roles,
+# not their names).
+[light]
+# Surfaces. shade stays the dark scrim; raised ones are a little darker than surface.
+shade = "#202030"         # screen dimming behind overlays, the greeter's backdrop
+base = "#f8f6fb"          # desktop, terminal and editor background
+surface = "#fcfbff"       # windows, panels and glass
+viewAlt = "#f4f2f9"       # alternate list rows
+surfaceAlt = "#f1eef7"    # header bars, tooltips
+raised = "#ebe7f3"        # fields and buttons on a surface
+button = "#eeebf5"        # Qt/KDE buttons
+buttonAlt = "#e5e0ee"
+glassRaised = "#eae5f7"   # the shell's raised glass, used translucent
+border = "#d5cdde"        # borders on solid surfaces
+hover = "#e6dbf8"         # hovered and selected rows
+light = "#fbf9fd"         # bevel light, the greeter's card edge
+mid = "#a698b2"           # bevel mid-tone
+
+# Selection.
+textSelection = "#d7c9f3" # selected text in the terminal and editor
+selectionAlt = "#9271ce"
+selection = "#8057c0"     # selected items, with selectionText on top
+selectionText = "#ffffff"
+
+# The accent.
+onAccent = "#ffffff"     # text on an accent fill
+accentDeep = "#5722ad"
+accentSoft = "#6b578f"    # visited links
+accent = "#754cbd"
+accentBright = "#6535a4"
+
+# Text, strongest first: white is the strongest text, so here the darkest.
+white = "#150e1c"
+text = "#251e2d"
+textSoft = "#41384f"
+subtle = "#5d536a"        # quiet labels on the bar
+muted = "#756981"
+dim = "#8c8197"
+
+# Signal and ANSI colours; the bright ones are darker on a light background.
+black = "#4a4456"
+rose = "#b94767"
+green = "#307d53"
+amber = "#9f691e"
+blue = "#5d5db1"
+pink = "#94559e"
+cyan = "#227984"
+silver = "#7d7784"
+roseBright = "#9e2d52"
+greenBright = "#1d6b42"
+amberBright = "#925b0c"
+blueBright = "#4a499b"
+cyanBright = "#086a73"
+
+# Editor diff backgrounds.
+diffAdd = "#d5f4e2"
+diffDelete = "#fedeec"
+diffChange = "#eae9ff"
+diffText = "#dcd1f5"
+# The changed words inside an added or deleted line (delta, VS Code).
+diffAddEmph = "#b0e6c8"
+diffDeleteEmph = "#f9c2db"
 ```
 
 ## `tools/build-boot-assets.py`
@@ -1618,51 +1692,34 @@ print(f'Built {len(frames)} original shapes / {len(list((THEME/"cursors").iterdi
 #!/usr/bin/env python3
 """Write every PENUMBRA colour file from palette/palette.toml.
 
-Each file under palette/templates/ is rendered to the same path in the repository, with
-{{name}} replaced by that colour as #rrggbb, {{name:hex}} as rrggbb, {{name:rgb}} as r,g,b and {{name:sgr}} as r;g;b (for terminal colour codes).
+Each file under palette/templates/ is rendered with the dark palette ([colors]) to the same path in
+the repository, with {{name}} replaced by that colour as #rrggbb, {{name:hex}} as rrggbb, {{name:rgb}}
+as r,g,b and {{name:sgr}} as r;g;b (for terminal colour codes); share/penumbra/palette.py has the
+rest of the syntax. penumbra-theme renders the same templates at run time.
 `--check` only reports generated files that are out of date (exit status 1).
 """
 from pathlib import Path
-import re
 import sys
-import tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
 PALETTE = ROOT / 'palette' / 'palette.toml'
 TEMPLATES = ROOT / 'palette' / 'templates'
-TOKEN = re.compile(r'\{\{\s*([A-Za-z]+)(?::(hex|rgb|sgr))?\s*\}\}')
-
-
-def load_palette():
-    colors = tomllib.loads(PALETTE.read_text())['colors']
-    for name, value in colors.items():
-        if not re.fullmatch(r'#[0-9a-f]{6}', value):
-            sys.exit(f'{PALETTE}: {name} should be a lowercase #rrggbb colour, not {value!r}')
-    return colors
-
-
-def render(template, colors):
-    def color(match):
-        name, form = match.groups()
-        if name not in colors:
-            raise KeyError(f'{template.relative_to(ROOT)}: unknown colour {name!r}')
-        value = colors[name]
-        if form == 'hex':
-            return value[1:]
-        if form in ('rgb', 'sgr'):
-            return (',' if form == 'rgb' else ';').join(str(int(value[i:i + 2], 16)) for i in (1, 3, 5))
-        return value
-    return TOKEN.sub(color, template.read_text())
+sys.path.insert(0, str(ROOT / 'share' / 'penumbra'))
+sys.dont_write_bytecode = True  # No __pycache__ in share/, which install.sh copies.
+import palette  # noqa: E402  (share/penumbra/palette.py, shared with penumbra-theme)
 
 
 def main():
     check = '--check' in sys.argv[1:]
-    colors = load_palette()
+    try:
+        palettes = palette.load(PALETTE)
+    except ValueError as error:
+        sys.exit(str(error))
     stale = []
     for template in sorted(p for p in TEMPLATES.rglob('*') if p.is_file()):
         target = ROOT / template.relative_to(TEMPLATES)
         try:
-            text = render(template, colors)
+            text = palette.render(template.read_text(), palettes, 'dark', template.relative_to(ROOT))
         except KeyError as error:
             sys.exit(error.args[0])
         if target.exists() and target.read_text() == text:
@@ -3073,7 +3130,7 @@ class AppColors(unittest.TestCase):
             '--theme="Penumbra"', '2',
             'side-by-side penumbra', '~/.config/git/penumbra-delta.gitconfig',
             'Penumbra',
-            '[flavor]', 'dark = "penumbra"', 'tmtheme',
+            '[flavor]', 'dark = "penumbra"', 'light = "penumbra"', 'tmtheme',
             'include penumbra-colors', 'include="~~/penumbra.conf"', '[quiet]', 'volume=50',
             "['mine.css', 'penumbra.theme.css']",
             '@import "penumbra.css";', '#nav-bar { padding: 0 }',
@@ -3095,6 +3152,189 @@ class AppColors(unittest.TestCase):
             '#nav-bar { padding: 0 }',
             'delta.features=side-by-side',
             '2', '2', ''])
+
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
+## `tests/test_theme.py`
+
+```python
+"""The palette engine (share/penumbra/palette.py) and penumbra-theme, which renders it into your files."""
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+
+ROOT = Path(__file__).resolve().parent.parent
+TEMPLATES = ROOT / 'palette' / 'templates'
+sys.path.insert(0, str(ROOT / 'share' / 'penumbra'))
+sys.dont_write_bytecode = True
+import palette  # noqa: E402
+
+PALETTES = palette.load(ROOT / 'palette' / 'palette.toml')
+
+
+class Engine(unittest.TestCase):
+    def test_default_hue_gives_the_default_palette(self):
+        for mode in palette.MODES:
+            with self.subTest(mode=mode):
+                self.assertEqual(palette.generate(PALETTES[mode], palette.BASE_HUE, 1.0), PALETTES[mode])
+
+    def test_light_templates_render(self):
+        for template in sorted(p for p in TEMPLATES.rglob('*') if p.is_file()):
+            with self.subTest(template=template.relative_to(TEMPLATES)):
+                text = palette.render(template.read_text(), PALETTES, 'light', template)
+                self.assertNotIn('{{', text)
+
+    def test_contrast_everywhere(self):
+        """Both modes' defaults, and every accent at every vividness, keep the guarded contrasts."""
+        cases = [(mode, None, None) for mode in palette.MODES]
+        cases += [(mode, hue, vividness) for mode in palette.MODES for hue in range(0, 360, 10)
+                  for vividness in (0, 0.5, 1, 1.3)]
+        for mode, hue, vividness in cases:
+            colors = PALETTES[mode] if hue is None else palette.generate(PALETTES[mode], hue, vividness)
+            for a, b, least in palette.GUARDS:
+                with self.subTest(mode=mode, hue=hue, vividness=vividness, pair=(a, b)):
+                    self.assertGreaterEqual(palette.contrast(colors[a], colors[b]), least)
+
+    def test_colour_conversion_round_trips(self):
+        for value in PALETTES['dark'].values():
+            self.assertEqual(palette.oklch_to_hex(*palette.hex_to_oklch(value)), value)
+
+
+# Stand-ins for the programs penumbra-theme tells about a change: each records how it was called.
+STUB = '#!/bin/sh\necho "${0##*/} $*" >> "$HOME/calls"\n'
+STUBS = ['gsettings', 'hyprctl', 'dbus-send', 'pkill', 'fish', 'nvim', 'bat']
+
+
+class Command(unittest.TestCase):
+    """penumbra-theme in a throwaway home with Penumbra's files installed as install.sh does."""
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.home)
+        share = self.home / '.local/share/penumbra'
+        shutil.copytree(ROOT / 'palette', share / 'palette')
+        shutil.copy(ROOT / 'share/penumbra/palette.py', share)
+        for name in ('penumbra-theme', 'penumbra-corners'):
+            (self.home / '.local/bin').mkdir(parents=True, exist_ok=True)
+            shutil.copy(ROOT / 'bin' / name, self.home / '.local/bin')
+        # The generated files where install.sh puts them, and one app's: bat's.
+        for template in TEMPLATES.rglob('*'):
+            rel = template.relative_to(TEMPLATES)
+            if template.is_file() and rel.parts[0] in ('config', 'share'):
+                where = '.config' if rel.parts[0] == 'config' else '.local/share'
+                target = self.home / where / Path(*rel.parts[1:])
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(ROOT / rel, target)
+        shutil.copytree(ROOT / 'apps/bat/config', self.home / '.config', dirs_exist_ok=True)
+        for version in ('gtk-3.0', 'gtk-4.0'):
+            shutil.copy(ROOT / 'config' / version / 'settings.ini', self.home / '.config' / version)
+        stubs = self.home / 'stubs'
+        stubs.mkdir()
+        for name in STUBS:
+            (stubs / name).write_text(STUB)
+            (stubs / name).chmod(0o755)
+        runtime = self.home / 'run'
+        runtime.mkdir()
+        (runtime / 'nvim.123.0').touch()
+        self.env = {'HOME': str(self.home), 'PATH': f'{stubs}:{os.environ["PATH"]}',
+                    'XDG_RUNTIME_DIR': str(runtime), 'HYPRLAND_INSTANCE_SIGNATURE': 'test'}
+
+    def theme(self, *args, code=0):
+        result = subprocess.run([str(self.home / '.local/bin/penumbra-theme'), *args],
+                                capture_output=True, text=True, env=self.env)
+        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        return result.stdout
+
+    def files(self):
+        return {p: p.read_bytes() for p in self.home.rglob('*')
+                if p.is_file() and 'stubs' not in p.parts and '.local' not in p.parts and p.name != 'calls'}
+
+    def calls(self):
+        path = self.home / 'calls'
+        return path.read_text() if path.exists() else ''
+
+    def palette_json(self):
+        return json.loads((self.home / '.local/state/penumbra/palette.json').read_text())
+
+    def test_dark_default_changes_nothing(self):
+        before = self.files()
+        self.theme('restore')
+        self.assertEqual(self.files(), before)
+        self.assertEqual(self.palette_json(), {'mode': 'dark', 'duration': 0, 'colors': PALETTES['dark']})
+        self.assertIn('gsettings set org.gnome.desktop.interface color-scheme prefer-dark', self.calls())
+
+    def test_light_mode(self):
+        self.theme('set', 'mode=light')
+        light = PALETTES['light']
+        self.assertEqual(json.loads(self.theme('get'))['mode'], 'light')
+        self.assertEqual(self.palette_json()['colors'], light)
+        self.assertEqual(self.palette_json()['duration'], 420)
+        config = self.home / '.config'
+        self.assertIn(f'background {light["base"]}', (config / 'kitty/penumbra-colors.conf').read_text())
+        self.assertIn("mode = 'light'", (config / 'nvim/lua/penumbra/palette.lua').read_text())
+        self.assertIn('mode = "light"', (config / 'hypr/colors.lua').read_text())
+        self.assertIn(light['base'], (config / 'bat/themes/Penumbra.tmTheme').read_text())
+        for version in ('gtk-3.0', 'gtk-4.0'):
+            text = (config / version / 'settings.ini').read_text()
+            self.assertIn('gtk-theme-name=Breeze\n', text)
+            self.assertIn('gtk-application-prefer-dark-theme=false\n', text)
+        # The shell keeps its compiled-in default; it reads palette.json.
+        self.assertEqual((config / 'quickshell/penumbra/palette.js').read_bytes(),
+                         (ROOT / 'config/quickshell/penumbra/palette.js').read_bytes())
+        calls = self.calls()
+        for call in ('gsettings set org.gnome.desktop.interface color-scheme prefer-light',
+                     'gsettings set org.gnome.desktop.interface gtk-theme Breeze',
+                     'hyprctl eval hl.config(', 'dbus-send --session --type=signal /KGlobalSettings',
+                     'pkill -USR1', 'fish -c set -U penumbra_theme',
+                     f'nvim --server {self.home}/run/nvim.123.0 --remote-expr'):
+            self.assertIn(call, calls)
+        # bat's cache is rebuilt in the background.
+        for _ in range(50):
+            if 'bat cache --build' in self.calls():
+                break
+            time.sleep(0.05)
+        self.assertIn('bat cache --build', self.calls())
+
+    def test_custom_accent(self):
+        self.theme('set', 'colors=custom', 'hue=190', 'vividness=0.8')
+        colors = palette.generate(PALETTES['dark'], 190, 0.8)
+        self.assertEqual(self.palette_json()['colors'], colors)
+        self.assertIn(f'cursor {colors["accent"]}', (self.home / '.config/kitty/penumbra-colors.conf').read_text())
+        self.assertEqual(json.loads(self.theme('get')),
+                         {'mode': 'dark', 'colors': 'custom', 'hue': 190.0, 'vividness': 0.8})
+
+    def test_preview_only_touches_the_shell(self):
+        before = self.files()
+        self.theme('preview', 'mode=light', 'colors=custom', 'hue=30')
+        self.assertEqual(self.files(), before)
+        self.assertEqual(self.palette_json()['mode'], 'light')
+        self.assertEqual(self.palette_json()['duration'], 160)
+        self.assertEqual(json.loads(self.theme('get'))['mode'], 'dark')
+        self.assertEqual(self.calls(), '')
+
+    def test_bad_values_change_nothing(self):
+        for args in (['mode=dim'], ['hue=400'], ['vividness=2'], ['colors=custom', 'shade=red'], ['nonsense']):
+            with self.subTest(args=args):
+                self.theme('set', *args, code=2 if '=' in args[0] else 1)
+        self.assertFalse((self.home / '.local/state/penumbra/theme.json').exists())
+
+    def test_sharp_corners_survive(self):
+        state = self.home / '.local/state/penumbra'
+        state.mkdir(parents=True)
+        (state / 'corners').write_text('sharp\n')
+        self.theme('set', 'mode=light')
+        fastfetch = (self.home / '.config/fastfetch/config.jsonc').read_text()
+        self.assertNotIn('╭', fastfetch)
+        self.assertIn('corner-roundness = 0', (self.home / '.config/satty/config.toml').read_text())
 
 
 if __name__ == '__main__':
@@ -3828,6 +4068,305 @@ wl-copy < "$file"
 notify-send -a Penumbra -i "$file" 'Screenshot saved' "Copied to clipboard · ${file/#$HOME/\~}"
 ```
 
+## `bin/penumbra-theme`
+
+```python
+#!/usr/bin/env python3
+"""Choose Penumbra's theme: dark or light, and the accent colour, for the shell and the apps at once.
+
+The choice is kept in ~/.local/state/penumbra/theme.json. The palette it makes goes to palette.json
+next to it, which the shell watches and fades to, and into every colour file Penumbra installed,
+rendered again from the templates install.sh keeps in ~/.local/share/penumbra/palette/. Apps that
+can reload their colours are told to; the others show them on their next start.
+
+  penumbra-theme get                     the choice, as JSON
+  penumbra-theme set KEY=VALUE...        check, save and apply; nothing changes if one is wrong
+  penumbra-theme preview KEY=VALUE...    show a choice in the shell only, without saving it
+  penumbra-theme restore                 apply the saved choice again (install.sh, after copying)
+
+  mode=dark|light  colors=default|custom  hue=0-360 (custom)  vividness=0-1.3 (custom; 0 is grey)
+  --duration MS    how long the shell fades (default: 420 for set, 160 for preview, 0 for restore)
+"""
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+HOME = Path.home()
+CONFIG = Path(os.environ.get('XDG_CONFIG_HOME') or HOME / '.config')
+DATA = HOME / '.local' / 'share'
+STATE = HOME / '.local' / 'state' / 'penumbra'
+CHOICE = STATE / 'theme.json'
+PALETTE_JSON = STATE / 'palette.json'
+SHARE = DATA / 'penumbra'
+TEMPLATES = SHARE / 'palette' / 'templates'
+
+sys.path.insert(0, str(SHARE))
+sys.dont_write_bytecode = True
+try:
+    import palette  # ~/.local/share/penumbra/palette.py, shared with tools/build-palette.py
+except ImportError:
+    sys.exit('penumbra-theme: ~/.local/share/penumbra/palette.py is missing; run ./install.sh --user-only.')
+
+DEFAULTS = {'mode': 'dark', 'colors': 'default', 'hue': palette.BASE_HUE, 'vividness': 1.0}
+DURATIONS = {'set': 420, 'preview': 160, 'restore': 0}
+# Templates the engine leaves alone: the shell reads palette.json instead (a new palette.js would
+# restart it), and the login screen's files belong to root.
+SKIPPED = ('config/quickshell/', 'system/', 'apps/vscode/')
+
+
+def problem(key, value):
+    """Why VALUE won't do for KEY, or None."""
+    if key == 'mode':
+        if value not in palette.MODES:
+            return "Mode should be 'dark' or 'light'."
+    elif key == 'colors':
+        if value not in ('default', 'custom'):
+            return "Colours should be 'default' or 'custom'."
+    elif key in ('hue', 'vividness'):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return f'{key.capitalize()} should be a number.'
+        if key == 'hue' and not 0 <= number <= 360:
+            return 'Hue should be 0 to 360.'
+        if key == 'vividness' and not 0 <= number <= 1.3:
+            return 'Vividness should be 0 to 1.3.'
+    else:
+        return f"Unknown theme setting '{key}'."
+    return None
+
+
+def typed(key, value):
+    return float(value) % 360 if key == 'hue' else float(value) if key == 'vividness' else value
+
+
+def load():
+    """The saved choice; a missing or unreadable file, or a bad value in it, means the default."""
+    choice = dict(DEFAULTS)
+    try:
+        saved = json.loads(CHOICE.read_text())
+    except (OSError, ValueError):
+        saved = {}
+    if isinstance(saved, dict):
+        for key, value in saved.items():
+            if key in DEFAULTS and not problem(key, value):
+                choice[key] = typed(key, value)
+    return choice
+
+
+def write(path, text):
+    """Write TEXT to PATH through a temporary file, only when it changes; True if it did. File
+    watchers see one change, and a symbolic link stays one (its target is written)."""
+    try:
+        if path.read_text() == text:
+            return False
+    except OSError:
+        pass
+    path = path.resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f'.{path.name}.penumbra-tmp')
+    temporary.write_text(text)
+    temporary.replace(path)
+    return True
+
+
+def firefox_profiles():
+    """Every Firefox profile folder, as install.sh's color_firefox finds them."""
+    for root in (HOME / '.mozilla' / 'firefox', CONFIG / 'mozilla' / 'firefox'):
+        try:
+            lines = (root / 'profiles.ini').read_text().splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            if line.startswith('Path='):
+                yield root / line[5:]
+
+
+def targets(rel):
+    """Where the template at REL (relative to the templates folder) is installed. Only files that are
+    already there count: install.sh decides what is installed, for example an app's colours only
+    when the app is."""
+    if rel.startswith(SKIPPED):
+        return []
+    parts = rel.split('/')
+    if parts[0] == 'config':
+        found = [CONFIG.joinpath(*parts[1:])]
+    elif parts[0] == 'share':
+        found = [DATA.joinpath(*parts[1:])]
+    elif parts[0] == 'apps' and parts[1] == 'firefox':
+        found = [profile / 'chrome' / parts[-1] for profile in firefox_profiles()]
+    elif parts[0] == 'apps' and len(parts) > 3 and parts[2] in ('config', 'share'):
+        found = [(CONFIG if parts[2] == 'config' else DATA).joinpath(*parts[3:])]
+        # yazi's flavor previews code with bat's theme (install.sh's color_yazi).
+        if rel == 'apps/bat/config/bat/themes/Penumbra.tmTheme':
+            found.append(CONFIG / 'yazi' / 'flavors' / 'penumbra.yazi' / 'tmtheme.xml')
+    else:
+        found = []
+    return [path for path in found if path.is_file()]
+
+
+def render_files(palettes, mode):
+    """Render every installed colour file with PALETTES[MODE]; the set of templates whose files changed."""
+    changed = set()
+    for template in sorted(p for p in TEMPLATES.rglob('*') if p.is_file()):
+        rel = template.relative_to(TEMPLATES).as_posix()
+        paths = targets(rel)
+        if not paths:
+            continue
+        text = palette.render(template.read_text(), palettes, mode, rel)
+        for path in paths:
+            if write(path, text):
+                changed.add(rel)
+    return changed
+
+
+def apply_mode(mode):
+    """The settings that follow the mode besides colours: the GTK theme and its dark preference,
+    which GTK, libadwaita, Qt and the portal (for web pages) read."""
+    dark = mode == 'dark'
+    for version in ('gtk-3.0', 'gtk-4.0'):
+        path = CONFIG / version / 'settings.ini'
+        try:
+            text = path.read_text()
+        except OSError:
+            continue
+        text = re.sub(r'(?m)^gtk-theme-name=.*$', 'gtk-theme-name=' + ('Breeze-Dark' if dark else 'Breeze'), text)
+        text = re.sub(r'(?m)^gtk-application-prefer-dark-theme=.*$',
+                      'gtk-application-prefer-dark-theme=' + ('true' if dark else 'false'), text)
+        write(path, text)
+    if shutil.which('gsettings'):
+        interface = ['gsettings', 'set', 'org.gnome.desktop.interface']
+        # Older GNOME schemas have no prefer-light; default means light there.
+        if subprocess.run(interface + ['color-scheme', 'prefer-dark' if dark else 'prefer-light'],
+                          capture_output=True).returncode and not dark:
+            subprocess.run(interface + ['color-scheme', 'default'], capture_output=True)
+        subprocess.run(interface + ['gtk-theme', 'Breeze-Dark' if dark else 'Breeze'], capture_output=True)
+
+
+def hyprland_lua(colors, mode):
+    """The Lua that gives a running Hyprland the borders, shadow and blur hyprland.lua makes from colors.lua."""
+    c = {key: value[1:] for key, value in colors.items()}
+    if mode == 'light':
+        shadow, inactive, brightness = f'rgba({c["shade"]}30)', 'rgba(00000022)', '1'
+    else:
+        shadow, inactive, brightness = f'rgba({c["onAccent"]}88)', 'rgba(00000055)', '0.9'
+    return ('hl.config({general = {col = {active_border = {colors = {"rgba(%see)", "rgba(%sbb)"}, angle = 45}, '
+            'inactive_border = "rgba(%sff)"}}, decoration = {shadow = {color = "%s", color_inactive = "%s"}, '
+            'glow = {color = "rgba(%s40)"}, blur = {brightness = %s}}})'
+            % (c['accent'], c['accentDeep'], c['black'], shadow, inactive, c['accentDeep'], brightness))
+
+
+def quiet(command, timeout=5):
+    try:
+        subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def reload_apps(colors, mode, changed):
+    """Tell the running apps whose files CHANGED (template paths) to read their colours again."""
+    def has(command):
+        return shutil.which(command) is not None
+
+    if os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and has('hyprctl'):
+        quiet(['hyprctl', 'eval', hyprland_lua(colors, mode)])
+    if changed & {'config/kdeglobals', 'share/color-schemes/Penumbra.colors'} and has('dbus-send'):
+        quiet(['dbus-send', '--session', '--type=signal', '/KGlobalSettings',
+               'org.kde.KGlobalSettings.notifyChange', 'int32:0', 'int32:0'])
+    if 'config/kitty/penumbra-colors.conf' in changed and has('pkill'):
+        quiet(['pkill', '-USR1', '-u', str(os.getuid()), '-x', 'kitty'])
+    # Every running fish sources its colours again when this universal variable changes.
+    if 'config/fish/conf.d/penumbra-colors.fish' in changed and has('fish'):
+        quiet(['fish', '-c', f'set -U penumbra_theme {time.time_ns()}'])
+    if 'config/nvim/lua/penumbra/palette.lua' in changed and has('nvim'):
+        runtime = Path(os.environ.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}')
+        for server in runtime.glob('nvim.*'):
+            # Only the editors that show Penumbra's colour scheme.
+            quiet(['nvim', '--server', str(server), '--remote-expr',
+                   'execute(get(g:, "colors_name", "") ==# "penumbra" ? "colorscheme penumbra" : "")'], timeout=2)
+    # The rounded or sharp corners are edited into some colour files after they are installed.
+    if changed & {'config/fastfetch/config.jsonc', 'config/satty/config.toml'}:
+        corners = HOME / '.local' / 'bin' / 'penumbra-corners'
+        if os.access(corners, os.X_OK):
+            quiet([str(corners), 'restore'])
+    # bat's theme cache, which delta reads too; slow, so it finishes in the background.
+    if 'apps/bat/config/bat/themes/Penumbra.tmTheme' in changed and has('bat'):
+        subprocess.Popen(['bat', 'cache', '--build'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+
+
+def show(colors, mode, duration):
+    """Hand the palette to the shell, which fades to it over DURATION ms."""
+    write(PALETTE_JSON, json.dumps({'mode': mode, 'duration': duration, 'colors': colors}, indent=1) + '\n')
+
+
+def apply(choice, duration, everything=True):
+    try:
+        palettes = palette.load(SHARE / 'palette' / 'palette.toml')
+    except (OSError, ValueError) as error:
+        sys.exit(f'penumbra-theme: {error}; run ./install.sh --user-only.')
+    mode = choice['mode']
+    colors = palette.resolve(palettes, mode, choice['colors'], choice['hue'], choice['vividness'])
+    # The shell first, so it starts fading while the files are written.
+    show(colors, mode, duration)
+    if not everything:
+        return
+    # The files' other mode comes from the same choice, for the ones that hold both ({{light.name}}).
+    other = 'light' if mode == 'dark' else 'dark'
+    palettes = {mode: colors, other: palette.resolve(palettes, other, choice['colors'], choice['hue'], choice['vividness'])}
+    changed = render_files(palettes, mode)
+    apply_mode(mode)
+    reload_apps(colors, mode, changed)
+
+
+def parse(args):
+    """KEY=VALUE pairs (checked, typed) and the --duration option."""
+    updates, duration = {}, None
+    args = list(args)
+    while args:
+        arg = args.pop(0)
+        if arg == '--duration' or arg.startswith('--duration='):
+            value = arg.partition('=')[2] or (args.pop(0) if args else '')
+            if not value.isdigit():
+                sys.exit('penumbra-theme: --duration needs milliseconds, such as 400.')
+            duration = int(value)
+            continue
+        key, sep, value = arg.partition('=')
+        if not sep:
+            sys.exit(f'penumbra-theme: expected KEY=VALUE, got {arg!r}')
+        updates[key] = value.strip()
+    errors = [p for p in (problem(k, v) for k, v in updates.items()) if p]
+    if errors:
+        print('\n'.join(errors), file=sys.stderr)
+        sys.exit(2)
+    return {k: typed(k, v) for k, v in updates.items()}, duration
+
+
+def main():
+    command, args = (sys.argv[1], sys.argv[2:]) if len(sys.argv) > 1 else ('', [])
+    if command == 'get':
+        print(json.dumps(load()))
+    elif command in ('set', 'preview', 'restore'):
+        updates, duration = parse(args)
+        if command == 'restore' and updates:
+            sys.exit('penumbra-theme: restore takes no settings; use set.')
+        choice = {**load(), **updates}
+        if command == 'set':
+            write(CHOICE, json.dumps(choice) + '\n')
+        apply(choice, DURATIONS[command] if duration is None else duration, everything=command != 'preview')
+    else:
+        sys.exit(__doc__.strip())
+
+
+if __name__ == '__main__':
+    main()
+```
+
 ## `bin/penumbra-updates`
 
 ```python
@@ -4253,6 +4792,19 @@ XCURSOR_SIZE=28
 ```fish
 # PENUMBRA colours for Fish. Generated by tools/build-palette.py from palette/palette.toml; do not edit.
 set -g penumbra_violet b69af7
+# penumbra-theme rewrites this file for the theme you choose, then changes the universal variable
+# penumbra_theme: every running fish reads the file again.
+function __penumbra_colors --on-variable penumbra_theme
+    source $__fish_config_dir/conf.d/penumbra-colors.fish
+end
+# Set an exported variable unless you set your own: one this file set before is replaced.
+function __penumbra_default -a name value
+    set -l mine __penumbra_$name
+    if not set -q $name; or test "$$name" = "$$mine"
+        set -gx $name $value
+        set -g $mine $value
+    end
+end
 if status is-interactive
     set -g fish_color_normal e9e1f5
     set -g fish_color_command b69af7
@@ -4265,9 +4817,8 @@ if status is-interactive
     set -g fish_pager_color_prefix b69af7 --bold
     set -g fish_pager_color_selected_background --background=38264f
     # fzf, ls and eza, unless you set your own first.
-    set -q FZF_DEFAULT_OPTS
-    or set -gx FZF_DEFAULT_OPTS "--color=fg:#e9e1f5,hl:#b69af7,fg+:#faf5ff,bg+:#38264f,hl+:#c4a5ff,gutter:-1,query:#e9e1f5,prompt:#b69af7,pointer:#b69af7,marker:#d5a4dc,spinner:#b69af7,info:#8f809f,header:#aa9cbd,border:#33263f,separator:#33263f,scrollbar:#59446a,label:#aa9cbd"
-    if not set -q LS_COLORS
+    __penumbra_default FZF_DEFAULT_OPTS "--color=fg:#e9e1f5,hl:#b69af7,fg+:#faf5ff,bg+:#38264f,hl+:#c4a5ff,gutter:-1,query:#e9e1f5,prompt:#b69af7,pointer:#b69af7,marker:#d5a4dc,spinner:#b69af7,info:#8f809f,header:#aa9cbd,border:#33263f,separator:#33263f,scrollbar:#59446a,label:#aa9cbd"
+    begin
         set -l ls 'di=1;38;2;182;154;247' 'ln=38;2;156;203;210' 'or=38;2;239;143;164' 'mi=38;2;239;143;164' \
             'ex=1;38;2;165;204;179' 'so=38;2;213;164;220' 'pi=38;2;229;200;154' \
             'bd=38;2;229;200;154;48;2;28;21;40' 'cd=38;2;229;200;154;48;2;28;21;40' \
@@ -4286,10 +4837,9 @@ if status is-interactive
         for ext in pdf epub md txt
             set -a ls "*.$ext=38;2;229;200;154"
         end
-        set -gx LS_COLORS (string join : $ls)
+        __penumbra_default LS_COLORS (string join : $ls)
     end
-    set -q EZA_COLORS
-    or set -gx EZA_COLORS (string join : \
+    __penumbra_default EZA_COLORS (string join : \
         'ur=38;2;229;200;154' 'uw=38;2;239;143;164' 'ux=38;2;165;204;179' 'ue=38;2;165;204;179' \
         'gr=38;2;229;200;154' 'gw=38;2;239;143;164' 'gx=38;2;165;204;179' \
         'tr=38;2;229;200;154' 'tw=38;2;239;143;164' 'tx=38;2;165;204;179' \
@@ -4436,8 +4986,9 @@ gtk-decoration-layout=:close
 -- PENUMBRA colours for Hyprland. Generated by tools/build-palette.py from palette/palette.toml; do not edit.
 -- Hyprland colours are rgba(rrggbbaa).
 return {
+ mode = "dark",
  accent = "b69af7", accentDeep = "6d28d9", onAccent = "100b1b",
- black = "231d2e", base = "0d0a12",
+ black = "231d2e", base = "0d0a12", shade = "07070b",
 }
 ```
 
@@ -4450,8 +5001,11 @@ return {
 -- Settings → Displays writes. Put your own settings in ~/.config/hypr/user.lua, which is read last
 -- and survives ./install.sh.
 local home = os.getenv("HOME")
--- Colours come from palette/palette.toml (tools/build-palette.py).
+-- Colours come from palette/palette.toml (tools/build-palette.py), and penumbra-theme rewrites them
+-- with the theme you choose. In light mode the shadow is fainter and the blur doesn't darken;
+-- penumbra-theme gives a running Hyprland the same (hyprland_lua there).
 local c = dofile(home .. "/.config/hypr/colors.lua")
+local light = c.mode == "light"
 -- settings.conf as a table, read afresh each time (bindings below call it when pressed).
 local function settings()
  local s = {kb_layout = "us", kb_variant = "", kb_options = "", scale = "auto", numlock = "on", terminal = "kitty", file_manager = "org.kde.dolphin"}
@@ -4487,9 +5041,10 @@ hl.config({
  general = { gaps_in = 6, gaps_out = 14, border_size = 2, resize_on_border = true, layout = "dwindle",
   col = { active_border = {colors = {"rgba(" .. c.accent .. "ee)", "rgba(" .. c.accentDeep .. "bb)"}, angle = 45}, inactive_border = "rgba(" .. c.black .. "ff)" } },
  decoration = { rounding = sharp and 0 or 16, rounding_power = 2, active_opacity = 1, inactive_opacity = 0.97,
-  shadow = {enabled = true, range = 28, render_power = 3, color = "rgba(" .. c.onAccent .. "88)", color_inactive = "rgba(00000055)"},
+  shadow = {enabled = true, range = 28, render_power = 3, color = light and "rgba(" .. c.shade .. "30)" or "rgba(" .. c.onAccent .. "88)",
+   color_inactive = light and "rgba(00000022)" or "rgba(00000055)"},
   glow = {enabled = true, range = 18, render_power = 3, color = "rgba(" .. c.accentDeep .. "40)", color_inactive = "rgba(00000000)"},
-  blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = 0.9, popups = true} },
+  blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = light and 1 or 0.9, popups = true} },
  animations = {enabled = true},
  dwindle = {preserve_split = true},
  input = {kb_layout = s.kb_layout, kb_variant = s.kb_variant, kb_options = s.kb_options, numlock_by_default = s.numlock == "on",
@@ -4881,10 +5436,11 @@ inactive_tab_foreground #8f809f
 -- palette/palette.toml).
 vim.cmd('highlight clear')
 if vim.g.syntax_on then vim.cmd('syntax reset') end
-vim.o.background = 'dark'
-vim.g.colors_name = 'penumbra'
+-- penumbra-theme rewrites the palette for the theme you choose and runs :colorscheme penumbra again.
 package.loaded['penumbra.palette'] = nil
 local c = require('penumbra.palette')
+vim.o.background = c.mode or 'dark'
+vim.g.colors_name = 'penumbra'
 local groups = {
   Normal = { fg = c.fg, bg = c.bg }, NormalNC = { fg = c.fg, bg = c.bg },
   NormalFloat = { fg = c.fg, bg = c.panel }, FloatBorder = { fg = c.accent, bg = c.panel },
@@ -5095,6 +5651,7 @@ map('<leader>p', '<cmd>Lazy<cr>', 'Manage plugins')
 ```lua
 -- PENUMBRA colours for Neovim. Generated by tools/build-palette.py from palette/palette.toml; do not edit.
 return {
+  mode = 'dark',
   bg = '#0d0a12', panel = '#100d18', raised = '#1c1528', border = '#33263f',
   selection = '#563b7e', accent = '#b69af7', accentBright = '#c4a5ff',
   fg = '#e9e1f5', soft = '#c8bbde', muted = '#8f809f', dim = '#71637f',
@@ -16774,14 +17331,15 @@ script-opts-append=uosc-color=foreground=b69af7,foreground_text=100b1b,backgroun
   "name": "penumbra-theme",
   "displayName": "Penumbra",
   "description": "The Penumbra desktop's colours: near-black, violet and soft pastels.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "penumbra",
   "license": "MIT",
   "engines": { "vscode": "^1.70.0" },
   "categories": ["Themes"],
   "contributes": {
     "themes": [
-      { "label": "Penumbra", "uiTheme": "vs-dark", "path": "./themes/penumbra-color-theme.json" }
+      { "label": "Penumbra", "uiTheme": "vs-dark", "path": "./themes/penumbra-color-theme.json" },
+      { "label": "Penumbra Light", "uiTheme": "vs", "path": "./themes/penumbra-light-color-theme.json" }
     ]
   }
 }
@@ -16790,7 +17348,7 @@ script-opts-append=uosc-color=foreground=b69af7,foreground_text=100b1b,backgroun
 ## `apps/vscode/vsix/extension/themes/penumbra-color-theme.json`
 
 ```json
-// PENUMBRA colours for VS Code and VSCodium. Generated by tools/build-palette.py from palette/palette.toml; do not edit.
+// PENUMBRA colours for VS Code and VSCodium, dark mode. Generated by tools/build-palette.py from palette/palette.toml; do not edit.
 {
   "name": "Penumbra",
   "type": "dark",
@@ -17099,6 +17657,318 @@ script-opts-append=uosc-color=foreground=b69af7,foreground_text=100b1b,backgroun
 }
 ```
 
+## `apps/vscode/vsix/extension/themes/penumbra-light-color-theme.json`
+
+```json
+// PENUMBRA colours for VS Code and VSCodium, light mode. Generated by tools/build-palette.py from palette/palette.toml; do not edit.
+{
+  "name": "Penumbra Light",
+  "type": "light",
+  "semanticHighlighting": true,
+  "colors": {
+    "foreground": "#251e2d",
+    "descriptionForeground": "#756981",
+    "disabledForeground": "#8c8197",
+    "errorForeground": "#b94767",
+    "focusBorder": "#754cbd80",
+    "icon.foreground": "#41384f",
+    "selection.background": "#d7c9f3",
+    "widget.border": "#d5cdde",
+    "widget.shadow": "#202030a0",
+    "sash.hoverBorder": "#754cbd",
+    "textLink.foreground": "#6535a4",
+    "textLink.activeForeground": "#6535a4",
+    "textBlockQuote.background": "#fcfbff",
+    "textBlockQuote.border": "#754cbd",
+    "textCodeBlock.background": "#fcfbff",
+    "textPreformat.foreground": "#307d53",
+    "textSeparator.foreground": "#d5cdde",
+
+    "button.background": "#754cbd",
+    "button.foreground": "#ffffff",
+    "button.hoverBackground": "#6535a4",
+    "button.secondaryBackground": "#ebe7f3",
+    "button.secondaryForeground": "#251e2d",
+    "button.secondaryHoverBackground": "#e6dbf8",
+    "checkbox.background": "#ebe7f3",
+    "checkbox.border": "#d5cdde",
+    "checkbox.foreground": "#754cbd",
+    "dropdown.background": "#ebe7f3",
+    "dropdown.border": "#d5cdde",
+    "dropdown.foreground": "#251e2d",
+    "dropdown.listBackground": "#fcfbff",
+    "input.background": "#ebe7f3",
+    "input.border": "#d5cdde",
+    "input.foreground": "#251e2d",
+    "input.placeholderForeground": "#8c8197",
+    "inputOption.activeBackground": "#e6dbf8",
+    "inputOption.activeBorder": "#754cbd",
+    "inputOption.activeForeground": "#150e1c",
+    "inputValidation.errorBackground": "#fedeec",
+    "inputValidation.errorBorder": "#b94767",
+    "inputValidation.warningBackground": "#f1eef7",
+    "inputValidation.warningBorder": "#9f691e",
+    "inputValidation.infoBackground": "#f1eef7",
+    "inputValidation.infoBorder": "#5d5db1",
+    "badge.background": "#754cbd",
+    "badge.foreground": "#ffffff",
+    "progressBar.background": "#754cbd",
+    "scrollbar.shadow": "#202030",
+    "scrollbarSlider.background": "#a698b250",
+    "scrollbarSlider.hoverBackground": "#a698b280",
+    "scrollbarSlider.activeBackground": "#754cbd80",
+
+    "list.activeSelectionBackground": "#e6dbf8",
+    "list.activeSelectionForeground": "#150e1c",
+    "list.inactiveSelectionBackground": "#ebe7f3",
+    "list.inactiveSelectionForeground": "#251e2d",
+    "list.hoverBackground": "#ebe7f3",
+    "list.hoverForeground": "#251e2d",
+    "list.focusOutline": "#754cbd80",
+    "list.highlightForeground": "#6535a4",
+    "list.dropBackground": "#e6dbf8",
+    "list.errorForeground": "#b94767",
+    "list.warningForeground": "#9f691e",
+    "tree.indentGuidesStroke": "#d5cdde",
+
+    "activityBar.background": "#fcfbff",
+    "activityBar.foreground": "#754cbd",
+    "activityBar.inactiveForeground": "#8c8197",
+    "activityBar.border": "#fcfbff",
+    "activityBar.activeBorder": "#754cbd",
+    "activityBarBadge.background": "#754cbd",
+    "activityBarBadge.foreground": "#ffffff",
+    "sideBar.background": "#fcfbff",
+    "sideBar.foreground": "#41384f",
+    "sideBar.border": "#fcfbff",
+    "sideBarTitle.foreground": "#5d536a",
+    "sideBarSectionHeader.background": "#fcfbff",
+    "sideBarSectionHeader.foreground": "#5d536a",
+    "sideBarSectionHeader.border": "#d5cdde",
+
+    "titleBar.activeBackground": "#fcfbff",
+    "titleBar.activeForeground": "#41384f",
+    "titleBar.inactiveBackground": "#fcfbff",
+    "titleBar.inactiveForeground": "#8c8197",
+    "titleBar.border": "#fcfbff",
+    "menu.background": "#f1eef7",
+    "menu.foreground": "#251e2d",
+    "menu.selectionBackground": "#e6dbf8",
+    "menu.selectionForeground": "#150e1c",
+    "menu.separatorBackground": "#d5cdde",
+    "menu.border": "#d5cdde",
+    "menubar.selectionBackground": "#ebe7f3",
+    "commandCenter.background": "#ebe7f3",
+    "commandCenter.foreground": "#41384f",
+    "commandCenter.border": "#d5cdde",
+    "commandCenter.activeBackground": "#e6dbf8",
+
+    "editor.background": "#f8f6fb",
+    "editor.foreground": "#251e2d",
+    "editorCursor.foreground": "#754cbd",
+    "editor.lineHighlightBackground": "#ebe7f380",
+    "editor.lineHighlightBorder": "#ebe7f300",
+    "editor.selectionBackground": "#d7c9f3",
+    "editor.inactiveSelectionBackground": "#d7c9f380",
+    "editor.selectionHighlightBackground": "#e6dbf8a0",
+    "editor.wordHighlightBackground": "#e6dbf880",
+    "editor.wordHighlightStrongBackground": "#e6dbf8c0",
+    "editor.findMatchBackground": "#9f691e60",
+    "editor.findMatchBorder": "#9f691e",
+    "editor.findMatchHighlightBackground": "#9f691e30",
+    "editor.findRangeHighlightBackground": "#ebe7f3",
+    "editor.hoverHighlightBackground": "#e6dbf860",
+    "editor.rangeHighlightBackground": "#ebe7f380",
+    "editorLineNumber.foreground": "#756981",
+    "editorLineNumber.activeForeground": "#754cbd",
+    "editorIndentGuide.background1": "#d5cdde",
+    "editorIndentGuide.activeBackground1": "#a698b2",
+    "editorWhitespace.foreground": "#d5cdde",
+    "editorRuler.foreground": "#d5cdde",
+    "editorBracketMatch.background": "#d5cdde",
+    "editorBracketMatch.border": "#754cbd",
+    "editorBracketHighlight.foreground1": "#754cbd",
+    "editorBracketHighlight.foreground2": "#94559e",
+    "editorBracketHighlight.foreground3": "#5d5db1",
+    "editorBracketHighlight.foreground4": "#227984",
+    "editorBracketHighlight.foreground5": "#9f691e",
+    "editorBracketHighlight.foreground6": "#307d53",
+    "editorBracketHighlight.unexpectedBracket.foreground": "#b94767",
+    "editorCodeLens.foreground": "#8c8197",
+    "editorLink.activeForeground": "#6535a4",
+    "editorInlayHint.background": "#fcfbff",
+    "editorInlayHint.foreground": "#756981",
+    "editorGhostText.foreground": "#8c8197",
+    "editorError.foreground": "#b94767",
+    "editorWarning.foreground": "#9f691e",
+    "editorInfo.foreground": "#5d5db1",
+    "editorHint.foreground": "#754cbd",
+    "editorGutter.background": "#f8f6fb",
+    "editorGutter.addedBackground": "#307d53",
+    "editorGutter.modifiedBackground": "#754cbd",
+    "editorGutter.deletedBackground": "#b94767",
+    "editorOverviewRuler.border": "#f8f6fb",
+    "editorOverviewRuler.addedForeground": "#307d5380",
+    "editorOverviewRuler.modifiedForeground": "#754cbd80",
+    "editorOverviewRuler.deletedForeground": "#b9476780",
+    "editorOverviewRuler.errorForeground": "#b94767",
+    "editorOverviewRuler.warningForeground": "#9f691e",
+    "editorWidget.background": "#fcfbff",
+    "editorWidget.border": "#d5cdde",
+    "editorSuggestWidget.background": "#fcfbff",
+    "editorSuggestWidget.border": "#d5cdde",
+    "editorSuggestWidget.selectedBackground": "#e6dbf8",
+    "editorSuggestWidget.highlightForeground": "#6535a4",
+    "editorHoverWidget.background": "#fcfbff",
+    "editorHoverWidget.border": "#d5cdde",
+    "editorStickyScroll.background": "#f8f6fb",
+    "editorStickyScrollHover.background": "#ebe7f3",
+    "peekView.border": "#754cbd",
+    "peekViewEditor.background": "#fcfbff",
+    "peekViewResult.background": "#fcfbff",
+    "peekViewResult.selectionBackground": "#e6dbf8",
+    "peekViewTitle.background": "#f1eef7",
+
+    "diffEditor.insertedLineBackground": "#d5f4e2",
+    "diffEditor.insertedTextBackground": "#b0e6c8",
+    "diffEditor.removedLineBackground": "#fedeec",
+    "diffEditor.removedTextBackground": "#f9c2db",
+    "diffEditor.diagonalFill": "#d5cdde",
+    "merge.currentHeaderBackground": "#b0e6c8",
+    "merge.currentContentBackground": "#d5f4e2",
+    "merge.incomingHeaderBackground": "#dcd1f5",
+    "merge.incomingContentBackground": "#eae9ff",
+
+    "editorGroup.border": "#d5cdde",
+    "editorGroup.dropBackground": "#e6dbf860",
+    "editorGroupHeader.tabsBackground": "#fcfbff",
+    "editorGroupHeader.tabsBorder": "#fcfbff",
+    "tab.activeBackground": "#f8f6fb",
+    "tab.activeForeground": "#251e2d",
+    "tab.activeBorderTop": "#754cbd",
+    "tab.inactiveBackground": "#fcfbff",
+    "tab.inactiveForeground": "#756981",
+    "tab.hoverBackground": "#ebe7f3",
+    "tab.border": "#fcfbff",
+    "tab.unfocusedActiveBorderTop": "#a698b2",
+    "breadcrumb.foreground": "#756981",
+    "breadcrumb.focusForeground": "#251e2d",
+    "breadcrumb.activeSelectionForeground": "#754cbd",
+    "breadcrumbPicker.background": "#fcfbff",
+
+    "panel.background": "#fcfbff",
+    "panel.border": "#d5cdde",
+    "panelTitle.activeForeground": "#251e2d",
+    "panelTitle.activeBorder": "#754cbd",
+    "panelTitle.inactiveForeground": "#8c8197",
+    "statusBar.background": "#fcfbff",
+    "statusBar.foreground": "#5d536a",
+    "statusBar.border": "#fcfbff",
+    "statusBar.debuggingBackground": "#9f691e",
+    "statusBar.debuggingForeground": "#ffffff",
+    "statusBar.noFolderBackground": "#fcfbff",
+    "statusBarItem.hoverBackground": "#ebe7f3",
+    "statusBarItem.remoteBackground": "#754cbd",
+    "statusBarItem.remoteForeground": "#ffffff",
+    "statusBarItem.errorBackground": "#b94767",
+    "statusBarItem.errorForeground": "#ffffff",
+    "statusBarItem.warningBackground": "#9f691e",
+    "statusBarItem.warningForeground": "#ffffff",
+    "quickInput.background": "#fcfbff",
+    "quickInputList.focusBackground": "#e6dbf8",
+    "quickInputTitle.background": "#f1eef7",
+    "pickerGroup.foreground": "#754cbd",
+    "pickerGroup.border": "#d5cdde",
+    "keybindingLabel.background": "#ebe7f3",
+    "keybindingLabel.foreground": "#251e2d",
+    "keybindingLabel.border": "#d5cdde",
+    "keybindingLabel.bottomBorder": "#d5cdde",
+    "notifications.background": "#fcfbff",
+    "notifications.foreground": "#251e2d",
+    "notifications.border": "#d5cdde",
+    "notificationCenterHeader.background": "#f1eef7",
+    "notificationLink.foreground": "#6535a4",
+    "notificationsErrorIcon.foreground": "#b94767",
+    "notificationsWarningIcon.foreground": "#9f691e",
+    "notificationsInfoIcon.foreground": "#5d5db1",
+
+    "gitDecoration.addedResourceForeground": "#307d53",
+    "gitDecoration.untrackedResourceForeground": "#307d53",
+    "gitDecoration.modifiedResourceForeground": "#754cbd",
+    "gitDecoration.deletedResourceForeground": "#b94767",
+    "gitDecoration.renamedResourceForeground": "#227984",
+    "gitDecoration.conflictingResourceForeground": "#9f691e",
+    "gitDecoration.ignoredResourceForeground": "#8c8197",
+    "gitDecoration.submoduleResourceForeground": "#5d5db1",
+
+    "terminal.background": "#f8f6fb",
+    "terminal.foreground": "#251e2d",
+    "terminal.selectionBackground": "#d7c9f3",
+    "terminalCursor.foreground": "#754cbd",
+    "terminal.ansiBlack": "#4a4456",
+    "terminal.ansiRed": "#b94767",
+    "terminal.ansiGreen": "#307d53",
+    "terminal.ansiYellow": "#9f691e",
+    "terminal.ansiBlue": "#5d5db1",
+    "terminal.ansiMagenta": "#754cbd",
+    "terminal.ansiCyan": "#227984",
+    "terminal.ansiWhite": "#7d7784",
+    "terminal.ansiBrightBlack": "#8c8197",
+    "terminal.ansiBrightRed": "#9e2d52",
+    "terminal.ansiBrightGreen": "#1d6b42",
+    "terminal.ansiBrightYellow": "#925b0c",
+    "terminal.ansiBrightBlue": "#4a499b",
+    "terminal.ansiBrightMagenta": "#6535a4",
+    "terminal.ansiBrightCyan": "#086a73",
+    "terminal.ansiBrightWhite": "#150e1c"
+  },
+  "tokenColors": [
+    { "scope": ["comment", "punctuation.definition.comment"], "settings": { "foreground": "#8c8197", "fontStyle": "italic" } },
+    { "scope": ["string", "constant.other.symbol"], "settings": { "foreground": "#307d53" } },
+    { "scope": ["constant.character.escape", "string.regexp"], "settings": { "foreground": "#94559e" } },
+    { "scope": ["constant.numeric", "constant.language", "constant.other", "constant.character"], "settings": { "foreground": "#9f691e" } },
+    { "scope": ["support.constant"], "settings": { "foreground": "#9f691e", "fontStyle": "italic" } },
+    { "scope": ["variable", "variable.other"], "settings": { "foreground": "#251e2d" } },
+    { "scope": ["variable.language"], "settings": { "foreground": "#94559e", "fontStyle": "italic" } },
+    { "scope": ["variable.parameter"], "settings": { "foreground": "#41384f" } },
+    { "scope": ["variable.other.member", "variable.other.property", "support.type.property-name", "meta.object-literal.key"], "settings": { "foreground": "#41384f" } },
+    { "scope": ["keyword", "keyword.control", "storage.modifier", "storage.type"], "settings": { "foreground": "#754cbd" } },
+    { "scope": ["storage.type.function", "keyword.declaration.function"], "settings": { "foreground": "#754cbd", "fontStyle": "italic" } },
+    { "scope": ["keyword.control.import", "keyword.other.import", "keyword.control.include"], "settings": { "foreground": "#94559e" } },
+    { "scope": ["keyword.operator"], "settings": { "foreground": "#94559e" } },
+    { "scope": ["entity.name.type", "entity.name.class", "entity.name.struct", "entity.name.enum", "support.type", "support.class", "entity.other.inherited-class"], "settings": { "foreground": "#9f691e" } },
+    { "scope": ["storage.type.primitive", "support.type.primitive", "support.type.builtin"], "settings": { "foreground": "#9f691e", "fontStyle": "italic" } },
+    { "scope": ["entity.name.function", "meta.function-call", "variable.function", "support.function"], "settings": { "foreground": "#5d5db1" } },
+    { "scope": ["entity.name.namespace", "entity.name.module", "support.module"], "settings": { "foreground": "#227984" } },
+    { "scope": ["entity.other.attribute-name", "meta.decorator", "meta.annotation", "entity.name.label"], "settings": { "foreground": "#227984" } },
+    { "scope": ["entity.name.tag"], "settings": { "foreground": "#754cbd" } },
+    { "scope": ["punctuation", "meta.brace", "punctuation.definition.tag"], "settings": { "foreground": "#756981" } },
+    { "scope": ["punctuation.section.embedded", "punctuation.definition.template-expression"], "settings": { "foreground": "#94559e" } },
+    { "scope": ["markup.heading", "entity.name.section"], "settings": { "foreground": "#754cbd", "fontStyle": "bold" } },
+    { "scope": ["markup.bold"], "settings": { "fontStyle": "bold" } },
+    { "scope": ["markup.italic"], "settings": { "fontStyle": "italic" } },
+    { "scope": ["markup.underline.link", "string.other.link"], "settings": { "foreground": "#5d5db1", "fontStyle": "underline" } },
+    { "scope": ["markup.raw", "markup.inline.raw", "markup.fenced_code"], "settings": { "foreground": "#307d53" } },
+    { "scope": ["markup.list punctuation.definition.list", "punctuation.definition.list.begin"], "settings": { "foreground": "#94559e" } },
+    { "scope": ["markup.quote"], "settings": { "foreground": "#756981", "fontStyle": "italic" } },
+    { "scope": ["markup.inserted"], "settings": { "foreground": "#307d53" } },
+    { "scope": ["markup.deleted"], "settings": { "foreground": "#b94767" } },
+    { "scope": ["markup.changed"], "settings": { "foreground": "#754cbd" } },
+    { "scope": ["invalid"], "settings": { "foreground": "#b94767" } },
+    { "scope": ["invalid.deprecated"], "settings": { "foreground": "#9f691e", "fontStyle": "strikethrough" } }
+  ],
+  "semanticTokenColors": {
+    "namespace": "#227984",
+    "parameter": "#41384f",
+    "property": "#41384f",
+    "enumMember": "#9f691e",
+    "macro": "#9f691e",
+    "*.defaultLibrary": { "fontStyle": "italic" },
+    "*.deprecated": { "fontStyle": "strikethrough" }
+  }
+}
+```
+
 ## `apps/vscode/vsix/extension.vsixmanifest`
 
 ```xml
@@ -17106,7 +17976,7 @@ script-opts-append=uosc-color=foreground=b69af7,foreground_text=100b1b,backgroun
 <!-- The package description `code --install-extension` reads; ./install.sh zips this folder. -->
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">
   <Metadata>
-    <Identity Language="en-US" Id="penumbra-theme" Version="1.0.0" Publisher="penumbra"/>
+    <Identity Language="en-US" Id="penumbra-theme" Version="1.1.0" Publisher="penumbra"/>
     <DisplayName>Penumbra</DisplayName>
     <Description xml:space="preserve">The Penumbra desktop's colours: near-black, violet and soft pastels.</Description>
     <Categories>Themes</Categories>

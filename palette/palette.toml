@@ -1,6 +1,9 @@
 # PENUMBRA palette: the one place the desktop's colours are defined.
+# [colors] is dark mode, [light] light mode; both have the same keys, so a new colour goes in both.
 # After changing a colour, run `python tools/build-palette.py` to rewrite every generated
-# colour file (the templates are in palette/templates/), then `./install.sh --user-only`.
+# colour file (the templates are in palette/templates/, rendered with [colors]), then
+# `./install.sh --user-only`. penumbra-theme renders the same templates with either table, or with
+# either moved to another accent, when you change the theme.
 
 [colors]
 # Surfaces, darkest first.
@@ -62,3 +65,66 @@ diffText = "#403457"
 # The changed words inside an added or deleted line (delta, VS Code).
 diffAddEmph = "#2a4a3c"
 diffDeleteEmph = "#552b40"
+
+# Light mode: the same roles for a light background (shade, white and black keep their roles,
+# not their names).
+[light]
+# Surfaces. shade stays the dark scrim; raised ones are a little darker than surface.
+shade = "#202030"         # screen dimming behind overlays, the greeter's backdrop
+base = "#f8f6fb"          # desktop, terminal and editor background
+surface = "#fcfbff"       # windows, panels and glass
+viewAlt = "#f4f2f9"       # alternate list rows
+surfaceAlt = "#f1eef7"    # header bars, tooltips
+raised = "#ebe7f3"        # fields and buttons on a surface
+button = "#eeebf5"        # Qt/KDE buttons
+buttonAlt = "#e5e0ee"
+glassRaised = "#eae5f7"   # the shell's raised glass, used translucent
+border = "#d5cdde"        # borders on solid surfaces
+hover = "#e6dbf8"         # hovered and selected rows
+light = "#fbf9fd"         # bevel light, the greeter's card edge
+mid = "#a698b2"           # bevel mid-tone
+
+# Selection.
+textSelection = "#d7c9f3" # selected text in the terminal and editor
+selectionAlt = "#9271ce"
+selection = "#8057c0"     # selected items, with selectionText on top
+selectionText = "#ffffff"
+
+# The accent.
+onAccent = "#ffffff"     # text on an accent fill
+accentDeep = "#5722ad"
+accentSoft = "#6b578f"    # visited links
+accent = "#754cbd"
+accentBright = "#6535a4"
+
+# Text, strongest first: white is the strongest text, so here the darkest.
+white = "#150e1c"
+text = "#251e2d"
+textSoft = "#41384f"
+subtle = "#5d536a"        # quiet labels on the bar
+muted = "#756981"
+dim = "#8c8197"
+
+# Signal and ANSI colours; the bright ones are darker on a light background.
+black = "#4a4456"
+rose = "#b94767"
+green = "#307d53"
+amber = "#9f691e"
+blue = "#5d5db1"
+pink = "#94559e"
+cyan = "#227984"
+silver = "#7d7784"
+roseBright = "#9e2d52"
+greenBright = "#1d6b42"
+amberBright = "#925b0c"
+blueBright = "#4a499b"
+cyanBright = "#086a73"
+
+# Editor diff backgrounds.
+diffAdd = "#d5f4e2"
+diffDelete = "#fedeec"
+diffChange = "#eae9ff"
+diffText = "#dcd1f5"
+# The changed words inside an added or deleted line (delta, VS Code).
+diffAddEmph = "#b0e6c8"
+diffDeleteEmph = "#f9c2db"
