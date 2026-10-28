@@ -6992,6 +6992,11 @@ Panel {
             visible: Ui.controlPage === "settings"
         }
 
+        LookPage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "look"
+        }
+
         DisplaysPage {
             Layout.fillWidth: true
             visible: Ui.controlPage === "displays"
@@ -10280,6 +10285,443 @@ Scope {
                 pixelRatio: surface.screen?.devicePixelRatio ?? 1
             }
         }
+    }
+}
+```
+
+## `config/quickshell/penumbra/Look.qml`
+
+```qml
+pragma Singleton
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import "oklch.js" as Oklch
+
+// The theme choice penumbra-theme keeps in ~/.local/state/penumbra/theme.json: dark or light, and
+// the accent. A change shows here at once; penumbra-theme saves and applies it (palette.json, which
+// Theme fades to, then every app's colours), and the file, read back, has the last word.
+Singleton {
+    id: root
+
+    property var choice: ({ mode: "dark", colors: "default", hue: 297, vividness: 1 })
+    property string error: ""
+    readonly property bool busy: setter.running
+
+    // "Dark · Default colours · Rounded", for the Settings row.
+    readonly property string summary: [choice.mode === "light" ? "Light" : "Dark",
+        choice.colors === "custom" ? "Custom colours" : "Default colours",
+        Theme.sharp ? "Sharp" : "Rounded"].join(" · ")
+
+    // Change some: { mode: "light" }. `error` says why when one is refused.
+    function set(changes) {
+        pending = Object.assign({}, pending, changes);
+        choice = Object.assign({}, choice, changes);
+        if (!setter.running)
+            flush();
+    }
+    property var pending: ({})
+    function flush() {
+        const changes = pending;
+        pending = {};
+        const keys = Object.keys(changes);
+        if (!keys.length)
+            return;
+        error = "";
+        setter.command = [Ui.bin + "penumbra-theme", "set"].concat(keys.map(key => `${key}=${changes[key]}`));
+        setter.running = true;
+    }
+    Process {
+        id: setter
+        stderr: StdioCollector {
+            onStreamFinished: if (text.trim()) root.error = text.trim()
+        }
+        onExited: {
+            root.flush();
+            if (!setter.running)
+                getter.running = true;
+        }
+    }
+
+    // Show a choice in the shell only, without saving it or touching the apps (while a slider is
+    // dragged); the latest one wins. endPreview() shows the saved choice again.
+    function preview(changes) {
+        previewing = Object.assign({}, choice, changes);
+        if (!previewer.running)
+            showPreview();
+    }
+    function endPreview() {
+        previewing = {};
+        if (!previewer.running)
+            showPreview();
+    }
+    property var previewing: null
+    function showPreview() {
+        if (previewing === null)
+            return;
+        const shown = previewing;
+        previewing = null;
+        previewer.command = [Ui.bin + "penumbra-theme", "preview"].concat(Object.keys(shown).map(key => `${key}=${shown[key]}`));
+        previewer.running = true;
+    }
+    Process {
+        id: previewer
+        onExited: root.showPreview()
+    }
+
+    // The saved choice with its defaults filled in, whenever the file changes.
+    Process {
+        id: getter
+        running: true
+        command: [Ui.bin + "penumbra-theme", "get"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                // A change still on its way would be undone for a moment.
+                if (setter.running || Object.keys(root.pending).length)
+                    return;
+                try {
+                    root.choice = JSON.parse(text);
+                } catch (e) {}
+            }
+        }
+    }
+    FileView {
+        path: Quickshell.env("HOME") + "/.local/state/penumbra/theme.json"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: if (!getter.running) getter.running = true
+    }
+
+    // The default accent family's OKLCH in each mode (palette.toml's accentDeep, accent, accentBright);
+    // a custom accent turns their hues and scales their chroma, as penumbra-theme does.
+    readonly property var accents: ({
+        dark: [[0.491, 0.241, 292.6], [0.747, 0.134, 296.9], [0.783, 0.129, 299.3]],
+        light: [[0.420, 0.200, 292.8], [0.520, 0.170, 296.8], [0.450, 0.170, 299.3]]
+    })
+    // [deep, accent, bright] for a choice, close to what penumbra-theme will make of it.
+    function swatches(mode, colors, hue, vividness) {
+        const turn = colors === "custom" ? hue - 297 : 0;
+        const scale = colors === "custom" ? vividness : 1;
+        return accents[mode === "light" ? "light" : "dark"].map(([L, C, H]) => Oklch.color(L, Math.max(C * scale, 0.02), (H + turn + 360) % 360));
+    }
+}
+```
+
+## `config/quickshell/penumbra/LookPage.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+
+// Look: dark or light, the accent colours and the corner style, for the shell and the apps at once.
+// Look and penumbra-theme apply a change; the shell fades to it.
+ColumnLayout {
+    id: root
+
+    spacing: 12
+
+    component Section: Overline {
+        Layout.fillWidth: true
+        Layout.topMargin: 2
+    }
+
+    // A choice drawn as a card: its picture above, its name below, the current one outlined.
+    component Choice: Rectangle {
+        id: choice
+        property bool current
+        property string title
+        default property alias picture: holder.data
+        signal picked()
+
+        Layout.fillWidth: true
+        Layout.preferredWidth: 1 // equal shares
+        implicitHeight: 118
+        radius: Theme.radius
+        color: current ? Theme.alpha(Theme.accent, 0.12) : choiceArea.containsMouse ? Theme.hover : Theme.raised
+        border.width: current ? 2 : 1
+        border.color: current ? Theme.accent : Theme.line
+        Behavior on color { ColorAnimation { duration: Theme.fast } }
+
+        Item {
+            id: holder
+            anchors { top: parent.top; topMargin: 16; horizontalCenter: parent.horizontalCenter }
+            width: 116
+            height: 62
+        }
+        RowLayout {
+            anchors { bottom: parent.bottom; bottomMargin: 12; horizontalCenter: parent.horizontalCenter }
+            spacing: 6
+            Rectangle {
+                visible: choice.current
+                implicitWidth: 6
+                implicitHeight: 6
+                radius: Theme.corner(3)
+                color: Theme.accent
+            }
+            Label {
+                text: choice.title
+                font.weight: choice.current ? Font.DemiBold : Font.Normal
+                color: choice.current ? Theme.text : Theme.textSoft
+            }
+        }
+        MouseArea {
+            id: choiceArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: if (!choice.current) choice.picked()
+        }
+    }
+
+    // A line standing in for text in the previews.
+    component Line: Rectangle {
+        implicitHeight: 4
+        radius: Theme.corner(height / 2)
+    }
+
+    PageHeader {
+        Layout.fillWidth: true
+        title: "Look"
+        status: Look.error || "Mode, colours and corners"
+        showSwitch: false
+        onBack: Ui.controlPage = "settings"
+    }
+
+    // A little desktop in the colours on screen: a bar, a window and a panel. They fade with the
+    // shell, so it shows each change as it happens.
+    Rectangle {
+        id: desktop
+        Layout.fillWidth: true
+        implicitHeight: 150
+        radius: Theme.radius
+        color: Theme.base
+        border.color: Theme.line
+        clip: true
+
+        // A faint wash of the accent, where a wallpaper would be.
+        Rectangle {
+            anchors.fill: parent
+            radius: parent.radius
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: Theme.alpha(Theme.accentDeep, Theme.light ? 0.16 : 0.32) }
+                GradientStop { position: 1; color: "transparent" }
+            }
+        }
+
+        // The bar: workspaces, the clock, the status capsule.
+        Rectangle {
+            id: bar
+            x: 10
+            y: 10
+            width: parent.width - 20
+            height: 18
+            radius: Theme.corner(9)
+            color: Theme.glassStrong
+            border.color: Theme.line
+            Row {
+                anchors { left: parent.left; leftMargin: 7; verticalCenter: parent.verticalCenter }
+                spacing: 4
+                Line { width: 14; height: 6; color: Theme.accent }
+                Line { width: 6; height: 6; color: Theme.dim }
+                Line { width: 6; height: 6; color: Theme.dim }
+            }
+            Line { anchors.centerIn: parent; width: 28; color: Theme.textSoft }
+            Row {
+                anchors { right: parent.right; rightMargin: 7; verticalCenter: parent.verticalCenter }
+                spacing: 4
+                Line { width: 6; height: 6; color: Theme.muted }
+                Line { width: 6; height: 6; color: Theme.muted }
+                Line { width: 18; height: 6; color: Theme.textSoft }
+            }
+        }
+
+        // A window: a title, some text, a primary and a plain button.
+        Rectangle {
+            x: 10
+            y: bar.y + bar.height + 8
+            width: parent.width - panel.width - 28
+            height: parent.height - y - 10
+            radius: Theme.corner(10)
+            color: Theme.surface
+            border.color: Theme.lineStrong
+            Column {
+                anchors { left: parent.left; top: parent.top; margins: 11 }
+                spacing: 6
+                Line { width: 64; height: 6; color: Theme.text }
+                Line { width: 120; color: Theme.textSoft }
+                Line { width: 96; color: Theme.muted }
+                Line { width: 108; color: Theme.dim }
+            }
+            Row {
+                anchors { left: parent.left; bottom: parent.bottom; margins: 11 }
+                spacing: 6
+                Rectangle {
+                    width: 46
+                    height: 16
+                    radius: Theme.corner(8)
+                    color: Theme.accent
+                    Line { anchors.centerIn: parent; width: 24; color: Theme.onAccent }
+                }
+                Rectangle {
+                    width: 40
+                    height: 16
+                    radius: Theme.corner(8)
+                    color: Theme.raised
+                    border.color: Theme.line
+                    Line { anchors.centerIn: parent; width: 20; color: Theme.textSoft }
+                }
+            }
+        }
+
+        // A panel: two tiles (one on), a slider.
+        Rectangle {
+            id: panel
+            anchors { right: parent.right; rightMargin: 10 }
+            y: bar.y + bar.height + 8
+            width: 128
+            height: parent.height - y - 10
+            radius: Theme.corner(12)
+            color: Theme.glassStrong
+            border.color: Theme.line
+            Row {
+                anchors { left: parent.left; right: parent.right; top: parent.top; margins: 9 }
+                spacing: 6
+                Repeater {
+                    model: [true, false]
+                    delegate: Rectangle {
+                        required property bool modelData
+                        width: (parent.width - 6) / 2
+                        height: 34
+                        radius: Theme.corner(8)
+                        color: modelData ? Theme.alpha(Theme.accent, 0.22) : Theme.raised
+                        border.color: modelData ? Theme.alpha(Theme.accentBright, 0.55) : Theme.line
+                        Line { x: 7; y: 8; width: 8; height: 8; color: modelData ? Theme.accentBright : Theme.muted }
+                        Line { x: 7; y: 22; width: 30; color: modelData ? Theme.text : Theme.textSoft }
+                    }
+                }
+            }
+            Line {
+                id: track
+                anchors { left: parent.left; right: parent.right; bottom: parent.bottom; margins: 12; bottomMargin: 16 }
+                color: Theme.overlayStrong
+                Line { width: parent.width * 0.6; color: Theme.accent }
+                Rectangle {
+                    x: parent.width * 0.6 - width / 2
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 10
+                    height: 10
+                    radius: Theme.corner(5)
+                    color: Theme.white
+                    border.color: Theme.accent
+                }
+            }
+        }
+    }
+
+    Section { text: "Mode" }
+    Segmented {
+        Layout.fillWidth: true
+        current: Look.choice.mode
+        options: [
+            { value: "dark", title: "Dark", glyph: "󰖔" },
+            { value: "light", title: "Light", glyph: "󰖙" }
+        ]
+        onChosen: value => Look.set({ mode: value })
+    }
+
+    Section { text: "Colours" }
+    // Each card shows its accent family in the current mode.
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: 8
+        Repeater {
+            model: [
+                { name: "default", title: "Default" },
+                { name: "custom", title: "Custom" }
+            ]
+            delegate: Choice {
+                id: colours
+                required property var modelData
+                readonly property var swatches: Look.swatches(Look.choice.mode, modelData.name, Look.choice.hue, Look.choice.vividness)
+                current: Look.choice.colors === modelData.name
+                title: modelData.title
+                onPicked: Look.set({ colors: modelData.name })
+                Row {
+                    anchors.centerIn: parent
+                    spacing: -10
+                    Repeater {
+                        model: colours.swatches
+                        delegate: Rectangle {
+                            required property color modelData
+                            width: 34
+                            height: 34
+                            radius: Theme.corner(17)
+                            color: modelData
+                            border.width: 2
+                            border.color: Theme.surface
+                            Behavior on color { ColorAnimation { duration: Theme.slow } }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Label {
+        Layout.fillWidth: true
+        visible: Look.choice.colors === "custom"
+        text: `Hue ${Math.round(Look.choice.hue)}° · vividness ${Math.round(Look.choice.vividness * 100)} %`
+        font.pixelSize: Theme.textSmall
+        color: Theme.muted
+    }
+
+    Section { text: "Corners" }
+    // Each card draws a little bar and window in its own style.
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: 8
+        Repeater {
+            model: [
+                { name: "rounded", title: "Rounded", round: true },
+                { name: "sharp", title: "Sharp", round: false }
+            ]
+            delegate: Choice {
+                id: corners
+                required property var modelData
+                readonly property color ink: current ? Theme.accent : Theme.lineStrong
+                function r(px) { return modelData.round ? px : 0; }
+                current: Theme.corners === modelData.name
+                title: modelData.title
+                onPicked: Ui.run(Ui.bin + "penumbra-corners " + modelData.name)
+                Rectangle {
+                    width: parent.width
+                    height: 10
+                    radius: corners.r(5)
+                    color: Theme.glass
+                    border.color: corners.ink
+                    Rectangle { x: 4; y: 3; width: 14; height: 4; radius: corners.r(2); color: corners.ink }
+                }
+                Rectangle {
+                    y: 16
+                    width: parent.width
+                    height: parent.height - y
+                    radius: corners.r(9)
+                    color: Theme.surface
+                    border.color: corners.ink
+                    Rectangle { x: 9; y: 10; width: 44; height: 5; radius: corners.r(2.5); color: corners.ink }
+                    Rectangle { x: 9; y: 21; width: 70; height: 4; radius: corners.r(2); color: Theme.line }
+                    Rectangle { x: 9; y: 30; width: 56; height: 4; radius: corners.r(2); color: Theme.line }
+                }
+            }
+        }
+    }
+
+    Label {
+        Layout.fillWidth: true
+        text: "The shell, windows, launcher and lock screen follow at once; open apps pick up some changes when they restart"
+        wrapMode: Text.Wrap
+        font.pixelSize: Theme.textSmall
+        color: Theme.dim
     }
 }
 ```
@@ -13704,8 +14146,8 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 
-// Settings: screens, keyboard, idle timings and default apps (each a page of its own), the corner
-// style, the wallpaper and a few shell behaviours.
+// Settings: the look, screens, keyboard, idle timings and default apps (each a page of its own), the
+// wallpaper and a few shell behaviours.
 ColumnLayout {
     id: root
 
@@ -13730,6 +14172,7 @@ ColumnLayout {
         spacing: 2
         Repeater {
             model: [
+                { page: "look", glyph: "󰏘", title: "Look", subtitle: Look.summary },
                 { page: "displays", glyph: "󰍹", title: "Displays", subtitle: Quickshell.screens.length > 1 ? `${Quickshell.screens.length} screens · arrangement, resolution, scale` : "Resolution, refresh rate, scale" },
                 { page: "keyboard", glyph: "󰌌", title: "Keyboard", subtitle: (Config.values.kb_layout ?? "").split(",").map(l => Config.layoutName(l)).join(", ") },
                 { page: "idle", glyph: "󰒲", title: "Idle and sleep", subtitle: `Lock after ${Config.duration(Config.values.idle_lock).toLowerCase()}` },
@@ -13745,94 +14188,6 @@ ColumnLayout {
                 onClicked: Ui.controlPage = modelData.page
             }
         }
-    }
-
-    Section { text: "Corners" }
-
-    // Each card draws a little bar and window in its own style.
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: 8
-        Repeater {
-            model: [
-                { name: "rounded", title: "Rounded", round: true },
-                { name: "sharp", title: "Sharp", round: false }
-            ]
-            delegate: Rectangle {
-                id: choice
-                required property var modelData
-                readonly property bool current: Theme.corners === modelData.name
-                readonly property color ink: current ? Theme.accent : Theme.lineStrong
-                function r(px) { return modelData.round ? px : 0; }
-
-                Layout.fillWidth: true
-                Layout.preferredWidth: 1 // equal halves
-                implicitHeight: 118
-                radius: Theme.radius
-                color: current ? Theme.alpha(Theme.accent, 0.12) : area.containsMouse ? Theme.hover : Theme.raised
-                border.width: current ? 2 : 1
-                border.color: current ? Theme.accent : Theme.line
-                Behavior on color { ColorAnimation { duration: Theme.fast } }
-
-                Item {
-                    id: preview
-                    anchors { top: parent.top; topMargin: 16; horizontalCenter: parent.horizontalCenter }
-                    width: 116
-                    height: 62
-                    Rectangle {
-                        width: parent.width
-                        height: 10
-                        radius: choice.r(5)
-                        color: Theme.glass
-                        border.color: choice.ink
-                        Rectangle { x: 4; y: 3; width: 14; height: 4; radius: choice.r(2); color: choice.ink }
-                    }
-                    Rectangle {
-                        y: 16
-                        width: parent.width
-                        height: parent.height - y
-                        radius: choice.r(9)
-                        color: Theme.surface
-                        border.color: choice.ink
-                        Rectangle { x: 9; y: 10; width: 44; height: 5; radius: choice.r(2.5); color: choice.ink }
-                        Rectangle { x: 9; y: 21; width: 70; height: 4; radius: choice.r(2); color: Theme.line }
-                        Rectangle { x: 9; y: 30; width: 56; height: 4; radius: choice.r(2); color: Theme.line }
-                    }
-                }
-                RowLayout {
-                    anchors { bottom: parent.bottom; bottomMargin: 12; horizontalCenter: parent.horizontalCenter }
-                    spacing: 6
-                    Rectangle {
-                        visible: choice.current
-                        implicitWidth: 6
-                        implicitHeight: 6
-                        radius: Theme.corner(3)
-                        color: Theme.accent
-                    }
-                    Label {
-                        text: choice.modelData.title
-                        font.weight: choice.current ? Font.DemiBold : Font.Normal
-                        color: choice.current ? Theme.text : Theme.textSoft
-                    }
-                }
-                MouseArea {
-                    id: area
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        if (!choice.current)
-                            Ui.run(Ui.bin + "penumbra-corners " + choice.modelData.name);
-                    }
-                }
-            }
-        }
-    }
-    Label {
-        Layout.fillWidth: true
-        text: "The shell, windows, launcher and lock screen follow it"
-        font.pixelSize: Theme.textSmall
-        color: Theme.dim
     }
 
     Section { text: "Desktop" }
@@ -16000,6 +16355,46 @@ void main() {
 }
 ```
 
+## `config/quickshell/penumbra/oklch.js`
+
+```javascript
+.pragma library
+// OKLCH (lightness 0–1, chroma, hue in degrees) to #rrggbb, as share/penumbra/palette.py does it:
+// for swatches of accents the shell isn't showing yet.
+
+function linear(L, C, H) {
+    const a = C * Math.cos(H * Math.PI / 180), b = C * Math.sin(H * Math.PI / 180);
+    const l = Math.pow(L + 0.3963377774 * a + 0.2158037573 * b, 3);
+    const m = Math.pow(L - 0.1055613458 * a - 0.0638541728 * b, 3);
+    const s = Math.pow(L - 0.0894841775 * a - 1.2914855480 * b, 3);
+    return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+            -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+            -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s];
+}
+
+function gamma(c) {
+    c = Math.min(1, Math.max(0, c));
+    return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+}
+
+// Out of the sRGB gamut, chroma is lowered until it fits; L and H stay.
+function color(L, C, H) {
+    const fits = c => linear(L, c, H).every(x => x >= -1e-4 && x <= 1 + 1e-4);
+    if (!fits(C)) {
+        let low = 0, high = C;
+        for (let i = 0; i < 12; i++) {
+            const middle = (low + high) / 2;
+            if (fits(middle))
+                low = middle;
+            else
+                high = middle;
+        }
+        C = low;
+    }
+    return "#" + linear(L, C, H).map(x => Math.round(gamma(x) * 255).toString(16).padStart(2, "0")).join("");
+}
+```
+
 ## `config/quickshell/penumbra/palette.js`
 
 ```javascript
@@ -16130,7 +16525,7 @@ ShellRoot {
         function bluetooth(): void { Ui.openControl("bluetooth"); }
         function mixer(): void { Ui.openControl("mixer"); }
         function settings(): void { Ui.openControl("settings"); }
-        // A page of Settings: displays, keyboard, idle or apps; or night (night light).
+        // A page of Settings: look, displays, keyboard, idle or apps; or night (night light).
         function page(name: string): void { Ui.openControl(name); }
         function overview(): void { Ui.toggleOverview(); }
         function calendar(): void { Ui.toggleCalendar(); }

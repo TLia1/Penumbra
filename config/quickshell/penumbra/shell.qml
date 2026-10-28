@@ -60,7 +60,7 @@ ShellRoot {
         function bluetooth(): void { Ui.openControl("bluetooth"); }
         function mixer(): void { Ui.openControl("mixer"); }
         function settings(): void { Ui.openControl("settings"); }
-        // A page of Settings: displays, keyboard, idle or apps; or night (night light).
+        // A page of Settings: look, displays, keyboard, idle or apps; or night (night light).
         function page(name: string): void { Ui.openControl(name); }
         function overview(): void { Ui.toggleOverview(); }
         function calendar(): void { Ui.toggleCalendar(); }

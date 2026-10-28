@@ -78,6 +78,11 @@ Panel {
             visible: Ui.controlPage === "settings"
         }
 
+        LookPage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "look"
+        }
+
         DisplaysPage {
             Layout.fillWidth: true
             visible: Ui.controlPage === "displays"
