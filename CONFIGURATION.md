@@ -6807,6 +6807,68 @@ Singleton {
 }
 ```
 
+## `config/quickshell/penumbra/ColorSlider.qml`
+
+```qml
+import QtQuick
+import QtQuick.Controls
+
+// A slider on a track of colours: the hue's rainbow, the vividness's grey to vivid. colorAt(value)
+// paints the track (sampled every twelfth of the way) and fills the handle.
+Slider {
+    id: root
+
+    property var colorAt: value => Theme.accent
+    // The colour a fraction of the way along the track.
+    function at(fraction) { return colorAt(from + (to - from) * fraction); }
+
+    // The custom background and handle give no implicit height, which would leave a 0 px hit area.
+    implicitHeight: 32
+    snapMode: Slider.SnapAlways
+
+    background: Rectangle {
+        x: root.leftPadding
+        y: root.topPadding + root.availableHeight / 2 - height / 2
+        width: root.availableWidth
+        height: 12
+        radius: Theme.corner(6)
+        border.color: Theme.line
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0; color: root.at(0) }
+            GradientStop { position: 1 / 12; color: root.at(1 / 12) }
+            GradientStop { position: 2 / 12; color: root.at(2 / 12) }
+            GradientStop { position: 3 / 12; color: root.at(3 / 12) }
+            GradientStop { position: 4 / 12; color: root.at(4 / 12) }
+            GradientStop { position: 5 / 12; color: root.at(5 / 12) }
+            GradientStop { position: 6 / 12; color: root.at(6 / 12) }
+            GradientStop { position: 7 / 12; color: root.at(7 / 12) }
+            GradientStop { position: 8 / 12; color: root.at(8 / 12) }
+            GradientStop { position: 9 / 12; color: root.at(9 / 12) }
+            GradientStop { position: 10 / 12; color: root.at(10 / 12) }
+            GradientStop { position: 11 / 12; color: root.at(11 / 12) }
+            GradientStop { position: 1; color: root.at(1) }
+        }
+    }
+
+    handle: Rectangle {
+        x: root.leftPadding + root.visualPosition * (root.availableWidth - width)
+        y: root.topPadding + root.availableHeight / 2 - height / 2
+        width: root.pressed ? 22 : 20
+        height: width
+        radius: Theme.corner(width / 2)
+        color: Theme.white
+        border.color: Theme.lineStrong
+        Behavior on width { NumberAnimation { duration: Theme.fast } }
+        Rectangle {
+            anchors { fill: parent; margins: 4 }
+            radius: Theme.corner(width / 2)
+            color: root.colorAt(root.value)
+        }
+    }
+}
+```
+
 ## `config/quickshell/penumbra/Config.qml`
 
 ```qml
@@ -10412,6 +10474,7 @@ Singleton {
 ```qml
 import QtQuick
 import QtQuick.Layouts
+import "oklch.js" as Oklch
 
 // Look: dark or light, the accent colours and the corner style, for the shell and the apps at once.
 // Look and penumbra-theme apply a change; the shell fades to it.
@@ -10643,7 +10706,7 @@ ColumnLayout {
             delegate: Choice {
                 id: colours
                 required property var modelData
-                readonly property var swatches: Look.swatches(Look.choice.mode, modelData.name, Look.choice.hue, Look.choice.vividness)
+                readonly property var swatches: Look.swatches(Look.choice.mode, modelData.name, custom.hue, custom.vividness)
                 current: Look.choice.colors === modelData.name
                 title: modelData.title
                 onPicked: Look.set({ colors: modelData.name })
@@ -10667,12 +10730,184 @@ ColumnLayout {
             }
         }
     }
-    Label {
+
+    // The custom accent: presets, the hue and vividness, an exact colour. A slider shows its colour in
+    // the shell while it moves; the choice is saved and given to the apps once it rests.
+    ColumnLayout {
+        id: custom
         Layout.fillWidth: true
         visible: Look.choice.colors === "custom"
-        text: `Hue ${Math.round(Look.choice.hue)}° · vividness ${Math.round(Look.choice.vividness * 100)} %`
-        font.pixelSize: Theme.textSmall
-        color: Theme.muted
+        spacing: 10
+
+        // As the controls have them: while a slider moves, ahead of Look.choice.
+        readonly property real hue: hueSlider.value
+        readonly property real vividness: vividSlider.value
+        // The accent a hue and vividness give in the current mode.
+        function accentAt(hue, vividness) { return Look.swatches(Look.choice.mode, "custom", hue, vividness)[1]; }
+        readonly property color accent: accentAt(hue, vividness)
+
+        readonly property var presets: [
+            { hue: 297, vividness: 1 },    // violet
+            { hue: 272, vividness: 1 },    // indigo
+            { hue: 250, vividness: 1 },    // blue
+            { hue: 192, vividness: 0.9 },  // teal
+            { hue: 148, vividness: 0.85 }, // green
+            { hue: 75, vividness: 1 },     // amber
+            { hue: 12, vividness: 1 },     // rose
+            { hue: null, vividness: 0 }    // mono, at the current hue
+        ]
+        function isCurrent(preset) {
+            const turn = Math.abs(((hue - preset.hue) % 360 + 540) % 360 - 180);
+            return Math.abs(vividness - preset.vividness) < 0.005 && (preset.hue === null || turn < 0.5);
+        }
+
+        // A slider moved: show it now, apply it once both sliders rest (released, or no key pressed for a moment).
+        function moved() {
+            Look.preview({ hue: Math.round(hue), vividness: vividness.toFixed(2) });
+            settle.restart();
+        }
+        Timer {
+            id: settle
+            interval: 400
+            onTriggered: {
+                if (hueSlider.pressed || vividSlider.pressed)
+                    return; // the release starts it again
+                const changes = { hue: Math.round(custom.hue), vividness: Number(custom.vividness.toFixed(2)) };
+                if (changes.hue !== Math.round(Look.choice.hue) || changes.vividness !== Number(Look.choice.vividness.toFixed(2)))
+                    Look.set(changes);
+            }
+        }
+
+        // An exact colour's hue and vividness; the lightness stays the mode's, so text still reads on it.
+        function useHex(text) {
+            const lch = Oklch.fromHex(text);
+            if (!lch)
+                return false;
+            const chroma = Look.accents[Look.choice.mode === "light" ? "light" : "dark"][1][1];
+            Look.set({
+                // A grey has no hue of its own; it keeps the current one.
+                hue: lch[1] < 0.01 ? Math.round(Look.choice.hue) : Math.round(lch[2]) % 360,
+                vividness: Number(Math.min(1.3, lch[1] / chroma).toFixed(2))
+            });
+            return true;
+        }
+
+        // Round chips spread from edge to edge.
+        Item {
+            Layout.fillWidth: true
+            implicitHeight: 34
+            Row {
+                spacing: (parent.width - custom.presets.length * 34) / (custom.presets.length - 1)
+                Repeater {
+                    model: custom.presets
+                    delegate: Swatch {
+                        required property var modelData
+                        readonly property real hue: modelData.hue ?? Math.round(custom.hue)
+                        width: 34
+                        height: 34
+                        color: custom.accentAt(hue, modelData.vividness)
+                        selected: custom.isCurrent(modelData)
+                        onPicked: Look.set({ hue: hue, vividness: modelData.vividness })
+                    }
+                }
+            }
+        }
+
+        // Each slider with its name before it and its value after; then the exact colour.
+        GridLayout {
+            Layout.fillWidth: true
+            columns: 3
+            columnSpacing: 10
+            rowSpacing: 4
+
+            Label {
+                Layout.preferredWidth: 64
+                text: "Hue"
+                font.pixelSize: Theme.textSmall
+                color: Theme.textSoft
+            }
+            ColorSlider {
+                id: hueSlider
+                Layout.fillWidth: true
+                from: 0
+                to: 360
+                stepSize: 1
+                value: Look.choice.hue
+                // The rainbow stays readable even when the accent is nearly grey.
+                colorAt: hue => custom.accentAt(hue, Math.max(custom.vividness, 0.5))
+                onMoved: custom.moved()
+                onPressedChanged: if (!pressed) settle.restart()
+            }
+            Label {
+                Layout.preferredWidth: 38
+                horizontalAlignment: Text.AlignRight
+                text: Math.round(custom.hue) + "°"
+                font.pixelSize: Theme.textSmall
+                color: Theme.muted
+            }
+
+            Label {
+                text: "Vividness"
+                font.pixelSize: Theme.textSmall
+                color: Theme.textSoft
+            }
+            ColorSlider {
+                id: vividSlider
+                Layout.fillWidth: true
+                from: 0
+                to: 1.3
+                stepSize: 0.01
+                value: Look.choice.vividness
+                colorAt: vividness => custom.accentAt(custom.hue, vividness)
+                onMoved: custom.moved()
+                onPressedChanged: if (!pressed) settle.restart()
+            }
+            Label {
+                Layout.preferredWidth: 38
+                horizontalAlignment: Text.AlignRight
+                text: Math.round(custom.vividness * 100) + " %"
+                font.pixelSize: Theme.textSmall
+                color: Theme.muted
+            }
+
+            Label {
+                text: "Colour"
+                font.pixelSize: Theme.textSmall
+                color: Theme.textSoft
+            }
+            Field {
+                id: hexField
+                Layout.fillWidth: true
+                Layout.columnSpan: 2
+                placeholderText: "#rrggbb"
+                font.family: Theme.mono
+                invalid: text !== "" && !Oklch.fromHex(text)
+                // Shows the accent unless you are typing one; Enter or leaving the box uses it.
+                function reset() { text = custom.accent.toString(); }
+                Component.onCompleted: reset()
+                onAccepted: {
+                    if (invalid)
+                        return;
+                    apply();
+                    reset();
+                    focus = false;
+                }
+                onActiveFocusChanged: if (!activeFocus && !apply()) reset()
+                // Uses the colour typed, if it is one and new; true if it did.
+                function apply() { return text.toLowerCase() !== custom.accent.toString() && custom.useHex(text); }
+                Connections {
+                    target: custom
+                    function onAccentChanged() { if (!hexField.activeFocus) hexField.reset(); }
+                }
+            }
+        }
+        Label {
+            Layout.fillWidth: true
+            text: "A colour you type gives its hue and vividness; the lightness stays the mode's, so text keeps reading on it"
+            wrapMode: Text.Wrap
+            font.pixelSize: Theme.textSmall
+            color: Theme.dim
+        }
     }
 
     Section { text: "Corners" }
@@ -14481,6 +14716,47 @@ RowLayout {
 }
 ```
 
+## `config/quickshell/penumbra/Swatch.qml`
+
+```qml
+import QtQuick
+
+// A colour to pick, as a chip, ringed when it is the chosen one: round, or square with sharp corners.
+Item {
+    id: root
+
+    property color color
+    property bool selected: false
+    signal picked()
+
+    implicitWidth: 30
+    implicitHeight: 30
+
+    Rectangle {
+        anchors.fill: parent
+        radius: Theme.corner(width / 2)
+        color: "transparent"
+        border.width: 2
+        border.color: root.selected ? Theme.text : area.containsMouse ? Theme.lineStrong : "transparent"
+        Behavior on border.color { ColorAnimation { duration: Theme.fast } }
+    }
+    Rectangle {
+        anchors { fill: parent; margins: 4 }
+        radius: Theme.corner(width / 2)
+        color: root.color
+        border.color: Theme.overlayStrong
+        Behavior on color { ColorAnimation { duration: Theme.slow } }
+    }
+    MouseArea {
+        id: area
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.picked()
+    }
+}
+```
+
 ## `config/quickshell/penumbra/Switch.qml`
 
 ```qml
@@ -16359,8 +16635,8 @@ void main() {
 
 ```javascript
 .pragma library
-// OKLCH (lightness 0–1, chroma, hue in degrees) to #rrggbb, as share/penumbra/palette.py does it:
-// for swatches of accents the shell isn't showing yet.
+// OKLCH (lightness 0–1, chroma, hue in degrees) to #rrggbb and back, as share/penumbra/palette.py
+// does it: for swatches of accents the shell isn't showing yet, and for colours typed in.
 
 function linear(L, C, H) {
     const a = C * Math.cos(H * Math.PI / 180), b = C * Math.sin(H * Math.PI / 180);
@@ -16392,6 +16668,27 @@ function color(L, C, H) {
         C = low;
     }
     return "#" + linear(L, C, H).map(x => Math.round(gamma(x) * 255).toString(16).padStart(2, "0")).join("");
+}
+
+function toLinear(c) {
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+// #rrggbb (or #rgb, the # optional) to [L, C, H], or null when it isn't one.
+function fromHex(text) {
+    let hex = String(text).trim().replace(/^#/, "");
+    if (/^[0-9a-f]{3}$/i.test(hex))
+        hex = hex.split("").map(x => x + x).join("");
+    if (!/^[0-9a-f]{6}$/i.test(hex))
+        return null;
+    const [r, g, b] = [0, 2, 4].map(i => toLinear(parseInt(hex.substr(i, 2), 16) / 255));
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    const L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s;
+    const a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
+    const bb = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
+    return [L, Math.hypot(a, bb), (Math.atan2(bb, a) * 180 / Math.PI + 360) % 360];
 }
 ```
 

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import "oklch.js" as Oklch
 
 // Look: dark or light, the accent colours and the corner style, for the shell and the apps at once.
 // Look and penumbra-theme apply a change; the shell fades to it.
@@ -231,7 +232,7 @@ ColumnLayout {
             delegate: Choice {
                 id: colours
                 required property var modelData
-                readonly property var swatches: Look.swatches(Look.choice.mode, modelData.name, Look.choice.hue, Look.choice.vividness)
+                readonly property var swatches: Look.swatches(Look.choice.mode, modelData.name, custom.hue, custom.vividness)
                 current: Look.choice.colors === modelData.name
                 title: modelData.title
                 onPicked: Look.set({ colors: modelData.name })
@@ -255,12 +256,184 @@ ColumnLayout {
             }
         }
     }
-    Label {
+
+    // The custom accent: presets, the hue and vividness, an exact colour. A slider shows its colour in
+    // the shell while it moves; the choice is saved and given to the apps once it rests.
+    ColumnLayout {
+        id: custom
         Layout.fillWidth: true
         visible: Look.choice.colors === "custom"
-        text: `Hue ${Math.round(Look.choice.hue)}° · vividness ${Math.round(Look.choice.vividness * 100)} %`
-        font.pixelSize: Theme.textSmall
-        color: Theme.muted
+        spacing: 10
+
+        // As the controls have them: while a slider moves, ahead of Look.choice.
+        readonly property real hue: hueSlider.value
+        readonly property real vividness: vividSlider.value
+        // The accent a hue and vividness give in the current mode.
+        function accentAt(hue, vividness) { return Look.swatches(Look.choice.mode, "custom", hue, vividness)[1]; }
+        readonly property color accent: accentAt(hue, vividness)
+
+        readonly property var presets: [
+            { hue: 297, vividness: 1 },    // violet
+            { hue: 272, vividness: 1 },    // indigo
+            { hue: 250, vividness: 1 },    // blue
+            { hue: 192, vividness: 0.9 },  // teal
+            { hue: 148, vividness: 0.85 }, // green
+            { hue: 75, vividness: 1 },     // amber
+            { hue: 12, vividness: 1 },     // rose
+            { hue: null, vividness: 0 }    // mono, at the current hue
+        ]
+        function isCurrent(preset) {
+            const turn = Math.abs(((hue - preset.hue) % 360 + 540) % 360 - 180);
+            return Math.abs(vividness - preset.vividness) < 0.005 && (preset.hue === null || turn < 0.5);
+        }
+
+        // A slider moved: show it now, apply it once both sliders rest (released, or no key pressed for a moment).
+        function moved() {
+            Look.preview({ hue: Math.round(hue), vividness: vividness.toFixed(2) });
+            settle.restart();
+        }
+        Timer {
+            id: settle
+            interval: 400
+            onTriggered: {
+                if (hueSlider.pressed || vividSlider.pressed)
+                    return; // the release starts it again
+                const changes = { hue: Math.round(custom.hue), vividness: Number(custom.vividness.toFixed(2)) };
+                if (changes.hue !== Math.round(Look.choice.hue) || changes.vividness !== Number(Look.choice.vividness.toFixed(2)))
+                    Look.set(changes);
+            }
+        }
+
+        // An exact colour's hue and vividness; the lightness stays the mode's, so text still reads on it.
+        function useHex(text) {
+            const lch = Oklch.fromHex(text);
+            if (!lch)
+                return false;
+            const chroma = Look.accents[Look.choice.mode === "light" ? "light" : "dark"][1][1];
+            Look.set({
+                // A grey has no hue of its own; it keeps the current one.
+                hue: lch[1] < 0.01 ? Math.round(Look.choice.hue) : Math.round(lch[2]) % 360,
+                vividness: Number(Math.min(1.3, lch[1] / chroma).toFixed(2))
+            });
+            return true;
+        }
+
+        // Round chips spread from edge to edge.
+        Item {
+            Layout.fillWidth: true
+            implicitHeight: 34
+            Row {
+                spacing: (parent.width - custom.presets.length * 34) / (custom.presets.length - 1)
+                Repeater {
+                    model: custom.presets
+                    delegate: Swatch {
+                        required property var modelData
+                        readonly property real hue: modelData.hue ?? Math.round(custom.hue)
+                        width: 34
+                        height: 34
+                        color: custom.accentAt(hue, modelData.vividness)
+                        selected: custom.isCurrent(modelData)
+                        onPicked: Look.set({ hue: hue, vividness: modelData.vividness })
+                    }
+                }
+            }
+        }
+
+        // Each slider with its name before it and its value after; then the exact colour.
+        GridLayout {
+            Layout.fillWidth: true
+            columns: 3
+            columnSpacing: 10
+            rowSpacing: 4
+
+            Label {
+                Layout.preferredWidth: 64
+                text: "Hue"
+                font.pixelSize: Theme.textSmall
+                color: Theme.textSoft
+            }
+            ColorSlider {
+                id: hueSlider
+                Layout.fillWidth: true
+                from: 0
+                to: 360
+                stepSize: 1
+                value: Look.choice.hue
+                // The rainbow stays readable even when the accent is nearly grey.
+                colorAt: hue => custom.accentAt(hue, Math.max(custom.vividness, 0.5))
+                onMoved: custom.moved()
+                onPressedChanged: if (!pressed) settle.restart()
+            }
+            Label {
+                Layout.preferredWidth: 38
+                horizontalAlignment: Text.AlignRight
+                text: Math.round(custom.hue) + "°"
+                font.pixelSize: Theme.textSmall
+                color: Theme.muted
+            }
+
+            Label {
+                text: "Vividness"
+                font.pixelSize: Theme.textSmall
+                color: Theme.textSoft
+            }
+            ColorSlider {
+                id: vividSlider
+                Layout.fillWidth: true
+                from: 0
+                to: 1.3
+                stepSize: 0.01
+                value: Look.choice.vividness
+                colorAt: vividness => custom.accentAt(custom.hue, vividness)
+                onMoved: custom.moved()
+                onPressedChanged: if (!pressed) settle.restart()
+            }
+            Label {
+                Layout.preferredWidth: 38
+                horizontalAlignment: Text.AlignRight
+                text: Math.round(custom.vividness * 100) + " %"
+                font.pixelSize: Theme.textSmall
+                color: Theme.muted
+            }
+
+            Label {
+                text: "Colour"
+                font.pixelSize: Theme.textSmall
+                color: Theme.textSoft
+            }
+            Field {
+                id: hexField
+                Layout.fillWidth: true
+                Layout.columnSpan: 2
+                placeholderText: "#rrggbb"
+                font.family: Theme.mono
+                invalid: text !== "" && !Oklch.fromHex(text)
+                // Shows the accent unless you are typing one; Enter or leaving the box uses it.
+                function reset() { text = custom.accent.toString(); }
+                Component.onCompleted: reset()
+                onAccepted: {
+                    if (invalid)
+                        return;
+                    apply();
+                    reset();
+                    focus = false;
+                }
+                onActiveFocusChanged: if (!activeFocus && !apply()) reset()
+                // Uses the colour typed, if it is one and new; true if it did.
+                function apply() { return text.toLowerCase() !== custom.accent.toString() && custom.useHex(text); }
+                Connections {
+                    target: custom
+                    function onAccentChanged() { if (!hexField.activeFocus) hexField.reset(); }
+                }
+            }
+        }
+        Label {
+            Layout.fillWidth: true
+            text: "A colour you type gives its hue and vividness; the lightness stays the mode's, so text keeps reading on it"
+            wrapMode: Text.Wrap
+            font.pixelSize: Theme.textSmall
+            color: Theme.dim
+        }
     }
 
     Section { text: "Corners" }
