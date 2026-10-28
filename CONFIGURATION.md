@@ -46,6 +46,14 @@ Settings (detected on the first run, then remembered in $SETTINGS_FILE):
   --scale SCALE        Display scale: auto, 1, 1.25, 1.5, 2...
   --numlock on|off     Turn Num Lock on when you log in.
   --shell fish|keep    Make fish your login shell, or keep the current one.
+  --terminal APP       Terminal for Super+Enter, by its desktop file: kitty, foot...
+  --file-manager APP   File manager for Super+E, by its desktop file: org.kde.dolphin...
+  --idle-dim MIN       Minutes idle before the screen dims, or never.
+  --idle-lock MIN      Minutes idle before the screen locks, or never.
+  --idle-screen-off MIN
+                       Minutes idle before the screens turn off, or never.
+  --idle-suspend MIN   Minutes idle before suspending on battery, or never.
+The shell's Settings pages (Super+,) change all but the login shell, at once.
 
 Other options:
   -y, --yes            Don't ask about the settings; use the saved or detected ones.
@@ -123,10 +131,11 @@ load_distro() {
 # Each setting comes from, in order: a command-line option, the saved settings
 # file, then what this machine already uses. Templates get each one as @@KEY@@ (kb_layout →
 # @@KB_LAYOUT@@). A new setting needs a line in SETTING_KEYS, SETTING_OPTIONS and SETTING_LABELS,
-# a default in detect_settings and a check in valid_setting.
+# a default in detect_settings and a check in valid_setting, and the same in bin/penumbra-settings,
+# which the shell's Settings pages use to change them later.
 
 declare -A settings=()
-SETTING_KEYS=(kb_layout kb_variant kb_options scale numlock shell)
+SETTING_KEYS=(kb_layout kb_variant kb_options scale numlock shell terminal file_manager idle_dim idle_lock idle_screen_off idle_suspend)
 declare -A SETTING_OPTIONS=(
     [kb_layout]=--layout
     [kb_variant]=--variant
@@ -134,6 +143,12 @@ declare -A SETTING_OPTIONS=(
     [scale]=--scale
     [numlock]=--numlock
     [shell]=--shell
+    [terminal]=--terminal
+    [file_manager]=--file-manager
+    [idle_dim]=--idle-dim
+    [idle_lock]=--idle-lock
+    [idle_screen_off]=--idle-screen-off
+    [idle_suspend]=--idle-suspend
 )
 declare -A SETTING_LABELS=(
     [kb_layout]='Keyboard layout'
@@ -142,6 +157,12 @@ declare -A SETTING_LABELS=(
     [scale]='Display scale'
     [numlock]='Num Lock at login (on/off)'
     [shell]='Login shell (fish/keep)'
+    [terminal]='Terminal (desktop file)'
+    [file_manager]='File manager (desktop file)'
+    [idle_dim]='Dim after (minutes/never)'
+    [idle_lock]='Lock after (minutes/never)'
+    [idle_screen_off]='Screens off after (min/never)'
+    [idle_suspend]='Suspend on battery after (min)'
 )
 
 # option_setting --layout → kb_layout; false for any other option.
@@ -167,8 +188,8 @@ load_saved_settings() {
 save_settings() {
     mkdir -p "$(dirname "$SETTINGS_FILE")"
     {
-        echo '# Penumbra settings, written by install.sh.'
-        echo '# Edit them, then run ./install.sh --user-only to apply.'
+        echo "# Penumbra settings, written by install.sh and the shell's Settings pages."
+        echo '# Edit them, then run ./install.sh --user-only (or penumbra-settings apply) to apply.'
         local key
         for key in "${SETTING_KEYS[@]}"; do printf '%s=%s\n' "$key" "${settings[$key]}"; done
     } > "$SETTINGS_FILE"
@@ -205,6 +226,12 @@ detect_settings() {
     set_default scale auto
     set_default numlock on
     set_default shell fish
+    set_default terminal kitty
+    set_default file_manager org.kde.dolphin
+    set_default idle_dim 9.5
+    set_default idle_lock 10
+    set_default idle_screen_off 11
+    set_default idle_suspend 30
 }
 
 # valid_setting KEY VALUE → true if VALUE is acceptable, otherwise explains why.
@@ -221,6 +248,9 @@ valid_setting() {
         scale) [[ $value =~ ^(auto|[0-9]+(\.[0-9]+)?)$ ]] || { warn "Scale should be 'auto' or a number such as 1.25."; return 1; } ;;
         numlock) [[ $value == on || $value == off ]] || { warn "Num Lock should be 'on' or 'off'."; return 1; } ;;
         shell) [[ $value == fish || $value == keep ]] || { warn "Login shell should be 'fish' or 'keep'."; return 1; } ;;
+        terminal|file_manager) [[ $value =~ ^[A-Za-z0-9._-]+$ ]] || { warn "Apps are named by their desktop file, such as kitty or org.kde.dolphin."; return 1; } ;;
+        idle_*) [[ $value == never || ( $value =~ ^[0-9]+(\.[0-9]+)?$ && ! $value =~ ^0+(\.0+)?$ ) ]] \
+            || { warn 'Idle timings are minutes, such as 10 or 2.5, or never.'; return 1; } ;;
     esac
 }
 
@@ -436,12 +466,32 @@ enable_keyring_unlock() {
     echo "Added gnome-keyring to $pam, so the keyring unlocks when you sign in."
 }
 
+# Administrator prompts take a fingerprint once fprintd is installed: pam_fprintd goes first in
+# polkit's PAM stack, for one scan or ten seconds, then the password as before. It steps aside at
+# once when no finger is enrolled, and "-" skips it if fprintd is removed. The lock screen has a
+# stack of its own in the shell (config/quickshell/penumbra/pam/fingerprint).
+enable_fingerprint_polkit() {
+    local pam=/etc/pam.d/polkit-1 vendor=/usr/lib/pam.d/polkit-1 from
+    command -v fprintd-list >/dev/null || return 0
+    if [[ -f $pam ]]; then from=$pam; elif [[ -f $vendor ]]; then from=$vendor; else return 0; fi
+    grep -Eq '^-?auth[[:space:]].*pam_fprintd\.so' "$from" && return 0
+    backup_file "$pam" "${pam#/}"
+    awk '!done && /^-?auth[[:space:]]/ { print "-auth      sufficient   pam_fprintd.so max-tries=1 timeout=10"; done = 1 } { print }' \
+        "$from" > "$pam.penumbra" && mv "$pam.penumbra" "$pam"
+    chmod 644 "$pam"
+    echo "Added fingerprint sign-in to $pam, for administrator prompts."
+}
+
 enable_services() {
-    local unit
+    local unit units=()
     for unit in "${SERVICES[@]}" sddm; do
         systemctl is-enabled "$unit" > "$BACKUP/$unit.enabled" 2>&1 || true
     done
-    systemctl enable --now "${SERVICES[@]}"
+    # Only units that are installed: --skip-packages may have left one out.
+    for unit in "${SERVICES[@]}"; do
+        if systemctl cat "$unit.service" >/dev/null 2>&1; then units+=("$unit"); else warn "$unit is not installed; not enabling it."; fi
+    done
+    (( ${#units[@]} == 0 )) || systemctl enable --now "${units[@]}"
     # Not started now: that would end the current session.
     systemctl enable sddm
 }
@@ -462,6 +512,7 @@ run_system_part() {
     set_login_keyboard
     set_login_shell "$user"
     enable_keyring_unlock
+    enable_fingerprint_polkit
     enable_services
 
     step 'Boot themes (optional)'
@@ -717,6 +768,9 @@ run_user_part() {
     chmod +x "$HOME/.local/share/kio/servicemenus/penumbra-wallpaper.desktop"
     # The configs above come rounded; put back sharp corners if that was the choice.
     "$HOME/.local/bin/penumbra-corners" restore
+    # hypridle.conf comes from the idle settings; penumbra-settings writes it (and applies the rest).
+    backup_file "$HOME/.config/hypr/hypridle.conf" .config/hypr/hypridle.conf
+    "$HOME/.local/bin/penumbra-settings" apply
     install_wallpapers
     retire_legacy_desktop
 
@@ -1016,6 +1070,14 @@ pkg_versions() { pacman -Q "$@"; }
 # pkg_remove PACKAGE...: remove them without asking (the installer already asked). -s also drops
 # their now-unneeded dependencies, never explicitly installed packages.
 pkg_remove() { pacman -Rns --noconfirm "$@"; }
+
+# Power profiles (Power saver, Balanced, Performance) for the control center, unless a power
+# manager that conflicts with power-profiles-daemon is installed: pacman would stop the whole
+# install to ask about it.
+if [[ -z $(pkg_installed tlp auto-cpufreq tuned-ppd system76-power) ]]; then
+    PACKAGES+=(power-profiles-daemon)
+    SERVICES=(bluetooth NetworkManager power-profiles-daemon)
+fi
 ```
 
 ## `distro/arch/share/penumbra/updates.py`
@@ -3502,6 +3564,237 @@ nohup "$HOME/.local/bin/penumbra-wallpaper" restore >"$HOME/.local/state/penumbr
 exec 9>&-
 ```
 
+## `bin/penumbra-settings`
+
+```python
+#!/usr/bin/env python3
+"""Read, change and apply Penumbra's settings in ~/.config/penumbra/settings.conf.
+
+The installer asks for them; the shell's Settings pages change them through this script, which
+applies each change at once: the keyboard to Hyprland, the idle timings to a new hypridle.conf (and
+a restart of hypridle). install.sh runs `apply` after copying, so both stay in step.
+
+  penumbra-settings get                  every setting, as JSON
+  penumbra-settings set KEY=VALUE...     check, save and apply; nothing changes if one is wrong
+  penumbra-settings check KEY=VALUE...   only check
+  penumbra-settings apply [--no-restart] write hypridle.conf and apply everything
+  penumbra-settings layouts              keyboard layouts and their variants, as JSON
+"""
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+
+CONFIG = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config')
+SETTINGS = CONFIG / 'penumbra' / 'settings.conf'
+HYPRIDLE = CONFIG / 'hypr' / 'hypridle.conf'
+XKB_RULES = Path('/usr/share/X11/xkb/rules/base.lst')
+
+# The same keys, order and defaults as install.sh (SETTING_KEYS, detect_settings), which also
+# detects the keyboard on a first install. Idle timings are minutes, or "never".
+DEFAULTS = {
+    'kb_layout': 'us', 'kb_variant': '', 'kb_options': '', 'scale': 'auto', 'numlock': 'on',
+    'shell': 'fish', 'terminal': 'kitty', 'file_manager': 'org.kde.dolphin',
+    'idle_dim': '9.5', 'idle_lock': '10', 'idle_screen_off': '11', 'idle_suspend': '30',
+}
+IDLE = re.compile(r'^(never|[0-9]+(\.[0-9]+)?)$')
+
+
+def xkb_section(name):
+    """{code: description} for a section of the XKB rules ("layout", "variant")."""
+    found, section = {}, None
+    try:
+        lines = XKB_RULES.read_text().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        if line.startswith('!'):
+            section = line[1:].strip()
+        elif section == name and line.strip():
+            code, _, description = line.strip().partition(' ')
+            found.setdefault(code, description.strip())
+    return found
+
+
+def problem(key, value):
+    """Why VALUE won't do for KEY, or None."""
+    if key == 'kb_layout':
+        if not re.fullmatch(r'[a-z0-9_]+(,[a-z0-9_]+)*', value):
+            return "Layout should look like 'us' or 'us,fr'."
+        known = xkb_section('layout')
+        for layout in value.split(','):
+            if known is not None and layout not in known:
+                return f"Unknown keyboard layout '{layout}'."
+    elif key == 'kb_variant':
+        if not re.fullmatch(r'[A-Za-z0-9_,-]*', value):
+            return f"Invalid layout variant '{value}'."
+    elif key == 'kb_options':
+        if not re.fullmatch(r'[A-Za-z0-9_,:+-]*', value):
+            return f"Invalid keyboard options '{value}'."
+    elif key == 'scale':
+        if not re.fullmatch(r'auto|[0-9]+(\.[0-9]+)?', value):
+            return "Scale should be 'auto' or a number such as 1.25."
+    elif key == 'numlock':
+        if value not in ('on', 'off'):
+            return "Num Lock should be 'on' or 'off'."
+    elif key == 'shell':
+        if value not in ('fish', 'keep'):
+            return "Login shell should be 'fish' or 'keep'."
+    elif key in ('terminal', 'file_manager'):
+        if not re.fullmatch(r'[A-Za-z0-9._-]+', value):
+            return "Apps are named by their desktop file, such as kitty or org.kde.dolphin."
+    elif key.startswith('idle_') and key in DEFAULTS:
+        if not IDLE.fullmatch(value) or value != 'never' and float(value) <= 0:
+            return 'Idle timings are minutes, such as 10 or 2.5, or never.'
+    else:
+        return f"Unknown setting '{key}'."
+    return None
+
+
+def load():
+    values = dict(DEFAULTS)
+    try:
+        for line in SETTINGS.read_text().splitlines():
+            key, sep, value = line.partition('=')
+            if sep and re.fullmatch(r'[a-z_]+', key) and key in DEFAULTS:
+                values[key] = value
+    except OSError:
+        pass
+    return values
+
+
+def save(values):
+    SETTINGS.parent.mkdir(parents=True, exist_ok=True)
+    lines = ['# Penumbra settings, written by install.sh and the shell\'s Settings pages.',
+             '# Edit them, then run ./install.sh --user-only (or penumbra-settings apply) to apply.']
+    lines += [f'{key}={values[key]}' for key in DEFAULTS]
+    temporary = SETTINGS.with_suffix('.tmp')
+    temporary.write_text('\n'.join(lines) + '\n')
+    temporary.replace(SETTINGS)
+
+
+def seconds(minutes):
+    return None if minutes == 'never' else max(1, round(float(minutes) * 60))
+
+
+def hypridle(values):
+    """hypridle.conf for the idle timings: dim, lock, screens off, suspend on battery."""
+    text = ['# Written by penumbra-settings from ~/.config/penumbra/settings.conf (idle_*); change',
+            '# the timings in the shell\'s Settings → Idle and sleep, which rewrites this file.',
+            'general {',
+            '    # The shell\'s lock screen; hyprlock when the shell isn\'t running.',
+            '    lock_cmd = quickshell -c penumbra ipc call lock lock || pidof hyprlock || hyprlock',
+            '    before_sleep_cmd = loginctl lock-session',
+            '    after_sleep_cmd = hyprctl dispatch \'hl.dsp.dpms({action = "on"})\'',
+            '}']
+    steps = [
+        ('idle_dim', '# Dim the backlight; any input brings it back.',
+         ['on-timeout = ~/.local/bin/penumbra-idle dim', 'on-resume = ~/.local/bin/penumbra-idle undim']),
+        ('idle_lock', '# Lock the screen.', ['on-timeout = loginctl lock-session']),
+        ('idle_screen_off', '# Turn the screens off.',
+         ['on-timeout = hyprctl dispatch \'hl.dsp.dpms({action = "off"})\'',
+          'on-resume = hyprctl dispatch \'hl.dsp.dpms({action = "on"})\'']),
+        ('idle_suspend', '# Suspend, only on battery.', ['on-timeout = ~/.local/bin/penumbra-idle suspend']),
+    ]
+    for key, comment, actions in steps:
+        timeout = seconds(values[key])
+        if timeout is None:
+            text.append(f'# {key} is never: no listener.')
+            continue
+        text += [comment, 'listener {', f'    timeout = {timeout}'] + [f'    {a}' for a in actions] + ['}']
+    return '\n'.join(text) + '\n'
+
+
+def hyprland(values, keyboard, scale):
+    """The Lua that applies the keyboard, or the default scale, to a running Hyprland."""
+    lua = []
+    if keyboard:
+        lua.append('hl.config({input = {kb_layout = "%s", kb_variant = "%s", kb_options = "%s", numlock_by_default = %s}})'
+                   % (values['kb_layout'], values['kb_variant'], values['kb_options'],
+                      'true' if values['numlock'] == 'on' else 'false'))
+    if scale:
+        # The rule for every screen, then the screens' own rules from Settings → Displays again.
+        lua.append('hl.monitor({output = "", mode = "preferred", position = "auto", scale = "%s"}) '
+                   'local m = io.open(os.getenv("HOME") .. "/.config/penumbra/monitors.lua") '
+                   'if m then m:close(); dofile(os.getenv("HOME") .. "/.config/penumbra/monitors.lua") end'
+                   % values['scale'])
+    return ' '.join(lua)
+
+
+def apply(values, changed=None, restart=True):
+    """Apply the settings in CHANGED (every one when None) to the running desktop."""
+    def touched(*keys):
+        return changed is None or any(k in changed for k in keys)
+
+    if touched('idle_dim', 'idle_lock', 'idle_screen_off', 'idle_suspend'):
+        HYPRIDLE.parent.mkdir(parents=True, exist_ok=True)
+        HYPRIDLE.write_text(hypridle(values))
+        # hypridle reads its configuration once; start it again with the new timings.
+        if restart and subprocess.run(['pgrep', '-u', str(os.getuid()), '-x', 'hypridle'],
+                                      capture_output=True).returncode == 0:
+            subprocess.run(['pkill', '-u', str(os.getuid()), '-x', 'hypridle'])
+            subprocess.Popen(['systemd-run', '--user', '--scope', '--slice=app.slice', '--collect', '--quiet', 'hypridle'],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    lua = hyprland(values, touched('kb_layout', 'kb_variant', 'kb_options', 'numlock'), touched('scale'))
+    if lua and os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and shutil.which('hyprctl'):
+        subprocess.run(['hyprctl', 'eval', lua], capture_output=True)
+
+
+def parse(pairs):
+    updates = {}
+    for pair in pairs:
+        key, sep, value = pair.partition('=')
+        if not sep:
+            sys.exit(f'penumbra-settings: expected KEY=VALUE, got {pair!r}')
+        updates[key] = value.strip()
+    errors = [p for p in (problem(k, v) for k, v in updates.items()) if p]
+    if errors:
+        print('\n'.join(errors), file=sys.stderr)
+        sys.exit(2)
+    return updates
+
+
+def main():
+    command, args = (sys.argv[1], sys.argv[2:]) if len(sys.argv) > 1 else ('', [])
+    if command == 'get':
+        print(json.dumps(load()))
+    elif command == 'check':
+        parse(args)
+    elif command == 'set':
+        values = load()
+        updates = parse(args)
+        changed = {k for k, v in updates.items() if values[k] != v}
+        values.update(updates)
+        save(values)
+        apply(values, changed)
+    elif command == 'apply':
+        apply(load(), restart='--no-restart' not in args)
+    elif command == 'layouts':
+        layouts = xkb_section('layout') or {}
+        variants = {}
+        try:
+            section = None
+            for line in XKB_RULES.read_text().splitlines():
+                if line.startswith('!'):
+                    section = line[1:].strip()
+                elif section == 'variant' and line.strip():
+                    code, _, rest = line.strip().partition(' ')
+                    layout, _, description = rest.strip().partition(':')
+                    variants.setdefault(layout, []).append([code, description.strip()])
+        except OSError:
+            pass
+        print(json.dumps({'layouts': sorted(layouts.items(), key=lambda l: l[1]), 'variants': variants}))
+    else:
+        sys.exit(__doc__.strip())
+
+
+if __name__ == '__main__':
+    main()
+```
+
 ## `bin/penumbra-shot`
 
 ```bash
@@ -4148,49 +4441,35 @@ return {
 }
 ```
 
-## `config/hypr/hypridle.conf`
-
-```ini
-general {
-    # The shell's lock screen; hyprlock when the shell isn't running.
-    lock_cmd = quickshell -c penumbra ipc call lock lock || pidof hyprlock || hyprlock
-    before_sleep_cmd = loginctl lock-session
-    after_sleep_cmd = hyprctl dispatch 'hl.dsp.dpms({action = "on"})'
-}
-# Dim the backlight half a minute before locking; any input brings it back.
-listener {
-    timeout = 570
-    on-timeout = ~/.local/bin/penumbra-idle dim
-    on-resume = ~/.local/bin/penumbra-idle undim
-}
-listener {
-    timeout = 600
-    on-timeout = loginctl lock-session
-}
-# Turn the screens off a minute after locking.
-listener {
-    timeout = 660
-    on-timeout = hyprctl dispatch 'hl.dsp.dpms({action = "off"})'
-    on-resume = hyprctl dispatch 'hl.dsp.dpms({action = "on"})'
-}
-# Suspend after half an hour, only on battery.
-listener {
-    timeout = 1800
-    on-timeout = ~/.local/bin/penumbra-idle suspend
-}
-```
-
 ## `config/hypr/hyprland.lua`
 
 ```lua
 -- PENUMBRA / Hyprland 0.56 Lua configuration
--- Keyboard, Num Lock, scale and the cursor mode come from ~/.config/penumbra/settings.conf (see
--- ./install.sh --help). Put your own settings in ~/.config/hypr/user.lua, which is read last and
--- survives ./install.sh.
+-- Keyboard, Num Lock, scale and the terminal come from ~/.config/penumbra/settings.conf, which
+-- ./install.sh and the shell's Settings write; screens from ~/.config/penumbra/monitors.lua, which
+-- Settings → Displays writes. Put your own settings in ~/.config/hypr/user.lua, which is read last
+-- and survives ./install.sh.
 local home = os.getenv("HOME")
 -- Colours come from palette/palette.toml (tools/build-palette.py).
 local c = dofile(home .. "/.config/hypr/colors.lua")
-hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "@@SCALE@@" })
+-- settings.conf as a table, read afresh each time (bindings below call it when pressed).
+local function settings()
+ local s = {kb_layout = "us", kb_variant = "", kb_options = "", scale = "auto", numlock = "on", terminal = "kitty", file_manager = "org.kde.dolphin"}
+ local file = io.open(home .. "/.config/penumbra/settings.conf")
+ if file then
+  for line in file:lines() do
+   local key, value = line:match("^([a-z_]+)=(.*)$")
+   if key then s[key] = value end
+  end
+  file:close()
+ end
+ return s
+end
+local s = settings()
+-- Every screen without a rule of its own in monitors.lua.
+hl.monitor({ output = "", mode = "preferred", position = "auto", scale = s.scale })
+local monitors = io.open(home .. "/.config/penumbra/monitors.lua")
+if monitors then monitors:close(); dofile(home .. "/.config/penumbra/monitors.lua") end
 hl.env("XCURSOR_THEME", "Penumbra-Cursors")
 hl.env("XCURSOR_SIZE", "28")
 hl.env("HYPRCURSOR_SIZE", "28")
@@ -4213,7 +4492,7 @@ hl.config({
   blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = 0.9, popups = true} },
  animations = {enabled = true},
  dwindle = {preserve_split = true},
- input = {kb_layout = "@@KB_LAYOUT@@", kb_variant = "@@KB_VARIANT@@", kb_options = "@@KB_OPTIONS@@", numlock_by_default = "@@NUMLOCK@@" == "on",
+ input = {kb_layout = s.kb_layout, kb_variant = s.kb_variant, kb_options = s.kb_options, numlock_by_default = s.numlock == "on",
   follow_mouse = 1, sensitivity = 0, touchpad = {natural_scroll = true}},
  -- A fresh lock screen (hyprlock from a TTY) can take over if the shell's ever dies while locked.
  misc = {disable_hyprland_logo = true, disable_splash_rendering = true, force_default_wallpaper = 0, allow_session_lock_restore = true},
@@ -4229,12 +4508,15 @@ for _, a in ipairs({
  {"layers", 3.5, "penumbra", "fade"}
 }) do hl.animation({leaf=a[1], enabled=true, speed=a[2], bezier=a[3], style=a[4]}) end
 local function exec(key, cmd) hl.bind(key, hl.dsp.exec_cmd(cmd)) end
-exec("SUPER + Return", "kitty")
-exec("SUPER + Q", "kitty")
-exec("SUPER + E", "dolphin")
+-- The terminal chosen in Settings → Default apps (its desktop file, e.g. kitty or foot).
+local function terminal() hl.exec_cmd("gtk-launch " .. settings().terminal .. " || kitty") end
+hl.bind("SUPER + Return", terminal)
+hl.bind("SUPER + Q", terminal)
+-- The file manager chosen in Settings → Default apps.
+hl.bind("SUPER + E", function() hl.exec_cmd("gtk-launch " .. settings().file_manager .. " || dolphin") end)
 exec("SUPER + R", "~/.local/bin/penumbra-launcher")
 exec("SUPER + space", "~/.local/bin/penumbra-launcher")
--- Your default web browser (xdg-settings set default-web-browser NAME.desktop to change it).
+-- Your default web browser (Settings → Default apps, or xdg-settings set default-web-browser NAME.desktop).
 exec("SUPER + B", "gtk-launch \"$(xdg-settings get default-web-browser)\"")
 exec("SUPER + M", "~/.local/bin/penumbra-power")
 exec("SUPER + L", "loginctl lock-session")
@@ -4247,6 +4529,12 @@ exec("SUPER + SHIFT + C", "~/.local/bin/penumbra-picker")
 exec("SUPER + W", "~/.local/bin/penumbra-wallpaper next")
 exec("SUPER + SHIFT + W", "quickshell -c penumbra ipc call panel wallpapers")
 exec("SUPER + SHIFT + R", "~/.local/bin/penumbra-session restart")
+-- Every workspace at a glance: Super and the key left of 1 (` on QWERTY, ² on AZERTY), or four
+-- fingers up on a touchpad.
+exec("SUPER + code:49", "quickshell -c penumbra ipc call panel overview")
+hl.gesture({fingers=4, direction="up", action=function() hl.exec_cmd("quickshell -c penumbra ipc call panel overview") end})
+-- Caps Lock shows a popup saying whether it is on; the key still reaches the window.
+hl.bind("Caps_Lock", hl.dsp.exec_cmd("quickshell -c penumbra ipc call osd capsLock"), {release=true, non_consuming=true, ignore_mods=true})
 exec("Print", "~/.local/bin/penumbra-shot")
 exec("SHIFT + Print", "~/.local/bin/penumbra-shot annotate")
 -- Record the screen; press again (or click the red capsule) to stop.
@@ -4943,6 +5231,135 @@ buttonbox_layout=0
 dialog_buttons_have_icons=1
 menus_have_icons=true
 toolbutton_style=4
+```
+
+## `config/quickshell/penumbra/AppsPage.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Io
+import Quickshell.Widgets
+
+// Default apps: the web browser is the XDG default every app asks for (xdg-settings); the file
+// manager and terminal are settings.conf's, for Super+E and Super+Enter, and the file manager also
+// becomes the XDG default for folders.
+ColumnLayout {
+    id: root
+
+    spacing: 12
+
+    property string browser: ""
+    property string expanded: ""
+    onVisibleChanged: {
+        expanded = "";
+        if (visible)
+            current.running = true;
+    }
+
+    // Desktop entry ids, with or without ".desktop".
+    function bare(id) {
+        return (id ?? "").trim().replace(/\.desktop$/, "");
+    }
+    function apps(category) {
+        return DesktopEntries.applications.values.filter(e => !e.noDisplay && e.categories.includes(category))
+            .sort((a, b) => a.name.localeCompare(b.name));
+    }
+    function entry(id) {
+        return DesktopEntries.applications.values.find(e => bare(e.id) === bare(id)) ?? null;
+    }
+
+    Process {
+        id: current
+        command: ["xdg-settings", "get", "default-web-browser"]
+        stdout: StdioCollector {
+            onStreamFinished: root.browser = root.bare(text)
+        }
+    }
+    Process {
+        id: change
+        onExited: current.running = true
+    }
+    function choose(kind, id) {
+        expanded = "";
+        if (kind === "terminal") {
+            Config.set({ terminal: bare(id) });
+            return;
+        }
+        if (kind === "files") {
+            Config.set({ file_manager: bare(id) });
+            change.command = ["xdg-mime", "default", bare(id) + ".desktop", "inode/directory"];
+        } else {
+            browser = bare(id);
+            change.command = ["xdg-settings", "set", "default-web-browser", bare(id) + ".desktop"];
+        }
+        change.running = true;
+    }
+
+    PageHeader {
+        Layout.fillWidth: true
+        title: "Default apps"
+        status: "What links, folders and Super+Enter open"
+        showSwitch: false
+        onBack: Ui.controlPage = "settings"
+    }
+
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: 4
+        Repeater {
+            model: [
+                { kind: "browser", glyph: "󰖟", title: "Web browser", category: "WebBrowser", id: root.browser, keys: "Super+B and links" },
+                { kind: "files", glyph: "󰉋", title: "File manager", category: "FileManager", id: Config.values.file_manager ?? "org.kde.dolphin", keys: "Super+E and folders" },
+                { kind: "terminal", glyph: "󰆍", title: "Terminal", category: "TerminalEmulator", id: Config.values.terminal ?? "kitty", keys: "Super+Enter" }
+            ]
+            delegate: ListRow {
+                id: row
+                required property var modelData
+                readonly property var app: root.entry(modelData.id)
+                readonly property var others: root.apps(modelData.category)
+                Layout.fillWidth: true
+                glyph: modelData.glyph
+                title: modelData.title
+                subtitle: `${app?.name ?? (modelData.id || "None")} · ${modelData.keys}`
+                trailing: others.length > 1 ? (expanded ? "󰅃" : "󰅀") : ""
+                expanded: root.expanded === modelData.kind
+                onClicked: if (others.length > 1) root.expanded = expanded ? "" : modelData.kind
+
+                Repeater {
+                    model: row.others
+                    delegate: Rectangle {
+                        required property var modelData
+                        readonly property bool chosen: root.bare(modelData.id) === root.bare(row.modelData.id)
+                        Layout.fillWidth: true
+                        implicitHeight: 34
+                        radius: Theme.radiusSmall
+                        color: chosen ? Theme.alpha(Theme.violet, 0.16) : choice.containsMouse ? Theme.hover : "transparent"
+                        RowLayout {
+                            anchors { fill: parent; leftMargin: 8; rightMargin: 10 }
+                            spacing: 10
+                            IconImage {
+                                implicitSize: 18
+                                source: modelData.icon ? Quickshell.iconPath(modelData.icon, true) : ""
+                                asynchronous: true
+                            }
+                            Label { Layout.fillWidth: true; text: modelData.name; font.weight: chosen ? Font.DemiBold : Font.Normal }
+                            Glyph { visible: chosen; text: "󰄬"; size: 13; color: Theme.violetBright }
+                        }
+                        MouseArea {
+                            id: choice
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.choose(row.modelData.kind, modelData.id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 ```
 
 ## `config/quickshell/penumbra/Avatar.qml`
@@ -5833,6 +6250,108 @@ Singleton {
 }
 ```
 
+## `config/quickshell/penumbra/Config.qml`
+
+```qml
+pragma Singleton
+import QtQuick
+import Quickshell
+import Quickshell.Io
+
+// The settings install.sh asks for, kept in ~/.config/penumbra/settings.conf: keyboard, scale,
+// terminal and idle timings. penumbra-settings checks, saves and applies each change, so the
+// installer and the Settings pages always agree. Shell-only preferences are in Settings instead.
+Singleton {
+    id: root
+
+    property var values: ({})
+    property string error: ""
+    readonly property bool busy: setter.running
+
+    // Change some: { idle_lock: "15" }. `error` says why when one is refused.
+    function set(changes) {
+        pending = Object.assign({}, pending, changes);
+        if (!setter.running)
+            flush();
+    }
+    property var pending: ({})
+    function flush() {
+        const changes = pending;
+        pending = {};
+        const keys = Object.keys(changes);
+        if (!keys.length)
+            return;
+        error = "";
+        // Shown at once; the file, read back, has the last word.
+        values = Object.assign({}, values, changes);
+        setter.command = [Ui.bin + "penumbra-settings", "set"].concat(keys.map(key => `${key}=${changes[key]}`));
+        setter.running = true;
+    }
+    Process {
+        id: setter
+        stderr: StdioCollector {
+            onStreamFinished: if (text.trim()) root.error = text.trim()
+        }
+        onExited: {
+            getter.running = true;
+            root.flush();
+        }
+    }
+
+    // Every setting with its default filled in, whenever the file changes.
+    Process {
+        id: getter
+        running: true
+        command: [Ui.bin + "penumbra-settings", "get"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    root.values = JSON.parse(text);
+                } catch (e) {}
+            }
+        }
+    }
+    FileView {
+        path: Quickshell.env("HOME") + "/.config/penumbra/settings.conf"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: getter.running = true
+    }
+
+    // Keyboard layouts and their variants from the XKB rules, the first time a page asks.
+    property var layouts: [] // [[code, name]]
+    property var variants: ({}) // layout → [[code, name]]
+    function loadLayouts() {
+        if (!layouts.length && !layoutList.running)
+            layoutList.running = true;
+    }
+    Process {
+        id: layoutList
+        command: [Ui.bin + "penumbra-settings", "layouts"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const all = JSON.parse(text);
+                    root.layouts = all.layouts;
+                    root.variants = all.variants;
+                } catch (e) {}
+            }
+        }
+    }
+    function layoutName(code) {
+        return layouts.find(l => l[0] === code)?.[1] ?? code;
+    }
+
+    // Minutes, or "never", as the idle rows show them: "9 min 30 s".
+    function duration(value) {
+        if (value === "never" || value === undefined)
+            return "Never";
+        const s = Math.round(Number(value) * 60), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = s % 60;
+        return [h ? `${h} h` : "", m ? `${m} min` : "", r ? `${r} s` : ""].filter(t => t).join(" ");
+    }
+}
+```
+
 ## `config/quickshell/penumbra/ControlCenter.qml`
 
 ```qml
@@ -5843,6 +6362,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Networking
 import Quickshell.Services.Mpris
+import Quickshell.Services.UPower
 import Quickshell.Widgets
 
 // Quick settings, sliders, media and notification history, under the status capsule.
@@ -5868,7 +6388,8 @@ Panel {
         }
     }
 
-    // One page at a time: the main view, or Wi-Fi, Bluetooth, sound or shell settings.
+    // One page at a time: the main view, or Wi-Fi, Bluetooth, sound, night light, settings and
+    // the settings' own pages.
     ColumnLayout {
         id: pages
         x: 18
@@ -5904,9 +6425,34 @@ Panel {
             active: root.open && visible
         }
 
+        NightLightPage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "night"
+        }
+
         SettingsPage {
             Layout.fillWidth: true
             visible: Ui.controlPage === "settings"
+        }
+
+        DisplaysPage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "displays"
+        }
+
+        KeyboardPage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "keyboard"
+        }
+
+        IdlePage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "idle"
+        }
+
+        AppsPage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "apps"
         }
 
         ColumnLayout {
@@ -5997,10 +6543,12 @@ Panel {
                     Layout.fillWidth: true
                     glyph: "󱩌"
                     title: "Night light"
-                    subtitle: !Ui.hasNightLight ? "Needs hyprsunset" : Ui.nightLight ? `Warm · ${Ui.nightTemperature} K` : "Off"
-                    on: Ui.nightLight
-                    available: Ui.hasNightLight
-                    onToggled: Ui.nightLight = !Ui.nightLight
+                    subtitle: NightLight.status
+                    on: NightLight.on
+                    available: NightLight.available
+                    hasMore: true
+                    onToggled: NightLight.toggle()
+                    onMore: Ui.controlPage = "night"
                 }
                 Tile {
                     Layout.fillWidth: true
@@ -6008,6 +6556,34 @@ Panel {
                     title: "Screenshot"
                     subtitle: "Picture or video"
                     onToggled: Ui.openShot()
+                }
+            }
+
+            // Power profile, through power-profiles-daemon.
+            ColumnLayout {
+                Layout.fillWidth: true
+                visible: Ui.hasPowerProfiles
+                spacing: 6
+                Segmented {
+                    Layout.fillWidth: true
+                    current: PowerProfiles.profile
+                    options: [
+                        { value: PowerProfile.PowerSaver, glyph: "󰌪", title: "Power saver" },
+                        { value: PowerProfile.Balanced, glyph: "󰗑", title: "Balanced" },
+                        { value: PowerProfile.Performance, glyph: "󰓅", title: "Performance", available: PowerProfiles.hasPerformanceProfile }
+                    ]
+                    onChosen: value => PowerProfiles.profile = value
+                }
+                // Performance can be held back by the hardware; say why.
+                Label {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 4
+                    visible: PowerProfiles.profile === PowerProfile.Performance && PowerProfiles.degradationReason !== PerformanceDegradationReason.None
+                    text: PowerProfiles.degradationReason === PerformanceDegradationReason.LapDetected
+                        ? "Performance is limited while the laptop is on your lap"
+                        : "Performance is limited while the computer is hot"
+                    font.pixelSize: Theme.textSmall
+                    color: Theme.amber
                 }
             }
 
@@ -6520,7 +7096,8 @@ Singleton {
     readonly property string bluetoothName: !adapter ? "No adapter" : !bluetoothOn ? "Off" : bluetoothConnected.length ? bluetoothConnected[0].name : "On"
 
     readonly property var battery: UPower.displayDevice
-    readonly property bool hasBattery: battery?.isPresent && battery.type === UPowerDeviceType.Battery
+    // Not until UPower has answered: before that the percentage reads 0 and would warn.
+    readonly property bool hasBattery: (battery?.ready ?? false) && battery.isPresent && battery.type === UPowerDeviceType.Battery
     readonly property int batteryPercent: !hasBattery ? 0 : Math.round(battery.percentage > 1 ? battery.percentage : battery.percentage * 100)
     readonly property bool charging: hasBattery && (battery.state === UPowerDeviceState.Charging || battery.state === UPowerDeviceState.FullyCharged || battery.state === UPowerDeviceState.PendingCharge)
     readonly property string batteryGlyph: charging ? "󰂄" : ["󰁺", "󰁼", "󰁾", "󰂀", "󰁹"][Math.min(4, Math.floor(batteryPercent / 20))]
@@ -6536,10 +7113,12 @@ Singleton {
     }
     // Warn once at 10% and again, as a critical notification that stays, at 5%, while
     // discharging; plugging the charger in resets both.
+    // Checked later, once every binding has caught up: when hasBattery turns true,
+    // batteryPercent and charging still hold their old 0 and false.
     property int batteryWarned: 100
-    onBatteryPercentChanged: warnBattery()
-    onChargingChanged: warnBattery()
-    onHasBatteryChanged: warnBattery()
+    onBatteryPercentChanged: Qt.callLater(warnBattery)
+    onChargingChanged: Qt.callLater(warnBattery)
+    onHasBatteryChanged: Qt.callLater(warnBattery)
     function warnBattery() {
         if (!hasBattery || charging) {
             batteryWarned = 100;
@@ -6563,12 +7142,15 @@ Singleton {
     function nextLayout() {
         Quickshell.execDetached(["hyprctl", "switchxkblayout", "all", "next"]);
     }
+    // Whether the next reading follows a layout switch, which shows in the popup.
+    property bool layoutSwitched: false
     Process {
         id: keyboards
         running: true
         command: ["hyprctl", "devices", "-j"]
         stdout: StdioCollector {
             onStreamFinished: {
+                const before = root.layoutName;
                 try {
                     const all = JSON.parse(text).keyboards;
                     const main = all.find(k => k.main) ?? all[all.length - 1];
@@ -6578,15 +7160,531 @@ Singleton {
                 } catch (e) {
                     root.layouts = [];
                 }
+                if (root.layoutSwitched && before !== "" && root.layoutName !== before)
+                    Ui.showOsd("layout", 0, false, root.layoutName);
+                root.layoutSwitched = false;
             }
         }
     }
     Connections {
         target: Hyprland
         function onRawEvent(event) {
-            if (event.name === "activelayout" || event.name === "configreloaded")
+            if (event.name === "activelayout" || event.name === "configreloaded") {
+                if (event.name === "activelayout")
+                    root.layoutSwitched = true;
                 keyboards.running = true;
+            }
         }
+    }
+
+    // Caps Lock: Hyprland runs `ipc call osd capsLock` when the key is released (hyprland.lua),
+    // and says whether it is now on. Laptops often have no light for it.
+    property bool capsLock: false
+    Process {
+        id: capsCheck
+        command: ["hyprctl", "devices", "-j"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const all = JSON.parse(text).keyboards;
+                    root.capsLock = all.some(k => k.capsLock);
+                } catch (e) {
+                    return;
+                }
+                Ui.showOsd("capslock", 0, !root.capsLock, root.capsLock ? "Caps Lock on" : "Caps Lock off");
+            }
+        }
+    }
+    function showCapsLock() {
+        capsCheck.running = true;
+    }
+}
+```
+
+## `config/quickshell/penumbra/Displays.qml`
+
+```qml
+pragma Singleton
+import QtQuick
+import Quickshell
+import Quickshell.Hyprland
+import Quickshell.Io
+
+// Screens for Settings → Displays: what Hyprland has, a draft you change, and applying it. A draft
+// is written to ~/.config/penumbra/monitors.lua (which hyprland.lua reads before user.lua) and
+// applied at once through `hyprctl eval`; unless you keep it within 15 seconds it is undone, in
+// case the screen went dark.
+Singleton {
+    id: root
+
+    // [{ key, name, label, modes: ["1920x1080@144.00"], mode, x, y, scale, transform, enabled }]
+    property var screens: []
+    property var draft: []
+    readonly property bool changed: JSON.stringify(screens) !== JSON.stringify(draft)
+    property int countdown: 0 // seconds left to keep an applied change
+    property string previousFile: ""
+    property bool hadFile: false
+
+    function refresh() {
+        if (!list.running)
+            list.running = true;
+    }
+    Process {
+        id: list
+        command: ["hyprctl", "monitors", "all", "-j"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                let all;
+                try {
+                    all = JSON.parse(text);
+                } catch (e) {
+                    return;
+                }
+                const descriptions = all.map(m => m.description);
+                root.screens = all.map(m => {
+                    // The model's description stays when the cable moves to another port; two of
+                    // the same model (or none) fall back to the port.
+                    const unique = m.description && descriptions.filter(d => d === m.description).length === 1;
+                    const modes = [...new Set((m.availableModes ?? []).map(t => t.replace(/Hz$/, "")))];
+                    // A screen that is off may report no mode of its own.
+                    let mode = `${m.width}x${m.height}@${Number(m.refreshRate).toFixed(2)}`;
+                    if (m.width > 0 && !modes.includes(mode))
+                        modes.unshift(mode);
+                    else if (m.width <= 0)
+                        mode = modes[0] ?? "preferred";
+                    return {
+                        key: unique ? "desc:" + m.description : m.name,
+                        name: m.name,
+                        label: [m.make, m.model].filter(t => t && t !== "Unknown").join(" ") || m.name,
+                        modes, mode,
+                        x: m.x, y: m.y,
+                        scale: m.scale > 0 ? Math.round(m.scale * 1000) / 1000 : 1,
+                        transform: m.transform % 4,
+                        enabled: !m.disabled
+                    };
+                });
+                if (root.countdown === 0)
+                    root.draft = JSON.parse(JSON.stringify(root.screens));
+            }
+        }
+    }
+    // Screens plugged in or out while nothing is being changed.
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) {
+            if (["monitoradded", "monitorremoved", "monitoraddedv2", "monitorremovedv2"].includes(event.name) && !root.changed)
+                root.refresh();
+        }
+    }
+
+    function update(index, changes) {
+        const next = JSON.parse(JSON.stringify(draft));
+        Object.assign(next[index], changes);
+        draft = next;
+    }
+    function reset() {
+        draft = JSON.parse(JSON.stringify(screens));
+    }
+
+    // A mode's pixels, then the size the screen takes in the layout: rotated, divided by its scale.
+    function pixels(mode) {
+        const m = /^(\d+)x(\d+)/.exec(mode);
+        return m ? { width: Number(m[1]), height: Number(m[2]) } : { width: 1920, height: 1080 };
+    }
+    function logical(s) {
+        const p = pixels(s.mode), turned = s.transform % 2 === 1;
+        return { width: Math.round((turned ? p.height : p.width) / s.scale), height: Math.round((turned ? p.width : p.height) / s.scale) };
+    }
+    // Scales Hyprland takes for a mode: whole logical pixels, in 120ths (Wayland's fractional
+    // scale), and round enough to read: 1, 1.2, 1.25, 1.33, 1.5…
+    function scales(s) {
+        const p = pixels(s.mode), found = [];
+        for (let k = 120; k <= 360; k++) {
+            const whole = Number.isInteger(p.width * 120 / k) && Number.isInteger(p.height * 120 / k);
+            if (whole && (k % 6 === 0 || k % 40 === 0))
+                found.push(Math.round(k / 120 * 1000) / 1000);
+        }
+        if (!found.some(v => Math.abs(v - s.scale) < 0.001))
+            found.push(s.scale);
+        return found.sort((a, b) => a - b);
+    }
+
+    // Drop screen `index` near (x, y), in layout pixels: against the nearest edge of another
+    // screen, lined up with its side when close, never overlapping. Then the arrangement moves so
+    // its top-left corner is 0, 0.
+    function place(index, x, y) {
+        const me = logical(draft[index]);
+        const others = draft.map((s, i) => ({ i, s, size: logical(s) })).filter(o => o.i !== index && o.s.enabled);
+        let best = null;
+        const overlaps = (cx, cy) => others.some(o => cx < o.s.x + o.size.width && cx + me.width > o.s.x && cy < o.s.y + o.size.height && cy + me.height > o.s.y);
+        const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+        const align = (v, starts) => starts.reduce((b, t) => Math.abs(t - v) < Math.abs(b - v) && Math.abs(t - v) < 60 ? t : b, v);
+        for (const o of others) {
+            const ys = [o.s.y, o.s.y + o.size.height - me.height], xs = [o.s.x, o.s.x + o.size.width - me.width];
+            const candidates = [
+                { x: o.s.x - me.width, y: align(clamp(y, o.s.y - me.height, o.s.y + o.size.height), ys) },
+                { x: o.s.x + o.size.width, y: align(clamp(y, o.s.y - me.height, o.s.y + o.size.height), ys) },
+                { x: align(clamp(x, o.s.x - me.width, o.s.x + o.size.width), xs), y: o.s.y - me.height },
+                { x: align(clamp(x, o.s.x - me.width, o.s.x + o.size.width), xs), y: o.s.y + o.size.height }
+            ];
+            for (const c of candidates) {
+                const d = Math.hypot(c.x - x, c.y - y);
+                if (!overlaps(c.x, c.y) && (!best || d < best.d))
+                    best = { x: Math.round(c.x), y: Math.round(c.y), d };
+            }
+        }
+        const next = JSON.parse(JSON.stringify(draft));
+        if (best)
+            Object.assign(next[index], { x: best.x, y: best.y });
+        const shown = next.filter(s => s.enabled);
+        const left = Math.min(...shown.map(s => s.x)), top = Math.min(...shown.map(s => s.y));
+        for (const s of next) {
+            s.x -= left;
+            s.y -= top;
+        }
+        draft = next;
+    }
+
+    // The draft as Lua: one hl.monitor rule per screen.
+    function lua(screens) {
+        const quote = t => '"' + t.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+        return screens.map(s => s.enabled
+            ? `hl.monitor({ output = ${quote(s.key)}, mode = ${quote(s.mode)}, position = "${s.x}x${s.y}", scale = ${s.scale}, transform = ${s.transform} })`
+            : `hl.monitor({ output = ${quote(s.key)}, disabled = true })`).join("\n");
+    }
+    readonly property string header: "-- Your screens, written by the Penumbra shell's Settings → Displays. hyprland.lua reads this\n"
+        + "-- file before user.lua; change it there, or here by hand.\n"
+
+    function apply() {
+        if (!changed)
+            return;
+        hadFile = file.loaded;
+        previousFile = file.loaded ? file.text() : "";
+        const text = lua(draft);
+        file.setText(header + text + "\n");
+        evaluate(text);
+        countdown = 15;
+        timer.restart();
+    }
+    function keep() {
+        timer.stop();
+        countdown = 0;
+        refresh();
+    }
+    function revert() {
+        timer.stop();
+        countdown = 0;
+        // The screens as they were, then the file as it was.
+        evaluate(lua(screens));
+        if (hadFile)
+            file.setText(previousFile);
+        else
+            remove.running = true;
+        draft = JSON.parse(JSON.stringify(screens));
+        refresh();
+    }
+    function evaluate(text) {
+        Quickshell.execDetached(["hyprctl", "eval", text]);
+    }
+    Timer {
+        id: timer
+        interval: 1000
+        repeat: true
+        onTriggered: {
+            root.countdown -= 1;
+            if (root.countdown <= 0)
+                root.revert();
+        }
+    }
+    Process {
+        id: remove
+        command: ["rm", "-f", file.path]
+        onExited: file.reload()
+    }
+    FileView {
+        id: file
+        path: Quickshell.env("HOME") + "/.config/penumbra/monitors.lua"
+        printErrors: false
+        blockLoading: true
+    }
+}
+```
+
+## `config/quickshell/penumbra/DisplaysPage.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+
+// Settings → Displays: drag the screens into place, then pick each one's resolution, refresh
+// rate, scale and rotation. Displays holds the draft and applies it.
+ColumnLayout {
+    id: root
+
+    spacing: 12
+
+    property int selected: 0
+    readonly property var current: Displays.draft[Math.min(selected, Displays.draft.length - 1)] ?? null
+    readonly property int enabledCount: Displays.draft.filter(s => s.enabled).length
+    onVisibleChanged: if (visible && Displays.countdown === 0 && !Displays.changed) Displays.refresh()
+
+    // Change the selected screen, then put it back against its neighbours: a new size may overlap.
+    function change(changes) {
+        Displays.update(selected, changes);
+        Displays.place(selected, current.x, current.y);
+    }
+    readonly property var resolutions: current ? [...new Set(current.modes.map(m => m.split("@")[0]))]
+        .sort((a, b) => Displays.pixels(b).width * Displays.pixels(b).height - Displays.pixels(a).width * Displays.pixels(a).height) : []
+    readonly property string resolution: current?.mode.split("@")[0] ?? ""
+    readonly property var rates: current ? current.modes.filter(m => m.split("@")[0] === resolution)
+        .sort((a, b) => Number(b.split("@")[1]) - Number(a.split("@")[1])) : []
+    readonly property var scales: current ? Displays.scales(current) : []
+    readonly property var rotations: ["Normal", "90°", "Upside down", "270°"]
+
+    // A titled row with its control on the right.
+    component SettingRow: RowLayout {
+        id: setting
+        property string glyph
+        property string title
+        default property alias control: holder.data
+        Layout.fillWidth: true
+        Layout.leftMargin: 10
+        Layout.preferredHeight: 36
+        spacing: 11
+        Glyph { Layout.preferredWidth: 22; text: setting.glyph; size: 17 }
+        Label { Layout.fillWidth: true; text: setting.title }
+        Item {
+            id: holder
+            implicitWidth: childrenRect.width
+            implicitHeight: childrenRect.height
+        }
+    }
+
+    PageHeader {
+        Layout.fillWidth: true
+        title: "Displays"
+        status: Displays.draft.length > 1 ? `${root.enabledCount} of ${Displays.draft.length} screens on · drag to arrange` : (root.current?.label ?? "")
+        showSwitch: false
+        onBack: Ui.controlPage = "settings"
+    }
+
+    // ── Arrangement ─────────────────────────────────────────────────
+    Rectangle {
+        id: canvas
+        Layout.fillWidth: true
+        implicitHeight: 168
+        radius: Theme.radius
+        color: Theme.alpha(Theme.base, 0.45)
+        border.color: Theme.line
+
+        readonly property var shown: Displays.draft.map(s => ({ s, size: Displays.logical(s) })).filter(o => o.s.enabled)
+        readonly property real minX: shown.length ? Math.min(...shown.map(o => o.s.x)) : 0
+        readonly property real minY: shown.length ? Math.min(...shown.map(o => o.s.y)) : 0
+        readonly property real spanX: shown.length ? Math.max(...shown.map(o => o.s.x + o.size.width)) - minX : 1
+        readonly property real spanY: shown.length ? Math.max(...shown.map(o => o.s.y + o.size.height)) - minY : 1
+        readonly property real fit: Math.min((width - 40) / spanX, (height - 40) / spanY)
+        readonly property real originX: (width - spanX * fit) / 2
+        readonly property real originY: (height - spanY * fit) / 2
+
+        Repeater {
+            model: Displays.draft
+            delegate: Rectangle {
+                id: box
+                required property var modelData
+                required property int index
+                readonly property var size: Displays.logical(modelData)
+                readonly property bool chosen: index === root.selected
+                property real dx: 0
+                property real dy: 0
+                visible: modelData.enabled
+                x: canvas.originX + (modelData.x - canvas.minX) * canvas.fit + dx
+                y: canvas.originY + (modelData.y - canvas.minY) * canvas.fit + dy
+                width: size.width * canvas.fit
+                height: size.height * canvas.fit
+                z: area.pressed ? 2 : chosen ? 1 : 0
+                radius: Theme.corner(8)
+                color: chosen ? Theme.alpha(Theme.violet, 0.28) : Theme.raised
+                border.width: chosen ? 2 : 1
+                border.color: chosen ? Theme.violet : Theme.lineStrong
+                Behavior on x { enabled: !area.pressed; NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+                Behavior on y { enabled: !area.pressed; NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+                Behavior on width { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+                Behavior on height { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    width: parent.width - 8
+                    spacing: 0
+                    Label {
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                        text: String(box.index + 1)
+                        font.family: Theme.display
+                        font.pixelSize: Math.max(Theme.textBody, Math.min(Theme.textHeading, box.height / 3))
+                        font.weight: Font.DemiBold
+                        color: box.chosen ? Theme.text : Theme.textSoft
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                        visible: box.height > 54
+                        text: box.modelData.name
+                        font.pixelSize: Theme.textTiny
+                        color: Theme.muted
+                    }
+                }
+                MouseArea {
+                    id: area
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: canvas.shown.length > 1 ? (pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor) : Qt.PointingHandCursor
+                    property point start
+                    onPressed: m => {
+                        root.selected = box.index;
+                        start = mapToItem(canvas, m.x, m.y);
+                    }
+                    onPositionChanged: m => {
+                        if (!pressed || canvas.shown.length < 2)
+                            return;
+                        const p = mapToItem(canvas, m.x, m.y);
+                        box.dx = p.x - start.x;
+                        box.dy = p.y - start.y;
+                    }
+                    onReleased: {
+                        if (box.dx !== 0 || box.dy !== 0)
+                            Displays.place(box.index, box.modelData.x + box.dx / canvas.fit, box.modelData.y + box.dy / canvas.fit);
+                        box.dx = 0;
+                        box.dy = 0;
+                    }
+                }
+            }
+        }
+    }
+
+    // ── The selected screen ─────────────────────────────────────────
+    RowLayout {
+        Layout.fillWidth: true
+        Layout.leftMargin: 4
+        visible: !!root.current
+        spacing: 8
+        Label {
+            Layout.fillWidth: true
+            text: `${root.selected + 1} · ${root.current?.label ?? ""}`
+            font.weight: Font.DemiBold
+        }
+        Label { text: root.current?.name ?? ""; font.family: Theme.mono; font.pixelSize: Theme.textSmall; color: Theme.muted }
+    }
+
+    SwitchRow {
+        visible: Displays.draft.length > 1
+        glyph: "󰍹"
+        title: "Use this screen"
+        subtitle: root.current?.enabled && root.enabledCount === 1 ? "The last screen on stays on" : ""
+        checked: root.current?.enabled ?? false
+        onToggled: {
+            if (root.current.enabled && root.enabledCount === 1)
+                return;
+            root.change({ enabled: !root.current.enabled });
+        }
+    }
+
+    ColumnLayout {
+        Layout.fillWidth: true
+        visible: root.current?.enabled ?? false
+        spacing: 4
+        SettingRow {
+            glyph: "󰨤"
+            title: "Resolution"
+            Stepper {
+                readonly property int at: root.resolutions.indexOf(root.resolution)
+                text: root.resolution.replace("x", " × ")
+                textWidth: 100
+                // Larger to the right.
+                canDecrease: at < root.resolutions.length - 1
+                canIncrease: at > 0
+                function pick(resolution) {
+                    // The same refresh rate when the new resolution has it, else its fastest.
+                    const rate = root.current.mode.split("@")[1];
+                    const modes = root.current.modes.filter(m => m.split("@")[0] === resolution);
+                    root.change({ mode: modes.find(m => m.split("@")[1] === rate) ?? modes.sort((a, b) => Number(b.split("@")[1]) - Number(a.split("@")[1]))[0] });
+                }
+                onDecreased: pick(root.resolutions[at + 1])
+                onIncreased: pick(root.resolutions[at - 1])
+            }
+        }
+        SettingRow {
+            glyph: "󰓅"
+            title: "Refresh rate"
+            Stepper {
+                readonly property int at: root.rates.indexOf(root.current?.mode ?? "")
+                text: `${Math.round(Number((root.current?.mode ?? "@0").split("@")[1]) * 100) / 100} Hz`
+                textWidth: 100
+                canDecrease: at < root.rates.length - 1
+                canIncrease: at > 0
+                onDecreased: root.change({ mode: root.rates[at + 1] })
+                onIncreased: root.change({ mode: root.rates[at - 1] })
+            }
+        }
+        SettingRow {
+            glyph: "󰑒"
+            title: "Scale"
+            Stepper {
+                readonly property int at: root.scales.findIndex(s => Math.abs(s - (root.current?.scale ?? 1)) < 0.001)
+                text: Math.round((root.current?.scale ?? 1) * 100) + "%"
+                textWidth: 100
+                canDecrease: at > 0
+                canIncrease: at < root.scales.length - 1
+                onDecreased: root.change({ scale: root.scales[at - 1] })
+                onIncreased: root.change({ scale: root.scales[at + 1] })
+            }
+        }
+        SettingRow {
+            glyph: "󰑵"
+            title: "Rotation"
+            Stepper {
+                text: root.rotations[root.current?.transform ?? 0]
+                textWidth: 100
+                onDecreased: root.change({ transform: (root.current.transform + 3) % 4 })
+                onIncreased: root.change({ transform: (root.current.transform + 1) % 4 })
+            }
+        }
+    }
+
+    // ── Apply, then keep or undo ────────────────────────────────────
+    Rectangle {
+        Layout.fillWidth: true
+        visible: Displays.countdown > 0
+        implicitHeight: keepRow.implicitHeight + 20
+        radius: Theme.radius
+        color: Theme.alpha(Theme.violet, 0.14)
+        border.color: Theme.alpha(Theme.violetBright, 0.45)
+        RowLayout {
+            id: keepRow
+            anchors { fill: parent; margins: 10; leftMargin: 14 }
+            spacing: 8
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 0
+                Label { Layout.fillWidth: true; text: "Keep these settings?"; font.weight: Font.DemiBold }
+                Label { Layout.fillWidth: true; text: `Undoing them in ${Displays.countdown} s`; font.pixelSize: Theme.textSmall; color: Theme.textSoft }
+            }
+            PillButton { text: "Undo"; onClicked: Displays.revert() }
+            PillButton { text: "Keep"; primary: true; onClicked: Displays.keep() }
+        }
+    }
+    RowLayout {
+        Layout.fillWidth: true
+        visible: Displays.changed && Displays.countdown === 0
+        spacing: 8
+        Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            text: "Not applied yet"
+            font.pixelSize: Theme.textSmall
+            color: Theme.muted
+        }
+        PillButton { text: "Reset"; onClicked: Displays.reset() }
+        PillButton { text: "Apply"; primary: true; onClicked: Displays.apply() }
     }
 }
 ```
@@ -6776,6 +7874,36 @@ WallpaperScene {
 }
 ```
 
+## `config/quickshell/penumbra/Field.qml`
+
+```qml
+import QtQuick
+import QtQuick.Controls
+
+// A one-line text box in the panels' style; `invalid` rings it in rose.
+TextField {
+    id: root
+
+    property bool invalid: false
+
+    color: Theme.text
+    placeholderTextColor: Theme.dim
+    selectionColor: Theme.violet
+    selectedTextColor: Theme.violetInk
+    font.family: Theme.sans
+    font.pixelSize: Theme.textBody
+    leftPadding: 12
+    rightPadding: 12
+    background: Rectangle {
+        implicitHeight: 32
+        radius: Theme.corner(10)
+        color: Theme.glassStrong
+        border.color: root.invalid ? Theme.rose : root.activeFocus ? Theme.violet : Theme.lineStrong
+        Behavior on border.color { ColorAnimation { duration: Theme.fast } }
+    }
+}
+```
+
 ## `config/quickshell/penumbra/GlassEdge.qml`
 
 ```qml
@@ -6959,6 +8087,273 @@ Variants {
             interval: 160
             onTriggered: Ui.toggleControl()
         }
+    }
+}
+```
+
+## `config/quickshell/penumbra/IdlePage.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+
+// When an idle computer dims, locks, turns its screens off and (on battery) suspends:
+// settings.conf's idle timings, which penumbra-settings writes into hypridle.conf.
+ColumnLayout {
+    id: root
+
+    spacing: 12
+
+    // The steps each row moves through, in minutes; a value typed into settings.conf joins them.
+    readonly property var steps: [0.5, 1, 2, 3, 4, 5, 7, 10, 15, 20, 25, 30, 45, 60, 90, 120, 180]
+    function choices(value) {
+        const list = steps.slice();
+        if (value !== "never" && value !== undefined && !list.includes(Number(value)))
+            list.push(Number(value));
+        return list.sort((a, b) => a - b).map(String).concat(["never"]);
+    }
+
+    PageHeader {
+        Layout.fillWidth: true
+        title: "Idle and sleep"
+        status: Ui.caffeine ? "Paused by Stay awake" : "After this long without input"
+        showSwitch: false
+        onBack: Ui.controlPage = "settings"
+    }
+
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: 2
+        Repeater {
+            model: [
+                { key: "idle_dim", glyph: "󰃞", title: "Dim the screen", subtitle: "Any input brightens it again" },
+                { key: "idle_lock", glyph: "󰌾", title: "Lock", subtitle: "Also before every suspend" },
+                { key: "idle_screen_off", glyph: "󰍹", title: "Turn the screens off", subtitle: "" },
+                { key: "idle_suspend", glyph: "󰒲", title: "Suspend", subtitle: "Only on battery" }
+            ]
+            delegate: Rectangle {
+                id: row
+                required property var modelData
+                readonly property string value: Config.values[modelData.key] ?? "never"
+                readonly property var list: root.choices(value)
+                readonly property int index: list.indexOf(value === "never" ? "never" : String(Number(value)))
+                Layout.fillWidth: true
+                implicitHeight: 52
+                radius: Theme.radiusSmall
+                color: hover.hovered ? Theme.raised : "transparent"
+                Behavior on color { ColorAnimation { duration: Theme.fast } }
+                HoverHandler { id: hover }
+                RowLayout {
+                    anchors { fill: parent; leftMargin: 10; rightMargin: 4 }
+                    spacing: 11
+                    Glyph { Layout.preferredWidth: 22; text: row.modelData.glyph; size: 17 }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+                        Label { Layout.fillWidth: true; text: row.modelData.title }
+                        Label {
+                            Layout.fillWidth: true
+                            visible: text !== ""
+                            text: row.modelData.subtitle
+                            font.pixelSize: Theme.textSmall
+                            color: Theme.muted
+                        }
+                    }
+                    Stepper {
+                        text: Config.duration(row.value)
+                        textWidth: 92
+                        canDecrease: row.index > 0
+                        canIncrease: row.index < row.list.length - 1
+                        onDecreased: Config.set({ [row.modelData.key]: row.list[Math.max(0, row.index - 1)] })
+                        onIncreased: Config.set({ [row.modelData.key]: row.list[Math.min(row.list.length - 1, row.index + 1)] })
+                    }
+                }
+            }
+        }
+    }
+
+    Label {
+        Layout.fillWidth: true
+        Layout.leftMargin: 4
+        text: "Stay awake in the control center pauses all of these, and so does a fullscreen window."
+        wrapMode: Text.Wrap
+        font.pixelSize: Theme.textSmall
+        color: Theme.dim
+    }
+    Label {
+        Layout.fillWidth: true
+        Layout.leftMargin: 4
+        visible: Config.error !== ""
+        text: Config.error
+        wrapMode: Text.Wrap
+        font.pixelSize: Theme.textSmall
+        color: Theme.rose
+    }
+}
+```
+
+## `config/quickshell/penumbra/KeyboardPage.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+
+// Keyboard layouts, their variants and XKB options, and Num Lock: settings.conf's, applied to
+// Hyprland at once by penumbra-settings.
+ColumnLayout {
+    id: root
+
+    spacing: 12
+    onVisibleChanged: if (visible) Config.loadLayouts()
+
+    // The comma-separated entry being typed in a field: its index and text.
+    function token(field) {
+        const before = field.text.slice(0, field.cursorPosition);
+        return { index: before.split(",").length - 1, text: before.slice(before.lastIndexOf(",") + 1).trim().toLowerCase() };
+    }
+    function replaceToken(field, index, value) {
+        const parts = field.text.split(",").map(p => p.trim());
+        parts[index] = value;
+        field.text = parts.join(",");
+        field.cursorPosition = field.text.length;
+    }
+
+    // Up to five matches for what is being typed; a click puts one in.
+    component Suggestions: ColumnLayout {
+        id: suggestions
+        property var field
+        property var choices: [] // [[code, name]]
+        readonly property var current: field.activeFocus ? root.token(field) : null
+        readonly property var matches: !current || current.text === "" ? []
+            : choices.filter(c => c[0].startsWith(current.text) || c[1].toLowerCase().includes(current.text))
+                .sort((a, b) => (b[0] === current.text) - (a[0] === current.text) || (b[0].startsWith(current.text)) - (a[0].startsWith(current.text)))
+                .slice(0, 5)
+        Layout.fillWidth: true
+        visible: matches.length > 0
+        spacing: 0
+        Repeater {
+            model: suggestions.matches
+            delegate: Rectangle {
+                required property var modelData
+                Layout.fillWidth: true
+                implicitHeight: 28
+                radius: Theme.radiusSmall
+                color: pick.containsMouse ? Theme.raised : "transparent"
+                RowLayout {
+                    anchors { fill: parent; leftMargin: 12; rightMargin: 12 }
+                    spacing: 10
+                    Label { Layout.preferredWidth: 90; text: modelData[0]; font.family: Theme.mono; font.pixelSize: Theme.textSmall; color: Theme.violetBright }
+                    Label { Layout.fillWidth: true; text: modelData[1]; font.pixelSize: Theme.textSmall; color: Theme.textSoft }
+                }
+                MouseArea {
+                    id: pick
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        root.replaceToken(suggestions.field, suggestions.current.index, modelData[0]);
+                        suggestions.field.forceActiveFocus();
+                    }
+                }
+            }
+        }
+    }
+
+    // A labelled text field, saved on Enter or when it loses focus.
+    component SettingField: ColumnLayout {
+        id: setting
+        property string key
+        property string title
+        property alias field: input
+        property alias placeholder: input.placeholderText
+        Layout.fillWidth: true
+        spacing: 6
+        Overline { Layout.fillWidth: true; Layout.topMargin: 2; text: setting.title }
+        Field {
+            id: input
+            Layout.fillWidth: true
+            text: Config.values[setting.key] ?? ""
+            font.family: Theme.mono
+            function save() {
+                const value = text.split(",").map(p => p.trim()).join(",");
+                if (value !== (Config.values[setting.key] ?? ""))
+                    Config.set({ [setting.key]: value });
+            }
+            onAccepted: save()
+            onEditingFinished: save()
+            // Follow the saved value whenever this field isn't being edited.
+            Connections {
+                target: Config
+                function onValuesChanged() {
+                    if (!input.activeFocus)
+                        input.text = Config.values[setting.key] ?? "";
+                }
+            }
+        }
+    }
+
+    PageHeader {
+        Layout.fillWidth: true
+        title: "Keyboard"
+        status: Config.busy ? "Applying…" : "Changes apply as you press Enter"
+        showSwitch: false
+        onBack: Ui.controlPage = "settings"
+    }
+
+    SettingField {
+        id: layouts
+        key: "kb_layout"
+        title: "Layouts"
+        placeholder: "us, or several: us,fr"
+    }
+    Suggestions {
+        field: layouts.field
+        choices: Config.layouts
+    }
+    Label {
+        Layout.fillWidth: true
+        Layout.leftMargin: 4
+        visible: (Config.values.kb_layout ?? "").includes(",")
+        text: (Config.values.kb_layout ?? "").split(",").map(l => Config.layoutName(l)).join(" · ") + " · the bar's layout capsule switches between them"
+        wrapMode: Text.Wrap
+        font.pixelSize: Theme.textSmall
+        color: Theme.muted
+    }
+
+    SettingField {
+        id: variants
+        key: "kb_variant"
+        title: "Variants"
+        placeholder: "None; one per layout, e.g. intl or ,dvorak"
+    }
+    Suggestions {
+        field: variants.field
+        // Variants of the layout in the same place in the list.
+        choices: Config.variants[(Config.values.kb_layout ?? "").split(",")[root.token(variants.field).index] ?? ""] ?? []
+    }
+
+    SettingField {
+        key: "kb_options"
+        title: "Options"
+        placeholder: "e.g. caps:escape,grp:alt_shift_toggle"
+    }
+
+    SwitchRow {
+        glyph: "󰎠"
+        title: "Num Lock at login"
+        subtitle: "Applies from your next login"
+        checked: Config.values.numlock === "on"
+        onToggled: Config.set({ numlock: Config.values.numlock === "on" ? "off" : "on" })
+    }
+
+    Label {
+        Layout.fillWidth: true
+        Layout.leftMargin: 4
+        visible: Config.error !== ""
+        text: Config.error
+        wrapMode: Text.Wrap
+        font.pixelSize: Theme.textSmall
+        color: Theme.rose
     }
 }
 ```
@@ -8002,6 +9397,41 @@ Rectangle {
                 }
             }
 
+            // The fingerprint reader, pulsing while it waits; click it to try again after it paused.
+            RowLayout {
+                Layout.alignment: Qt.AlignHCenter
+                visible: surface.lock.fingerprint
+                spacing: 8
+                Glyph {
+                    property real pulse: 1
+                    text: "󰈷"
+                    size: 20
+                    color: surface.lock.fingerWaiting ? Theme.violetBright : Theme.dim
+                    opacity: surface.lock.fingerWaiting ? pulse : 1
+                    SequentialAnimation on pulse {
+                        running: surface.lock.fingerWaiting
+                        loops: Animation.Infinite
+                        NumberAnimation { to: 0.35; duration: 900; easing.type: Easing.InOutSine }
+                        NumberAnimation { to: 1; duration: 900; easing.type: Easing.InOutSine }
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        anchors.margins: -8
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            surface.lock.fingerTries = 0;
+                            surface.lock.startFinger();
+                            input.forceActiveFocus();
+                        }
+                    }
+                }
+                Label {
+                    text: surface.lock.fingerMessage || "Touch the fingerprint reader, or type your password"
+                    font.pixelSize: Theme.textSmall
+                    color: Theme.textSoft
+                }
+            }
+
             // With several keyboard layouts, the one the password is typed in; click to switch.
             Rectangle {
                 Layout.alignment: Qt.AlignHCenter
@@ -8112,7 +9542,8 @@ import Quickshell.Services.Pam
 import Quickshell.Wayland
 
 // The lock screen, on every monitor. hypridle locks through `ipc call lock lock` (which
-// `loginctl lock-session` triggers); hyprlock takes over when the shell is not running.
+// `loginctl lock-session` triggers); hyprlock takes over when the shell is not running. With a
+// finger enrolled in fprintd, a touch of the reader unlocks it too, while the password still works.
 Scope {
     id: root
 
@@ -8120,8 +9551,17 @@ Scope {
     property bool busy: false
     property string message: ""
     property bool capsLock: false
-    readonly property bool locked: sessionLock.locked
+    // Kept here rather than bound to sessionLock.locked: Quickshell 0.3.2 never signals the
+    // unlock, so a binding stays true and the wallpapers stay paused after the first lock.
+    property bool locked: false
     signal rejected()
+
+    // Fingerprint: whether a finger is enrolled (fprintd-list, checked at each lock), the reader
+    // is waiting, and what it last said.
+    property bool fingerprint: false
+    readonly property bool fingerWaiting: fingerPam.active
+    property string fingerMessage: ""
+    property int fingerTries: 0
 
     function lock() {
         if (sessionLock.locked)
@@ -8130,9 +9570,14 @@ Scope {
         capsLeds.running = true;
         password = "";
         message = "";
+        fingerTries = 0;
+        fingerMessage = "";
+        fingers.running = true;
         checkCaps();
         lockState.setText("locked\n");
         sessionLock.locked = true;
+        // False if the compositor refused the lock.
+        locked = sessionLock.locked;
     }
     function submit() {
         if (busy || password === "")
@@ -8140,6 +9585,20 @@ Scope {
         busy = true;
         message = "";
         pam.start();
+    }
+    function unlock() {
+        if (pam.active)
+            pam.abort();
+        if (fingerPam.active)
+            fingerPam.abort();
+        sessionLock.locked = false;
+        locked = false;
+        lockState.setText("");
+    }
+    // Wait for a finger; a click on the fingerprint glyph tries again after giving up.
+    function startFinger() {
+        if (fingerprint && sessionLock.locked && !fingerPam.active && fingerTries < 5)
+            fingerPam.start();
     }
     // Re-reads the Caps Lock LEDs; cheap enough for every keypress.
     function checkCaps() {
@@ -8160,8 +9619,7 @@ Scope {
             root.busy = false;
             root.password = "";
             if (result === PamResult.Success) {
-                sessionLock.locked = false;
-                lockState.setText("");
+                root.unlock();
                 return;
             }
             if (result === PamResult.MaxTries)
@@ -8175,6 +9633,50 @@ Scope {
             root.password = "";
             root.message = "Could not check the password (" + PamError.toString(error) + ")";
             root.rejected();
+        }
+    }
+
+    // The fingerprint check, through the shell's own PAM stack (pam/fingerprint): one scan each
+    // time, so a miss can say so and the next scan starts afresh. Five misses or timeouts stop it.
+    PamContext {
+        id: fingerPam
+        configDirectory: Quickshell.shellDir + "/pam"
+        config: "fingerprint"
+        onPamMessage: {
+            if (responseRequired)
+                respond("");
+            else if (message)
+                root.fingerMessage = /finger|swipe|reader/i.test(message) && !messageIsError ? "Touch the fingerprint reader, or type your password" : message;
+        }
+        onCompleted: result => {
+            if (result === PamResult.Success) {
+                root.unlock();
+                return;
+            }
+            root.fingerTries += 1;
+            root.fingerMessage = root.fingerTries >= 5 ? "Fingerprint paused · click it to try again" : "Fingerprint not recognised";
+            if (root.fingerTries < 5)
+                fingerRetry.restart();
+        }
+        onError: error => {
+            // No reader, or fprintd missing: the password alone.
+            root.fingerprint = false;
+            root.fingerMessage = "";
+        }
+    }
+    Timer {
+        id: fingerRetry
+        interval: 900
+        onTriggered: root.startFinger()
+    }
+    Process {
+        id: fingers
+        command: ["bash", "-c", "command -v fprintd-list >/dev/null && fprintd-list \"$USER\" 2>/dev/null"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.fingerprint = /#\d+:/.test(text);
+                root.startFinger();
+            }
         }
     }
 
@@ -9260,6 +10762,334 @@ Panel {
 }
 ```
 
+## `config/quickshell/penumbra/NightLight.qml`
+
+```qml
+pragma Singleton
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import "sun.js" as Sun
+
+// Night light: hyprsunset warms the screen. It is turned on by hand, or by a schedule (fixed
+// times, or sunset to sunrise where you are), and fades between warm and neutral rather than
+// jumping. The choices are in Settings (shell.json); a toggle by hand lasts until the schedule
+// next turns it on or off.
+Singleton {
+    id: root
+
+    readonly property bool available: Ui.hasNightLight
+    property bool on: false
+    readonly property int temperature: Settings.nightTemperature
+    readonly property int neutral: 6500
+    readonly property string schedule: Settings.nightSchedule // manual, times or sun
+
+    function toggle() {
+        on = !on;
+        fade(0);
+    }
+
+    // ── Where you are, for sunset and sunrise ───────────────────────
+    // zone1970.tab lists a city with coordinates for every time zone, so a typed city is found
+    // without a network lookup; with nothing typed, this computer's time zone stands in.
+    property var cities: [] // [{ name: "New York", zone: "America/New_York", latitude, longitude }]
+    property string timeZone: ""
+    FileView {
+        path: "/usr/share/zoneinfo/zone1970.tab"
+        printErrors: false
+        onLoaded: {
+            const found = [];
+            for (const line of text().split("\n")) {
+                const fields = line.split("\t");
+                if (line.startsWith("#") || fields.length < 3)
+                    continue;
+                const at = Sun.coordinates(fields[1]);
+                if (at)
+                    found.push(Object.assign({ name: fields[2].replace(/^.*\//, "").replace(/_/g, " "), zone: fields[2] }, at));
+            }
+            root.cities = found;
+        }
+    }
+    Process {
+        running: true
+        command: ["readlink", "/etc/localtime"]
+        stdout: StdioCollector {
+            onStreamFinished: root.timeZone = text.trim().replace(/^.*zoneinfo\//, "")
+        }
+    }
+    // A typed place → { name, latitude, longitude }, or null when it means nothing.
+    function locate(text) {
+        const typed = text.trim();
+        if (typed === "")
+            return cities.find(c => c.zone === timeZone) ?? null;
+        const m = /^(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)$/.exec(typed);
+        if (m) {
+            const latitude = Number(m[1]), longitude = Number(m[2]);
+            return Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 ? { name: `${latitude}, ${longitude}`, latitude, longitude } : null;
+        }
+        const name = typed.toLowerCase();
+        return cities.find(c => c.name.toLowerCase() === name) ?? cities.find(c => c.name.toLowerCase().startsWith(name)) ?? null;
+    }
+    readonly property var place: locate(Settings.nightPlace)
+
+    // ── The schedule ────────────────────────────────────────────────
+    // Today's on and off times in minutes after midnight, or null (manual, or no sunset today).
+    readonly property var window: {
+        if (schedule === "times") {
+            const from = Sun.minutes(Settings.nightFrom), to = Sun.minutes(Settings.nightTo);
+            return from >= 0 && to >= 0 && from !== to ? { from, to } : null;
+        }
+        if (schedule === "sun" && place) {
+            const t = Sun.times(Clock.date, place.latitude, place.longitude);
+            if (t.polar)
+                return { polar: t.polar };
+            return { from: t.set, to: t.rise };
+        }
+        return null;
+    }
+    readonly property bool scheduledOn: {
+        if (!window)
+            return false;
+        if (window.polar)
+            return window.polar === "night";
+        return Sun.between(Clock.date.getHours() * 60 + Clock.date.getMinutes(), window.from, window.to);
+    }
+    // The next change the schedule makes, for the status line: "On until 07:12".
+    readonly property string status: {
+        if (!available)
+            return "Needs hyprsunset";
+        const state = on ? `On · ${temperature} K` : "Off";
+        if (!window || window.polar)
+            return state;
+        return `${on ? "On" : "Off"} until ${Sun.clock(on ? window.to : window.from)}`;
+    }
+    // The schedule turning on or off (each minute is checked), or a change to its settings, wins
+    // over a toggle by hand.
+    property bool lastScheduled: false
+    function followSchedule(slowly, changed) {
+        if (schedule === "manual")
+            return;
+        const wanted = scheduledOn;
+        if (!changed && wanted === lastScheduled)
+            return;
+        lastScheduled = wanted;
+        if (on !== wanted) {
+            on = wanted;
+            fade(slowly ? 5 * 60 * 1000 : 0);
+        }
+    }
+    Connections {
+        target: Clock
+        function onDateChanged() { root.followSchedule(true, false); }
+    }
+    Connections {
+        target: Settings
+        function onNightScheduleChanged() { root.followSchedule(false, true); }
+        function onNightFromChanged() { root.followSchedule(false, true); }
+        function onNightToChanged() { root.followSchedule(false, true); }
+    }
+    // A typed place, or the list of cities once it has loaded.
+    onPlaceChanged: if (schedule === "sun") followSchedule(false, true)
+    // Settings load just after the shell starts.
+    Timer {
+        interval: 1500
+        running: true
+        onTriggered: root.followSchedule(false, true)
+    }
+    // The slider moves in many small steps; send hyprsunset only where it stops.
+    onTemperatureChanged: if (on) settle.restart()
+    Timer {
+        id: settle
+        interval: 300
+        onTriggered: if (root.on) root.fade(0)
+    }
+
+    // ── Applying it ─────────────────────────────────────────────────
+    // hyprsunset runs while the screen is warm or fading, and takes each step over its IPC
+    // (`hyprctl hyprsunset temperature N`); it leaves the colours alone when it stops.
+    property int applied: neutral
+    property int fadeFrom: neutral
+    property int fadeTo: neutral
+    property real fadeStart: 0
+    property int fadeLength: 0
+    readonly property bool fading: fader.running
+    function fade(ms) {
+        fadeFrom = applied;
+        fadeTo = on ? temperature : neutral;
+        fadeStart = Date.now();
+        fadeLength = ms;
+        // A change by hand is one step (Hyprland eases colour changes itself); a scheduled fade is
+        // steps of 100 K at least ten seconds apart, since every step is a new colour transform
+        // for the whole screen.
+        fader.interval = ms > 0 ? Math.max(10000, ms / Math.max(1, Math.abs(fadeTo - fadeFrom) / 100)) : 100;
+        fader.restart();
+    }
+    Timer {
+        id: fader
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: {
+            if (!root.available) {
+                stop();
+                return;
+            }
+            if (step.running)
+                return;
+            const t = root.fadeLength > 0 ? Math.min(1, (Date.now() - root.fadeStart) / root.fadeLength) : 1;
+            const eased = t * t * (3 - 2 * t);
+            const value = Math.round((root.fadeFrom + (root.fadeTo - root.fadeFrom) * eased) / 10) * 10;
+            if (value !== root.applied && value < root.neutral && sunset.running) {
+                step.value = value;
+                step.command = ["hyprctl", "hyprsunset", "temperature", String(value)];
+                step.running = true;
+            } else if (value >= root.neutral) {
+                root.applied = root.neutral;
+            }
+            if (t >= 1 && root.applied === root.fadeTo)
+                stop();
+        }
+    }
+    Process {
+        id: sunset
+        running: root.available && (root.on || root.applied < root.neutral || root.fading)
+        command: ["hyprsunset", "--identity"]
+    }
+    Process {
+        id: step
+        property int value
+        // hyprsunset takes a moment to listen after starting; a failed step is tried again.
+        onExited: code => { if (code === 0) root.applied = value; }
+    }
+}
+```
+
+## `config/quickshell/penumbra/NightLightPage.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import "sun.js" as Sun
+
+// Night light: how warm, and when it comes on by itself.
+ColumnLayout {
+    id: root
+
+    spacing: 12
+
+    // Steps a "HH:MM" setting by a quarter of an hour.
+    function shifted(text, quarters) {
+        const m = Math.max(0, Sun.minutes(text));
+        return Sun.clock(Math.round(m / 15) * 15 + 15 * quarters);
+    }
+
+    PageHeader {
+        Layout.fillWidth: true
+        title: "Night light"
+        status: NightLight.status
+        checked: NightLight.on
+        showSwitch: NightLight.available
+        onBack: Ui.controlPage = "main"
+        onToggled: NightLight.toggle()
+    }
+
+    Overline { Layout.fillWidth: true; Layout.topMargin: 2; text: "Warmth" }
+    SliderRow {
+        Layout.fillWidth: true
+        glyph: "󱩌"
+        // Warmer to the right.
+        from: 6000
+        to: 2500
+        stepSize: 100
+        value: Settings.nightTemperature
+        label: Settings.nightTemperature + " K"
+        labelWidth: 48
+        muted: !NightLight.on
+        onMoved: v => Settings.nightTemperature = Math.round(v / 100) * 100
+        onGlyphClicked: NightLight.toggle()
+    }
+
+    Overline { Layout.fillWidth: true; Layout.topMargin: 2; text: "Schedule" }
+    Segmented {
+        Layout.fillWidth: true
+        current: Settings.nightSchedule
+        options: [
+            { value: "manual", title: "By hand" },
+            { value: "times", title: "Set times" },
+            { value: "sun", title: "Sunset to sunrise" }
+        ]
+        onChosen: value => Settings.nightSchedule = value
+    }
+
+    // Fixed times, a quarter of an hour at a time.
+    ColumnLayout {
+        Layout.fillWidth: true
+        visible: Settings.nightSchedule === "times"
+        spacing: 2
+        Repeater {
+            model: [
+                { title: "Turns on", glyph: "󰖔", key: "nightFrom" },
+                { title: "Turns off", glyph: "󰖙", key: "nightTo" }
+            ]
+            delegate: RowLayout {
+                required property var modelData
+                Layout.fillWidth: true
+                Layout.leftMargin: 10
+                spacing: 11
+                Glyph { Layout.preferredWidth: 22; text: modelData.glyph; size: 17 }
+                Label { Layout.fillWidth: true; text: modelData.title }
+                Stepper {
+                    text: Settings[modelData.key]
+                    lessGlyph: "󰍴"
+                    moreGlyph: "󰐕"
+                    onDecreased: Settings[modelData.key] = root.shifted(Settings[modelData.key], -1)
+                    onIncreased: Settings[modelData.key] = root.shifted(Settings[modelData.key], 1)
+                }
+            }
+        }
+    }
+
+    // Sunset and sunrise where you are: a city or coordinates, worked out on this computer.
+    ColumnLayout {
+        Layout.fillWidth: true
+        visible: Settings.nightSchedule === "sun"
+        spacing: 6
+        Field {
+            id: place
+            Layout.fillWidth: true
+            text: Settings.nightPlace
+            placeholderText: NightLight.locate("")?.name ? `${NightLight.locate("").name} (your time zone) · or a city, or latitude, longitude` : "A city, or latitude, longitude"
+            invalid: text.trim() !== "" && !NightLight.locate(text)
+            onTextEdited: if (!invalid) Settings.nightPlace = text.trim()
+            onEditingFinished: if (!invalid) Settings.nightPlace = text.trim()
+        }
+        Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            readonly property var where: NightLight.place
+            readonly property var sun: where ? Sun.times(Clock.date, where.latitude, where.longitude) : null
+            text: place.invalid ? "No time zone city by that name; try a nearby large city, or latitude, longitude"
+                : !where ? "Type a city, or latitude, longitude"
+                : sun.polar === "day" ? `${where.name} · the sun doesn't set today`
+                : sun.polar === "night" ? `${where.name} · the sun doesn't rise today`
+                : `${where.name} · sunset ${Sun.clock(sun.set)}, sunrise ${Sun.clock(sun.rise)}`
+            wrapMode: Text.Wrap
+            font.pixelSize: Theme.textSmall
+            color: place.invalid ? Theme.rose : Theme.muted
+        }
+    }
+
+    Label {
+        Layout.fillWidth: true
+        Layout.leftMargin: 4
+        visible: Settings.nightSchedule !== "manual"
+        text: "It fades in and out over five minutes. Turning it on or off by hand lasts until the next change."
+        wrapMode: Text.Wrap
+        font.pixelSize: Theme.textSmall
+        color: Theme.dim
+    }
+}
+```
+
 ## `config/quickshell/penumbra/NotificationCard.qml`
 
 ```qml
@@ -9687,7 +11517,8 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Wayland
 
-// Volume / microphone / brightness feedback, floating above the bottom edge.
+// Volume / microphone / brightness feedback, floating above the bottom edge; Caps Lock and the
+// keyboard layout show as text in the same pill.
 PanelWindow {
     id: root
     screen: Ui.screen
@@ -9704,7 +11535,12 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "penumbra-osd"
 
+    readonly property bool textOnly: Ui.osdKind === "capslock" || Ui.osdKind === "layout"
     readonly property string glyph: {
+        if (Ui.osdKind === "capslock")
+            return Ui.osdMuted ? "󰘲" : "󰪛";
+        if (Ui.osdKind === "layout")
+            return "󰌌";
         if (Ui.osdKind === "brightness")
             return Ui.osdValue > 66 ? "󰃠" : Ui.osdValue > 33 ? "󰃟" : "󰃞";
         if (Ui.osdKind === "microphone")
@@ -9735,8 +11571,17 @@ PanelWindow {
                 color: Ui.osdMuted ? Theme.dim : Theme.violetBright
                 Layout.preferredWidth: 22
             }
+            Label {
+                Layout.fillWidth: true
+                visible: root.textOnly
+                text: Ui.osdText
+                font.pixelSize: Theme.textMedium
+                font.weight: Font.DemiBold
+                color: Ui.osdMuted ? Theme.textSoft : Theme.text
+            }
             Rectangle {
                 Layout.fillWidth: true
+                visible: !root.textOnly
                 implicitHeight: 8
                 radius: Theme.corner(4)
                 color: Theme.raised
@@ -9754,6 +11599,7 @@ PanelWindow {
             }
             Label {
                 Layout.preferredWidth: 38
+                visible: !root.textOnly
                 horizontalAlignment: Text.AlignRight
                 text: Ui.osdMuted ? "Muted" : Ui.osdValue + "%"
                 font.pixelSize: Theme.textSmall
@@ -9776,6 +11622,375 @@ Label {
     font.letterSpacing: 1.2
     font.capitalization: Font.AllUppercase
     color: Theme.muted
+}
+```
+
+## `config/quickshell/penumbra/Overview.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Hyprland
+import Quickshell.Wayland
+import Quickshell.Widgets
+
+// Every workspace at a glance, with live previews of its windows. Click a workspace to go there or
+// a window to focus it, drag a window onto another workspace to move it, type to find a window by
+// its title or app (Tab steps through the matches, Enter goes to one). Super and the key left of 1,
+// or four fingers up on a touchpad, opens it.
+PanelWindow {
+    id: root
+    screen: Ui.screen
+    anchors { top: true; bottom: true; left: true; right: true }
+    exclusionMode: ExclusionMode.Ignore
+    visible: Ui.overviewOpen || backdrop.opacity > 0
+    color: "transparent"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.namespace: "penumbra-overview"
+    WlrLayershell.keyboardFocus: Ui.overviewOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+
+    Connections {
+        target: Ui
+        function onOverviewOpenChanged() {
+            if (!Ui.overviewOpen)
+                return;
+            search.text = "";
+            search.forceActiveFocus();
+            root.picking = false;
+            // Window positions come from Hyprland's last report; ask for a fresh one.
+            Hyprland.refreshMonitors();
+            Hyprland.refreshWorkspaces();
+            Hyprland.refreshToplevels();
+            root.selected = Math.max(0, root.matches.findIndex(t => t.activated));
+        }
+    }
+
+    // Workspaces with windows or on screen, then the first free number, to drop a window into.
+    readonly property var workspaces: {
+        const list = Hyprland.workspaces.values.filter(w => w.id > 0 && (w.toplevels.values.length > 0 || w.active))
+            .sort((a, b) => a.id - b.id).map(w => ({ id: w.id, workspace: w }));
+        let free = 1;
+        while (list.some(w => w.id === free))
+            free++;
+        return list.concat([{ id: free, workspace: null }]);
+    }
+    function entry(toplevel) {
+        return DesktopEntries.heuristicLookup(toplevel.lastIpcObject?.class ?? "");
+    }
+    readonly property string query: search.text.trim().toLowerCase()
+    function found(toplevel) {
+        if (query === "")
+            return true;
+        const o = toplevel.lastIpcObject ?? {};
+        return [toplevel.title, o.class, entry(toplevel)?.name].some(t => (t ?? "").toLowerCase().includes(query));
+    }
+    // The windows that match, in workspace order: Tab and Enter move through these.
+    readonly property var matches: workspaces.filter(w => w.workspace)
+        .reduce((all, w) => all.concat(w.workspace.toplevels.values.slice().sort((a, b) => (a.lastIpcObject?.at?.[0] ?? 0) - (b.lastIpcObject?.at?.[0] ?? 0))), [])
+        .filter(t => found(t))
+    property int selected: 0
+    // Whether Tab or the arrows have been used: only then, or while searching, is the pick outlined.
+    property bool picking: false
+    readonly property var chosen: matches[Math.min(selected, matches.length - 1)] ?? null
+    onQueryChanged: selected = 0
+    function step(by) {
+        picking = true;
+        selected = (selected + by + matches.length) % Math.max(1, matches.length);
+    }
+
+    function address(toplevel) {
+        return toplevel.lastIpcObject?.address ?? "0x" + toplevel.address;
+    }
+    function focusWindow(toplevel) {
+        Ui.overviewOpen = false;
+        Hyprland.dispatch(`hl.dsp.focus({window = "address:${address(toplevel)}"})`);
+    }
+    function goTo(id) {
+        Ui.overviewOpen = false;
+        Hyprland.dispatch(`hl.dsp.focus({workspace = ${id}})`);
+    }
+    function moveWindow(toplevel, id) {
+        Hyprland.dispatch(`hl.dsp.window.move({workspace = ${id}, follow = false, window = "address:${address(toplevel)}"})`);
+        refresh.restart();
+    }
+    Timer {
+        id: refresh
+        interval: 150
+        onTriggered: { Hyprland.refreshWorkspaces(); Hyprland.refreshToplevels(); }
+    }
+
+    // A tile is this wide; its height follows its screen's shape.
+    readonly property int columns: Math.max(1, Math.min(workspaces.length, width > 2400 ? 5 : 4))
+    readonly property real tileWidth: Math.min(380, (width - 160 - (columns - 1) * 22) / columns)
+
+    Rectangle {
+        id: backdrop
+        anchors.fill: parent
+        color: Theme.alpha(Theme.scrim, 0.62)
+        opacity: Ui.overviewOpen ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: Ui.overviewOpen = false
+        }
+
+        // Typing goes here; the field itself shows only once something is typed.
+        TextInput {
+            id: search
+            width: 0
+            height: 0
+            opacity: 0
+            function pick() {
+                if (root.chosen && (root.picking || root.query !== ""))
+                    root.focusWindow(root.chosen);
+                else
+                    Ui.overviewOpen = false;
+            }
+            Keys.onEscapePressed: {
+                if (text !== "")
+                    text = "";
+                else
+                    Ui.overviewOpen = false;
+            }
+            Keys.onReturnPressed: pick()
+            Keys.onEnterPressed: pick()
+            Keys.onTabPressed: root.step(1)
+            Keys.onBacktabPressed: root.step(-1)
+            Keys.onRightPressed: root.step(1)
+            Keys.onLeftPressed: root.step(-1)
+        }
+
+        ColumnLayout {
+            anchors.centerIn: parent
+            spacing: 28
+            scale: Ui.overviewOpen ? 1 : 0.94
+            Behavior on scale { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
+
+            // The search, or the hint.
+            Rectangle {
+                Layout.alignment: Qt.AlignHCenter
+                implicitWidth: Math.max(260, searchRow.implicitWidth + 36)
+                implicitHeight: 40
+                radius: Theme.corner(20)
+                color: Theme.glassStrong
+                border.color: root.query !== "" ? Theme.violet : Theme.line
+                RowLayout {
+                    id: searchRow
+                    anchors.centerIn: parent
+                    spacing: 10
+                    Glyph { text: "󰍉"; size: 15; color: root.query !== "" ? Theme.violetBright : Theme.dim }
+                    Label {
+                        text: search.text !== "" ? search.text : "Type to find a window"
+                        font.pixelSize: Theme.textMedium
+                        color: search.text !== "" ? Theme.text : Theme.dim
+                    }
+                    Label {
+                        visible: root.query !== ""
+                        text: root.matches.length === 1 ? "1 window" : `${root.matches.length} windows`
+                        font.pixelSize: Theme.textSmall
+                        color: root.matches.length ? Theme.muted : Theme.rose
+                    }
+                }
+            }
+
+            GridLayout {
+                Layout.alignment: Qt.AlignHCenter
+                columns: root.columns
+                rowSpacing: 22
+                columnSpacing: 22
+
+                Repeater {
+                    model: root.workspaces
+                    delegate: ColumnLayout {
+                        id: tile
+                        required property var modelData
+                        readonly property var workspace: modelData.workspace
+                        readonly property var monitor: workspace?.monitor ?? Hyprland.focusedMonitor
+                        readonly property bool turned: (monitor?.lastIpcObject?.transform ?? 0) % 2 === 1
+                        // The screen's size in layout pixels, which window positions use too.
+                        readonly property real screenWidth: (turned ? monitor?.height : monitor?.width) / (monitor?.scale || 1) || 1920
+                        readonly property real screenHeight: (turned ? monitor?.width : monitor?.height) / (monitor?.scale || 1) || 1080
+                        readonly property real fit: root.tileWidth / screenWidth
+                        readonly property bool current: !!workspace && workspace.active && workspace.monitor?.name === root.screen?.name
+                        Layout.alignment: Qt.AlignTop
+                        spacing: 8
+
+                        Rectangle {
+                            id: frame
+                            Layout.preferredWidth: root.tileWidth
+                            Layout.preferredHeight: tile.screenHeight * tile.fit
+                            radius: Theme.radius
+                            clip: true
+                            color: drop.containsDrag ? Theme.alpha(Theme.violet, 0.2) : Theme.alpha(Theme.base, 0.55)
+                            border.width: tile.current || drop.containsDrag ? 2 : 1
+                            border.color: tile.current || drop.containsDrag ? Theme.violet : Theme.line
+                            Behavior on color { ColorAnimation { duration: Theme.fast } }
+
+                            // The wallpaper behind the windows.
+                            Image {
+                                anchors.fill: parent
+                                source: Ui.fileUrl(Ui.wallpaperStill)
+                                sourceSize.width: root.tileWidth * 2
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                                opacity: 0.55
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.goTo(tile.modelData.id)
+                            }
+                            DropArea {
+                                id: drop
+                                anchors.fill: parent
+                                onDropped: drag => {
+                                    if (drag.source?.toplevel && drag.source.toplevel.workspace?.id !== tile.modelData.id)
+                                        root.moveWindow(drag.source.toplevel, tile.modelData.id);
+                                }
+                            }
+                            Glyph {
+                                anchors.centerIn: parent
+                                visible: !tile.workspace
+                                text: "󰐕"
+                                size: 26
+                                color: drop.containsDrag ? Theme.violetBright : Theme.dim
+                            }
+
+                            Repeater {
+                                model: tile.workspace?.toplevels.values ?? []
+                                delegate: Item {
+                                    id: win
+                                    required property var modelData
+                                    readonly property var info: modelData.lastIpcObject ?? {}
+                                    readonly property bool hit: root.found(modelData)
+                                    readonly property bool isChosen: root.chosen === modelData && (root.query !== "" || root.picking)
+                                    x: ((info.at?.[0] ?? 0) - (tile.monitor?.x ?? 0)) * tile.fit
+                                    y: ((info.at?.[1] ?? 0) - (tile.monitor?.y ?? 0)) * tile.fit
+                                    width: Math.max(12, (info.size?.[0] ?? 0) * tile.fit)
+                                    height: Math.max(12, (info.size?.[1] ?? 0) * tile.fit)
+                                    // Floating windows over tiled ones, the most recently used on top.
+                                    z: (info.floating ? 100 : 0) + 50 - (info.focusHistoryID ?? 0)
+                                    opacity: hit ? (pressArea.dragging ? 0.35 : 1) : 0.22
+                                    visible: !info.hidden
+                                    Behavior on opacity { NumberAnimation { duration: Theme.fast } }
+
+                                    ClippingRectangle {
+                                        anchors.fill: parent
+                                        radius: Theme.corner(6)
+                                        color: Theme.raised
+                                        border.width: win.isChosen || pressArea.containsMouse ? 2 : 0
+                                        border.color: Theme.violetBright
+                                        ScreencopyView {
+                                            anchors.fill: parent
+                                            captureSource: root.visible ? win.modelData.wayland : null
+                                            live: Ui.overviewOpen
+                                            constraintSize: Qt.size(width, height)
+                                        }
+                                    }
+                                    IconImage {
+                                        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: Math.min(10, parent.height / 6) }
+                                        implicitSize: Math.max(14, Math.min(32, Math.min(parent.width, parent.height) / 3))
+                                        source: root.entry(win.modelData)?.icon ? Quickshell.iconPath(root.entry(win.modelData).icon, true) : ""
+                                        asynchronous: true
+                                    }
+                                    MouseArea {
+                                        id: pressArea
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: dragging ? Qt.ClosedHandCursor : Qt.PointingHandCursor
+                                        property point start
+                                        property bool dragging: false
+                                        onPressed: m => start = Qt.point(m.x, m.y)
+                                        onPositionChanged: m => {
+                                            if (!pressed)
+                                                return;
+                                            const p = mapToItem(backdrop, m.x, m.y);
+                                            if (!dragging && Math.hypot(m.x - start.x, m.y - start.y) > 6) {
+                                                dragging = true;
+                                                ghost.toplevel = win.modelData;
+                                                ghost.width = win.width;
+                                                ghost.height = win.height;
+                                                ghost.grab = start;
+                                            }
+                                            if (dragging) {
+                                                ghost.x = p.x - ghost.grab.x;
+                                                ghost.y = p.y - ghost.grab.y;
+                                            }
+                                        }
+                                        onReleased: {
+                                            if (dragging) {
+                                                ghost.Drag.drop();
+                                                ghost.toplevel = null;
+                                                dragging = false;
+                                            } else {
+                                                root.focusWindow(win.modelData);
+                                            }
+                                        }
+                                        onCanceled: { ghost.toplevel = null; dragging = false; }
+                                    }
+                                }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.preferredWidth: root.tileWidth
+                            spacing: 8
+                            Label {
+                                text: tile.workspace ? tile.workspace.name : "New workspace"
+                                font.weight: tile.current ? Font.Bold : Font.DemiBold
+                                color: tile.current ? Theme.violetBright : Theme.textSoft
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                visible: !!tile.workspace
+                                text: {
+                                    const n = tile.workspace?.toplevels.values.length ?? 0;
+                                    return n === 0 ? "Empty" : n === 1 ? "1 window" : `${n} windows`;
+                                }
+                                font.pixelSize: Theme.textSmall
+                                color: Theme.muted
+                            }
+                        }
+                    }
+                }
+            }
+
+            Label {
+                Layout.alignment: Qt.AlignHCenter
+                text: "Click to go there · drag a window to move it · Tab and Enter pick a match · Esc to close"
+                font.pixelSize: Theme.textSmall
+                color: Theme.muted
+            }
+        }
+
+        // The window being dragged, following the pointer over the tiles.
+        Item {
+            id: ghost
+            property var toplevel: null
+            property point grab
+            visible: !!toplevel
+            z: 10
+            Drag.active: !!toplevel
+            Drag.hotSpot.x: grab.x
+            Drag.hotSpot.y: grab.y
+            Drag.source: ghost
+            ClippingRectangle {
+                anchors.fill: parent
+                radius: Theme.corner(6)
+                color: Theme.raised
+                border.width: 2
+                border.color: Theme.violet
+                ScreencopyView {
+                    anchors.fill: parent
+                    captureSource: ghost.toplevel?.wayland ?? null
+                    live: true
+                    constraintSize: Qt.size(width, height)
+                }
+            }
+        }
+    }
 }
 ```
 
@@ -9954,12 +12169,20 @@ import Quickshell.Services.Polkit
 import Quickshell.Wayland
 
 // The polkit agent: when an app asks for administrator rights, a password card over the dimmed screen.
+// When the system's polkit stack asks for a finger first (install.sh adds pam_fprintd to it once
+// fprintd is installed), a fingerprint glyph pulses; a password typed meanwhile goes in as soon as
+// the stack asks for it.
 Scope {
     id: root
 
     readonly property var flow: agent.flow
     property bool shown: false
     property string error: ""
+    // The fingerprint reader is waiting: pam_fprintd said so and nothing is asked for yet.
+    readonly property bool fingerWaiting: !!flow && !flow.isResponseRequired && !flow.isCompleted
+        && /finger|swipe/i.test(flow.supplementaryMessage ?? "") && !flow.supplementaryIsError
+    // A password typed while the reader waited.
+    property string queued: ""
 
     PolkitAgent {
         id: agent
@@ -9982,14 +12205,28 @@ Scope {
     }
     onFlowChanged: {
         input.text = "";
+        queued = "";
         if (!flow)
             shown = false;
+    }
+    Connections {
+        target: root.flow
+        ignoreUnknownSignals: true
+        function onIsResponseRequiredChanged() {
+            if (root.flow?.isResponseRequired && root.queued !== "") {
+                root.flow.submit(root.queued);
+                root.queued = "";
+            }
+        }
     }
 
     function submit() {
         if (flow && flow.isResponseRequired) {
             error = "";
             flow.submit(input.text);
+            input.text = "";
+        } else if (fingerWaiting && input.text !== "") {
+            queued = input.text;
             input.text = "";
         }
     }
@@ -10110,7 +12347,7 @@ Scope {
                         font.pixelSize: Theme.textLarge
                         font.letterSpacing: echoMode === TextInput.Password ? 2 : 0
                         selectionColor: Theme.violetDeep
-                        enabled: !!root.flow?.isResponseRequired
+                        enabled: !!root.flow?.isResponseRequired || root.fingerWaiting
                         focus: root.shown
                         onVisibleChanged: if (visible) forceActiveFocus()
                         Keys.onReturnPressed: root.submit()
@@ -10125,17 +12362,25 @@ Scope {
                         }
                     }
                     Glyph {
+                        property real pulse: 1
                         anchors { right: parent.right; rightMargin: 18; verticalCenter: parent.verticalCenter }
-                        text: root.flow?.isResponseRequired === false ? "󰔟" : "󰌆"
-                        size: 15
-                        color: Theme.dim
+                        text: root.fingerWaiting ? "󰈷" : root.flow?.isResponseRequired === false ? "󰔟" : "󰌆"
+                        size: root.fingerWaiting ? 18 : 15
+                        color: root.fingerWaiting ? Theme.violetBright : Theme.dim
+                        opacity: root.fingerWaiting ? pulse : 1
+                        SequentialAnimation on pulse {
+                            running: root.fingerWaiting
+                            loops: Animation.Infinite
+                            NumberAnimation { to: 0.35; duration: 900; easing.type: Easing.InOutSine }
+                            NumberAnimation { to: 1; duration: 900; easing.type: Easing.InOutSine }
+                        }
                     }
                 }
 
                 Label {
                     Layout.fillWidth: true
                     visible: text !== ""
-                    text: root.error || (root.flow?.supplementaryMessage ?? "")
+                    text: root.error || (root.queued !== "" ? "Your password goes in once the reader gives up" : root.fingerWaiting ? "Touch the fingerprint reader, or type your password" : root.flow?.supplementaryMessage ?? "")
                     wrapMode: Text.Wrap
                     font.pixelSize: Theme.textBody
                     color: root.error || root.flow?.supplementaryIsError ? Theme.rose : Theme.muted
@@ -10157,7 +12402,7 @@ Scope {
                         primary: true
                         implicitHeight: 36
                         implicitWidth: 124
-                        available: !!root.flow?.isResponseRequired
+                        available: !!root.flow?.isResponseRequired || root.fingerWaiting && input.text !== ""
                         onClicked: root.submit()
                     }
                 }
@@ -10637,6 +12882,76 @@ PanelWindow {
 }
 ```
 
+## `config/quickshell/penumbra/Segmented.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+
+// A row of choices with the current one lit: power profiles, night light's schedule.
+Rectangle {
+    id: root
+
+    // [{ value, title, glyph (optional), available (optional, default true) }]
+    property var options: []
+    property var current
+    signal chosen(var value)
+
+    implicitHeight: 42
+    radius: Theme.radius
+    color: Theme.raised
+    border.color: Theme.line
+
+    RowLayout {
+        anchors { fill: parent; margins: 4 }
+        spacing: 4
+        Repeater {
+            model: root.options
+            delegate: Rectangle {
+                id: segment
+                required property var modelData
+                readonly property bool current: root.current === modelData.value
+                readonly property bool available: modelData.available ?? true
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.preferredWidth: 1 // equal shares
+                radius: Theme.corner(Theme.radius - 4)
+                color: current ? Theme.alpha(Theme.violet, 0.22) : segmentArea.containsMouse ? Theme.hover : "transparent"
+                border.color: current ? Theme.alpha(Theme.violetBright, 0.55) : "transparent"
+                opacity: available ? 1 : 0.45
+                Behavior on color { ColorAnimation { duration: Theme.fast } }
+                RowLayout {
+                    anchors.centerIn: parent
+                    width: Math.min(implicitWidth, parent.width - 8)
+                    spacing: 6
+                    Glyph {
+                        visible: !!segment.modelData.glyph
+                        text: segment.modelData.glyph ?? ""
+                        size: 14
+                        color: segment.current ? Theme.violetBright : Theme.muted
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: segment.modelData.title
+                        font.pixelSize: Theme.textSmall
+                        font.weight: segment.current ? Font.DemiBold : Font.Normal
+                        color: segment.current ? Theme.text : Theme.textSoft
+                    }
+                }
+                MouseArea {
+                    id: segmentArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    enabled: segment.available && !segment.current
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.chosen(segment.modelData.value)
+                }
+            }
+        }
+    }
+}
+```
+
 ## `config/quickshell/penumbra/SessionMenu.qml`
 
 ```qml
@@ -10792,6 +13107,12 @@ import Quickshell.Io
 Singleton {
     property alias animatedWallpapers: adapter.animatedWallpapers
     property alias hotCorner: adapter.hotCorner
+    // Night light: its warmth in kelvin, and when it comes on (see NightLight).
+    property alias nightTemperature: adapter.nightTemperature
+    property alias nightSchedule: adapter.nightSchedule // manual, times or sun
+    property alias nightFrom: adapter.nightFrom
+    property alias nightTo: adapter.nightTo
+    property alias nightPlace: adapter.nightPlace // a city or "latitude, longitude"; empty: the time zone's
 
     FileView {
         path: Quickshell.env("HOME") + "/.config/penumbra/shell.json"
@@ -10809,6 +13130,11 @@ Singleton {
             id: adapter
             property bool animatedWallpapers: true
             property bool hotCorner: true
+            property int nightTemperature: 4500
+            property string nightSchedule: "manual"
+            property string nightFrom: "21:00"
+            property string nightTo: "07:00"
+            property string nightPlace: ""
         }
     }
 }
@@ -10819,55 +13145,19 @@ Singleton {
 ```qml
 import QtQuick
 import QtQuick.Layouts
+import Quickshell
 
-// Settings: the corner style, the wallpaper and a few shell behaviours.
+// Settings: screens, keyboard, idle timings and default apps (each a page of its own), the corner
+// style, the wallpaper and a few shell behaviours.
 ColumnLayout {
     id: root
 
     spacing: 12
+    onVisibleChanged: if (visible) Config.loadLayouts()
 
     component Section: Overline {
         Layout.fillWidth: true
         Layout.topMargin: 2
-    }
-
-    // A labelled on/off switch; the whole row toggles.
-    component SwitchRow: Rectangle {
-        id: row
-        property string glyph
-        property string title
-        property string subtitle
-        property bool checked: false
-        signal toggled()
-
-        Layout.fillWidth: true
-        implicitHeight: 52
-        radius: Theme.radiusSmall
-        color: rowArea.containsMouse ? Theme.raised : "transparent"
-        Behavior on color { ColorAnimation { duration: Theme.fast } }
-
-        MouseArea {
-            id: rowArea
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: row.toggled()
-        }
-        RowLayout {
-            anchors { fill: parent; leftMargin: 10; rightMargin: 10 }
-            spacing: 11
-            Glyph { Layout.preferredWidth: 22; text: row.glyph; size: 17 }
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 0
-                Label { Layout.fillWidth: true; text: row.title }
-                Label { Layout.fillWidth: true; text: row.subtitle; font.pixelSize: Theme.textSmall; color: Theme.muted }
-            }
-            Switch {
-                checked: row.checked
-                onToggled: row.toggled()
-            }
-        }
     }
 
     PageHeader {
@@ -10876,6 +13166,28 @@ ColumnLayout {
         status: "Super+, opens this page"
         showSwitch: false
         onBack: Ui.controlPage = "main"
+    }
+
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: 2
+        Repeater {
+            model: [
+                { page: "displays", glyph: "󰍹", title: "Displays", subtitle: Quickshell.screens.length > 1 ? `${Quickshell.screens.length} screens · arrangement, resolution, scale` : "Resolution, refresh rate, scale" },
+                { page: "keyboard", glyph: "󰌌", title: "Keyboard", subtitle: (Config.values.kb_layout ?? "").split(",").map(l => Config.layoutName(l)).join(", ") },
+                { page: "idle", glyph: "󰒲", title: "Idle and sleep", subtitle: `Lock after ${Config.duration(Config.values.idle_lock).toLowerCase()}` },
+                { page: "apps", glyph: "󰀻", title: "Default apps", subtitle: "Browser, file manager, terminal" }
+            ]
+            delegate: ListRow {
+                required property var modelData
+                Layout.fillWidth: true
+                glyph: modelData.glyph
+                title: modelData.title
+                subtitle: modelData.subtitle
+                trailing: "󰅂"
+                onClicked: Ui.controlPage = modelData.page
+            }
+        }
     }
 
     Section { text: "Corners" }
@@ -11027,13 +13339,19 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell.Widgets
 
-// Glyph (or app icon) button for mute, plus a soft violet slider, 0–100.
+// Glyph (or app icon) button for mute, plus a soft violet slider, 0–100 unless `from` and `to` say
+// otherwise.
 RowLayout {
     id: root
 
     property string glyph
     property string icon: ""
     property real value: 0
+    property real from: 0
+    property real to: 100
+    property real stepSize: 0
+    property string label: Math.round(value) + "%"
+    property int labelWidth: 34
     property bool muted: false
     signal moved(real value)
     signal glyphClicked()
@@ -11073,8 +13391,9 @@ RowLayout {
         Layout.fillWidth: true
         // The custom background and handle give no implicit height, which would leave a 0 px hit area.
         implicitHeight: 36
-        from: 0
-        to: 100
+        from: root.from
+        to: root.to
+        stepSize: root.stepSize
         value: root.value
         onMoved: root.moved(value)
         background: Rectangle {
@@ -11109,9 +13428,9 @@ RowLayout {
     }
 
     Label {
-        Layout.preferredWidth: 34
+        Layout.preferredWidth: root.labelWidth
         horizontalAlignment: Text.AlignRight
-        text: Math.round(root.value) + "%"
+        text: root.label
         font.pixelSize: Theme.textSmall
         color: Theme.muted
     }
@@ -11185,6 +13504,71 @@ Item {
 }
 ```
 
+## `config/quickshell/penumbra/Stepper.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+
+// A value between two arrows that step it, repeating while held: night light's times, idle
+// timings, screen modes.
+RowLayout {
+    id: root
+
+    property string text
+    property string lessGlyph: "󰅁"
+    property string moreGlyph: "󰅂"
+    property bool canDecrease: true
+    property bool canIncrease: true
+    property int textWidth: 72
+    signal decreased()
+    signal increased()
+
+    spacing: 2
+
+    component Arrow: Rectangle {
+        id: arrow
+        property string glyph
+        property bool available: true
+        signal step()
+        implicitWidth: 28
+        implicitHeight: 28
+        radius: Theme.corner(14)
+        color: area.containsMouse && available ? Theme.hover : "transparent"
+        opacity: available ? 1 : 0.35
+        Glyph { anchors.centerIn: parent; text: arrow.glyph; size: 13; color: Theme.textSoft }
+        MouseArea {
+            id: area
+            anchors.fill: parent
+            hoverEnabled: true
+            enabled: arrow.available
+            cursorShape: Qt.PointingHandCursor
+            onPressed: { arrow.step(); held.interval = 420; held.start(); }
+            onReleased: held.stop()
+            onCanceled: held.stop()
+        }
+        Timer {
+            id: held
+            repeat: true
+            onTriggered: {
+                interval = 70;
+                if (arrow.available)
+                    arrow.step();
+            }
+        }
+    }
+
+    Arrow { glyph: root.lessGlyph; available: root.canDecrease; onStep: root.decreased() }
+    Label {
+        Layout.preferredWidth: root.textWidth
+        horizontalAlignment: Text.AlignHCenter
+        text: root.text
+        font.weight: Font.DemiBold
+    }
+    Arrow { glyph: root.moreGlyph; available: root.canIncrease; onStep: root.increased() }
+}
+```
+
 ## `config/quickshell/penumbra/Switch.qml`
 
 ```qml
@@ -11218,6 +13602,52 @@ Rectangle {
         anchors.fill: parent
         cursorShape: Qt.PointingHandCursor
         onClicked: root.toggled()
+    }
+}
+```
+
+## `config/quickshell/penumbra/SwitchRow.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+
+// A labelled on/off switch; the whole row toggles.
+Rectangle {
+    id: row
+    property string glyph
+    property string title
+    property string subtitle
+    property bool checked: false
+    signal toggled()
+
+    Layout.fillWidth: true
+    implicitHeight: 52
+    radius: Theme.radiusSmall
+    color: rowArea.containsMouse ? Theme.raised : "transparent"
+    Behavior on color { ColorAnimation { duration: Theme.fast } }
+
+    MouseArea {
+        id: rowArea
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: row.toggled()
+    }
+    RowLayout {
+        anchors { fill: parent; leftMargin: 10; rightMargin: 10 }
+        spacing: 11
+        Glyph { Layout.preferredWidth: 22; text: row.glyph; size: 17 }
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 0
+            Label { Layout.fillWidth: true; text: row.title }
+            Label { Layout.fillWidth: true; text: row.subtitle; font.pixelSize: Theme.textSmall; color: Theme.muted }
+        }
+        Switch {
+            checked: row.checked
+            onToggled: row.toggled()
+        }
     }
 }
 ```
@@ -11516,7 +13946,7 @@ Singleton {
     id: root
 
     property bool controlOpen: false
-    property string controlPage: "main" // main, wifi, bluetooth, mixer or settings
+    property string controlPage: "main" // main, wifi, bluetooth, mixer, night, settings or a settings page
     property bool calendarOpen: false
     property bool monitorOpen: false
     property bool updatesOpen: false
@@ -11525,12 +13955,13 @@ Singleton {
     property bool launcherOpen: false
     property string launcherMode: "apps" // apps, clipboard, emoji or symbols
     property bool shotOpen: false
+    property bool overviewOpen: false
     property bool caffeine: false
-    property bool nightLight: false
 
-    property string osdKind: "volume"
+    property string osdKind: "volume" // volume, microphone, brightness, or capslock and layout (text only)
     property int osdValue: 0
     property bool osdMuted: false
+    property string osdText: ""
     property bool osdVisible: false
 
     // Panels follow the monitor that has focus.
@@ -11549,6 +13980,7 @@ Singleton {
         sessionOpen = false;
         launcherOpen = false;
         shotOpen = false;
+        overviewOpen = false;
     }
     // A click outside a panel closes it; ignore that same click reopening it from the bar.
     property double closedAt: 0
@@ -11598,15 +14030,21 @@ Singleton {
         launcherMode = mode;
         launcherOpen = reopen;
     }
+    function toggleOverview() {
+        const reopen = !overviewOpen;
+        closeOverlays();
+        overviewOpen = reopen;
+    }
     function openShot() {
         closeOverlays();
         shotOpen = true;
     }
 
-    function showOsd(kind, value, muted) {
+    function showOsd(kind, value, muted, text) {
         osdKind = kind;
         osdValue = Math.max(0, Math.min(100, value));
         osdMuted = muted;
+        osdText = text ?? "";
         osdVisible = true;
         osdTimer.restart();
     }
@@ -11657,22 +14095,18 @@ Singleton {
     property bool hasNightLight: false
     property bool hasVisualizer: false
     property bool hasTyping: false // wtype types emoji and symbols into the focused window
+    property bool hasPowerProfiles: false // power-profiles-daemon (or another daemon with its D-Bus API)
     Process {
         running: true
-        command: ["bash", "-c", "command -v hyprsunset; command -v cava; command -v wtype"]
+        command: ["bash", "-c", "command -v hyprsunset; command -v cava; command -v wtype; busctl --system list --no-pager 2>/dev/null | grep -qE \"^(org.freedesktop.UPower.PowerProfiles|net.hadess.PowerProfiles) \" && echo /power-profiles"]
         stdout: StdioCollector {
             onStreamFinished: {
                 root.hasNightLight = text.includes("/hyprsunset");
                 root.hasVisualizer = text.includes("/cava");
                 root.hasTyping = text.includes("/wtype");
+                root.hasPowerProfiles = text.includes("/power-profiles");
             }
         }
-    }
-    // Night light: hyprsunset warms the screen for as long as it runs.
-    readonly property int nightTemperature: 4500
-    Process {
-        running: root.nightLight && root.hasNightLight
-        command: ["hyprsunset", "--temperature", String(root.nightTemperature)]
     }
 
     // Start a program in its own systemd scope (under app.slice), so it outlives the shell: the
@@ -12954,13 +15388,23 @@ var diffChange = "#27243f";
 var diffText = "#403457";
 ```
 
+## `config/quickshell/penumbra/pam/fingerprint`
+
+```text
+#%PAM-1.0
+# The lock screen's fingerprint check (LockScreen.qml), which runs next to the password check (the
+# system's "login" stack): one scan per attempt, and the shell starts the next one itself.
+auth     required  pam_fprintd.so  max-tries=1
+account  required  pam_unix.so
+```
+
 ## `config/quickshell/penumbra/shell.qml`
 
 ```qml
 //@ pragma UseQApplication
 //@ pragma IconTheme Penumbra
 // PENUMBRA shell: animated wallpapers, bar, control center, notifications, OSD, calendar, session
-// overlay, launcher, lock screen, polkit agent and screenshot/recording overlay.
+// overlay, launcher, workspace overview, lock screen, polkit agent and screenshot/recording overlay.
 // Run with `quickshell -c penumbra`; scripts talk to it with `quickshell -c penumbra ipc call …`.
 import QtQuick
 import Quickshell
@@ -12991,6 +15435,7 @@ ShellRoot {
     ScreenshotOverlay {
         id: shot
     }
+    Overview {}
     LockScreen {
         id: lockScreen
     }
@@ -13005,6 +15450,10 @@ ShellRoot {
         function adjust(control: string, action: string): bool {
             return control === "brightness" ? Sys.stepBrightness(action) : Devices.adjust(control, action);
         }
+        // Hyprland calls this when Caps Lock is released; the popup says whether it is on.
+        function capsLock(): void {
+            Devices.showCapsLock();
+        }
     }
 
     IpcHandler {
@@ -13014,6 +15463,9 @@ ShellRoot {
         function bluetooth(): void { Ui.openControl("bluetooth"); }
         function mixer(): void { Ui.openControl("mixer"); }
         function settings(): void { Ui.openControl("settings"); }
+        // A page of Settings: displays, keyboard, idle or apps; or night (night light).
+        function page(name: string): void { Ui.openControl(name); }
+        function overview(): void { Ui.toggleOverview(); }
         function calendar(): void { Ui.toggleCalendar(); }
         function monitor(): void { Ui.toggleMonitor(); }
         function session(): void { Ui.openSession(); }
@@ -13051,6 +15503,12 @@ ShellRoot {
     }
 
     IpcHandler {
+        target: "nightlight"
+        function toggle(): void { NightLight.toggle(); }
+        function isOn(): bool { return NightLight.on; }
+    }
+
+    IpcHandler {
         target: "notifications"
         function clear(): void { Notifs.clear(); }
         function dnd(): void { Notifs.dnd = !Notifs.dnd; }
@@ -13066,6 +15524,67 @@ ShellRoot {
         target: "updates"
         function refresh(): void { Sys.refreshUpdates(); }
     }
+}
+```
+
+## `config/quickshell/penumbra/sun.js`
+
+```javascript
+.pragma library
+
+// Sunrise and sunset for night light's schedule, worked out here rather than looked up: NOAA's
+// approximation, within a minute or two away from the poles.
+
+// times(date, latitude, longitude) → { rise, set } in minutes after the local midnight of `date`
+// (this computer's time zone), or { polar: "day" } / { polar: "night" } when the sun doesn't set
+// or rise that day. Latitude and longitude are in degrees, north and east positive.
+function times(date, latitude, longitude) {
+    const rad = Math.PI / 180;
+    const day = Math.round((new Date(date.getFullYear(), date.getMonth(), date.getDate()) - new Date(date.getFullYear(), 0, 1)) / 86400000);
+    const year = 2 * Math.PI / 365 * (day + 0.5); // the fractional year, at noon
+    const equation = 229.18 * (0.000075 + 0.001868 * Math.cos(year) - 0.032077 * Math.sin(year)
+        - 0.014615 * Math.cos(2 * year) - 0.040849 * Math.sin(2 * year));
+    const declination = 0.006918 - 0.399912 * Math.cos(year) + 0.070257 * Math.sin(year)
+        - 0.006758 * Math.cos(2 * year) + 0.000907 * Math.sin(2 * year)
+        - 0.002697 * Math.cos(3 * year) + 0.00148 * Math.sin(3 * year);
+    // The sun's centre 0.833° below the horizon: refraction and its radius.
+    const cosHour = Math.cos(90.833 * rad) / (Math.cos(latitude * rad) * Math.cos(declination))
+        - Math.tan(latitude * rad) * Math.tan(declination);
+    if (cosHour > 1)
+        return { polar: "night" };
+    if (cosHour < -1)
+        return { polar: "day" };
+    const hour = Math.acos(cosHour) / rad;
+    // Solar noon in UTC minutes, then in local time.
+    const noon = 720 - 4 * longitude - equation - new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12).getTimezoneOffset();
+    const wrap = m => (Math.round(m) % 1440 + 1440) % 1440;
+    return { rise: wrap(noon - 4 * hour), set: wrap(noon + 4 * hour) };
+}
+
+// "21:30" → 1290, or -1 when it isn't a time.
+function minutes(text) {
+    const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(text.trim());
+    return m ? Number(m[1]) * 60 + Number(m[2]) : -1;
+}
+
+// 1290 → "21:30".
+function clock(minutes) {
+    const m = (Math.round(minutes) % 1440 + 1440) % 1440;
+    return String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+}
+
+// Whether `now` (minutes) falls between `from` and `to`, across midnight when `to` comes first.
+function between(now, from, to) {
+    return from <= to ? now >= from && now < to : now >= from || now < to;
+}
+
+// zone1970.tab's coordinates, "+4852+00220" or "+404251-0740023" → { latitude, longitude }.
+function coordinates(text) {
+    const m = /^([+-]\d{2})(\d{2})(\d{2})?([+-]\d{3})(\d{2})(\d{2})?$/.exec(text);
+    if (!m)
+        return null;
+    const part = (d, mm, ss) => (d.startsWith("-") ? -1 : 1) * (Math.abs(Number(d)) + Number(mm) / 60 + Number(ss ?? 0) / 3600);
+    return { latitude: part(m[1], m[2], m[3]), longitude: part(m[4], m[5], m[6]) };
 }
 ```
 

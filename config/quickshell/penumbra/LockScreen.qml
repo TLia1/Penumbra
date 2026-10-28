@@ -14,7 +14,9 @@ Scope {
     property bool busy: false
     property string message: ""
     property bool capsLock: false
-    readonly property bool locked: sessionLock.locked
+    // Kept here rather than bound to sessionLock.locked: Quickshell 0.3.2 never signals the
+    // unlock, so a binding stays true and the wallpapers stay paused after the first lock.
+    property bool locked: false
     signal rejected()
 
     // Fingerprint: whether a finger is enrolled (fprintd-list, checked at each lock), the reader
@@ -37,6 +39,8 @@ Scope {
         checkCaps();
         lockState.setText("locked\n");
         sessionLock.locked = true;
+        // False if the compositor refused the lock.
+        locked = sessionLock.locked;
     }
     function submit() {
         if (busy || password === "")
@@ -51,6 +55,7 @@ Scope {
         if (fingerPam.active)
             fingerPam.abort();
         sessionLock.locked = false;
+        locked = false;
         lockState.setText("");
     }
     // Wait for a finger; a click on the fingerprint glyph tries again after giving up.
