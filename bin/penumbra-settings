@@ -87,13 +87,26 @@ def problem(key, value):
 
 def load():
     values = dict(DEFAULTS)
+    configured = set()
     try:
         for line in SETTINGS.read_text().splitlines():
             key, sep, value = line.partition('=')
             if sep and re.fullmatch(r'[a-z_]+', key) and key in DEFAULTS:
                 values[key] = value
+                configured.add(key)
     except OSError:
         pass
+    if 'file_manager' not in configured:
+        available = bool(shutil.which('lia-files'))
+        if not available and shutil.which('flatpak'):
+            try:
+                available = subprocess.run(['flatpak', 'info', 'io.github.lia.Files'],
+                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                           timeout=5).returncode == 0
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        if available:
+            values['file_manager'] = 'io.github.lia.Files'
     return values
 
 

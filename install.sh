@@ -36,7 +36,7 @@ Settings (detected on the first run, then remembered in $SETTINGS_FILE):
   --numlock on|off     Turn Num Lock on when you log in.
   --shell fish|keep    Make fish your login shell, or keep the current one.
   --terminal APP       Terminal for Super+Enter, by its desktop file: kitty, foot...
-  --file-manager APP   File manager for Super+E, by its desktop file: org.kde.dolphin...
+  --file-manager APP   File manager for Super+E: io.github.lia.Files, org.kde.dolphin...
   --idle-dim MIN       Minutes idle before the screen dims, or never.
   --idle-lock MIN      Minutes idle before the screen locks, or never.
   --idle-screen-off MIN
@@ -216,7 +216,11 @@ detect_settings() {
     set_default numlock on
     set_default shell fish
     set_default terminal kitty
-    set_default file_manager org.kde.dolphin
+    if command -v lia-files >/dev/null || { command -v flatpak >/dev/null && flatpak info io.github.lia.Files >/dev/null 2>&1; }; then
+        set_default file_manager io.github.lia.Files
+    else
+        set_default file_manager org.kde.dolphin
+    fi
     set_default idle_dim 9.5
     set_default idle_lock 10
     set_default idle_screen_off 11
@@ -554,6 +558,7 @@ apply_gtk_settings() {
     gsettings set org.gnome.desktop.interface cursor-theme Penumbra-Cursors
     gsettings set org.gnome.desktop.interface cursor-size 28
     gsettings set org.gnome.desktop.interface font-name 'Inter 10'
+    gsettings set org.gnome.desktop.interface monospace-font-name 'JetBrainsMono Nerd Font 10'
     # Only a close button on title bars: Hyprland tiles, so minimize and maximize do nothing.
     gsettings set org.gnome.desktop.wm.preferences button-layout ':close'
 }
@@ -592,12 +597,49 @@ install_app_colors() {
         for command in ${APP_COMMANDS[$app]:-$app}; do
             command -v "$command" >/dev/null && found=1
         done
+        if [[ $app = lia-files ]] && command -v flatpak >/dev/null && flatpak info io.github.lia.Files >/dev/null 2>&1; then
+            found=1
+            install_tree "$dir/config" "$HOME/.var/app/io.github.lia.Files/config"
+            install_tree "$ROOT/share/gtksourceview-5" "$HOME/.var/app/io.github.lia.Files/data/gtksourceview-5"
+            install_tree "$ROOT/share/lia-files" "$HOME/.var/app/io.github.lia.Files/data/lia-files"
+        fi
         [[ -n $found ]] || continue
         [[ ! -d $dir/config ]] || install_tree "$dir/config" "$HOME/.config"
         [[ ! -d $dir/share ]] || install_tree "$dir/share" "$HOME/.local/share"
         if declare -F "color_$app" >/dev/null; then "color_$app" "$dir"; fi
         echo "Penumbra colours for $app."
     done
+}
+
+color_lia-files() {
+    if command -v gsettings >/dev/null && gsettings list-schemas | grep -qx io.github.lia.Files; then
+        local key current
+        for key in text-scheme-dark text-scheme-light; do
+            # Older builds may not have the new appearance keys yet.
+            gsettings list-keys io.github.lia.Files | grep -qx "$key" || continue
+            current=$(gsettings get io.github.lia.Files "$key")
+            if [[ $key = text-scheme-dark && $current = "'Adwaita-dark'" ]]; then
+                gsettings set io.github.lia.Files "$key" penumbra
+            elif [[ $key = text-scheme-light && $current = "'Adwaita'" ]]; then
+                gsettings set io.github.lia.Files "$key" penumbra-light
+            fi
+        done
+    fi
+    # Flatpak has its own settings backend and schemas.
+    if command -v flatpak >/dev/null && flatpak info io.github.lia.Files >/dev/null 2>&1; then
+        local key scheme current
+        for key in text-scheme-dark text-scheme-light; do
+            current=$(flatpak run --command=gsettings io.github.lia.Files get io.github.lia.Files "$key" 2>/dev/null) || continue
+            if [[ $key = text-scheme-dark && $current = "'Adwaita-dark'" ]]; then
+                scheme=penumbra
+            elif [[ $key = text-scheme-light && $current = "'Adwaita'" ]]; then
+                scheme=penumbra-light
+            else
+                continue
+            fi
+            flatpak run --command=gsettings io.github.lia.Files set io.github.lia.Files "$key" "$scheme" || true
+        done
+    fi
 }
 
 # install_file FROM TO: copy one file, keeping what it replaces.
@@ -774,6 +816,7 @@ run_user_part() {
     step 'Applying themes and starting services'
     apply_gtk_settings
     install_app_colors
+    "$HOME/.local/bin/penumbra-corners" restore
     # Every colour file above comes in the default dark palette; render them again for the chosen
     # theme (and set the GTK theme for its mode).
     "$HOME/.local/bin/penumbra-theme" restore

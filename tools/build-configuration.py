@@ -21,7 +21,7 @@ SECTIONS = [
     ['bin/*'],
     ['config/**/*'],
     ['apps/**/*'],
-    ['share/color-schemes/*', 'share/icons/*/index.theme', 'share/kio/servicemenus/*'],
+    ['share/color-schemes/*', 'share/icons/*/index.theme', 'share/kio/servicemenus/*', 'share/lia-files/actions/*', 'share/gtksourceview-5/styles/*'],
     ['system/**/*'],
     ['boot/grub/theme.txt', 'boot/plymouth/*.plymouth'],
     ['assets/wallpaper*.svg'],

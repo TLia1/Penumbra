@@ -235,6 +235,12 @@ def targets(rel):
             found.append(CONFIG / 'yazi' / 'flavors' / 'penumbra.yazi' / 'tmtheme.xml')
     else:
         found = []
+    # Flatpak uses its sandbox XDG paths even when host files are readable.
+    sandbox = HOME / '.var/app/io.github.lia.Files'
+    if rel == 'apps/lia-files/config/lia-files/penumbra.css':
+        found.append(sandbox / 'config/lia-files/penumbra.css')
+    elif rel.startswith('share/gtksourceview-5/styles/'):
+        found.append(sandbox / 'data/gtksourceview-5/styles' / parts[-1])
     return [path for path in found if path.is_file()]
 
 

@@ -11,7 +11,7 @@ local c = dofile(home .. "/.config/hypr/colors.lua")
 local light = c.mode == "light"
 -- settings.conf as a table, read afresh each time (bindings below call it when pressed).
 local function settings()
- local s = {kb_layout = "us", kb_variant = "", kb_options = "", scale = "auto", numlock = "on", terminal = "kitty", file_manager = "org.kde.dolphin"}
+ local s = {kb_layout = "us", kb_variant = "", kb_options = "", scale = "auto", numlock = "on", terminal = "kitty", file_manager = "io.github.lia.Files"}
  local file = io.open(home .. "/.config/penumbra/settings.conf")
  if file then
   for line in file:lines() do
@@ -71,7 +71,7 @@ local function terminal() hl.exec_cmd("gtk-launch " .. settings().terminal .. " 
 hl.bind("SUPER + Return", terminal)
 hl.bind("SUPER + Q", terminal)
 -- The file manager chosen in Settings → Default apps.
-hl.bind("SUPER + E", function() hl.exec_cmd("gtk-launch " .. settings().file_manager .. " || dolphin") end)
+hl.bind("SUPER + E", function() hl.exec_cmd("gtk-launch " .. settings().file_manager .. " || lia-files || dolphin") end)
 exec("SUPER + R", "~/.local/bin/penumbra-launcher")
 exec("SUPER + space", "~/.local/bin/penumbra-launcher")
 -- Your default web browser (Settings → Default apps, or xdg-settings set default-web-browser NAME.desktop).

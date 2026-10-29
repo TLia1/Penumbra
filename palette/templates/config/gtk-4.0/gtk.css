@@ -37,6 +37,15 @@
 @define-color theme_fg_color {{text}};
 @define-color theme_base_color {{base}};
 @define-color theme_text_color {{text}};
-window, dialog { background-color: {{surface}}; color: {{text}}; }
-headerbar { background: {{surfaceAlt}}; color: {{text}}; }
-selection { background-color: {{selection}}; color: {{selectionText}}; }
+window, dialog { background-color: var(--window-bg-color, {{surface}}); color: var(--window-fg-color, {{text}}); }
+headerbar { background: var(--headerbar-bg-color, {{surfaceAlt}}); color: var(--headerbar-fg-color, {{text}}); }
+selection { background-color: var(--accent-bg-color, {{selection}}); color: var(--accent-fg-color, {{selectionText}}); }
+
+/* libadwaita otherwise derives these foregrounds from the background colours. */
+:root {
+  --accent-color: {{accent}};
+  --error-color: {{rose}};
+  --destructive-color: {{rose}};
+  --success-color: {{green}};
+  --warning-color: {{amber}};
+}

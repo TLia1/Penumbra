@@ -239,7 +239,7 @@ Panel {
             visible: yours.count === 0
             Layout.fillWidth: true
             wrapMode: Text.Wrap
-            text: "Put images, GIFs and videos in ~/Pictures/Wallpapers, or right-click one in Dolphin and choose Set as Wallpaper."
+            text: "Put images, GIFs and videos in ~/Pictures/Wallpapers, or right-click one in Lia Files or Dolphin and choose Set as Wallpaper."
             color: Theme.muted
         }
         Flickable {

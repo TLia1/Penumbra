@@ -47,7 +47,7 @@ Settings (detected on the first run, then remembered in $SETTINGS_FILE):
   --numlock on|off     Turn Num Lock on when you log in.
   --shell fish|keep    Make fish your login shell, or keep the current one.
   --terminal APP       Terminal for Super+Enter, by its desktop file: kitty, foot...
-  --file-manager APP   File manager for Super+E, by its desktop file: org.kde.dolphin...
+  --file-manager APP   File manager for Super+E: io.github.lia.Files, org.kde.dolphin...
   --idle-dim MIN       Minutes idle before the screen dims, or never.
   --idle-lock MIN      Minutes idle before the screen locks, or never.
   --idle-screen-off MIN
@@ -227,7 +227,11 @@ detect_settings() {
     set_default numlock on
     set_default shell fish
     set_default terminal kitty
-    set_default file_manager org.kde.dolphin
+    if command -v lia-files >/dev/null || { command -v flatpak >/dev/null && flatpak info io.github.lia.Files >/dev/null 2>&1; }; then
+        set_default file_manager io.github.lia.Files
+    else
+        set_default file_manager org.kde.dolphin
+    fi
     set_default idle_dim 9.5
     set_default idle_lock 10
     set_default idle_screen_off 11
@@ -565,6 +569,7 @@ apply_gtk_settings() {
     gsettings set org.gnome.desktop.interface cursor-theme Penumbra-Cursors
     gsettings set org.gnome.desktop.interface cursor-size 28
     gsettings set org.gnome.desktop.interface font-name 'Inter 10'
+    gsettings set org.gnome.desktop.interface monospace-font-name 'JetBrainsMono Nerd Font 10'
     # Only a close button on title bars: Hyprland tiles, so minimize and maximize do nothing.
     gsettings set org.gnome.desktop.wm.preferences button-layout ':close'
 }
@@ -603,12 +608,49 @@ install_app_colors() {
         for command in ${APP_COMMANDS[$app]:-$app}; do
             command -v "$command" >/dev/null && found=1
         done
+        if [[ $app = lia-files ]] && command -v flatpak >/dev/null && flatpak info io.github.lia.Files >/dev/null 2>&1; then
+            found=1
+            install_tree "$dir/config" "$HOME/.var/app/io.github.lia.Files/config"
+            install_tree "$ROOT/share/gtksourceview-5" "$HOME/.var/app/io.github.lia.Files/data/gtksourceview-5"
+            install_tree "$ROOT/share/lia-files" "$HOME/.var/app/io.github.lia.Files/data/lia-files"
+        fi
         [[ -n $found ]] || continue
         [[ ! -d $dir/config ]] || install_tree "$dir/config" "$HOME/.config"
         [[ ! -d $dir/share ]] || install_tree "$dir/share" "$HOME/.local/share"
         if declare -F "color_$app" >/dev/null; then "color_$app" "$dir"; fi
         echo "Penumbra colours for $app."
     done
+}
+
+color_lia-files() {
+    if command -v gsettings >/dev/null && gsettings list-schemas | grep -qx io.github.lia.Files; then
+        local key current
+        for key in text-scheme-dark text-scheme-light; do
+            # Older builds may not have the new appearance keys yet.
+            gsettings list-keys io.github.lia.Files | grep -qx "$key" || continue
+            current=$(gsettings get io.github.lia.Files "$key")
+            if [[ $key = text-scheme-dark && $current = "'Adwaita-dark'" ]]; then
+                gsettings set io.github.lia.Files "$key" penumbra
+            elif [[ $key = text-scheme-light && $current = "'Adwaita'" ]]; then
+                gsettings set io.github.lia.Files "$key" penumbra-light
+            fi
+        done
+    fi
+    # Flatpak has its own settings backend and schemas.
+    if command -v flatpak >/dev/null && flatpak info io.github.lia.Files >/dev/null 2>&1; then
+        local key scheme current
+        for key in text-scheme-dark text-scheme-light; do
+            current=$(flatpak run --command=gsettings io.github.lia.Files get io.github.lia.Files "$key" 2>/dev/null) || continue
+            if [[ $key = text-scheme-dark && $current = "'Adwaita-dark'" ]]; then
+                scheme=penumbra
+            elif [[ $key = text-scheme-light && $current = "'Adwaita'" ]]; then
+                scheme=penumbra-light
+            else
+                continue
+            fi
+            flatpak run --command=gsettings io.github.lia.Files set io.github.lia.Files "$key" "$scheme" || true
+        done
+    fi
 }
 
 # install_file FROM TO: copy one file, keeping what it replaces.
@@ -785,6 +827,7 @@ run_user_part() {
     step 'Applying themes and starting services'
     apply_gtk_settings
     install_app_colors
+    "$HOME/.local/bin/penumbra-corners" restore
     # Every colour file above comes in the default dark palette; render them again for the chosen
     # theme (and set the GTK theme for its mode).
     "$HOME/.local/bin/penumbra-theme" restore
@@ -1466,7 +1509,7 @@ SECTIONS = [
     ['bin/*'],
     ['config/**/*'],
     ['apps/**/*'],
-    ['share/color-schemes/*', 'share/icons/*/index.theme', 'share/kio/servicemenus/*'],
+    ['share/color-schemes/*', 'share/icons/*/index.theme', 'share/kio/servicemenus/*', 'share/lia-files/actions/*', 'share/gtksourceview-5/styles/*'],
     ['system/**/*'],
     ['boot/grub/theme.txt', 'boot/plymouth/*.plymouth'],
     ['assets/wallpaper*.svg'],
@@ -3110,14 +3153,44 @@ find ~ -type f ! -path "$runs/*" ! -name calls ! -name first -exec md5sum {} + |
 class AppColors(unittest.TestCase):
     def run_install(self, checks):
         with tempfile.TemporaryDirectory() as stubs:
-            for app in [p.name for p in (ROOT / 'apps').iterdir()] + ['code', 'codium', 'systemctl']:
+            for app in [p.name for p in (ROOT / 'apps').iterdir()] + ['code', 'codium', 'systemctl', 'gsettings']:
                 path = Path(stubs) / app
                 path.write_text(STUB)
                 path.chmod(0o755)
+            # Never reach the real Flatpak or desktop settings from installer tests.
+            flatpak = Path(stubs) / 'flatpak'
+            flatpak.write_text('#!/bin/sh\nexit 1\n')
+            flatpak.chmod(0o755)
             result = bash(APP_SETUP + checks, 'arch', stubs)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stderr, '')
         return result.stdout
+
+    def test_file_manager_detection_preserves_existing_choice(self):
+        out = self.run_install('''
+            localectl_field() { :; }
+            settings=(); detect_settings; echo "${settings[file_manager]}"
+            python3 "$ROOT/bin/penumbra-settings" get | python3 -c 'import json,sys; print(json.load(sys.stdin)["file_manager"])'
+            settings[file_manager]=custom; detect_settings; echo "${settings[file_manager]}"
+            command() {
+                if [[ $1 = -v && $2 = lia-files ]]; then return 1; fi
+                builtin command "$@"
+            }
+            settings=(); detect_settings; echo "${settings[file_manager]}"
+        ''')
+        self.assertEqual(out.splitlines(), ['io.github.lia.Files', 'io.github.lia.Files', 'custom', 'org.kde.dolphin'])
+
+    def test_flatpak_gets_theme_schemes_and_action(self):
+        out = self.run_install('''
+            flatpak() { [[ $1 = info ]]; }
+            BACKUP=$runs/20260103-000000; mkdir -p "$BACKUP"
+            install_app_colors >/dev/null
+            test -s ~/.var/app/io.github.lia.Files/config/lia-files/penumbra.css
+            test -s ~/.var/app/io.github.lia.Files/data/gtksourceview-5/styles/penumbra.xml
+            test -s ~/.var/app/io.github.lia.Files/data/lia-files/actions/penumbra-wallpaper.desktop
+            echo flatpak
+        ''')
+        self.assertEqual(out.strip(), 'flatpak')
 
     def test_every_app_is_turned_on_once(self):
         out = self.run_install('''
@@ -3329,6 +3402,7 @@ class Command(unittest.TestCase):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(ROOT / rel, target)
         shutil.copytree(ROOT / 'apps/bat/config', self.home / '.config', dirs_exist_ok=True)
+        shutil.copytree(ROOT / 'apps/lia-files/config', self.home / '.config', dirs_exist_ok=True)
         for version in ('gtk-3.0', 'gtk-4.0'):
             shutil.copy(ROOT / 'config' / version / 'settings.ini', self.home / '.config' / version)
         # The icon theme, as shipped and as installed, and VS Code's copy of the theme extension.
@@ -3542,6 +3616,37 @@ class Command(unittest.TestCase):
                 self.theme('set', *args, code=2 if '=' in args[0] else 1)
         self.assertFalse((self.home / '.local/state/penumbra/theme.json').exists())
 
+    def test_lia_files_follows_palette_and_flatpak(self):
+        native = self.home / '.config/lia-files/penumbra.css'
+        sandbox = self.home / '.var/app/io.github.lia.Files'
+        flat_css = sandbox / 'config/lia-files/penumbra.css'
+        flat_css.parent.mkdir(parents=True)
+        flat_css.write_text(native.read_text())
+        schemes = sandbox / 'data/gtksourceview-5/styles'
+        schemes.mkdir(parents=True)
+        for name in ('penumbra.xml', 'penumbra-light.xml'):
+            shutil.copy(ROOT / 'share/gtksourceview-5/styles' / name, schemes / name)
+        self.theme('set', 'mode=light', 'colors=custom', 'hue=190')
+        colors = self.palette_json()['colors']
+        self.assertIn('--accent-color: ' + colors['accent'], native.read_text())
+        self.assertIn('--window-bg-color: ' + colors['surface'], native.read_text())
+        self.assertEqual(native.read_text(), flat_css.read_text())
+        self.assertIn(colors['base'], (schemes / 'penumbra-light.xml').read_text())
+
+    def test_lia_files_corners_restore_and_round_trip(self):
+        config = self.home / '.config/lia-files'
+        result = subprocess.run([str(ROOT / 'bin/penumbra-corners'), 'sharp'],
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('--lia-radius: 0px', (config / 'corners.css').read_text())
+        self.assertIn('window.lia-window.csd', (config / 'corners.css').read_text())
+        self.theme('set', 'mode=light')
+        self.assertIn('--lia-radius: 0px', (config / 'corners.css').read_text())
+        result = subprocess.run([str(ROOT / 'bin/penumbra-corners'), 'rounded'],
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('--lia-radius:', (config / 'corners.css').read_text())
+
     def test_sharp_corners_survive(self):
         state = self.home / '.local/state/penumbra'
         state.mkdir(parents=True)
@@ -3615,6 +3720,23 @@ if [[ -d $config/rofi ]]; then
   echo '/* Rounded: penumbra.rasi as it is. Written by penumbra-corners. */' > "$config/rofi/corners.rasi"
  fi
 fi
+# Lia Files watches both native and Flatpak configuration directories.
+for lia_config in "$config/lia-files" "$HOME/.var/app/io.github.lia.Files/config/lia-files"; do
+ if [[ -d $lia_config ]]; then
+  if [[ $current = sharp ]]; then
+   cat > "$lia_config/corners.css" <<'CSS'
+:root {
+ --lia-radius-small: 0px; --lia-radius: 0px; --lia-radius-large: 0px;
+ --lia-radius-popover: 0px; --lia-radius-chip: 0px;
+ --lia-radius-bar: 0px; --lia-radius-drive-bar: 0px;
+}
+window.lia-window.csd { border-radius: 0; }
+CSS
+  else
+   echo '/* Rounded: Lia Files defaults. Written by penumbra-corners. */' > "$lia_config/corners.css"
+  fi
+ fi
+ done
 edit() { [[ -f $1 ]] && sed -i "$2" "$1" || true; }
 edit "$config/hypr/hyprlock.conf" "s/^\(\s*rounding = \).*/\1$lock/"
 edit "$config/satty/config.toml" "s/^corner-roundness = .*/corner-roundness = $annotate/"
@@ -4111,13 +4233,26 @@ def problem(key, value):
 
 def load():
     values = dict(DEFAULTS)
+    configured = set()
     try:
         for line in SETTINGS.read_text().splitlines():
             key, sep, value = line.partition('=')
             if sep and re.fullmatch(r'[a-z_]+', key) and key in DEFAULTS:
                 values[key] = value
+                configured.add(key)
     except OSError:
         pass
+    if 'file_manager' not in configured:
+        available = bool(shutil.which('lia-files'))
+        if not available and shutil.which('flatpak'):
+            try:
+                available = subprocess.run(['flatpak', 'info', 'io.github.lia.Files'],
+                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                           timeout=5).returncode == 0
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        if available:
+            values['file_manager'] = 'io.github.lia.Files'
     return values
 
 
@@ -4523,6 +4658,12 @@ def targets(rel):
             found.append(CONFIG / 'yazi' / 'flavors' / 'penumbra.yazi' / 'tmtheme.xml')
     else:
         found = []
+    # Flatpak uses its sandbox XDG paths even when host files are readable.
+    sandbox = HOME / '.var/app/io.github.lia.Files'
+    if rel == 'apps/lia-files/config/lia-files/penumbra.css':
+        found.append(sandbox / 'config/lia-files/penumbra.css')
+    elif rel.startswith('share/gtksourceview-5/styles/'):
+        found.append(sandbox / 'data/gtksourceview-5/styles' / parts[-1])
     return [path for path in found if path.is_file()]
 
 
@@ -5369,9 +5510,18 @@ gtk-decoration-layout=:close
 @define-color theme_fg_color #e9e1f5;
 @define-color theme_base_color #0d0a12;
 @define-color theme_text_color #e9e1f5;
-window, dialog { background-color: #100d18; color: #e9e1f5; }
-headerbar { background: #16111f; color: #e9e1f5; }
-selection { background-color: #916dcf; color: #ffffff; }
+window, dialog { background-color: var(--window-bg-color, #100d18); color: var(--window-fg-color, #e9e1f5); }
+headerbar { background: var(--headerbar-bg-color, #16111f); color: var(--headerbar-fg-color, #e9e1f5); }
+selection { background-color: var(--accent-bg-color, #916dcf); color: var(--accent-fg-color, #ffffff); }
+
+/* libadwaita otherwise derives these foregrounds from the background colours. */
+:root {
+  --accent-color: #b69af7;
+  --error-color: #ef8fa4;
+  --destructive-color: #ef8fa4;
+  --success-color: #a5ccb3;
+  --warning-color: #e5c89a;
+}
 ```
 
 ## `config/gtk-4.0/settings.ini`
@@ -5415,7 +5565,7 @@ local c = dofile(home .. "/.config/hypr/colors.lua")
 local light = c.mode == "light"
 -- settings.conf as a table, read afresh each time (bindings below call it when pressed).
 local function settings()
- local s = {kb_layout = "us", kb_variant = "", kb_options = "", scale = "auto", numlock = "on", terminal = "kitty", file_manager = "org.kde.dolphin"}
+ local s = {kb_layout = "us", kb_variant = "", kb_options = "", scale = "auto", numlock = "on", terminal = "kitty", file_manager = "io.github.lia.Files"}
  local file = io.open(home .. "/.config/penumbra/settings.conf")
  if file then
   for line in file:lines() do
@@ -5475,7 +5625,7 @@ local function terminal() hl.exec_cmd("gtk-launch " .. settings().terminal .. " 
 hl.bind("SUPER + Return", terminal)
 hl.bind("SUPER + Q", terminal)
 -- The file manager chosen in Settings → Default apps.
-hl.bind("SUPER + E", function() hl.exec_cmd("gtk-launch " .. settings().file_manager .. " || dolphin") end)
+hl.bind("SUPER + E", function() hl.exec_cmd("gtk-launch " .. settings().file_manager .. " || lia-files || dolphin") end)
 exec("SUPER + R", "~/.local/bin/penumbra-launcher")
 exec("SUPER + space", "~/.local/bin/penumbra-launcher")
 -- Your default web browser (Settings → Default apps, or xdg-settings set default-web-browser NAME.desktop).
@@ -6275,7 +6425,7 @@ ColumnLayout {
         Repeater {
             model: [
                 { kind: "browser", glyph: "󰖟", title: "Web browser", category: "WebBrowser", id: root.browser, keys: "Super+B and links" },
-                { kind: "files", glyph: "󰉋", title: "File manager", category: "FileManager", id: Config.values.file_manager ?? "org.kde.dolphin", keys: "Super+E and folders" },
+                { kind: "files", glyph: "󰉋", title: "File manager", category: "FileManager", id: Config.values.file_manager ?? "io.github.lia.Files", keys: "Super+E and folders" },
                 { kind: "terminal", glyph: "󰆍", title: "Terminal", category: "TerminalEmulator", id: Config.values.terminal ?? "kitty", keys: "Super+Enter" }
             ]
             delegate: ListRow {
@@ -16822,7 +16972,7 @@ Panel {
             visible: yours.count === 0
             Layout.fillWidth: true
             wrapMode: Text.Wrap
-            text: "Put images, GIFs and videos in ~/Pictures/Wallpapers, or right-click one in Dolphin and choose Set as Wallpaper."
+            text: "Put images, GIFs and videos in ~/Pictures/Wallpapers, or right-click one in Lia Files or Dolphin and choose Set as Wallpaper."
             color: Theme.muted
         }
         Flickable {
@@ -18439,6 +18589,77 @@ gui:
     '*': '#9c87c6'
 ```
 
+## `apps/lia-files/config/lia-files/penumbra.css`
+
+```css
+/* PENUMBRA colours for Lia Files. Generated by tools/build-palette.py; do not edit. */
+:root {
+  --accent-color: #b69af7;
+  --accent-bg-color: #916dcf;
+  --accent-fg-color: #ffffff;
+  --destructive-color: #ef8fa4;
+  --destructive-bg-color: #ef8fa4;
+  --destructive-fg-color: #100b1b;
+  --success-color: #a5ccb3;
+  --warning-color: #e5c89a;
+  --error-color: #ef8fa4;
+  --window-bg-color: #100d18;
+  --window-fg-color: #e9e1f5;
+  --view-bg-color: #0d0a12;
+  --view-fg-color: #e9e1f5;
+  --headerbar-bg-color: #16111f;
+  --headerbar-fg-color: #e9e1f5;
+  --headerbar-border-color: #33263f;
+  --headerbar-backdrop-color: #100d18;
+  --sidebar-bg-color: #16111f;
+  --sidebar-fg-color: #e9e1f5;
+  --sidebar-backdrop-color: #100d18;
+  --secondary-sidebar-bg-color: #100d18;
+  --secondary-sidebar-fg-color: #e9e1f5;
+  --card-bg-color: #1c1528;
+  --card-fg-color: #e9e1f5;
+  --dialog-bg-color: #16111f;
+  --dialog-fg-color: #e9e1f5;
+  --popover-bg-color: #16111f;
+  --popover-fg-color: #e9e1f5;
+  --thumbnail-bg-color: #1c1528;
+  --thumbnail-fg-color: #e9e1f5;
+  --error-bg-color: #ef8fa4;
+  --error-fg-color: #100b1b;
+  --success-bg-color: #a5ccb3;
+  --success-fg-color: #0d0a12;
+  --warning-bg-color: #e5c89a;
+  --warning-fg-color: #0d0a12;
+  --shade-color: alpha(#07070b, 0.36);
+  --scrollbar-outline-color: #33263f;
+  --borders: #33263f;
+  --lia-hover-bg: alpha(#38264f, 0.65);
+  --lia-fast: 160ms;
+  --lia-normal: 260ms;
+  --lia-slow: 420ms;
+  --lia-window-opacity: 0.85;
+  --lia-view-opacity: 0.98;
+}
+@media (prefers-color-scheme: light) {
+  :root { --lia-window-opacity: 0.88; }
+}
+
+/* gtk.css is a user stylesheet too: these surface rules must override its
+   opaque window/headerbar rules at the same priority. */
+window.lia-window {
+  background-color: alpha(var(--window-bg-color), var(--lia-window-opacity));
+  color: var(--window-fg-color);
+}
+window.lia-window headerbar,
+window.lia-window toolbarview > top-bar,
+window.lia-window toolbarview > bottom-bar,
+window.lia-window overlay-split-view > sidebar,
+window.lia-window lia-sidebar {
+  background: none;
+}
+window.lia-window headerbar { color: var(--headerbar-fg-color); }
+```
+
 ## `apps/mpv/config/mpv/penumbra.conf`
 
 ```ini
@@ -19498,6 +19719,72 @@ inactiveForeground=143,128,159
 ColorScheme=Penumbra
 ```
 
+## `share/gtksourceview-5/styles/penumbra-light.xml`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- PENUMBRA GtkSourceView colours. Generated by tools/build-palette.py; do not edit. -->
+<style-scheme id="penumbra-light" name="Penumbra Light" version="1.0">
+  <author>Lia</author>
+  <description>Penumbra light syntax colours</description>
+  <metadata><property name="variant">light</property><property name="dark-variant">penumbra</property></metadata>
+  <style name="text" foreground="#251e2d" background="#f8f6fb"/>
+  <style name="selection" foreground="#ffffff" background="#d7c9f3"/>
+  <style name="cursor" foreground="#754cbd"/>
+  <style name="current-line" background="#ebe7f3"/>
+  <style name="line-numbers" foreground="#756981" background="#f8f6fb"/>
+  <style name="right-margin" foreground="#d5cdde" background="#f8f6fb"/>
+  <style name="search-match" foreground="#f8f6fb" background="#9f691e"/>
+  <style name="def:comment" foreground="#8c8197" italic="true"/>
+  <style name="def:string" foreground="#307d53"/>
+  <style name="def:character" foreground="#307d53"/>
+  <style name="def:constant" foreground="#9f691e"/>
+  <style name="def:number" foreground="#9f691e"/>
+  <style name="def:keyword" foreground="#754cbd"/>
+  <style name="def:statement" foreground="#754cbd"/>
+  <style name="def:type" foreground="#227984"/>
+  <style name="def:function" foreground="#5d5db1"/>
+  <style name="def:identifier" foreground="#251e2d"/>
+  <style name="def:preprocessor" foreground="#94559e"/>
+  <style name="def:special-char" foreground="#b94767"/>
+  <style name="def:error" foreground="#b94767"/>
+  <style name="def:note" foreground="#9f691e"/>
+</style-scheme>
+```
+
+## `share/gtksourceview-5/styles/penumbra.xml`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- PENUMBRA GtkSourceView colours. Generated by tools/build-palette.py; do not edit. -->
+<style-scheme id="penumbra" name="Penumbra" version="1.0">
+  <author>Lia</author>
+  <description>Penumbra dark syntax colours</description>
+  <metadata><property name="variant">dark</property><property name="light-variant">penumbra-light</property></metadata>
+  <style name="text" foreground="#e9e1f5" background="#0d0a12"/>
+  <style name="selection" foreground="#ffffff" background="#563b7e"/>
+  <style name="cursor" foreground="#b69af7"/>
+  <style name="current-line" background="#1c1528"/>
+  <style name="line-numbers" foreground="#8f809f" background="#0d0a12"/>
+  <style name="right-margin" foreground="#33263f" background="#0d0a12"/>
+  <style name="search-match" foreground="#0d0a12" background="#e5c89a"/>
+  <style name="def:comment" foreground="#71637f" italic="true"/>
+  <style name="def:string" foreground="#a5ccb3"/>
+  <style name="def:character" foreground="#a5ccb3"/>
+  <style name="def:constant" foreground="#e5c89a"/>
+  <style name="def:number" foreground="#e5c89a"/>
+  <style name="def:keyword" foreground="#b69af7"/>
+  <style name="def:statement" foreground="#b69af7"/>
+  <style name="def:type" foreground="#9ccbd2"/>
+  <style name="def:function" foreground="#a1a5e9"/>
+  <style name="def:identifier" foreground="#e9e1f5"/>
+  <style name="def:preprocessor" foreground="#d5a4dc"/>
+  <style name="def:special-char" foreground="#ef8fa4"/>
+  <style name="def:error" foreground="#ef8fa4"/>
+  <style name="def:note" foreground="#e5c89a"/>
+</style-scheme>
+```
+
 ## `share/icons/Penumbra/index.theme`
 
 ```ini
@@ -19559,6 +19846,17 @@ X-KDE-Priority=TopLevel
 Name=Set as Wallpaper
 Icon=preferences-desktop-wallpaper
 Exec=sh -c 'exec "$HOME/.local/bin/penumbra-wallpaper" "$1"' penumbra-wallpaper %f
+```
+
+## `share/lia-files/actions/penumbra-wallpaper.desktop`
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=Set as Wallpaper
+Icon=preferences-desktop-wallpaper
+MimeType=image/png;image/jpeg;image/webp;image/bmp;image/gif;video/mp4;video/webm;video/x-matroska;video/quicktime;
+Exec=penumbra-wallpaper %f
 ```
 
 ## `system/etc/sddm.conf.d/90-penumbra.conf`

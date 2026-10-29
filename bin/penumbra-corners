@@ -36,6 +36,23 @@ if [[ -d $config/rofi ]]; then
   echo '/* Rounded: penumbra.rasi as it is. Written by penumbra-corners. */' > "$config/rofi/corners.rasi"
  fi
 fi
+# Lia Files watches both native and Flatpak configuration directories.
+for lia_config in "$config/lia-files" "$HOME/.var/app/io.github.lia.Files/config/lia-files"; do
+ if [[ -d $lia_config ]]; then
+  if [[ $current = sharp ]]; then
+   cat > "$lia_config/corners.css" <<'CSS'
+:root {
+ --lia-radius-small: 0px; --lia-radius: 0px; --lia-radius-large: 0px;
+ --lia-radius-popover: 0px; --lia-radius-chip: 0px;
+ --lia-radius-bar: 0px; --lia-radius-drive-bar: 0px;
+}
+window.lia-window.csd { border-radius: 0; }
+CSS
+  else
+   echo '/* Rounded: Lia Files defaults. Written by penumbra-corners. */' > "$lia_config/corners.css"
+  fi
+ fi
+ done
 edit() { [[ -f $1 ]] && sed -i "$2" "$1" || true; }
 edit "$config/hypr/hyprlock.conf" "s/^\(\s*rounding = \).*/\1$lock/"
 edit "$config/satty/config.toml" "s/^corner-roundness = .*/corner-roundness = $annotate/"

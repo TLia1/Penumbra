@@ -160,6 +160,7 @@ class Command(unittest.TestCase):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(ROOT / rel, target)
         shutil.copytree(ROOT / 'apps/bat/config', self.home / '.config', dirs_exist_ok=True)
+        shutil.copytree(ROOT / 'apps/lia-files/config', self.home / '.config', dirs_exist_ok=True)
         for version in ('gtk-3.0', 'gtk-4.0'):
             shutil.copy(ROOT / 'config' / version / 'settings.ini', self.home / '.config' / version)
         # The icon theme, as shipped and as installed, and VS Code's copy of the theme extension.
@@ -372,6 +373,37 @@ class Command(unittest.TestCase):
             with self.subTest(args=args):
                 self.theme('set', *args, code=2 if '=' in args[0] else 1)
         self.assertFalse((self.home / '.local/state/penumbra/theme.json').exists())
+
+    def test_lia_files_follows_palette_and_flatpak(self):
+        native = self.home / '.config/lia-files/penumbra.css'
+        sandbox = self.home / '.var/app/io.github.lia.Files'
+        flat_css = sandbox / 'config/lia-files/penumbra.css'
+        flat_css.parent.mkdir(parents=True)
+        flat_css.write_text(native.read_text())
+        schemes = sandbox / 'data/gtksourceview-5/styles'
+        schemes.mkdir(parents=True)
+        for name in ('penumbra.xml', 'penumbra-light.xml'):
+            shutil.copy(ROOT / 'share/gtksourceview-5/styles' / name, schemes / name)
+        self.theme('set', 'mode=light', 'colors=custom', 'hue=190')
+        colors = self.palette_json()['colors']
+        self.assertIn('--accent-color: ' + colors['accent'], native.read_text())
+        self.assertIn('--window-bg-color: ' + colors['surface'], native.read_text())
+        self.assertEqual(native.read_text(), flat_css.read_text())
+        self.assertIn(colors['base'], (schemes / 'penumbra-light.xml').read_text())
+
+    def test_lia_files_corners_restore_and_round_trip(self):
+        config = self.home / '.config/lia-files'
+        result = subprocess.run([str(ROOT / 'bin/penumbra-corners'), 'sharp'],
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('--lia-radius: 0px', (config / 'corners.css').read_text())
+        self.assertIn('window.lia-window.csd', (config / 'corners.css').read_text())
+        self.theme('set', 'mode=light')
+        self.assertIn('--lia-radius: 0px', (config / 'corners.css').read_text())
+        result = subprocess.run([str(ROOT / 'bin/penumbra-corners'), 'rounded'],
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('--lia-radius:', (config / 'corners.css').read_text())
 
     def test_sharp_corners_survive(self):
         state = self.home / '.local/state/penumbra'

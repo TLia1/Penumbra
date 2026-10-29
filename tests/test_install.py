@@ -88,14 +88,44 @@ find ~ -type f ! -path "$runs/*" ! -name calls ! -name first -exec md5sum {} + |
 class AppColors(unittest.TestCase):
     def run_install(self, checks):
         with tempfile.TemporaryDirectory() as stubs:
-            for app in [p.name for p in (ROOT / 'apps').iterdir()] + ['code', 'codium', 'systemctl']:
+            for app in [p.name for p in (ROOT / 'apps').iterdir()] + ['code', 'codium', 'systemctl', 'gsettings']:
                 path = Path(stubs) / app
                 path.write_text(STUB)
                 path.chmod(0o755)
+            # Never reach the real Flatpak or desktop settings from installer tests.
+            flatpak = Path(stubs) / 'flatpak'
+            flatpak.write_text('#!/bin/sh\nexit 1\n')
+            flatpak.chmod(0o755)
             result = bash(APP_SETUP + checks, 'arch', stubs)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stderr, '')
         return result.stdout
+
+    def test_file_manager_detection_preserves_existing_choice(self):
+        out = self.run_install('''
+            localectl_field() { :; }
+            settings=(); detect_settings; echo "${settings[file_manager]}"
+            python3 "$ROOT/bin/penumbra-settings" get | python3 -c 'import json,sys; print(json.load(sys.stdin)["file_manager"])'
+            settings[file_manager]=custom; detect_settings; echo "${settings[file_manager]}"
+            command() {
+                if [[ $1 = -v && $2 = lia-files ]]; then return 1; fi
+                builtin command "$@"
+            }
+            settings=(); detect_settings; echo "${settings[file_manager]}"
+        ''')
+        self.assertEqual(out.splitlines(), ['io.github.lia.Files', 'io.github.lia.Files', 'custom', 'org.kde.dolphin'])
+
+    def test_flatpak_gets_theme_schemes_and_action(self):
+        out = self.run_install('''
+            flatpak() { [[ $1 = info ]]; }
+            BACKUP=$runs/20260103-000000; mkdir -p "$BACKUP"
+            install_app_colors >/dev/null
+            test -s ~/.var/app/io.github.lia.Files/config/lia-files/penumbra.css
+            test -s ~/.var/app/io.github.lia.Files/data/gtksourceview-5/styles/penumbra.xml
+            test -s ~/.var/app/io.github.lia.Files/data/lia-files/actions/penumbra-wallpaper.desktop
+            echo flatpak
+        ''')
+        self.assertEqual(out.strip(), 'flatpak')
 
     def test_every_app_is_turned_on_once(self):
         out = self.run_install('''

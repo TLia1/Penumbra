@@ -73,7 +73,7 @@ ColumnLayout {
         Repeater {
             model: [
                 { kind: "browser", glyph: "󰖟", title: "Web browser", category: "WebBrowser", id: root.browser, keys: "Super+B and links" },
-                { kind: "files", glyph: "󰉋", title: "File manager", category: "FileManager", id: Config.values.file_manager ?? "org.kde.dolphin", keys: "Super+E and folders" },
+                { kind: "files", glyph: "󰉋", title: "File manager", category: "FileManager", id: Config.values.file_manager ?? "io.github.lia.Files", keys: "Super+E and folders" },
                 { kind: "terminal", glyph: "󰆍", title: "Terminal", category: "TerminalEmulator", id: Config.values.terminal ?? "kitty", keys: "Super+Enter" }
             ]
             delegate: ListRow {
