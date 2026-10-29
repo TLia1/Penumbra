@@ -12,7 +12,7 @@ PACKAGES=(
     hyprland quickshell awww sddm hyprlock hypridle hyprsunset rofi
     xdg-desktop-portal-hyprland xdg-desktop-portal-gtk
     # Terminal and editor
-    kitty fish starship fastfetch htop neovim git ripgrep unzip nodejs npm tree-sitter-cli gcc
+    kitty fish starship fastfetch btop neovim git ripgrep unzip nodejs npm tree-sitter-cli gcc
     # Applications
     dolphin pavucontrol blueman network-manager-applet xdg-utils
     # Themes and fonts

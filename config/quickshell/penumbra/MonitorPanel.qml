@@ -740,7 +740,7 @@ Panel {
                 primary: true
                 onClicked: {
                     Ui.close();
-                    Ui.run("kitty --class penumbra-monitor htop");
+                    Ui.run("kitty --class penumbra-monitor btop");
                 }
             }
         }
