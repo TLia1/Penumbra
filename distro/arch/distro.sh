@@ -14,10 +14,10 @@ PACKAGES=(
     # Terminal and editor
     kitty fish starship fastfetch btop neovim git ripgrep unzip nodejs npm tree-sitter-cli gcc
     # Applications
-    dolphin pavucontrol blueman network-manager-applet xdg-utils
+    pavucontrol blueman network-manager-applet xdg-utils
     # Themes and fonts
     breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme
-    qt5ct qt6ct qt5-wayland qt5-quickcontrols2 ttf-jetbrains-mono-nerd inter-font
+    qt6ct ttf-jetbrains-mono-nerd inter-font
     # Hardware and services
     networkmanager bluez bluez-utils pipewire-pulse wireplumber brightnessctl playerctl cava
     # Passwords apps save, unlocked when you sign in
@@ -29,8 +29,9 @@ PACKAGES=(
     # Used by the helper scripts and build tools
     pacman-contrib flatpak libnotify librsvg python-pillow xorg-xcursorgen
 )
-# Replaced by the Quickshell shell (bar, notifications, OSD) and awww (wallpaper).
-LEGACY_PACKAGES=(waybar mako swaybg)
+# Replaced by the Quickshell shell (bar, notifications, OSD), awww (wallpaper) and Lia Files (file
+# manager and file chooser). Nothing uses Qt 5 any more: the session's Qt theme is qt6ct.
+LEGACY_PACKAGES=(waybar mako swaybg dolphin)
 # The boot splash, offered by ./install.sh --boot-only.
 PLYMOUTH_PACKAGES=(plymouth)
 

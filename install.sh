@@ -8,8 +8,9 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 SETTINGS_FILE=${XDG_CONFIG_HOME:-$HOME/.config}/penumbra/settings.conf
 XKB_RULES=/usr/share/X11/xkb/rules/base.lst
 
-# Configuration folders of the desktop Penumbra replaced (Waybar and Mako); the packages are in the
-# distribution's LEGACY_PACKAGES.
+# The bar, notification daemon and wallpaper setter Penumbra replaced, stopped when it installs, and
+# the configuration folders of the first two; the packages are in the distribution's LEGACY_PACKAGES.
+LEGACY_PROCESSES=(waybar mako swaybg)
 LEGACY_CONFIGS=(waybar mako)
 
 usage() {
@@ -49,7 +50,7 @@ Other options:
   --skip-packages      Don't install packages (or PENUMBRA_SKIP_PACKAGES=1).
   --remove-legacy yes|no|ask
                        Whether to remove the packages Penumbra replaced (Waybar,
-                       Mako, swaybg) if they are installed (or
+                       Mako, swaybg, Dolphin, Qt 5 tools) if they are installed (or
                        PENUMBRA_REMOVE_LEGACY=1/0). Default: ask.
   --user NAME          Desktop user for --system-only (default: \$SUDO_USER).
   -h, --help           Show this help.
@@ -170,8 +171,15 @@ load_saved_settings() {
     [[ -r $SETTINGS_FILE ]] || return 0
     local key value
     while IFS='=' read -r key value; do
+        # Dolphin was the file manager before Lia Files; once Lia Files is installed it takes over.
+        [[ $key == file_manager && $value == org.kde.dolphin ]] && lia_files_installed && value=io.github.lia.Files
         if [[ $key =~ ^[a-z_]+$ && -v SETTING_LABELS[$key] ]]; then set_default "$key" "$value"; fi
     done < "$SETTINGS_FILE"
+}
+
+# Lia Files, installed natively or from Flatpak. Penumbra doesn't install it (yet).
+lia_files_installed() {
+    command -v lia-files >/dev/null || { command -v flatpak >/dev/null && flatpak info io.github.lia.Files >/dev/null 2>&1; }
 }
 
 save_settings() {
@@ -216,10 +224,11 @@ detect_settings() {
     set_default numlock on
     set_default shell fish
     set_default terminal kitty
-    if command -v lia-files >/dev/null || { command -v flatpak >/dev/null && flatpak info io.github.lia.Files >/dev/null 2>&1; }; then
-        set_default file_manager io.github.lia.Files
-    else
+    # Lia Files, or Dolphin if that is all there is. Super+E falls back to either one.
+    if ! lia_files_installed && command -v dolphin >/dev/null; then
         set_default file_manager org.kde.dolphin
+    else
+        set_default file_manager io.github.lia.Files
     fi
     set_default idle_dim 9.5
     set_default idle_lock 10
@@ -387,8 +396,13 @@ remove_legacy_packages() {
         *) return 0 ;;
     esac
     pkg_versions "${installed[@]}" > "$BACKUP/removed-packages.txt"
-    pkg_remove "${installed[@]}" \
-        || warn "Could not remove ${installed[*]}; another package may still depend on them."
+    pkg_remove "${installed[@]}" && return 0
+    # One that another package still needs stops them all; remove the others one by one.
+    local package
+    for package in "${installed[@]}"; do
+        [[ -n $(pkg_installed "$package") ]] || continue
+        pkg_remove "$package" || warn "Could not remove $package; another package may still depend on it."
+    done
 }
 
 # The common system/ files, then the distribution's, which can replace them.
@@ -540,7 +554,7 @@ install_wallpapers() {
 # Stop the previous bar, notification daemon and wallpaper setter, and move their configs into the backup.
 retire_legacy_desktop() {
     local name
-    for name in "${LEGACY_PACKAGES[@]}"; do pkill -u "$UID" -x "$name" 2>/dev/null || true; done
+    for name in "${LEGACY_PROCESSES[@]}"; do pkill -u "$UID" -x "$name" 2>/dev/null || true; done
     for name in "${LEGACY_CONFIGS[@]}"; do
         [[ -e $HOME/.config/$name ]] || continue
         mkdir -p "$BACKUP/.config"
@@ -563,8 +577,8 @@ apply_gtk_settings() {
     gsettings set org.gnome.desktop.wm.preferences button-layout ':close'
 }
 
-# gnome-keyring keeps the passwords apps save (Secret Service). KWallet comes with Dolphin and can
-# claim the same D-Bus name, so it is told not to; Dolphin's own KWallet use is unchanged.
+# gnome-keyring keeps the passwords apps save (Secret Service). KWallet comes with KDE apps and can
+# claim the same D-Bus name, so it is told not to; their own KWallet use is unchanged.
 configure_keyring() {
     local rc=$HOME/.config/kwalletrc
     if command -v kwriteconfig6 >/dev/null; then
@@ -572,6 +586,31 @@ configure_keyring() {
         kwriteconfig6 --file "$rc" --group org.freedesktop.secrets --key apiEnabled false
     fi
     systemctl --user enable gnome-keyring-daemon.socket 2>/dev/null || true
+}
+
+# Folders open in the chosen file manager, as when you choose it in Settings → Default apps. Only
+# once it is installed: its desktop file has to exist.
+set_folder_default() {
+    local app=${settings[file_manager]}.desktop dirs dir
+    command -v xdg-mime >/dev/null || return 0
+    [[ $(xdg-mime query default inode/directory 2>/dev/null) == "$app" ]] && return 0
+    IFS=: read -ra dirs <<< "${XDG_DATA_HOME:-$HOME/.local/share}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+    dirs+=("$HOME/.local/share/flatpak/exports/share" /var/lib/flatpak/exports/share)
+    for dir in "${dirs[@]}"; do
+        [[ -f $dir/applications/$app ]] || continue
+        backup_file "$HOME/.config/mimeapps.list" .config/mimeapps.list
+        xdg-mime default "$app" inode/directory
+        echo "Folders open in ${settings[file_manager]}."
+        return 0
+    done
+}
+
+# The portal reads portals.conf when it starts: restart it when that changed, so Open and Select
+# Folder dialogs come from the chosen backend now. Apps keep working; it is started on demand.
+restart_portal() {
+    local conf=.config/xdg-desktop-portal/portals.conf
+    cmp -s "$BACKUP/$conf" "$HOME/$conf" && return 0
+    systemctl --user try-restart xdg-desktop-portal.service 2>/dev/null || true
 }
 
 # The Penumbra shell is the notification daemon; mask Dunst so it can't compete.
@@ -597,8 +636,7 @@ install_app_colors() {
         for command in ${APP_COMMANDS[$app]:-$app}; do
             command -v "$command" >/dev/null && found=1
         done
-        if [[ $app = lia-files ]] && command -v flatpak >/dev/null && flatpak info io.github.lia.Files >/dev/null 2>&1; then
-            found=1
+        if [[ $app = lia-files ]] && command -v flatpak >/dev/null && flatpak info io.github.lia.Files >/dev/null 2>&1; then            found=1
             install_tree "$dir/config" "$HOME/.var/app/io.github.lia.Files/config"
             install_tree "$ROOT/share/gtksourceview-5" "$HOME/.var/app/io.github.lia.Files/data/gtksourceview-5"
             install_tree "$ROOT/share/lia-files" "$HOME/.var/app/io.github.lia.Files/data/lia-files"
@@ -821,6 +859,8 @@ run_user_part() {
     # theme (and set the GTK theme for its mode).
     "$HOME/.local/bin/penumbra-theme" restore
     configure_keyring
+    set_folder_default
+    restart_portal
     disable_dunst
     systemctl --user daemon-reload
     systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service

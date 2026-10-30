@@ -28,7 +28,7 @@ XKB_RULES = Path('/usr/share/X11/xkb/rules/base.lst')
 # detects the keyboard on a first install. Idle timings are minutes, or "never".
 DEFAULTS = {
     'kb_layout': 'us', 'kb_variant': '', 'kb_options': '', 'scale': 'auto', 'numlock': 'on',
-    'shell': 'fish', 'terminal': 'kitty', 'file_manager': 'org.kde.dolphin',
+    'shell': 'fish', 'terminal': 'kitty', 'file_manager': 'io.github.lia.Files',
     'idle_dim': '9.5', 'idle_lock': '10', 'idle_screen_off': '11', 'idle_suspend': '30',
 }
 IDLE = re.compile(r'^(never|[0-9]+(\.[0-9]+)?)$')
@@ -105,8 +105,9 @@ def load():
                                            timeout=5).returncode == 0
             except (OSError, subprocess.TimeoutExpired):
                 pass
-        if available:
-            values['file_manager'] = 'io.github.lia.Files'
+        # Dolphin if that is all there is.
+        if not available and shutil.which('dolphin'):
+            values['file_manager'] = 'org.kde.dolphin'
     return values
 
 

@@ -107,13 +107,42 @@ class AppColors(unittest.TestCase):
             settings=(); detect_settings; echo "${settings[file_manager]}"
             python3 "$ROOT/bin/penumbra-settings" get | python3 -c 'import json,sys; print(json.load(sys.stdin)["file_manager"])'
             settings[file_manager]=custom; detect_settings; echo "${settings[file_manager]}"
+            missing=(lia-files)
             command() {
-                if [[ $1 = -v && $2 = lia-files ]]; then return 1; fi
+                if [[ $1 = -v && " ${missing[*]} " = *" $2 "* ]]; then return 1; fi
+                if [[ $1 = -v && $2 = dolphin ]]; then echo /usr/bin/dolphin; return 0; fi
                 builtin command "$@"
             }
             settings=(); detect_settings; echo "${settings[file_manager]}"
+            missing=(lia-files dolphin)
+            settings=(); detect_settings; echo "${settings[file_manager]}"
         ''')
-        self.assertEqual(out.splitlines(), ['io.github.lia.Files', 'io.github.lia.Files', 'custom', 'org.kde.dolphin'])
+        self.assertEqual(out.splitlines(), ['io.github.lia.Files', 'io.github.lia.Files', 'custom',
+                                            'org.kde.dolphin', 'io.github.lia.Files'])
+
+    def test_saved_dolphin_becomes_lia_files_once_installed(self):
+        out = self.run_install('''
+            SETTINGS_FILE=~/.config/penumbra/settings.conf; mkdir -p ~/.config/penumbra
+            printf '%s\\n' file_manager=org.kde.dolphin terminal=kitty > "$SETTINGS_FILE"
+            settings=(); load_saved_settings; echo "${settings[file_manager]}"
+            lia_files_installed() { false; }
+            settings=(); load_saved_settings; echo "${settings[file_manager]}"
+            settings=([file_manager]=org.kde.dolphin); lia_files_installed() { true; }
+            load_saved_settings; echo "${settings[file_manager]}"
+        ''')
+        self.assertEqual(out.splitlines(), ['io.github.lia.Files', 'org.kde.dolphin', 'org.kde.dolphin'])
+
+    def test_folders_open_in_the_installed_file_manager(self):
+        out = self.run_install('''
+            xdg-mime() { if [[ $1 = query ]]; then cat ~/folders 2>/dev/null; else echo "$2" > ~/folders; fi; }
+            BACKUP=$runs/20260104-000000; mkdir -p "$BACKUP"
+            XDG_DATA_HOME=~/data XDG_DATA_DIRS=/nonexistent
+            settings=([file_manager]=org.example.Files); set_folder_default; cat ~/folders 2>/dev/null || echo none
+            mkdir -p ~/data/applications; touch ~/data/applications/org.example.Files.desktop
+            set_folder_default; cat ~/folders
+            set_folder_default
+        ''')
+        self.assertEqual(out.splitlines(), ['none', 'Folders open in org.example.Files.', 'org.example.Files.desktop'])
 
     def test_flatpak_gets_theme_schemes_and_action(self):
         out = self.run_install('''

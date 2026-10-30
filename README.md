@@ -61,8 +61,8 @@ This undoes every install run, newest first, from the backups the runs left: fil
 | Penumbra shell | Quickshell (QML) bar of floating capsules, control center, notification popups and history, volume/brightness OSD, calendar, session overlay, app launcher, clipboard history, emoji and symbol picker, lock screen, polkit password dialog and screenshot overlay; see "Penumbra shell" below |
 | Rofi | Fallback launcher, clipboard history and session menu when the shell is not running |
 | Kitty + Fish | Violet ANSI palette, animated cursor trail, Starship prompt, custom Arch logo and grouped Fastfetch greeting |
-| Dolphin / Qt | Penumbra KDE and Qt palettes, Breeze widgets, Papirus violet folder overlay |
-| GTK | Breeze Dark for GTK 3, Penumbra colours for GTK 3, GTK 4 and libadwaita apps (and the file picker most apps use), close button only |
+| Qt | Penumbra KDE and Qt palettes, Breeze widgets, Papirus violet folder overlay |
+| GTK | Breeze Dark for GTK 3, Penumbra colours for GTK 3, GTK 4 and libadwaita apps (and the GTK save dialog), close button only |
 | GRUB | Optional orbital wallpaper, violet menu selection, keyboard hints and countdown |
 | Limine | Optional ringed-planet wallpaper (never stretched), spaced PENUMBRA branding, lavender selection, violet key hints and countdown, Kitty's palette in the editor |
 | Plymouth | Optional splash: the wallpaper's planet with a moonlet riding its ring and a breathing glow, PENUMBRA wordmark, frosted password card with keyboard layout and Caps Lock indicators, update progress |
@@ -80,7 +80,7 @@ Every colour is defined once, in [`palette/palette.toml`](palette/palette.toml):
 
 ### Colours for other apps
 
-Lia Files can be installed separately from its [Arch PKGBUILD or Flatpak](https://github.com/TLia1/Lia-s-file-linux#install). The installer chooses it for Super+E on a fresh configuration when it is installed; an existing file-manager choice is preserved. Dolphin stays in the Arch package list as the fallback. Run `./install.sh --user-only` after installing Lia Files to add its theme. This needs the Lia Files build with user stylesheet support. The native CSS goes in `~/.config/lia-files/`; Flatpak also gets a copy in `~/.var/app/io.github.lia.Files/config/lia-files/`. Both reload while the app is open. `penumbra-corners` controls its radii, while file surfaces stay almost opaque for readability. The installer selects the Penumbra preview schemes when the current scheme is Adwaita, and sets the desktop monospace font to JetBrainsMono Nerd Font 10. GtkSourceView schemes are shared under `~/.local/share/gtksourceview-5/styles/` and copied to the sandbox for Flatpak.
+Lia Files can be installed separately from its [Arch PKGBUILD or Flatpak](https://github.com/TLia1/Lia-s-file-linux#install). Penumbra doesn't install it yet. Once it is installed, the installer makes it the file manager (Super+E, and the default app for folders), replacing a saved Dolphin choice (another choice is kept), and its native build becomes the **Open** and **Select Folder** dialog of apps that use the file chooser portal (`config/xdg-desktop-portal/portals.conf` prefers `lia`, then `gtk`, which also keeps Save dialogs). Without it the portal uses GTK's dialogs. Dolphin is no longer installed; it is a legacy package the installer offers to remove, with the Qt 5 tools nothing uses any more (`qt5ct`, `qt5-wayland`, `qt5-quickcontrols2`). Run `./install.sh --user-only` after installing Lia Files to add its theme. This needs the Lia Files build with user stylesheet support. The native CSS goes in `~/.config/lia-files/`; Flatpak also gets a copy in `~/.var/app/io.github.lia.Files/config/lia-files/`. Both reload while the app is open. `penumbra-corners` controls its radii, while file surfaces stay almost opaque for readability. The installer selects the Penumbra preview schemes when the current scheme is Adwaita, and sets the desktop monospace font to JetBrainsMono Nerd Font 10. GtkSourceView schemes are shared under `~/.local/share/gtksourceview-5/styles/` and copied to the sandbox for Flatpak.
 
 Apps Penumbra doesn't install get their colours from `apps/NAME/`, also rendered from the palette. The installer uses a folder only when the app's command is there, so the package list stays the same; installing the app later and running `./install.sh --user-only` again picks it up. Each app's own settings file is only added to (and kept in the backup like everything else); if it already chooses a theme of its own, that choice stays.
 
@@ -109,7 +109,7 @@ Fonts: Inter, with Inter Display for large text (the lock and greeter clocks, pa
 |---|---|
 | Super+Enter / Super+Q | Kitty with Fish |
 | Super+Space / Super+R | App launcher (`>` runs a command, a sum is worked out) |
-| Super+E | Chosen file manager (Lia Files when installed, Dolphin otherwise) |
+| Super+E | Chosen file manager (Lia Files, or Dolphin if only that is installed) |
 | Super+B | Your default web browser (`xdg-settings set default-web-browser NAME.desktop` changes it) |
 | Super+C | Close focused window |
 | Super+V | Toggle floating |
@@ -170,9 +170,9 @@ Bar: click the Arch logo for the launcher (right-click for the clipboard) and th
 3. Sets the target user's login shell to fish (unless `--shell keep`) and the login screen's keyboard layout to yours.
 4. Enables NetworkManager and Bluetooth, and enables SDDM without restarting it.
 5. Backs up managed user files under `~/.local/state/penumbra/backups/TIMESTAMP` and copies this configuration. Files Penumbra no longer ships are removed from the folders it owns outright (`~/.config/quickshell/penumbra`, `~/.config/nvim/lua/penumbra`, `~/.local/bin/penumbra-*`), so a renamed shell component never lingers; they are in the backup too. Creates the starter files for your own settings if they are missing.
-6. Applies GTK dark preference, font, cursor, icon and title-bar button settings through GSettings. Sets up gnome-keyring: makes sure SDDM's PAM file unlocks it at sign-in (Arch's already does; the installer adds the two optional lines if they are missing), routes the Secret portal to it, and tells KWallet (which comes with Dolphin) not to claim the same Secret Service name.
+6. Applies GTK dark preference, font, cursor, icon and title-bar button settings through GSettings. Sets up gnome-keyring: makes sure SDDM's PAM file unlocks it at sign-in (Arch's already does; the installer adds the two optional lines if they are missing), routes the Secret portal to it, and tells KWallet (which comes with KDE apps) not to claim the same Secret Service name. Makes the chosen file manager the default app for folders once it is installed, and restarts the desktop portal when its file chooser preference changed.
 7. Masks Dunst if installed, avoiding competing notification daemons.
-8. Retires the previous Waybar/Mako/swaybg setup: asks whether to remove those packages (`PENUMBRA_REMOVE_LEGACY=1` or `0` answers in advance; removed versions are listed in the system backup), stops them, and moves `~/.config/waybar` and `~/.config/mako` into the user backup.
+8. Retires the previous Waybar/Mako/swaybg setup: asks whether to remove those packages, Dolphin and the unused Qt 5 tools (`PENUMBRA_REMOVE_LEGACY=1` or `0` answers in advance; removed versions are listed in the system backup), stops Waybar, Mako and swaybg, and moves `~/.config/waybar` and `~/.config/mako` into the user backup.
 9. Enables PipeWire sockets and WirePlumber; reloads Hyprland and restarts the desktop components.
 
 ## Backups and rollback
