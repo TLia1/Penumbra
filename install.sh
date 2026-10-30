@@ -292,10 +292,13 @@ is_vm() { systemd-detect-virt --vm --quiet 2>/dev/null; }
 # Every run keeps the files it replaces under $BACKUP, and lists the files it
 # creates in $BACKUP/new-files.txt.
 
-# backup_file PATH NAME: keep PATH as $BACKUP/NAME, or record it as new.
+# backup_file PATH NAME: keep PATH as $BACKUP/NAME, or record it as new. Only the first call for a
+# file in a run counts: later ones would keep what this run already changed.
 backup_file() {
     local path=$1 name=$2
-    if [[ -e $path || -L $path ]]; then
+    if [[ -e $BACKUP/$name || -L $BACKUP/$name ]] || grep -qxF -- "$path" "$BACKUP/new-files.txt" 2>/dev/null; then
+        return 0
+    elif [[ -e $path || -L $path ]]; then
         mkdir -p "$BACKUP/$(dirname "$name")"
         cp -a "$path" "$BACKUP/$name"
     else
@@ -605,8 +608,8 @@ set_folder_default() {
     done
 }
 
-# The portal reads portals.conf when it starts: restart it when that changed, so Open and Select
-# Folder dialogs come from the chosen backend now. Apps keep working; it is started on demand.
+# The portal reads portals.conf when it starts: restart it when that changed, so Open, Select
+# Folder and Save dialogs come from the chosen backend now. Apps keep working; it is started on demand.
 restart_portal() {
     local conf=.config/xdg-desktop-portal/portals.conf
     cmp -s "$BACKUP/$conf" "$HOME/$conf" && return 0
@@ -797,7 +800,8 @@ EOF
 }
 
 # Firefox: every profile imports the colours from its chrome/userChrome.css, which Firefox reads
-# once user.js allows it (on its next start).
+# once user.js allows it (on its next start). user.js also sends its Open and Save dialogs (where a
+# download goes) through the file chooser portal, so they are Lia Files' like other apps'.
 color_firefox() {
     local root profile
     for root in "$HOME/.mozilla/firefox" "$HOME/.config/mozilla/firefox"; do
@@ -808,6 +812,7 @@ color_firefox() {
             install_file "$1/chrome/penumbra.css" "$profile/chrome/penumbra.css"
             add_line "$profile/chrome/userChrome.css" '@import "penumbra.css";' top
             add_line "$profile/user.js" 'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);'
+            add_line "$profile/user.js" 'user_pref("widget.use-xdg-desktop-portal.file-picker", 1);'
         done < <(sed -n 's/^Path=//p' "$root/profiles.ini")
     done
 }

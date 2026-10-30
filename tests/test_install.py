@@ -178,6 +178,7 @@ class AppColors(unittest.TestCase):
             "['mine.css', 'penumbra.theme.css']",
             '@import "penumbra.css";', '#nav-bar { padding: 0 }',
             'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);',
+            'user_pref("widget.use-xdg-desktop-portal.file-picker", 1);',
             '4', ''])
 
     def test_uninstall_puts_your_files_back(self):

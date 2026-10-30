@@ -31,6 +31,8 @@ hl.env("XCURSOR_THEME", "Penumbra-Cursors")
 hl.env("XCURSOR_SIZE", "28")
 hl.env("HYPRCURSOR_SIZE", "28")
 hl.env("QT_QPA_PLATFORMTHEME", "qt6ct")
+-- GTK apps ask the file chooser portal for Open and Save dialogs: Lia Files once it is installed.
+hl.env("GTK_USE_PORTAL", "1")
 -- Rounded or sharp corners, as penumbra-corners records them.
 local corners = io.open(home .. "/.local/state/penumbra/corners")
 local sharp = corners ~= nil and corners:read("l") == "sharp"
