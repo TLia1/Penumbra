@@ -1146,6 +1146,8 @@ PACKAGES=(
     grim slurp satty wf-recorder hyprpicker cliphist wl-clipboard wtype unicode-emoji noto-fonts-emoji
     # Your own GIF and video wallpapers: the shell plays them, ffmpeg takes their first frame
     qt6-multimedia qt6-multimedia-ffmpeg ffmpeg
+    # Casting the screen to a TV: Chromecast and Google TV (DLNA TVs need nothing more)
+    python-pychromecast
     # Used by the helper scripts and build tools
     pacman-contrib flatpak libnotify librsvg python-pillow xorg-xcursorgen
 )
@@ -3735,6 +3737,503 @@ class Command(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+```
+
+## `bin/penumbra-cast`
+
+```python
+#!/usr/bin/env python3
+"""Cast the screen to a TV on the same network: Chromecast and Google TV, or any DLNA TV.
+
+    penumbra-cast scan        a JSON list of the TVs found: id, name, kind (chromecast or dlna), model
+    penumbra-cast start ID [--name NAME] [--output MONITOR] [--sound]
+    penumbra-cast stop
+
+`start` records the screen with wf-recorder, serves it from this computer over HTTP and tells the TV
+to play it. It stays until the cast ends (`stop`, the TV stops playing, or the recording fails) and
+keeps it in $XDG_RUNTIME_DIR/penumbra/cast as JSON, which the shell's control center and bar show.
+The TV buffers a few seconds of the stream, so it suits films, videos and slides more than games.
+"""
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+import os
+from pathlib import Path
+import queue
+import secrets
+import signal
+import socket
+import struct
+import subprocess
+import sys
+import threading
+import time
+import urllib.parse
+import urllib.request
+from xml.etree import ElementTree
+from xml.sax.saxutils import escape
+
+STATE = Path(os.environ.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}') / 'penumbra' / 'cast'
+LOG = STATE.with_name('cast.log')
+SCAN_SECONDS = 4
+# The longest a TV may take to open the stream, and to come back after dropping it.
+CONNECT_SECONDS = 30
+RECONNECT_SECONDS = 15
+TITLE = 'Penumbra · screen'
+
+# Chromecasts play fragmented MP4; DLNA TVs all play MPEG-TS.
+FORMATS = {
+    'chromecast': ('mp4', 'video/mp4', ['-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov+default_base_moof']),
+    'dlna': ('ts', 'video/mpeg', ['-f', 'mpegts', '-mpegts_flags', 'resend_headers']),
+}
+DLNA_FEATURES = 'DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000'
+
+UPNP = {'d': 'urn:schemas-upnp-org:device-1-0'}
+AVTRANSPORT = 'urn:schemas-upnp-org:service:AVTransport:1'
+SSDP = ('239.255.255.250', 1900)
+SEARCH = ('M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: "ssdp:discover"\r\nMX: 2\r\n'
+          'ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n').encode()
+
+
+def notify(title, body='', critical=False):
+    command = ['notify-send', '-a', 'Penumbra', '-i', 'video-display', title, body]
+    if critical:
+        command[1:1] = ['-u', 'critical']
+    subprocess.run(command, check=False)
+
+
+def refresh_shell():
+    subprocess.run(['quickshell', '-c', 'penumbra', 'ipc', 'call', 'cast', 'refresh'],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+def read_state():
+    try:
+        return json.loads(STATE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def write_state(**state):
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(state))
+    refresh_shell()
+
+
+def running_cast():
+    """The pid of the cast in progress, or None."""
+    pid = read_state().get('pid')
+    if not pid:
+        return None
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return None
+    return pid
+
+
+def local_address(host):
+    """This computer's address on the network that reaches `host`."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        probe.connect((host, 9))
+        return probe.getsockname()[0]
+
+
+# DLNA (UPnP media renderers)
+
+def describe(location):
+    """A DLNA renderer's name, model and AVTransport control URL, from its description; None if it has none."""
+    with urllib.request.urlopen(location, timeout=3) as response:
+        root = ElementTree.fromstring(response.read())
+    base = root.findtext('d:URLBase', namespaces=UPNP) or location
+    for device in root.iter(f'{{{UPNP["d"]}}}device'):
+        for service in device.iterfind('d:serviceList/d:service', UPNP):
+            if (service.findtext('d:serviceType', namespaces=UPNP) or '').startswith('urn:schemas-upnp-org:service:AVTransport:'):
+                return {
+                    'name': (device.findtext('d:friendlyName', namespaces=UPNP) or 'TV').strip(),
+                    'model': ' '.join(filter(None, (device.findtext('d:manufacturer', namespaces=UPNP),
+                                                    device.findtext('d:modelName', namespaces=UPNP)))).strip(),
+                    'control': urllib.parse.urljoin(base, service.findtext('d:controlURL', namespaces=UPNP) or ''),
+                }
+    return None
+
+
+def scan_dlna():
+    locations = set()
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) as sock:
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        sock.settimeout(0.5)
+        # UDP may drop one; ask twice.
+        for _ in range(2):
+            sock.sendto(SEARCH, SSDP)
+        deadline = time.monotonic() + SCAN_SECONDS - 1
+        while time.monotonic() < deadline:
+            try:
+                reply = sock.recv(65507).decode(errors='replace')
+            except OSError:
+                continue
+            for line in reply.split('\r\n'):
+                key, _, value = line.partition(':')
+                if key.strip().lower() == 'location' and value.strip().startswith('http'):
+                    locations.add(value.strip())
+
+    found = []
+
+    def add(location):
+        try:
+            info = describe(location)
+        except (OSError, ElementTree.ParseError):
+            return
+        if info:
+            found.append({'id': 'dlna:' + location, 'name': info['name'], 'kind': 'dlna', 'model': info['model'],
+                          'host': urllib.parse.urlsplit(location).hostname})
+
+    threads = [threading.Thread(target=add, args=(location,)) for location in locations]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return found
+
+
+def soap(control, action, arguments):
+    body = ''.join(f'<{key}>{escape(str(value))}</{key}>' for key, value in arguments)
+    envelope = ('<?xml version="1.0" encoding="utf-8"?>'
+                '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
+                's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body>'
+                f'<u:{action} xmlns:u="{AVTRANSPORT}">{body}</u:{action}>'
+                '</s:Body></s:Envelope>')
+    request = urllib.request.Request(control, data=envelope.encode(), method='POST', headers={
+        'Content-Type': 'text/xml; charset="utf-8"',
+        'SOAPAction': f'"{AVTRANSPORT}#{action}"',
+    })
+    with urllib.request.urlopen(request, timeout=10) as response:
+        response.read()
+
+
+class DlnaTv:
+    def __init__(self, location):
+        info = describe(location)
+        if not info:
+            raise RuntimeError('it does not accept videos to play')
+        self.control = info['control']
+        self.host = urllib.parse.urlsplit(location).hostname
+
+    def play(self, url, content_type):
+        metadata = ('<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" '
+                    'xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">'
+                    f'<item id="0" parentID="-1" restricted="1"><dc:title>{escape(TITLE)}</dc:title>'
+                    '<upnp:class>object.item.videoItem</upnp:class>'
+                    f'<res protocolInfo="http-get:*:{content_type}:{DLNA_FEATURES}">{escape(url)}</res>'
+                    '</item></DIDL-Lite>')
+        # Some TVs refuse a new video while one plays.
+        self.stop()
+        soap(self.control, 'SetAVTransportURI', [('InstanceID', 0), ('CurrentURI', url), ('CurrentURIMetaData', metadata)])
+        try:
+            soap(self.control, 'Play', [('InstanceID', 0), ('Speed', 1)])
+        except OSError:
+            pass  # Some start playing on their own and refuse Play; the stream shows whether it started.
+
+    def stop(self):
+        try:
+            soap(self.control, 'Stop', [('InstanceID', 0)])
+        except OSError:
+            pass
+
+
+# Chromecast and Google TV
+
+def scan_chromecast():
+    try:
+        import pychromecast
+        import zeroconf
+    except ImportError:
+        return []
+    zc = zeroconf.Zeroconf()
+    browser = pychromecast.CastBrowser(pychromecast.SimpleCastListener(), zc)
+    browser.start_discovery()
+    time.sleep(SCAN_SECONDS)
+    browser.stop_discovery()
+    devices = list(browser.devices.values())
+    zc.close()
+    # Speakers and speaker groups have no screen; TVs of other brands have no known type.
+    return [{'id': f'chromecast:{info.uuid}:{info.port}:{info.host}', 'name': info.friendly_name or 'Chromecast',
+             'kind': 'chromecast', 'model': info.model_name or '', 'host': info.host}
+            for info in devices if info.cast_type in (None, 'cast')]
+
+
+class ChromecastTv:
+    def __init__(self, address):
+        import pychromecast
+        from uuid import UUID
+        uuid, port, self.host = address.split(':', 2)
+        self.cast = pychromecast.get_chromecast_from_host((self.host, int(port), UUID(uuid), None, None), tries=2, timeout=10)
+        self.cast.wait(timeout=15)
+
+    def play(self, url, content_type):
+        media = self.cast.media_controller
+        media.play_media(url, content_type, title=TITLE, stream_type='LIVE')
+        media.block_until_active(timeout=20)
+
+    def stop(self):
+        try:
+            self.cast.quit_app()
+        except Exception:  # pylint: disable=broad-except
+            pass
+        self.cast.disconnect(timeout=5)
+
+
+def scan():
+    results = {}
+    threads = [threading.Thread(target=lambda name=name, find=find: results.__setitem__(name, find()))
+               for name, find in (('chromecast', scan_chromecast), ('dlna', scan_dlna))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    casts = results.get('chromecast', [])
+    # A Google TV often answers as a DLNA renderer too; Cast works better.
+    hosts = {tv['host'] for tv in casts}
+    tvs = casts + [tv for tv in results.get('dlna', []) if tv['host'] not in hosts]
+    print(json.dumps(sorted(tvs, key=lambda tv: tv['name'].lower())))
+
+
+# The stream
+
+def random_access(data, i):
+    """Whether the MPEG-TS packet at `i` starts a keyframe: its adaptation field says so."""
+    return data[i] == 0x47 and data[i + 3] & 0x20 and data[i + 4] > 0 and data[i + 5] & 0x40
+
+class Stream:
+    """The encoder's output, handed to every connection the TV opens. A connection starts on a
+    keyframe: fragmented MP4 is read box by box, so it gets the header (ftyp, moov) and then whole
+    fragments; MPEG-TS goes out in whole packets, from one marked as a random access point."""
+
+    def __init__(self, source, mp4):
+        self.source = source
+        self.mp4 = mp4
+        self.header = b''
+        self.lock = threading.Lock()
+        self.clients = []
+        self.ended = threading.Event()
+        # Set once the header is complete, at the first fragment.
+        self.ready = threading.Event()
+        self.ever_connected = False
+        self.last_connected = time.monotonic()
+
+    def chunks(self):
+        """(data, where in it a connection may start, or None)."""
+        if not self.mp4:
+            while data := self.source.read(188 * 64):
+                yield data, next((i for i in range(0, len(data) - 5, 188) if random_access(data, i)), None)
+            return
+        while len(head := self.source.read(8)) == 8:
+            size, kind = struct.unpack('>I4s', head)
+            if size == 1:
+                large = self.source.read(8)
+                head += large
+                size = struct.unpack('>Q', large)[0]
+            body = self.source.read(size - len(head))
+            if len(body) < size - len(head):
+                return
+            if kind in (b'ftyp', b'moov'):
+                self.header += head + body
+            else:
+                yield head + body, 0 if kind == b'moof' else None
+
+    def run(self):
+        for data, start in self.chunks():
+            self.ready.set()
+            with self.lock:
+                for client in self.clients:
+                    if not client['started']:
+                        if start is None:
+                            continue
+                        client['started'] = True
+                        part = data[start:]
+                    else:
+                        part = data
+                    try:
+                        client['queue'].put_nowait(part)
+                    except queue.Full:
+                        client['dropped'] = True  # a TV that stopped reading
+        self.ended.set()
+        self.ready.set()
+
+    def serve(self, write):
+        client = {'queue': queue.Queue(maxsize=256), 'started': False, 'dropped': False}
+        with self.lock:
+            self.clients.append(client)
+            self.ever_connected = True
+        try:
+            self.ready.wait(10)
+            write(self.header)
+            while not client['dropped'] and not self.ended.is_set():
+                try:
+                    write(client['queue'].get(timeout=1))
+                except queue.Empty:
+                    pass
+        except OSError:
+            pass
+        finally:
+            with self.lock:
+                self.clients.remove(client)
+                self.last_connected = time.monotonic()
+
+    def watched(self):
+        with self.lock:
+            return bool(self.clients)
+
+
+def server_for(stream, path, content_type):
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = 'HTTP/1.1'
+
+        def headers_out(self):
+            if self.path.split('?')[0] != path:
+                self.send_error(404)
+                return False
+            self.send_response(200)
+            self.send_header('Content-Type', content_type)
+            self.send_header('Cache-Control', 'no-cache')
+            self.send_header('Connection', 'close')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('transferMode.dlna.org', 'Streaming')
+            self.send_header('contentFeatures.dlna.org', DLNA_FEATURES)
+            self.end_headers()
+            return True
+
+        def do_HEAD(self):
+            self.headers_out()
+
+        def do_GET(self):
+            if self.headers_out():
+                stream.serve(self.wfile.write)
+            self.close_connection = True
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(('', 0), Handler)
+    server.daemon_threads = True
+    return server
+
+
+def start(device, name, output, sound):
+    if running_cast():
+        stop()
+        for _ in range(50):
+            if not running_cast():
+                break
+            time.sleep(0.1)
+    kind, _, address = device.partition(':')
+    if kind not in FORMATS:
+        sys.exit(f'penumbra-cast: unknown TV {device!r}')
+    extension, content_type, muxer = FORMATS[kind]
+
+    finished = threading.Event()
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(signum, lambda *_: finished.set())
+    started = int(time.time())
+    write_state(pid=os.getpid(), id=device, name=name, phase='connecting', started=started, sound=sound, output=output)
+
+    recorder = encoder = server = tv = None
+    failure = None
+    try:
+        tv = ChromecastTv(address) if kind == 'chromecast' else DlnaTv(address)
+
+        # H.264 at 30 frames a second, a keyframe every second so the TV can join quickly, and no
+        # wider than 1920 pixels, which every TV decodes.
+        record = ['wf-recorder', '-c', 'libx264', '-x', 'yuv420p', '-r', '30',
+                  '-F', "scale=w='min(1920,iw)':h=-2",
+                  '-p', 'preset=veryfast', '-p', 'tune=zerolatency', '-p', 'g=30',
+                  '-p', 'crf=23', '-p', 'maxrate=8M', '-p', 'bufsize=16M',
+                  '-m', 'matroska', '-f', 'pipe:1']
+        if output:
+            record += ['-o', output]
+        if sound:
+            sink = subprocess.run(['pactl', 'get-default-sink'], capture_output=True, text=True, check=False).stdout.strip()
+            if sink:
+                record.append(f'--audio={sink}.monitor')
+        log = LOG.open('w')
+        recorder = subprocess.Popen(record, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=log)
+        encoder = subprocess.Popen(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-i', 'pipe:0', '-c', 'copy', *muxer, 'pipe:1'],
+                                   stdin=recorder.stdout, stdout=subprocess.PIPE, stderr=log)
+        recorder.stdout.close()
+
+        stream = Stream(encoder.stdout, extension == 'mp4')
+        threading.Thread(target=stream.run, daemon=True).start()
+        path = f'/{secrets.token_urlsafe(12)}/screen.{extension}'
+        server = server_for(stream, path, content_type)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        url = f'http://{local_address(tv.host)}:{server.server_address[1]}{path}'
+
+        tv.play(url, content_type)
+        write_state(pid=os.getpid(), id=device, name=name, phase='casting', started=started, sound=sound, output=output)
+
+        connect_by = time.monotonic() + CONNECT_SECONDS
+        while not finished.wait(1):
+            if stream.ended.is_set():
+                failure = ('Casting stopped', 'The screen recording ended. ' + LOG.read_text().strip()[-200:])
+                break
+            if stream.watched():
+                continue
+            if not stream.ever_connected and time.monotonic() > connect_by:
+                failure = (f'{name} did not open the screen',
+                           'Check that the TV is on and that no firewall blocks this computer.')
+                break
+            if stream.ever_connected and time.monotonic() - stream.last_connected > RECONNECT_SECONDS:
+                tv = None  # The TV stopped playing by itself; nothing to stop there.
+                break
+    except Exception as error:  # pylint: disable=broad-except
+        failure = (f'Could not cast to {name}', str(error) or type(error).__name__)
+    finally:
+        if tv:
+            tv.stop()
+        if server:
+            server.shutdown()
+        for process in (recorder, encoder):
+            if process and process.poll() is None:
+                process.send_signal(signal.SIGINT)
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+        STATE.unlink(missing_ok=True)
+        refresh_shell()
+    if failure:
+        notify(*failure, critical=True)
+        sys.exit(1)
+
+
+def stop():
+    if pid := running_cast():
+        os.kill(pid, signal.SIGTERM)
+
+
+def main(argv):
+    if argv[:1] == ['scan']:
+        scan()
+    elif argv[:1] == ['stop']:
+        stop()
+    elif argv[:1] == ['start'] and len(argv) > 1:
+        options = {'--name': 'TV', '--output': ''}
+        sound = False
+        rest = argv[2:]
+        while rest:
+            option = rest.pop(0)
+            if option == '--sound':
+                sound = True
+            elif option in options and rest:
+                options[option] = rest.pop(0)
+            else:
+                sys.exit(__doc__)
+        start(argv[1], options['--name'], options['--output'], sound)
+    else:
+        sys.exit(__doc__)
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
 ```
 
 ## `bin/penumbra-clipboard`
@@ -6807,6 +7306,18 @@ PanelWindow {
             Label { text: Recorder.elapsedText; font.weight: Font.Bold; color: Theme.rose }
         }
 
+        // Casting to a TV; click for the Cast page.
+        Capsule {
+            id: castCapsule
+            shown: Cast.casting
+            padding: 14
+            active: Ui.controlOpen && Ui.controlPage === "cast"
+            tip: Cast.connecting ? `Connecting to ${Cast.tvName}…` : `Casting to ${Cast.tvName} · click to manage`
+            onClicked: Ui.openControl("cast")
+            Glyph { text: "󰄙"; color: castCapsule.active ? Theme.onAccent : Theme.accentBright }
+            Label { text: Cast.tvName; font.weight: Font.Bold; color: castCapsule.active ? Theme.onAccent : Theme.accentBright }
+        }
+
         Capsule {
             shown: Devices.layouts.length > 1
             padding: 14
@@ -7416,6 +7927,287 @@ Rectangle {
 }
 ```
 
+## `config/quickshell/penumbra/Cast.qml`
+
+```qml
+pragma Singleton
+import QtQuick
+import Quickshell
+import Quickshell.Io
+
+// Casting the screen to a TV. penumbra-cast finds the TVs (Chromecast, Google TV and DLNA) and does
+// the cast, keeping it in $XDG_RUNTIME_DIR/penumbra/cast so it outlives the shell; the control
+// center's Cast page and the bar show it from there.
+Singleton {
+    id: root
+
+    property var tvs: [] // [{ id, name, kind (chromecast or dlna), model }]
+    property bool scanning: false
+    property bool scanned: false
+
+    property bool casting: false
+    property bool connecting: false
+    property string tvId: ""
+    property string tvName: ""
+    property bool sound: false // whether the TV plays what the computer plays too
+
+    function scan() {
+        if (!scanner.running) {
+            scanning = true;
+            scanner.running = true;
+        }
+    }
+    function start(tv, output) {
+        const command = [Ui.bin + "penumbra-cast", "start", tv.id, "--name", tv.name];
+        if (output)
+            command.push("--output", output);
+        if (Settings.castSound)
+            command.push("--sound");
+        // Shown at once; penumbra-cast confirms it in a moment.
+        tvId = tv.id;
+        tvName = tv.name;
+        sound = Settings.castSound;
+        connecting = true;
+        casting = true;
+        Ui.spawn(command);
+    }
+    function stop() {
+        Quickshell.execDetached([Ui.bin + "penumbra-cast", "stop"]);
+    }
+    function refresh() {
+        state.reload();
+    }
+
+    Process {
+        id: scanner
+        command: [Ui.bin + "penumbra-cast", "scan"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    root.tvs = JSON.parse(text);
+                } catch (e) {
+                    root.tvs = [];
+                }
+            }
+        }
+        onExited: {
+            root.scanning = false;
+            root.scanned = true;
+        }
+    }
+
+    FileView {
+        id: state
+        path: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/penumbra/cast"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: {
+            try {
+                const cast = JSON.parse(text());
+                root.tvId = cast.id ?? "";
+                root.tvName = cast.name ?? "";
+                root.sound = cast.sound ?? root.sound;
+                root.connecting = cast.phase === "connecting";
+                root.casting = true;
+            } catch (e) {
+                root.casting = false;
+            }
+        }
+        onLoadFailed: {
+            root.casting = false;
+            root.connecting = false;
+        }
+    }
+}
+```
+
+## `config/quickshell/penumbra/CastPage.qml`
+
+```qml
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import Quickshell
+
+// Cast the screen to a TV on the same network: pick one and it shows this screen in a moment.
+ColumnLayout {
+    id: root
+
+    property bool active: false
+    // The screen to cast: the one the panel opened on, unless another is picked.
+    property string output: ""
+    readonly property string chosenOutput: output || (Ui.screen?.name ?? "")
+
+    spacing: 12
+
+    // Look for TVs while the page is on screen, again every so often.
+    onActiveChanged: if (active) { output = ""; Cast.scan(); }
+    Timer {
+        interval: 20000
+        repeat: true
+        running: root.active
+        onTriggered: Cast.scan()
+    }
+
+    function glyphFor(tv) {
+        return tv.kind === "chromecast" ? "󰄘" : "󰔂";
+    }
+    function detailFor(tv) {
+        const kind = tv.kind === "chromecast" ? "Chromecast" : "DLNA";
+        return tv.model ? `${tv.model} · ${kind}` : kind;
+    }
+
+    PageHeader {
+        Layout.fillWidth: true
+        title: "Cast screen"
+        status: Cast.connecting ? `Connecting to ${Cast.tvName}…`
+            : Cast.casting ? `Casting to ${Cast.tvName}`
+            : Cast.scanning ? "Searching for TVs…"
+            : Cast.tvs.length === 1 ? "1 TV on this network"
+            : Cast.tvs.length ? `${Cast.tvs.length} TVs on this network` : "No TVs found"
+        showSwitch: Cast.casting
+        checked: Cast.casting
+        onBack: Ui.controlPage = "main"
+        onToggled: Cast.stop()
+    }
+
+    // The cast in progress.
+    ListRow {
+        Layout.fillWidth: true
+        visible: Cast.casting
+        glyph: "󰄙"
+        title: Cast.tvName
+        subtitle: Cast.connecting ? "Connecting…" : Cast.sound ? "Showing this screen, with sound" : "Showing this screen"
+        highlighted: true
+        busy: Cast.connecting
+        expanded: true
+        PillButton {
+            text: "Stop casting"
+            danger: true
+            onClicked: Cast.stop()
+        }
+    }
+
+    RowLayout {
+        Layout.fillWidth: true
+        Layout.topMargin: 2
+        Overline { Layout.fillWidth: true; text: "TVs" }
+        Glyph {
+            id: refreshGlyph
+            text: "󰑐"
+            size: 14
+            color: Cast.scanning ? Theme.accent : refreshArea.containsMouse ? Theme.text : Theme.muted
+            RotationAnimation on rotation {
+                running: Cast.scanning
+                from: 0
+                to: 360
+                duration: 1200
+                loops: Animation.Infinite
+                onStopped: refreshGlyph.rotation = 0
+            }
+            MouseArea {
+                id: refreshArea
+                anchors.fill: parent
+                anchors.margins: -6
+                hoverEnabled: true
+                enabled: !Cast.scanning
+                cursorShape: Qt.PointingHandCursor
+                onClicked: Cast.scan()
+            }
+        }
+    }
+
+    Flickable {
+        id: scroller
+        Layout.fillWidth: true
+        Layout.preferredHeight: Math.min(contentHeight, 300)
+        visible: Cast.tvs.length > 0
+        contentHeight: list.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: ScrollBar { policy: scroller.contentHeight > scroller.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
+
+        ColumnLayout {
+            id: list
+            width: scroller.width
+            spacing: 4
+            Repeater {
+                model: Cast.tvs
+                delegate: ListRow {
+                    required property var modelData
+                    readonly property bool current: Cast.casting && Cast.tvId === modelData.id
+                    Layout.fillWidth: true
+                    glyph: root.glyphFor(modelData)
+                    title: modelData.name
+                    subtitle: current ? (Cast.connecting ? "Connecting…" : "Casting") : root.detailFor(modelData)
+                    highlighted: current
+                    busy: current && Cast.connecting
+                    trailing: current ? "" : "󰄘"
+                    onClicked: if (!current) Cast.start(modelData, root.chosenOutput)
+                }
+            }
+        }
+    }
+
+    // Nothing found yet.
+    ColumnLayout {
+        Layout.fillWidth: true
+        Layout.topMargin: 4
+        Layout.bottomMargin: 4
+        visible: Cast.tvs.length === 0
+        spacing: 4
+        Glyph { Layout.fillWidth: true; text: Cast.scanning || !Cast.scanned ? "󰄘" : "󰔂"; size: 28; color: Theme.dim }
+        Label {
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
+            text: Cast.scanning || !Cast.scanned ? "Searching for TVs…" : "No TVs found"
+            color: Theme.muted
+        }
+        Label {
+            Layout.fillWidth: true
+            visible: Cast.scanned && !Cast.scanning
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            text: "Turn the TV on and connect it to the same network as this computer."
+            font.pixelSize: Theme.textSmall
+            color: Theme.dim
+        }
+    }
+
+    // Which screen, when there are several.
+    ColumnLayout {
+        Layout.fillWidth: true
+        visible: Quickshell.screens.length > 1
+        spacing: 6
+        Overline { Layout.fillWidth: true; Layout.topMargin: 2; text: "Screen" }
+        Segmented {
+            Layout.fillWidth: true
+            current: root.chosenOutput
+            options: Quickshell.screens.map(s => ({ value: s.name, title: s.name, glyph: "󰍹" }))
+            onChosen: value => root.output = value
+        }
+    }
+
+    SwitchRow {
+        glyph: Settings.castSound ? "󰓃" : "󰓄"
+        title: "Sound on the TV"
+        subtitle: Cast.casting ? "Applies to the next cast" : "What this computer plays"
+        checked: Settings.castSound
+        onToggled: Settings.castSound = !Settings.castSound
+    }
+
+    Label {
+        Layout.fillWidth: true
+        Layout.leftMargin: 4
+        wrapMode: Text.WordWrap
+        text: "The TV shows the screen a few seconds late: fine for films and slides, not for games."
+        font.pixelSize: Theme.textSmall
+        color: Theme.dim
+    }
+}
+```
+
 ## `config/quickshell/penumbra/Clock.qml`
 
 ```qml
@@ -7644,8 +8436,8 @@ Panel {
         }
     }
 
-    // One page at a time: the main view, or Wi-Fi, Bluetooth, sound, night light, settings and
-    // the settings' own pages.
+    // One page at a time: the main view, or Wi-Fi, Bluetooth, sound, night light, casting, settings
+    // and the settings' own pages.
     ColumnLayout {
         id: pages
         x: 18
@@ -7684,6 +8476,12 @@ Panel {
         NightLightPage {
             Layout.fillWidth: true
             visible: Ui.controlPage === "night"
+        }
+
+        CastPage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "cast"
+            active: root.open && visible
         }
 
         SettingsPage {
@@ -7817,6 +8615,18 @@ Panel {
                     title: "Screenshot"
                     subtitle: "Picture or video"
                     onToggled: Ui.openShot()
+                }
+                // The odd one out spans the row.
+                Tile {
+                    Layout.fillWidth: true
+                    Layout.columnSpan: 2
+                    glyph: Cast.casting ? "󰄙" : "󰄘"
+                    title: "Cast screen"
+                    subtitle: Cast.connecting ? `Connecting to ${Cast.tvName}…` : Cast.casting ? `Casting to ${Cast.tvName}` : "Show this screen on a TV"
+                    on: Cast.casting
+                    hasMore: true
+                    onToggled: Cast.casting ? Cast.stop() : Ui.controlPage = "cast"
+                    onMore: Ui.controlPage = "cast"
                 }
             }
 
@@ -15124,6 +15934,8 @@ Singleton {
     property alias nightFrom: adapter.nightFrom
     property alias nightTo: adapter.nightTo
     property alias nightPlace: adapter.nightPlace // a city or "latitude, longitude"; empty: the time zone's
+    // Casting: whether the TV also plays what the computer plays.
+    property alias castSound: adapter.castSound
 
     FileView {
         path: Quickshell.env("HOME") + "/.config/penumbra/shell.json"
@@ -15146,6 +15958,7 @@ Singleton {
             property string nightFrom: "21:00"
             property string nightTo: "07:00"
             property string nightPlace: ""
+            property bool castSound: true
         }
     }
 }
@@ -16018,7 +16831,7 @@ Singleton {
     id: root
 
     property bool controlOpen: false
-    property string controlPage: "main" // main, wifi, bluetooth, mixer, night, settings or a settings page
+    property string controlPage: "main" // main, wifi, bluetooth, mixer, night, cast, settings or a settings page
     property bool calendarOpen: false
     property bool monitorOpen: false
     property bool updatesOpen: false
@@ -17598,6 +18411,7 @@ ShellRoot {
         function wifi(): void { Ui.openControl("wifi"); }
         function bluetooth(): void { Ui.openControl("bluetooth"); }
         function mixer(): void { Ui.openControl("mixer"); }
+        function cast(): void { Ui.openControl("cast"); }
         function settings(): void { Ui.openControl("settings"); }
         // A page of Settings: look, displays, keyboard, idle or apps; or night (night light).
         function page(name: string): void { Ui.openControl(name); }
@@ -17630,6 +18444,13 @@ ShellRoot {
         // penumbra-record calls this when a recording starts or ends.
         function refresh(): void { Recorder.refresh(); }
         function stop(): void { Recorder.stop(); }
+    }
+
+    IpcHandler {
+        target: "cast"
+        // penumbra-cast calls this when a cast starts, connects or ends.
+        function refresh(): void { Cast.refresh(); }
+        function stop(): void { Cast.stop(); }
     }
 
     IpcHandler {

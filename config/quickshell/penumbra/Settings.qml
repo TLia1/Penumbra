@@ -14,6 +14,8 @@ Singleton {
     property alias nightFrom: adapter.nightFrom
     property alias nightTo: adapter.nightTo
     property alias nightPlace: adapter.nightPlace // a city or "latitude, longitude"; empty: the time zone's
+    // Casting: whether the TV also plays what the computer plays.
+    property alias castSound: adapter.castSound
 
     FileView {
         path: Quickshell.env("HOME") + "/.config/penumbra/shell.json"
@@ -36,6 +38,7 @@ Singleton {
             property string nightFrom: "21:00"
             property string nightTo: "07:00"
             property string nightPlace: ""
+            property bool castSound: true
         }
     }
 }

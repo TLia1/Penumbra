@@ -59,6 +59,7 @@ ShellRoot {
         function wifi(): void { Ui.openControl("wifi"); }
         function bluetooth(): void { Ui.openControl("bluetooth"); }
         function mixer(): void { Ui.openControl("mixer"); }
+        function cast(): void { Ui.openControl("cast"); }
         function settings(): void { Ui.openControl("settings"); }
         // A page of Settings: look, displays, keyboard, idle or apps; or night (night light).
         function page(name: string): void { Ui.openControl(name); }
@@ -91,6 +92,13 @@ ShellRoot {
         // penumbra-record calls this when a recording starts or ends.
         function refresh(): void { Recorder.refresh(); }
         function stop(): void { Recorder.stop(); }
+    }
+
+    IpcHandler {
+        target: "cast"
+        // penumbra-cast calls this when a cast starts, connects or ends.
+        function refresh(): void { Cast.refresh(); }
+        function stop(): void { Cast.stop(); }
     }
 
     IpcHandler {

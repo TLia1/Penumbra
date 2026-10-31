@@ -193,6 +193,18 @@ PanelWindow {
             Label { text: Recorder.elapsedText; font.weight: Font.Bold; color: Theme.rose }
         }
 
+        // Casting to a TV; click for the Cast page.
+        Capsule {
+            id: castCapsule
+            shown: Cast.casting
+            padding: 14
+            active: Ui.controlOpen && Ui.controlPage === "cast"
+            tip: Cast.connecting ? `Connecting to ${Cast.tvName}…` : `Casting to ${Cast.tvName} · click to manage`
+            onClicked: Ui.openControl("cast")
+            Glyph { text: "󰄙"; color: castCapsule.active ? Theme.onAccent : Theme.accentBright }
+            Label { text: Cast.tvName; font.weight: Font.Bold; color: castCapsule.active ? Theme.onAccent : Theme.accentBright }
+        }
+
         Capsule {
             shown: Devices.layouts.length > 1
             padding: 14

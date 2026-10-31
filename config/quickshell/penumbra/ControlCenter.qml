@@ -31,8 +31,8 @@ Panel {
         }
     }
 
-    // One page at a time: the main view, or Wi-Fi, Bluetooth, sound, night light, settings and
-    // the settings' own pages.
+    // One page at a time: the main view, or Wi-Fi, Bluetooth, sound, night light, casting, settings
+    // and the settings' own pages.
     ColumnLayout {
         id: pages
         x: 18
@@ -71,6 +71,12 @@ Panel {
         NightLightPage {
             Layout.fillWidth: true
             visible: Ui.controlPage === "night"
+        }
+
+        CastPage {
+            Layout.fillWidth: true
+            visible: Ui.controlPage === "cast"
+            active: root.open && visible
         }
 
         SettingsPage {
@@ -204,6 +210,18 @@ Panel {
                     title: "Screenshot"
                     subtitle: "Picture or video"
                     onToggled: Ui.openShot()
+                }
+                // The odd one out spans the row.
+                Tile {
+                    Layout.fillWidth: true
+                    Layout.columnSpan: 2
+                    glyph: Cast.casting ? "󰄙" : "󰄘"
+                    title: "Cast screen"
+                    subtitle: Cast.connecting ? `Connecting to ${Cast.tvName}…` : Cast.casting ? `Casting to ${Cast.tvName}` : "Show this screen on a TV"
+                    on: Cast.casting
+                    hasMore: true
+                    onToggled: Cast.casting ? Cast.stop() : Ui.controlPage = "cast"
+                    onMore: Ui.controlPage = "cast"
                 }
             }
 

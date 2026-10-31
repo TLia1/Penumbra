@@ -26,6 +26,8 @@ PACKAGES=(
     grim slurp satty wf-recorder hyprpicker cliphist wl-clipboard wtype unicode-emoji noto-fonts-emoji
     # Your own GIF and video wallpapers: the shell plays them, ffmpeg takes their first frame
     qt6-multimedia qt6-multimedia-ffmpeg ffmpeg
+    # Casting the screen to a TV: Chromecast and Google TV (DLNA TVs need nothing more)
+    python-pychromecast
     # Used by the helper scripts and build tools
     pacman-contrib flatpak libnotify librsvg python-pillow xorg-xcursorgen
 )
