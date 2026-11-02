@@ -35,6 +35,7 @@ Rectangle {
             id: dawn
             DawnScene {
                 clean: true
+                running: !Theme.reducedMotion
                 pixelScale: width > 0 && height > 0 ? Math.max(surface.width / width, surface.height / height) * surface.pixelRatio : 1
             }
         }
@@ -42,6 +43,7 @@ Rectangle {
             id: eclipse
             EclipseScene {
                 clean: true
+                running: !Theme.reducedMotion
                 pixelScale: width > 0 && height > 0 ? Math.max(surface.width / width, surface.height / height) * surface.pixelRatio : 1
             }
         }
@@ -102,6 +104,20 @@ Rectangle {
                 font.letterSpacing: 3
                 font.capitalization: Font.AllUppercase
                 color: Theme.accent
+            }
+            // How many notifications came in while locked, never what they say.
+            RowLayout {
+                readonly property int count: Notifs.history.filter(n => (Notifs.received[n.id] ?? 0) > surface.lock.lockedAt).length
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: 14
+                visible: Settings.lockNotificationCount && count > 0
+                spacing: 8
+                Glyph { text: "󰂚"; size: 15; color: Theme.textSoft }
+                Label {
+                    text: `${parent.count} new notification${parent.count === 1 ? "" : "s"}`
+                    font.pixelSize: Theme.textMedium
+                    color: Theme.textSoft
+                }
             }
         }
 
@@ -188,15 +204,15 @@ Rectangle {
                     text: surface.lock.busy ? "󰔟" : "󰌆"
                     size: 15
                     color: surface.lock.busy ? Theme.accent : Theme.dim
-                    RotationAnimation on rotation { running: surface.lock.busy; from: 0; to: 360; duration: 1200; loops: Animation.Infinite }
+                    RotationAnimation on rotation { running: surface.lock.busy && !Theme.reducedMotion; from: 0; to: 360; duration: 1200; loops: Animation.Infinite }
                 }
 
                 SequentialAnimation {
                     id: shake
-                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: 18; duration: 50 }
-                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: -14; duration: 70 }
-                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: 10; duration: 60 }
-                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: 0; duration: 60 }
+                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: 18; duration: 50 * Theme.motion }
+                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: -14; duration: 70 * Theme.motion }
+                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: 10; duration: 60 * Theme.motion }
+                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: 0; duration: 60 * Theme.motion }
                 }
             }
 
@@ -212,7 +228,7 @@ Rectangle {
                     color: surface.lock.fingerWaiting ? Theme.accentBright : Theme.dim
                     opacity: surface.lock.fingerWaiting ? pulse : 1
                     SequentialAnimation on pulse {
-                        running: surface.lock.fingerWaiting
+                        running: surface.lock.fingerWaiting && !Theme.reducedMotion
                         loops: Animation.Infinite
                         NumberAnimation { to: 0.35; duration: 900; easing.type: Easing.InOutSine }
                         NumberAnimation { to: 1; duration: 900; easing.type: Easing.InOutSine }

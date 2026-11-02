@@ -63,7 +63,7 @@ Rectangle {
                 text: "󰔟"
                 size: 14
                 color: Theme.accent
-                RotationAnimation on rotation { running: root.busy; from: 0; to: 360; duration: 1200; loops: Animation.Infinite }
+                RotationAnimation on rotation { running: root.busy && !Theme.reducedMotion; from: 0; to: 360; duration: 1200; loops: Animation.Infinite }
             }
             Glyph {
                 visible: root.trailing !== "" && !root.busy

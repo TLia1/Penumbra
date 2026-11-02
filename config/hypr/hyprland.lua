@@ -37,6 +37,10 @@ hl.env("GTK_USE_PORTAL", "1")
 local corners = io.open(home .. "/.local/state/penumbra/corners")
 local sharp = corners ~= nil and corners:read("l") == "sharp"
 if corners then corners:close() end
+-- Settings → Reduced motion (shell.json) turns Hyprland's animations off too.
+local shell = io.open(home .. "/.config/penumbra/shell.json")
+local still = shell ~= nil and shell:read("a"):find('"reducedMotion"%s*:%s*true') ~= nil
+if shell then shell:close() end
 hl.config({
  xwayland = {
     force_zero_scaling = true
@@ -50,7 +54,7 @@ hl.config({
    color_inactive = light and "rgba(00000022)" or "rgba(00000055)"},
   glow = {enabled = true, range = 18, render_power = 3, color = "rgba(" .. c.accentDeep .. "40)", color_inactive = "rgba(00000000)"},
   blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = light and 1 or 0.9, popups = true} },
- animations = {enabled = true},
+ animations = {enabled = not still},
  dwindle = {preserve_split = true},
  input = {kb_layout = s.kb_layout, kb_variant = s.kb_variant, kb_options = s.kb_options, numlock_by_default = s.numlock == "on",
   follow_mouse = 1, sensitivity = 0, touchpad = {natural_scroll = true}},
@@ -85,6 +89,8 @@ exec("SUPER + A", "quickshell -c penumbra ipc call panel control")
 exec("SUPER + comma", "quickshell -c penumbra ipc call panel settings")
 exec("SUPER + SHIFT + V", "~/.local/bin/penumbra-clipboard")
 exec("SUPER + semicolon", "quickshell -c penumbra ipc call launcher emoji")
+-- Jump to an open window by typing part of its title or app.
+exec("ALT + Tab", "quickshell -c penumbra ipc call launcher windows")
 exec("SUPER + SHIFT + C", "~/.local/bin/penumbra-picker")
 exec("SUPER + W", "~/.local/bin/penumbra-wallpaper next")
 exec("SUPER + SHIFT + W", "quickshell -c penumbra ipc call panel wallpapers")

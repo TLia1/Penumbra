@@ -18,9 +18,10 @@ PanelWindow {
     readonly property var entries: [
         { glyph: "󰌾", label: "Lock", command: "loginctl lock-session" },
         { glyph: "󰤄", label: "Suspend", command: "systemctl suspend" },
-        { glyph: "󰍃", label: "Log out", command: "hyprctl dispatch 'hl.dsp.exit()'", confirm: true },
-        { glyph: "󰜉", label: "Restart", command: "systemctl reboot", confirm: true },
-        { glyph: "󰐥", label: "Shut down", command: "systemctl poweroff", confirm: true }
+        // Windows are asked to close first, so apps can save or ask about unsaved work (penumbra-exit).
+        { glyph: "󰍃", label: "Log out", command: Ui.bin + "penumbra-exit logout", confirm: true },
+        { glyph: "󰜉", label: "Restart", command: Ui.bin + "penumbra-exit reboot", confirm: true },
+        { glyph: "󰐥", label: "Shut down", command: Ui.bin + "penumbra-exit poweroff", confirm: true }
     ]
     property int selected: 0
     property int armed: -1

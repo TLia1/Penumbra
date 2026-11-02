@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 # Screenshot to ~/Pictures/Screenshots, saved and copied; "annotate" opens it in Satty first.
 # The shell's overlay picks the area (region, window or screen) and passes it back with
-# --geometry "X,Y WxH"; without the shell, slurp asks for a region.
+# --geometry "X,Y WxH", or --all for every screen at once; without the shell, slurp asks for a region.
 set -euo pipefail
 annotate=false
-region=
+region= all=false
 while (( $# )); do
  case $1 in
   annotate) annotate=true;;
   --geometry) region=${2?--geometry needs "X,Y WxH"}; shift;;
-  *) echo 'Usage: penumbra-shot [annotate] [--geometry "X,Y WxH"]' >&2; exit 2;;
+  --all) all=true;;
+  *) echo 'Usage: penumbra-shot [annotate] [--geometry "X,Y WxH" | --all]' >&2; exit 2;;
  esac
  shift
 done
-if [[ -z $region ]]; then
+# grim captures every output when it is given no region.
+grab=(-g "$region")
+$all && grab=()
+if [[ -z $region ]] && ! $all; then
  "${0%/*}/penumbra-ipc" shot open "$annotate" >/dev/null 2>&1 && exit
  region=$(slurp -b 100d18aa -c b69af7 -w 2) || exit 0
 fi
@@ -24,9 +28,9 @@ suffix=; n=1
 while [[ -e $file$suffix.png ]]; do n=$((n + 1)); suffix=-$n; done
 file=$file$suffix.png
 if [[ $annotate = true ]]; then
- grim -g "$region" - | satty --filename - --output-filename "$file"
+ grim "${grab[@]}" - | satty --filename - --output-filename "$file"
  exit
 fi
-grim -g "$region" "$file"
+grim "${grab[@]}" "$file"
 wl-copy < "$file"
 notify-send -a Penumbra -i "$file" 'Screenshot saved' "Copied to clipboard · ${file/#$HOME/\~}"

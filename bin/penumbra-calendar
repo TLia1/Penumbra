@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""Events for the shell's calendar, read from iCalendar (.ics) files on this computer.
+
+    penumbra-calendar FROM TO    events from FROM to TO (YYYY-MM-DD, both included), as JSON:
+                                 [{"date": "YYYY-MM-DD", "time": "HH:MM" or "", "title": ...}]
+
+It reads every .ics file under ~/.local/share/penumbra/calendars (put exported calendars there),
+~/.calendars and ~/.local/share/vdirsyncer, where vdirsyncer keeps CalDAV calendars (Nextcloud,
+Fastmail, iCloud, Google…) in step. Repeating events follow the common rules: daily, weekly (on
+given weekdays), monthly and yearly, with an interval, a count or an end, and exceptions.
+"""
+from datetime import date, datetime, time, timedelta, timezone
+import json
+from pathlib import Path
+import sys
+from zoneinfo import ZoneInfo
+
+FOLDERS = ['.local/share/penumbra/calendars', '.calendars', '.local/share/vdirsyncer']
+WEEKDAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']
+LIMIT = 2000  # occurrences looked at per event, so a daily event from 1990 stays quick
+
+
+def lines(text):
+    """Content lines, with folded continuation lines joined back."""
+    out = []
+    for raw in text.splitlines():
+        if raw[:1] in (' ', '\t') and out:
+            out[-1] += raw[1:]
+        else:
+            out.append(raw)
+    return out
+
+
+def parse_value(params, value):
+    """A DTSTART-like value → (date or aware datetime, all_day)."""
+    value = value.strip()
+    if params.get('VALUE') == 'DATE' or len(value) == 8:
+        return date(int(value[:4]), int(value[4:6]), int(value[6:8])), True
+    moment = datetime.strptime(value[:15], '%Y%m%dT%H%M%S')
+    if value.endswith('Z'):
+        moment = moment.replace(tzinfo=timezone.utc)
+    elif 'TZID' in params:
+        try:
+            moment = moment.replace(tzinfo=ZoneInfo(params['TZID'].strip('"')))
+        except (KeyError, ValueError):
+            moment = moment.astimezone()
+    else:
+        moment = moment.astimezone()  # floating time: this computer's
+    return moment, False
+
+
+def events(text):
+    """Each VEVENT as a dict of its properties: {NAME: [(params, value), …]}."""
+    found, current = [], None
+    for line in lines(text):
+        if line == 'BEGIN:VEVENT':
+            current = {}
+        elif line == 'END:VEVENT' and current is not None:
+            found.append(current)
+            current = None
+        elif current is not None and ':' in line:
+            head, value = line.split(':', 1)
+            name, *rest = head.split(';')
+            params = dict(p.split('=', 1) for p in rest if '=' in p)
+            current.setdefault(name.upper(), []).append((params, value))
+    return found
+
+
+def unescape(text):
+    return text.replace('\\n', ' ').replace('\\,', ',').replace('\\;', ';').replace('\\\\', '\\').strip()
+
+
+def add_months(day, months):
+    """The same day `months` later, or None when that month has no such day (31 February)."""
+    month = day.month - 1 + months
+    year, month = day.year + month // 12, month % 12 + 1
+    try:
+        return day.replace(year=year, month=month)
+    except ValueError:
+        return None
+
+
+def occurrences(start, rule, first, last):
+    """Start times of a repeating event (RRULE as a dict) from its start until `last`."""
+    freq = rule.get('FREQ')
+    interval = max(1, int(rule.get('INTERVAL', '1') or 1))
+    count = int(rule['COUNT']) if rule.get('COUNT', '').isdigit() else None
+    until = None
+    if 'UNTIL' in rule:
+        until, _ = parse_value({}, rule['UNTIL'])
+        until = until if isinstance(until, date) and not isinstance(until, datetime) else until.date() if isinstance(until, datetime) else until
+    days = [WEEKDAYS.index(d[-2:]) for d in rule.get('BYDAY', '').split(',') if d[-2:] in WEEKDAYS]
+    day_of = (lambda m: m.date()) if isinstance(start, datetime) else (lambda m: m)
+    made, step = 0, 0
+    # Without a count nothing before `first` matters: start near it (a daily event from 1990).
+    if count is None and freq in ('DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'):
+        span = {'DAILY': 1, 'WEEKLY': 7, 'MONTHLY': 31, 'YEARLY': 366}[freq] * interval  # never past it
+        step = max(0, (first - day_of(start)).days // span - 1)
+    stop = step + LIMIT
+    while step < stop:
+        if freq == 'DAILY':
+            batch = [start + timedelta(days=step * interval)]
+        elif freq == 'WEEKLY':
+            week = start + timedelta(weeks=step * interval)
+            monday = week - timedelta(days=day_of(week).weekday())
+            batch = [monday + timedelta(days=d) for d in sorted(days)] if days else [week]
+            batch = [b for b in batch if b >= start]
+        elif freq == 'MONTHLY':
+            batch = [m for m in [add_months(start, step * interval)] if m]
+        elif freq == 'YEARLY':
+            batch = [m for m in [add_months(start, 12 * step * interval)] if m]
+        else:
+            return
+        step += 1
+        for moment in batch:
+            if until and day_of(moment) > until or day_of(moment) > last:
+                return
+            made += 1
+            if count is not None and made > count:
+                return
+            yield moment
+
+
+def collect(first, last, home=Path.home()):
+    found = []
+    for folder in FOLDERS:
+        for path in sorted((home / folder).rglob('*.ics')):
+            try:
+                text = path.read_text(errors='replace')
+            except OSError:
+                continue
+            for event in events(text):
+                if 'DTSTART' not in event or 'RECURRENCE-ID' in event:
+                    continue
+                try:
+                    start, all_day = parse_value(*event['DTSTART'][0])
+                except ValueError:
+                    continue
+                title = unescape(event.get('SUMMARY', [({}, 'Event')])[0][1]) or 'Event'
+                skip = set()
+                for params, value in event.get('EXDATE', []):
+                    for one in value.split(','):
+                        try:
+                            moment, _ = parse_value(params, one)
+                            skip.add(moment.astimezone().date() if isinstance(moment, datetime) else moment)
+                        except ValueError:
+                            pass
+                rule = dict(p.split('=', 1) for p in event['RRULE'][0][1].split(';') if '=' in p) if 'RRULE' in event else None
+                for moment in occurrences(start, rule, first, last) if rule else [start]:
+                    local = moment.astimezone() if isinstance(moment, datetime) else moment
+                    day = local.date() if isinstance(local, datetime) else local
+                    if first <= day <= last and day not in skip:
+                        found.append({'date': day.isoformat(), 'time': '' if all_day else local.strftime('%H:%M'), 'title': title})
+    return sorted(found, key=lambda e: (e['date'], e['time'], e['title']))
+
+
+def main(argv):
+    try:
+        first, last = (date.fromisoformat(a) for a in argv)
+    except ValueError:
+        sys.exit(__doc__.strip())
+    print(json.dumps(collect(first, last)))
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

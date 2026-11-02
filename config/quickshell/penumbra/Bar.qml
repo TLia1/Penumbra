@@ -22,7 +22,8 @@ PanelWindow {
 
     IdleInhibitor {
         window: bar
-        enabled: Ui.caffeine
+        // Stay awake, or an app chosen in Settings → Idle and sleep is open.
+        enabled: Ui.stayAwake
     }
 
     Item {
@@ -112,7 +113,7 @@ PanelWindow {
                         height: 5 + (Media.bars[index] ?? 0) * 13
                         radius: Theme.corner(1.5)
                         color: Theme.accentBright
-                        Behavior on height { NumberAnimation { duration: 60 } }
+                        Behavior on height { NumberAnimation { duration: 60 * Theme.motion } }
                     }
                 }
             }
@@ -173,21 +174,23 @@ PanelWindow {
             Label { text: Recorder.countdown; font.weight: Font.Bold; color: Theme.amber }
         }
 
-        // A screen recording and how long it has run; click to stop.
+        // A screen recording and how long it has run; click to stop, right-click to pause.
         Capsule {
             shown: Recorder.recording
             padding: 14
-            tip: "Recording · click to stop (or Ctrl+Print)"
+            tip: Recorder.paused ? "Paused · right-click to go on · click to stop" : "Recording · click to stop (or Ctrl+Print) · right-click to pause"
             color: hovered ? Theme.alpha(Theme.rose, 0.3) : Theme.alpha(Theme.rose, 0.16)
             border.color: Theme.alpha(Theme.rose, 0.5)
-            onClicked: Recorder.stop()
+            onClicked: m => m.button === Qt.RightButton ? Recorder.togglePause() : Recorder.stop()
+            Glyph { visible: Recorder.paused; text: "󰏤"; size: 12; color: Theme.rose }
             Rectangle {
+                visible: !Recorder.paused
                 implicitWidth: 9
                 implicitHeight: 9
                 radius: Theme.corner(4.5)
                 color: Theme.rose
                 SequentialAnimation on opacity {
-                    running: Recorder.recording
+                    running: Recorder.recording && !Recorder.paused && !Theme.reducedMotion
                     loops: Animation.Infinite
                     NumberAnimation { to: 0.3; duration: 700; easing.type: Easing.InOutSine }
                     NumberAnimation { to: 1; duration: 700; easing.type: Easing.InOutSine }
@@ -217,14 +220,16 @@ PanelWindow {
             Label { text: Devices.layoutCode; font.weight: Font.Bold; color: Theme.textSoft }
         }
 
+        // Pending updates; also there when a restart is due, with its own glyph.
         Capsule {
-            shown: Sys.updates > 0
+            shown: Sys.updates > 0 || Sys.restartReasons.length > 0
             padding: 12
             active: Ui.updatesOpen
             tip: Sys.updatesDetail
             onClicked: Ui.toggle("updates")
-            Glyph { text: "󰚰"; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
-            Label { text: Sys.updates; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
+            Glyph { visible: Sys.updates > 0; text: "󰚰"; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
+            Label { visible: Sys.updates > 0; text: Sys.updates; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
+            Glyph { visible: Sys.restartReasons.length > 0; text: "󰜉"; color: Ui.updatesOpen ? Theme.onAccent : Theme.amber }
         }
 
         Capsule {
@@ -316,6 +321,7 @@ PanelWindow {
             spacing: 13
             active: Ui.controlOpen
             tip: `${Devices.networkName} · Bluetooth ${Devices.bluetoothName}` + (Devices.hasBattery ? `\n${Devices.batteryDetail}` : "")
+                + (Devices.peripheralBatteries.length ? "\n" + Devices.peripheralBatteries.join(" · ") : "")
             onClicked: m => m.button === Qt.RightButton ? Ui.run("pavucontrol") : Ui.toggle("control")
             onScrolled: step => Devices.adjust("volume", step > 0 ? "up" : "down")
             readonly property color tint: Ui.controlOpen ? Theme.onAccent : Theme.textSoft

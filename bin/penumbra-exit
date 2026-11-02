@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Log out, restart or shut down without cutting apps off: every window is asked to close first, so
+# apps can save their state or ask about unsaved work. After ten seconds, if some are still open
+# (a "Save changes?" dialog, say), a notification names them and offers to go ahead anyway.
+#   penumbra-exit logout|reboot|poweroff [--force]   --force skips asking the windows
+set -u
+action=${1:-} force=${2:-}
+case $action in
+ logout | reboot | poweroff) ;;
+ *) echo 'Usage: penumbra-exit logout|reboot|poweroff [--force]' >&2; exit 2;;
+esac
+# One at a time: a second press while waiting does nothing.
+exec 9>"${XDG_RUNTIME_DIR:-/tmp}/penumbra-exit.lock"
+flock -n 9 || exit 0
+
+finish() {
+ case $action in
+  logout) hyprctl dispatch 'hl.dsp.exit()';;
+  reboot) systemctl reboot;;
+  poweroff) systemctl poweroff;;
+ esac
+}
+# "address<TAB>app" for each window.
+windows() {
+ hyprctl clients -j 2>/dev/null | python3 -c '
+import json, sys
+for c in json.load(sys.stdin):
+    if c.get("mapped", True):
+        print(c["address"], c.get("class") or c.get("title") or "a window", sep="\t")'
+}
+
+if [[ $force != --force ]] && command -v hyprctl >/dev/null; then
+ while IFS=$'\t' read -r address _; do
+  hyprctl dispatch "hl.dsp.window.close({window = \"address:$address\"})" >/dev/null
+ done < <(windows)
+ for _ in {1..40}; do
+  [[ -z $(windows) ]] && break
+  sleep 0.25
+ done
+ left=$(windows | cut -f2 | sort -u | paste -sd ',' | sed 's/,/, /g')
+ if [[ -n $left ]]; then
+  case $action in logout) verb='Log out';; reboot) verb='Restart';; *) verb='Shut down';; esac
+  choice=$(notify-send -a Penumbra -u critical -i system-shutdown --wait -A "force=$verb anyway" \
+   'Some apps are still open' "$left may be asking about unsaved work.")
+  [[ $choice = force ]] || exit 1
+ fi
+fi
+finish

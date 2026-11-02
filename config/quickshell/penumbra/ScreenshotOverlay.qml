@@ -4,12 +4,15 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Wayland
 
-// Print: the screen freezes; drag a region, click a window or click for the whole screen.
+// Print: the screen freezes; drag a region, click a window or click for the whole screen, or (with
+// several screens) take them all at once, or move the overlay to another screen with Tab.
 // The overlay then steps aside (no closing animation) and penumbra-shot captures the area, or
 // penumbra-record records it (Video); a timer counts down in the bar first.
 PanelWindow {
     id: root
-    screen: Ui.screen
+    // The focused screen when it opens; Tab moves it to the next one.
+    property var shotScreen: Ui.screen
+    screen: shotScreen
     anchors { top: true; bottom: true; left: true; right: true }
     exclusionMode: ExclusionMode.Ignore
     visible: Ui.shotOpen
@@ -18,10 +21,11 @@ PanelWindow {
     WlrLayershell.namespace: "penumbra-shot"
     WlrLayershell.keyboardFocus: Ui.shotOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
-    property string mode: "region" // region, window or screen
+    property string mode: "region" // region, window, screen, or all (every screen; not for video)
     property bool annotate: false
     property bool record: false
     property bool sound: false // kept between recordings
+    readonly property bool several: Quickshell.screens.length > 1
     property int delay: 0 // seconds
     readonly property var delays: [0, 3, 5, 10]
     property rect selection: Qt.rect(0, 0, 0, 0)
@@ -39,13 +43,19 @@ PanelWindow {
             rect: Qt.rect(t.lastIpcObject.at[0] - monitor.x, t.lastIpcObject.at[1] - monitor.y, t.lastIpcObject.size[0], t.lastIpcObject.size[1])
         }))
     // What gets captured if the user confirms now.
-    readonly property rect target: mode === "screen" ? Qt.rect(0, 0, width, height)
+    readonly property rect target: mode === "screen" || mode === "all" ? Qt.rect(0, 0, width, height)
         : mode === "window" ? (hovered?.rect ?? Qt.rect(0, 0, 0, 0)) : selection
 
     function open(withAnnotate, withRecord) {
         Ui.openShot();
         annotate = withAnnotate;
         record = withRecord;
+    }
+    function nextScreen() {
+        const all = Quickshell.screens;
+        shotScreen = all[(all.indexOf(shotScreen) + 1) % all.length];
+        selection = Qt.rect(0, 0, 0, 0);
+        hovered = null;
     }
     function nextDelay() {
         delay = delays[(delays.indexOf(delay) + 1) % delays.length];
@@ -57,6 +67,7 @@ PanelWindow {
             if (!Ui.shotOpen)
                 return;
             Hyprland.refreshToplevels();
+            root.shotScreen = Ui.screen;
             root.annotate = false;
             root.record = false;
             root.delay = 0;
@@ -71,10 +82,11 @@ PanelWindow {
         if (r.width < 4 || r.height < 4)
             return;
         const geometry = `${Math.round(r.x + monitor.x)},${Math.round(r.y + monitor.y)} ${Math.round(r.width)}x${Math.round(r.height)}`;
+        const area = mode === "all" && !record ? ["--all"] : ["--geometry", geometry];
         Ui.shotOpen = false;
         Recorder.after(delay, record
-            ? [Ui.bin + "penumbra-record", "start", "--geometry", geometry, ...(sound ? ["--sound"] : [])]
-            : [Ui.bin + "penumbra-shot", ...(annotate ? ["annotate"] : []), "--geometry", geometry]);
+            ? [Ui.bin + "penumbra-record", "start", "--geometry", geometry, ...(sound ? ["--sound"] : []), ...(Settings.recordMicrophone ? ["--microphone"] : [])]
+            : [Ui.bin + "penumbra-shot", ...(annotate ? ["annotate"] : []), ...area]);
     }
     function windowAt(x, y) {
         return windows.find(w => x >= w.rect.x && x < w.rect.x + w.rect.width && y >= w.rect.y && y < w.rect.y + w.rect.height) ?? null;
@@ -102,10 +114,19 @@ PanelWindow {
                 root.mode = "window";
             else if (event.key === Qt.Key_S)
                 root.mode = "screen";
+            else if (event.key === Qt.Key_D && root.several && !root.record)
+                root.mode = "all";
+            else if (event.key === Qt.Key_Tab && root.several)
+                root.nextScreen();
+            else if (event.key === Qt.Key_M && root.record)
+                Settings.recordMicrophone = !Settings.recordMicrophone;
             else if (event.key === Qt.Key_E && !root.record)
                 root.annotate = !root.annotate;
-            else if (event.key === Qt.Key_V)
+            else if (event.key === Qt.Key_V) {
                 root.record = !root.record;
+                if (root.record && root.mode === "all")
+                    root.mode = "screen";
+            }
             else if (event.key === Qt.Key_A && root.record)
                 root.sound = !root.sound;
             else if (event.key === Qt.Key_T)
@@ -243,7 +264,9 @@ PanelWindow {
                     model: [
                         { mode: "region", glyph: "󰆞", label: "Region", key: "R" },
                         { mode: "window", glyph: "󰖯", label: "Window", key: "W" },
-                        { mode: "screen", glyph: "󰍹", label: "Screen", key: "S" }
+                        { mode: "screen", glyph: "󰍹", label: "Screen", key: "S" },
+                        // wf-recorder records one screen, so video leaves this out.
+                        ...(root.several && !root.record ? [{ mode: "all", glyph: "󰍺", label: "All screens", key: "D" }] : [])
                     ]
                     delegate: Rectangle {
                         required property var modelData
@@ -281,7 +304,11 @@ PanelWindow {
                     text: "Video"
                     on: root.record
                     tint: Theme.rose
-                    onClicked: root.record = !root.record
+                    onClicked: {
+                        root.record = !root.record;
+                        if (root.record && root.mode === "all")
+                            root.mode = "screen";
+                    }
                 }
                 Chip {
                     visible: !root.record
@@ -297,6 +324,20 @@ PanelWindow {
                     on: root.sound
                     tint: Theme.rose
                     onClicked: root.sound = !root.sound
+                }
+                Chip {
+                    visible: root.record
+                    glyph: Settings.recordMicrophone ? "󰍬" : "󰍭"
+                    text: "Microphone"
+                    on: Settings.recordMicrophone
+                    tint: Theme.rose
+                    onClicked: Settings.recordMicrophone = !Settings.recordMicrophone
+                }
+                Chip {
+                    visible: root.several
+                    glyph: "󰍺"
+                    text: root.screen?.name ?? "Screen"
+                    onClicked: root.nextScreen()
                 }
                 Chip {
                     glyph: "󰔛"
@@ -324,7 +365,9 @@ PanelWindow {
         Label {
             anchors { horizontalCenter: parent.horizontalCenter; bottom: toolbar.top; bottomMargin: 12 }
             visible: !root.dragging
-            text: (root.mode === "region" ? "Drag to select" : root.mode === "window" ? "Click a window" : "Click or press Enter for the whole screen")
+            text: (root.mode === "region" ? "Drag to select" : root.mode === "window" ? "Click a window"
+                    : root.mode === "all" ? "Click or press Enter for every screen" : "Click or press Enter for the whole screen")
+                + (root.several ? " · Tab for the next screen" : "")
                 + (root.record ? " · records until you click the bar's red capsule or press Ctrl+Print"
                     : root.annotate ? " · opens in Satty" : " · saved and copied")
                 + (root.delay ? ` · starts after ${root.delay} s` : "") + " · Esc to cancel"

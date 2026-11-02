@@ -431,6 +431,11 @@ install_system_files() {
         done < <(find "$from" -type f -print0)
     done
     configure_vm_greeter
+    # The battery charge limit rule (Settings → Battery care) applies without a reboot.
+    if command -v udevadm >/dev/null; then
+        udevadm control --reload 2>/dev/null || true
+        udevadm trigger --subsystem-match=power_supply 2>/dev/null || true
+    fi
 }
 
 # In a virtual machine the login screen renders in software at scale 1; elsewhere it uses the GPU
@@ -1130,7 +1135,7 @@ PACKAGES=(
     hyprland quickshell awww sddm hyprlock hypridle hyprsunset rofi
     xdg-desktop-portal-hyprland xdg-desktop-portal-gtk
     # Terminal and editor
-    kitty fish starship fastfetch btop neovim git ripgrep unzip nodejs npm tree-sitter-cli gcc
+    kitty fish starship fastfetch btop neovim git ripgrep fd unzip nodejs npm tree-sitter-cli gcc
     # Applications
     pavucontrol blueman network-manager-applet xdg-utils
     # Themes and fonts
@@ -1138,6 +1143,8 @@ PACKAGES=(
     qt6ct ttf-jetbrains-mono-nerd inter-font
     # Hardware and services
     networkmanager bluez bluez-utils pipewire-pulse wireplumber brightnessctl playerctl cava
+    # Notification sounds (Settings → Notifications)
+    sound-theme-freedesktop
     # Passwords apps save, unlocked when you sign in
     gnome-keyring seahorse
     # Screenshots, screen recording, clipboard, color picker, emoji and symbols
@@ -1187,8 +1194,22 @@ fi
 
 ```python
 """Arch's package sources for penumbra-updates: the official repositories, and the AUR through
-Paru or Yay when one is installed. Flatpak is handled by penumbra-updates itself."""
+Paru or Yay when one is installed. Flatpak is handled by penumbra-updates itself. Also the Arch
+news since the last upgrade (some upgrades need a step by hand) and whether a restart is due."""
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+import os
+from pathlib import Path
+import re
 import shutil
+import urllib.request
+from xml.etree import ElementTree
+
+PACMAN_LOG = Path("/var/log/pacman.log")
+NEWS_FEED = "https://archlinux.org/feeds/news/"
+# Updated while running, these only take full effect after a restart.
+CORE = ("glibc", "systemd", "linux-firmware", "mesa", "nvidia", "nvidia-open", "nvidia-utils",
+        "amd-ucode", "intel-ucode", "dbus", "dbus-broker", "wayland", "hyprland")
 
 
 def aur_helper():
@@ -1216,6 +1237,80 @@ def upgrades():
     """(name, command) for each upgrade step, run in order in a terminal."""
     aur = aur_helper()
     return [("Arch + AUR", [aur, "-Syu"]) if aur else ("Arch", ["sudo", "pacman", "-Syu"])]
+
+
+def _log_lines():
+    try:
+        return PACMAN_LOG.read_text(errors="replace").splitlines()
+    except OSError:
+        return []
+
+
+def _when(line):
+    """The time a pacman.log line was written, or None."""
+    m = re.match(r"^\[([^\]]+)\]", line)
+    try:
+        return datetime.fromisoformat(m.group(1)) if m else None
+    except ValueError:
+        return None
+
+
+def last_upgrade():
+    """When the last full system upgrade started, or None."""
+    for line in reversed(_log_lines()):
+        if "starting full system upgrade" in line:
+            return _when(line)
+    return None
+
+
+def news(cache, limit=4, fetch=urllib.request.urlopen):
+    """The latest Arch news items: [{title, link, date (ISO), new (since the last upgrade)}]. The
+    feed is fetched at most every three hours and kept in `cache` (a Path)."""
+    try:
+        fresh = datetime.now().timestamp() - cache.stat().st_mtime < 3 * 3600
+    except OSError:
+        fresh = False
+    if fresh:
+        data = cache.read_bytes()
+    else:
+        with fetch(NEWS_FEED, timeout=10) as response:
+            data = response.read(1 << 20)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_bytes(data)
+    root = ElementTree.fromstring(data)
+    since = last_upgrade()
+    items = []
+    for item in root.iter("item"):
+        try:
+            date = parsedate_to_datetime(item.findtext("pubDate") or "")
+        except (TypeError, ValueError):
+            continue
+        items.append({"title": (item.findtext("title") or "").strip(), "link": (item.findtext("link") or "").strip(),
+                      "date": date.astimezone(timezone.utc).isoformat(), "new": bool(since and date > since)})
+    return sorted(items, key=lambda i: i["date"], reverse=True)[:limit]
+
+
+def restart_reasons():
+    """Why a restart is due: a new kernel, or core packages upgraded since the computer started."""
+    reasons = []
+    if not Path("/usr/lib/modules", os.uname().release).is_dir():
+        reasons.append("The kernel was updated")
+    try:
+        booted = datetime.fromtimestamp(next(int(l.split()[1]) for l in Path("/proc/stat").read_text().splitlines()
+                                             if l.startswith("btime ")), timezone.utc)
+    except (OSError, StopIteration, ValueError):
+        return reasons
+    upgraded = set()
+    for line in _log_lines():
+        m = re.search(r"\[ALPM\] upgraded (\S+) ", line)
+        when = _when(line) if m else None
+        if m and m.group(1) in CORE and when and when > booted:
+            upgraded.add(m.group(1))
+    if upgraded:
+        names = sorted(upgraded)
+        joined = ", ".join(names[:-1]) + " and " + names[-1] if len(names) > 1 else names[0]
+        reasons.append(f"{joined} {'were' if len(names) > 1 else 'was'} updated")
+    return reasons
 ```
 
 ## `palette/palette.toml`
@@ -3851,6 +3946,177 @@ if __name__ == '__main__':
     unittest.main()
 ```
 
+## `bin/penumbra-calendar`
+
+```python
+#!/usr/bin/env python3
+"""Events for the shell's calendar, read from iCalendar (.ics) files on this computer.
+
+    penumbra-calendar FROM TO    events from FROM to TO (YYYY-MM-DD, both included), as JSON:
+                                 [{"date": "YYYY-MM-DD", "time": "HH:MM" or "", "title": ...}]
+
+It reads every .ics file under ~/.local/share/penumbra/calendars (put exported calendars there),
+~/.calendars and ~/.local/share/vdirsyncer, where vdirsyncer keeps CalDAV calendars (Nextcloud,
+Fastmail, iCloud, Google…) in step. Repeating events follow the common rules: daily, weekly (on
+given weekdays), monthly and yearly, with an interval, a count or an end, and exceptions.
+"""
+from datetime import date, datetime, time, timedelta, timezone
+import json
+from pathlib import Path
+import sys
+from zoneinfo import ZoneInfo
+
+FOLDERS = ['.local/share/penumbra/calendars', '.calendars', '.local/share/vdirsyncer']
+WEEKDAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']
+LIMIT = 2000  # occurrences looked at per event, so a daily event from 1990 stays quick
+
+
+def lines(text):
+    """Content lines, with folded continuation lines joined back."""
+    out = []
+    for raw in text.splitlines():
+        if raw[:1] in (' ', '\t') and out:
+            out[-1] += raw[1:]
+        else:
+            out.append(raw)
+    return out
+
+
+def parse_value(params, value):
+    """A DTSTART-like value → (date or aware datetime, all_day)."""
+    value = value.strip()
+    if params.get('VALUE') == 'DATE' or len(value) == 8:
+        return date(int(value[:4]), int(value[4:6]), int(value[6:8])), True
+    moment = datetime.strptime(value[:15], '%Y%m%dT%H%M%S')
+    if value.endswith('Z'):
+        moment = moment.replace(tzinfo=timezone.utc)
+    elif 'TZID' in params:
+        try:
+            moment = moment.replace(tzinfo=ZoneInfo(params['TZID'].strip('"')))
+        except (KeyError, ValueError):
+            moment = moment.astimezone()
+    else:
+        moment = moment.astimezone()  # floating time: this computer's
+    return moment, False
+
+
+def events(text):
+    """Each VEVENT as a dict of its properties: {NAME: [(params, value), …]}."""
+    found, current = [], None
+    for line in lines(text):
+        if line == 'BEGIN:VEVENT':
+            current = {}
+        elif line == 'END:VEVENT' and current is not None:
+            found.append(current)
+            current = None
+        elif current is not None and ':' in line:
+            head, value = line.split(':', 1)
+            name, *rest = head.split(';')
+            params = dict(p.split('=', 1) for p in rest if '=' in p)
+            current.setdefault(name.upper(), []).append((params, value))
+    return found
+
+
+def unescape(text):
+    return text.replace('\\n', ' ').replace('\\,', ',').replace('\\;', ';').replace('\\\\', '\\').strip()
+
+
+def add_months(day, months):
+    """The same day `months` later, or None when that month has no such day (31 February)."""
+    month = day.month - 1 + months
+    year, month = day.year + month // 12, month % 12 + 1
+    try:
+        return day.replace(year=year, month=month)
+    except ValueError:
+        return None
+
+
+def occurrences(start, rule, first, last):
+    """Start times of a repeating event (RRULE as a dict) from its start until `last`."""
+    freq = rule.get('FREQ')
+    interval = max(1, int(rule.get('INTERVAL', '1') or 1))
+    count = int(rule['COUNT']) if rule.get('COUNT', '').isdigit() else None
+    until = None
+    if 'UNTIL' in rule:
+        until, _ = parse_value({}, rule['UNTIL'])
+        until = until if isinstance(until, date) and not isinstance(until, datetime) else until.date() if isinstance(until, datetime) else until
+    days = [WEEKDAYS.index(d[-2:]) for d in rule.get('BYDAY', '').split(',') if d[-2:] in WEEKDAYS]
+    day_of = (lambda m: m.date()) if isinstance(start, datetime) else (lambda m: m)
+    made, step = 0, 0
+    # Without a count nothing before `first` matters: start near it (a daily event from 1990).
+    if count is None and freq in ('DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'):
+        span = {'DAILY': 1, 'WEEKLY': 7, 'MONTHLY': 31, 'YEARLY': 366}[freq] * interval  # never past it
+        step = max(0, (first - day_of(start)).days // span - 1)
+    stop = step + LIMIT
+    while step < stop:
+        if freq == 'DAILY':
+            batch = [start + timedelta(days=step * interval)]
+        elif freq == 'WEEKLY':
+            week = start + timedelta(weeks=step * interval)
+            monday = week - timedelta(days=day_of(week).weekday())
+            batch = [monday + timedelta(days=d) for d in sorted(days)] if days else [week]
+            batch = [b for b in batch if b >= start]
+        elif freq == 'MONTHLY':
+            batch = [m for m in [add_months(start, step * interval)] if m]
+        elif freq == 'YEARLY':
+            batch = [m for m in [add_months(start, 12 * step * interval)] if m]
+        else:
+            return
+        step += 1
+        for moment in batch:
+            if until and day_of(moment) > until or day_of(moment) > last:
+                return
+            made += 1
+            if count is not None and made > count:
+                return
+            yield moment
+
+
+def collect(first, last, home=Path.home()):
+    found = []
+    for folder in FOLDERS:
+        for path in sorted((home / folder).rglob('*.ics')):
+            try:
+                text = path.read_text(errors='replace')
+            except OSError:
+                continue
+            for event in events(text):
+                if 'DTSTART' not in event or 'RECURRENCE-ID' in event:
+                    continue
+                try:
+                    start, all_day = parse_value(*event['DTSTART'][0])
+                except ValueError:
+                    continue
+                title = unescape(event.get('SUMMARY', [({}, 'Event')])[0][1]) or 'Event'
+                skip = set()
+                for params, value in event.get('EXDATE', []):
+                    for one in value.split(','):
+                        try:
+                            moment, _ = parse_value(params, one)
+                            skip.add(moment.astimezone().date() if isinstance(moment, datetime) else moment)
+                        except ValueError:
+                            pass
+                rule = dict(p.split('=', 1) for p in event['RRULE'][0][1].split(';') if '=' in p) if 'RRULE' in event else None
+                for moment in occurrences(start, rule, first, last) if rule else [start]:
+                    local = moment.astimezone() if isinstance(moment, datetime) else moment
+                    day = local.date() if isinstance(local, datetime) else local
+                    if first <= day <= last and day not in skip:
+                        found.append({'date': day.isoformat(), 'time': '' if all_day else local.strftime('%H:%M'), 'title': title})
+    return sorted(found, key=lambda e: (e['date'], e['time'], e['title']))
+
+
+def main(argv):
+    try:
+        first, last = (date.fromisoformat(a) for a in argv)
+    except ValueError:
+        sys.exit(__doc__.strip())
+    print(json.dumps(collect(first, last)))
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
+```
+
 ## `bin/penumbra-cast`
 
 ```python
@@ -3858,7 +4124,7 @@ if __name__ == '__main__':
 """Cast the screen to a TV on the same network: Chromecast and Google TV, or any DLNA TV.
 
     penumbra-cast scan        a JSON list of the TVs found: id, name, kind (chromecast or dlna), model
-    penumbra-cast start ID [--name NAME] [--output MONITOR] [--sound]
+    penumbra-cast start ID [--name NAME] [--output MONITOR] [--port PORT] [--sound]
     penumbra-cast stop
 
 `start` records the screen with wf-recorder, serves it from this computer over HTTP and tells the TV
@@ -4202,7 +4468,7 @@ class Stream:
             return bool(self.clients)
 
 
-def server_for(stream, path, content_type):
+def server_for(stream, path, content_type, port=0):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
 
@@ -4231,12 +4497,13 @@ def server_for(stream, path, content_type):
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer(('', 0), Handler)
+    # Port 0 is any free one; a fixed port (Cast screen → Port) lets a firewall rule allow the TV.
+    server = ThreadingHTTPServer(('', port), Handler)
     server.daemon_threads = True
     return server
 
 
-def start(device, name, output, sound):
+def start(device, name, output, sound, port=0):
     if running_cast():
         stop()
         for _ in range(50):
@@ -4281,7 +4548,7 @@ def start(device, name, output, sound):
         stream = Stream(encoder.stdout, extension == 'mp4')
         threading.Thread(target=stream.run, daemon=True).start()
         path = f'/{secrets.token_urlsafe(12)}/screen.{extension}'
-        server = server_for(stream, path, content_type)
+        server = server_for(stream, path, content_type, port)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         url = f'http://{local_address(tv.host)}:{server.server_address[1]}{path}'
 
@@ -4334,7 +4601,7 @@ def main(argv):
     elif argv[:1] == ['stop']:
         stop()
     elif argv[:1] == ['start'] and len(argv) > 1:
-        options = {'--name': 'TV', '--output': ''}
+        options = {'--name': 'TV', '--output': '', '--port': '0'}
         sound = False
         rest = argv[2:]
         while rest:
@@ -4345,7 +4612,9 @@ def main(argv):
                 options[option] = rest.pop(0)
             else:
                 sys.exit(__doc__)
-        start(argv[1], options['--name'], options['--output'], sound)
+        if not options['--port'].isdigit() or int(options['--port']) > 65535:
+            sys.exit('penumbra-cast: --port needs a number from 1 to 65535 (0: any free port)')
+        start(argv[1], options['--name'], options['--output'], sound, int(options['--port']))
     else:
         sys.exit(__doc__)
 
@@ -4359,11 +4628,39 @@ if __name__ == '__main__':
 ```bash
 #!/usr/bin/env bash
 # Clipboard history from cliphist, in the shell's launcher; this rofi menu is the fallback without it.
+# `clear` wipes it (pinned entries are the shell's, in shell.json, and stay); `prune DAYS` expires it.
 set -euo pipefail
 if [[ ${1:-} = clear ]]; then
  cliphist wipe
  rm -rf "${XDG_RUNTIME_DIR:-/tmp}/penumbra/clipboard"
  notify-send -a Penumbra 'Clipboard cleared' 'History has been wiped.'
+ exit
+fi
+# prune DAYS: forget entries older than DAYS (Settings → Clipboard history). cliphist keeps no
+# dates, so the first time each entry is seen here is noted in clipboard-seen.json; the shell runs
+# this every hour and when the clipboard opens.
+if [[ ${1:-} = prune ]]; then
+ days=${2:-0}
+ [[ $days =~ ^[0-9]+$ ]] || { echo 'Usage: penumbra-clipboard prune DAYS' >&2; exit 2; }
+ cliphist list | python3 -c '
+import json, os, sys, time
+seen_file, days = sys.argv[1], int(sys.argv[2])
+try:
+    seen = json.load(open(seen_file))
+except (OSError, ValueError):
+    seen = {}
+now, lines = time.time(), [l for l in sys.stdin.read().split("\n") if "\t" in l]
+ids = {l.split("\t", 1)[0] for l in lines}
+seen = {i: t for i, t in seen.items() if i in ids}
+for i in ids:
+    seen.setdefault(i, now)
+old = [l for l in lines if days and now - seen[l.split("\t", 1)[0]] > days * 86400]
+for l in old:
+    del seen[l.split("\t", 1)[0]]
+os.makedirs(os.path.dirname(seen_file), exist_ok=True)
+json.dump(seen, open(seen_file, "w"))
+sys.stdout.write("".join(l + "\n" for l in old))
+' "$HOME/.local/state/penumbra/clipboard-seen.json" "$days" | { [[ $days -gt 0 ]] && cliphist delete || cat >/dev/null; }
  exit
 fi
 "${0%/*}/penumbra-ipc" launcher clipboard >/dev/null 2>&1 && exit
@@ -4434,6 +4731,59 @@ edit() { [[ -f $1 ]] && sed -i "$2" "$1" || true; }
 edit "$config/hypr/hyprlock.conf" "s/^\(\s*rounding = \).*/\1$lock/"
 edit "$config/satty/config.toml" "s/^corner-roundness = .*/corner-roundness = $annotate/"
 edit "$config/fastfetch/config.jsonc" "$boxes"
+```
+
+## `bin/penumbra-exit`
+
+```bash
+#!/usr/bin/env bash
+# Log out, restart or shut down without cutting apps off: every window is asked to close first, so
+# apps can save their state or ask about unsaved work. After ten seconds, if some are still open
+# (a "Save changes?" dialog, say), a notification names them and offers to go ahead anyway.
+#   penumbra-exit logout|reboot|poweroff [--force]   --force skips asking the windows
+set -u
+action=${1:-} force=${2:-}
+case $action in
+ logout | reboot | poweroff) ;;
+ *) echo 'Usage: penumbra-exit logout|reboot|poweroff [--force]' >&2; exit 2;;
+esac
+# One at a time: a second press while waiting does nothing.
+exec 9>"${XDG_RUNTIME_DIR:-/tmp}/penumbra-exit.lock"
+flock -n 9 || exit 0
+
+finish() {
+ case $action in
+  logout) hyprctl dispatch 'hl.dsp.exit()';;
+  reboot) systemctl reboot;;
+  poweroff) systemctl poweroff;;
+ esac
+}
+# "address<TAB>app" for each window.
+windows() {
+ hyprctl clients -j 2>/dev/null | python3 -c '
+import json, sys
+for c in json.load(sys.stdin):
+    if c.get("mapped", True):
+        print(c["address"], c.get("class") or c.get("title") or "a window", sep="\t")'
+}
+
+if [[ $force != --force ]] && command -v hyprctl >/dev/null; then
+ while IFS=$'\t' read -r address _; do
+  hyprctl dispatch "hl.dsp.window.close({window = \"address:$address\"})" >/dev/null
+ done < <(windows)
+ for _ in {1..40}; do
+  [[ -z $(windows) ]] && break
+  sleep 0.25
+ done
+ left=$(windows | cut -f2 | sort -u | paste -sd ',' | sed 's/,/, /g')
+ if [[ -n $left ]]; then
+  case $action in logout) verb='Log out';; reboot) verb='Restart';; *) verb='Shut down';; esac
+  choice=$(notify-send -a Penumbra -u critical -i system-shutdown --wait -A "force=$verb anyway" \
+   'Some apps are still open' "$left may be asking about unsaved work.")
+  [[ $choice = force ]] || exit 1
+ fi
+fi
+finish
 ```
 
 ## `bin/penumbra-gpus`
@@ -4722,9 +5072,7 @@ confirm_glyphs=(󰜺 "${glyphs[choice]}")
 answer=$(menu confirm confirm_glyphs | pick CONFIRM 'window { width: 300px; } listview { columns: 2; }') || exit 0
 [[ "$answer" = 1 ]] || exit 0
 case "$action" in
- logout) hyprctl dispatch 'hl.dsp.exit()';;
- reboot) systemctl reboot;;
- poweroff) systemctl poweroff;;
+ logout | reboot | poweroff) exec "${0%/*}/penumbra-exit" "$action";;
 esac
 ```
 
@@ -4733,35 +5081,55 @@ esac
 ```bash
 #!/usr/bin/env bash
 # Screen recording to ~/Videos/Screencasts with wf-recorder. The shell's overlay picks the area and
-# runs `start --geometry "X,Y WxH"` (--sound adds what the computer plays); `stop` finishes the
-# recording. With no argument (Ctrl+Print), it stops a recording or opens the overlay to start one;
-# without the shell, slurp asks for a region.
+# runs `start --geometry "X,Y WxH"` (--sound adds what the computer plays, --microphone your voice);
+# `pause` and `resume` hold it (each stretch is a file of its own, joined at the end), and `stop`
+# finishes it. With no argument (Ctrl+Print), it stops a recording or opens the overlay to start
+# one; without the shell, slurp asks for a region. `gif FILE` makes a short GIF of a recording.
 set -euo pipefail
 state=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/penumbra/recording
-pidfile=$state.pid
+pidfile=$state.pid       # this script, while it records
+segment_pid=$state.wf    # wf-recorder, while a stretch records
+paused=$state.paused     # present while paused
+stopping=$state.stop     # present once stop is asked for
 log=$state.log
 
 # The shell shows a recording in the bar; it reads $state again when told.
 refresh() { "${0%/*}/penumbra-ipc" recorder refresh >/dev/null 2>&1 || true; }
 recording() { [[ -f $pidfile ]] && kill -0 "$(<"$pidfile")" 2>/dev/null; }
-stop() { recording && kill -INT "$(<"$pidfile")" || true; }
-usage() { echo 'Usage: penumbra-record [toggle|stop|start [--geometry "X,Y WxH"] [--sound]]' >&2; exit 2; }
+end_segment() { [[ -f $segment_pid ]] && kill -INT "$(<"$segment_pid")" 2>/dev/null || true; }
+stop() { recording || return 0; touch "$stopping"; rm -f "$paused"; end_segment; }
+usage() { echo 'Usage: penumbra-record [toggle|stop|pause|resume|start [--geometry "X,Y WxH"] [--sound] [--microphone]|gif FILE]' >&2; exit 2; }
 
 case ${1:-toggle} in
  stop) stop; exit 0;;
+ pause) recording && [[ ! -f $paused ]] && { touch "$paused"; end_segment; }; exit 0;;
+ resume) rm -f "$paused"; exit 0;;
  toggle)
   if recording; then stop; exit 0; fi
   "${0%/*}/penumbra-ipc" shot record >/dev/null 2>&1 && exit 0
   exec "$0" start;;
+ gif)
+  source=${2:-}; [[ -f $source ]] || usage
+  gif=${source%.*}.gif
+  notify-send -a Penumbra -i image-gif 'Making a GIF' "${gif/#$HOME/\~}"
+  # 15 frames a second, at most 800 pixels wide, with a palette made for this clip.
+  if ffmpeg -loglevel error -y -i "$source" -vf "fps=15,scale='min(800,iw)':-2:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4" "$gif"; then
+   printf 'file://%s\n' "$gif" | wl-copy --type text/uri-list
+   notify-send -a Penumbra -i "$gif" 'GIF saved' "Copied to clipboard · ${gif/#$HOME/\~}"
+  else
+   notify-send -a Penumbra -u critical 'GIF failed' "ffmpeg could not convert ${source##*/}"
+  fi
+  exit 0;;
  start) shift;;
  *) usage;;
 esac
 
-geometry= sound=false
+geometry= sound=false microphone=false
 while (( $# )); do
  case $1 in
   --geometry) geometry=${2?--geometry needs "X,Y WxH"}; shift;;
   --sound) sound=true;;
+  --microphone) microphone=true;;
   *) usage;;
  esac
  shift
@@ -4780,29 +5148,83 @@ file=$dir/$(date +%Y-%m-%d_%H-%M-%S)
 suffix=; n=1
 while [[ -e $file$suffix.mp4 ]]; do n=$((n + 1)); suffix=-$n; done
 file=$file$suffix.mp4
-args=(-g "$geometry" -f "$file" -c libx264 -p preset=veryfast -p crf=23 -x yuv420p)
-# The default output's monitor carries what the computer plays.
-if $sound; then args+=("--audio=$(pactl get-default-sink).monitor"); fi
+parts=$(mktemp -d "${state%/*}/recording-parts.XXXXXX")
+args=(-g "$geometry" -c libx264 -p preset=veryfast -p crf=23 -x yuv420p)
 
-# This script stays until the recording ends, so it can report it. Job control keeps the recorder
-# from inheriting "ignore SIGINT", the signal `stop` finishes it with.
-set -m
-wf-recorder "${args[@]}" >"$log" 2>&1 &
-pid=$!
-set +m
-echo "$pid" > "$pidfile"
-printf '%s\n%s\n' "$(date +%s)" "$file" > "$state"
+# Sound: what the computer plays (the default output's monitor), your microphone (the default
+# input), or both, mixed in a null sink that lives as long as the recording.
+modules=()
+cleanup() {
+ local m
+ for m in "${modules[@]}"; do pactl unload-module "$m" 2>/dev/null || true; done
+ rm -rf "$parts"
+ rm -f "$state" "$pidfile" "$segment_pid" "$paused" "$stopping"
+}
+trap cleanup EXIT
+if $sound && $microphone; then
+ modules+=("$(pactl load-module module-null-sink sink_name=penumbra_recording sink_properties=device.description=Penumbra-recording)")
+ modules+=("$(pactl load-module module-loopback source="$(pactl get-default-sink).monitor" sink=penumbra_recording latency_msec=30)")
+ modules+=("$(pactl load-module module-loopback source="$(pactl get-default-source)" sink=penumbra_recording latency_msec=30)")
+ args+=(--audio=penumbra_recording.monitor)
+elif $sound; then
+ args+=("--audio=$(pactl get-default-sink).monitor")
+elif $microphone; then
+ args+=("--audio=$(pactl get-default-source)")
+fi
+
+# This script stays until the recording ends, so it can report it. The state file says when it
+# started, counting out the time spent paused, then the file, then "paused" while paused.
+echo $$ > "$pidfile"
+rm -f "$paused" "$stopping"
+: > "$log"
+start=$(date +%s) count=0
+write_state() { printf '%s\n%s\n%s\n' "$start" "$file" "${1:-}" > "$state"; refresh; }
+while :; do
+ count=$((count + 1))
+ # Job control keeps the recorder from inheriting "ignore SIGINT", the signal that ends a stretch.
+ set -m
+ wf-recorder "${args[@]}" -f "$parts/$count.mp4" >>"$log" 2>&1 &
+ echo $! > "$segment_pid"
+ set +m
+ write_state
+ wait "$(<"$segment_pid")" || true
+ rm -f "$segment_pid"
+ [[ -f $paused && ! -f $stopping ]] || break
+ since=$(date +%s)
+ write_state paused
+ while [[ -f $paused && ! -f $stopping ]]; do sleep 0.2; done
+ [[ -f $stopping ]] && break
+ start=$((start + $(date +%s) - since))
+done
+rm -f "$state"
 refresh
-wait "$pid" || true
-rm -f "$state" "$pidfile"
-refresh
+
+# One stretch is the recording; several are joined without encoding them again.
+shopt -s nullglob
+segments=()
+for (( i = 1; i <= count; i++ )); do [[ -s $parts/$i.mp4 ]] && segments+=("$parts/$i.mp4"); done
+if (( ${#segments[@]} == 1 )); then
+ mv "${segments[0]}" "$file"
+elif (( ${#segments[@]} > 1 )); then
+ printf "file '%s'\n" "${segments[@]}" > "$parts/list.txt"
+ ffmpeg -loglevel error -f concat -safe 0 -i "$parts/list.txt" -c copy "$file" >>"$log" 2>&1 || true
+fi
 
 if [[ -s $file ]]; then
  # Copied as a file, so it can be pasted into a chat or a file manager.
  printf 'file://%s\n' "$file" | wl-copy --type text/uri-list
- action=$(notify-send -a Penumbra -i video-x-generic --action=open=Play 'Recording saved' \
+ # A GIF is offered for short clips (a minute or less).
+ seconds=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$file" 2>/dev/null || true)
+ seconds=${seconds%.*}
+ [[ $seconds =~ ^[0-9]+$ ]] || seconds=999
+ actions=(--action=open=Play)
+ if (( seconds <= 60 )); then actions+=(--action=gif='Make a GIF'); fi
+ action=$(notify-send -a Penumbra -i video-x-generic "${actions[@]}" 'Recording saved' \
   "Copied to clipboard · ${file/#$HOME/\~}") || true
- [[ $action = open ]] && xdg-open "$file"
+ case $action in
+  open) xdg-open "$file";;
+  gif) "$0" gif "$file";;
+ esac
 else
  rm -f "$file"
  notify-send -a Penumbra -u critical 'Recording failed' "$(tail -n 3 "$log")"
@@ -4867,7 +5289,11 @@ a restart of hypridle). install.sh runs `apply` after copying, so both stay in s
   penumbra-settings check KEY=VALUE...   only check
   penumbra-settings apply [--no-restart] write hypridle.conf and apply everything
   penumbra-settings layouts              keyboard layouts and their variants, as JSON
+  penumbra-settings export [FILE]        every Penumbra choice in one file, for another computer
+                                         (default: ~/penumbra-settings-DATE.json); prints its path
+  penumbra-settings import FILE          take those choices back and apply them
 """
+import datetime
 import json
 import os
 from pathlib import Path
@@ -5053,6 +5479,67 @@ def apply(values, changed=None, restart=True):
         subprocess.run(['hyprctl', 'eval', lua], capture_output=True)
 
 
+# What export carries: these settings, the shell's preferences, the theme and the screens. Paths
+# are relative to the home folder, so the file works for another user name too.
+EXPORTED = {
+    'settings.conf': '.config/penumbra/settings.conf',
+    'shell.json': '.config/penumbra/shell.json',
+    'theme.json': '.local/state/penumbra/theme.json',
+    'monitors.lua': '.config/penumbra/monitors.lua',
+}
+
+
+def export(target):
+    home = Path.home()
+    files = {}
+    for name, rel in EXPORTED.items():
+        try:
+            files[name] = (home / rel).read_text()
+        except OSError:
+            pass
+    target = Path(target or home / f'penumbra-settings-{datetime.date.today().isoformat()}.json').expanduser()
+    target.write_text(json.dumps({'penumbra': 1, 'files': files}, indent=2) + '\n')
+    return target
+
+
+def import_(source):
+    """Write the exported files back (each one replaced is kept as NAME.bak), then apply them."""
+    try:
+        data = json.loads(Path(source).expanduser().read_text())
+    except (OSError, ValueError) as error:
+        sys.exit(f'penumbra-settings: cannot read {source}: {error}')
+    files = data.get('files') if isinstance(data, dict) and data.get('penumbra') == 1 else None
+    if not isinstance(files, dict) or not files or any(n not in EXPORTED or not isinstance(t, str) for n, t in files.items()):
+        sys.exit(f'penumbra-settings: {source} is not a Penumbra settings export')
+    if 'settings.conf' in files:
+        for line in files['settings.conf'].splitlines():
+            key, sep, value = line.partition('=')
+            if sep and not line.startswith('#') and key in DEFAULTS and problem(key, value):
+                sys.exit(f'penumbra-settings: {source}: {problem(key, value)}')
+    if 'shell.json' in files or 'theme.json' in files:
+        for name in ('shell.json', 'theme.json'):
+            try:
+                if name in files:
+                    json.loads(files[name])
+            except ValueError:
+                sys.exit(f'penumbra-settings: {source}: {name} is not valid JSON')
+    home = Path.home()
+    for name, text in files.items():
+        path = home / EXPORTED[name]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            shutil.copyfile(path, path.with_name(path.name + '.bak'))
+        path.write_text(text)
+    # The shell follows shell.json by itself; the rest needs applying.
+    apply(load())
+    theme = home / '.local/bin/penumbra-theme'
+    if 'theme.json' in files and theme.exists():
+        subprocess.run([str(theme), 'restore'], capture_output=True)
+    if os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and shutil.which('hyprctl'):
+        subprocess.run(['hyprctl', 'reload'], capture_output=True)
+    return sorted(files)
+
+
 def parse(pairs):
     updates = {}
     for pair in pairs:
@@ -5082,6 +5569,10 @@ def main():
         apply(values, changed)
     elif command == 'apply':
         apply(load(), restart='--no-restart' not in args)
+    elif command == 'export':
+        print(export(args[0] if args else None))
+    elif command == 'import' and len(args) == 1:
+        print('Imported ' + ', '.join(import_(args[0])))
     elif command == 'layouts':
         layouts = xkb_section('layout') or {}
         variants = {}
@@ -5111,19 +5602,23 @@ if __name__ == '__main__':
 #!/usr/bin/env bash
 # Screenshot to ~/Pictures/Screenshots, saved and copied; "annotate" opens it in Satty first.
 # The shell's overlay picks the area (region, window or screen) and passes it back with
-# --geometry "X,Y WxH"; without the shell, slurp asks for a region.
+# --geometry "X,Y WxH", or --all for every screen at once; without the shell, slurp asks for a region.
 set -euo pipefail
 annotate=false
-region=
+region= all=false
 while (( $# )); do
  case $1 in
   annotate) annotate=true;;
   --geometry) region=${2?--geometry needs "X,Y WxH"}; shift;;
-  *) echo 'Usage: penumbra-shot [annotate] [--geometry "X,Y WxH"]' >&2; exit 2;;
+  --all) all=true;;
+  *) echo 'Usage: penumbra-shot [annotate] [--geometry "X,Y WxH" | --all]' >&2; exit 2;;
  esac
  shift
 done
-if [[ -z $region ]]; then
+# grim captures every output when it is given no region.
+grab=(-g "$region")
+$all && grab=()
+if [[ -z $region ]] && ! $all; then
  "${0%/*}/penumbra-ipc" shot open "$annotate" >/dev/null 2>&1 && exit
  region=$(slurp -b 100d18aa -c b69af7 -w 2) || exit 0
 fi
@@ -5134,10 +5629,10 @@ suffix=; n=1
 while [[ -e $file$suffix.png ]]; do n=$((n + 1)); suffix=-$n; done
 file=$file$suffix.png
 if [[ $annotate = true ]]; then
- grim -g "$region" - | satty --filename - --output-filename "$file"
+ grim "${grab[@]}" - | satty --filename - --output-filename "$file"
  exit
 fi
-grim -g "$region" "$file"
+grim "${grab[@]}" "$file"
 wl-copy < "$file"
 notify-send -a Penumbra -i "$file" 'Screenshot saved' "Copied to clipboard · ${file/#$HOME/\~}"
 ```
@@ -5774,11 +6269,26 @@ def status():
     details = [f"{name}: {len(lines) if lines is not None else 'check unavailable'}"
                for name, lines in found]
     details.extend(packages.notes() if packages else ["System packages: run ./install.sh to enable"])
+    # The distribution's news since the last upgrade, and whether a restart is due, where it has them.
+    news, restart = [], []
+    if packages and hasattr(packages, "news"):
+        try:
+            news = packages.news(Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "penumbra/news.xml")
+        except Exception as error:  # the network, or a feed that changed shape
+            print(f"news: {error}", file=sys.stderr)
+    if packages and hasattr(packages, "restart_reasons"):
+        restart = packages.restart_reasons()
+    if restart:
+        details.insert(0, "Restart to finish: " + "; ".join(restart).lower())
+    if any(item["new"] for item in news):
+        details.insert(0, "News since your last upgrade: read it before updating")
     details.append("Click for the list · checked every 15 minutes")
     # For the shell: the count, the lines of the bar's tooltip, and each source's updates, one line
     # each as the distribution's check prints it (pacman: "name old -> new") or a Flatpak ref.
     print(json.dumps({"count": total,
                       "details": details,
+                      "news": news,
+                      "restart": restart,
                       "sources": [{"name": name, "packages": lines}
                                   for name, lines in found if lines]}))
 
@@ -5817,7 +6327,7 @@ def update():
         failed = True
     finally:
         # Refresh the bar's update count, including after a partial upgrade.
-        subprocess.run(["quickshell", "-c", "penumbra", "ipc", "call", "updates", "refresh"],
+        subprocess.run([str(Path(__file__).resolve().with_name("penumbra-ipc")), "updates", "refresh"],
                        capture_output=True, check=False)
         handle.close()
     if failed:
@@ -6398,6 +6908,10 @@ hl.env("GTK_USE_PORTAL", "1")
 local corners = io.open(home .. "/.local/state/penumbra/corners")
 local sharp = corners ~= nil and corners:read("l") == "sharp"
 if corners then corners:close() end
+-- Settings → Reduced motion (shell.json) turns Hyprland's animations off too.
+local shell = io.open(home .. "/.config/penumbra/shell.json")
+local still = shell ~= nil and shell:read("a"):find('"reducedMotion"%s*:%s*true') ~= nil
+if shell then shell:close() end
 hl.config({
  xwayland = {
     force_zero_scaling = true
@@ -6411,7 +6925,7 @@ hl.config({
    color_inactive = light and "rgba(00000022)" or "rgba(00000055)"},
   glow = {enabled = true, range = 18, render_power = 3, color = "rgba(" .. c.accentDeep .. "40)", color_inactive = "rgba(00000000)"},
   blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = light and 1 or 0.9, popups = true} },
- animations = {enabled = true},
+ animations = {enabled = not still},
  dwindle = {preserve_split = true},
  input = {kb_layout = s.kb_layout, kb_variant = s.kb_variant, kb_options = s.kb_options, numlock_by_default = s.numlock == "on",
   follow_mouse = 1, sensitivity = 0, touchpad = {natural_scroll = true}},
@@ -6446,6 +6960,8 @@ exec("SUPER + A", "quickshell -c penumbra ipc call panel control")
 exec("SUPER + comma", "quickshell -c penumbra ipc call panel settings")
 exec("SUPER + SHIFT + V", "~/.local/bin/penumbra-clipboard")
 exec("SUPER + semicolon", "quickshell -c penumbra ipc call launcher emoji")
+-- Jump to an open window by typing part of its title or app.
+exec("ALT + Tab", "quickshell -c penumbra ipc call launcher windows")
 exec("SUPER + SHIFT + C", "~/.local/bin/penumbra-picker")
 exec("SUPER + W", "~/.local/bin/penumbra-wallpaper next")
 exec("SUPER + SHIFT + W", "quickshell -c penumbra ipc call panel wallpapers")
@@ -7366,7 +7882,8 @@ PanelWindow {
 
     IdleInhibitor {
         window: bar
-        enabled: Ui.caffeine
+        // Stay awake, or an app chosen in Settings → Idle and sleep is open.
+        enabled: Ui.stayAwake
     }
 
     Item {
@@ -7456,7 +7973,7 @@ PanelWindow {
                         height: 5 + (Media.bars[index] ?? 0) * 13
                         radius: Theme.corner(1.5)
                         color: Theme.accentBright
-                        Behavior on height { NumberAnimation { duration: 60 } }
+                        Behavior on height { NumberAnimation { duration: 60 * Theme.motion } }
                     }
                 }
             }
@@ -7517,21 +8034,23 @@ PanelWindow {
             Label { text: Recorder.countdown; font.weight: Font.Bold; color: Theme.amber }
         }
 
-        // A screen recording and how long it has run; click to stop.
+        // A screen recording and how long it has run; click to stop, right-click to pause.
         Capsule {
             shown: Recorder.recording
             padding: 14
-            tip: "Recording · click to stop (or Ctrl+Print)"
+            tip: Recorder.paused ? "Paused · right-click to go on · click to stop" : "Recording · click to stop (or Ctrl+Print) · right-click to pause"
             color: hovered ? Theme.alpha(Theme.rose, 0.3) : Theme.alpha(Theme.rose, 0.16)
             border.color: Theme.alpha(Theme.rose, 0.5)
-            onClicked: Recorder.stop()
+            onClicked: m => m.button === Qt.RightButton ? Recorder.togglePause() : Recorder.stop()
+            Glyph { visible: Recorder.paused; text: "󰏤"; size: 12; color: Theme.rose }
             Rectangle {
+                visible: !Recorder.paused
                 implicitWidth: 9
                 implicitHeight: 9
                 radius: Theme.corner(4.5)
                 color: Theme.rose
                 SequentialAnimation on opacity {
-                    running: Recorder.recording
+                    running: Recorder.recording && !Recorder.paused && !Theme.reducedMotion
                     loops: Animation.Infinite
                     NumberAnimation { to: 0.3; duration: 700; easing.type: Easing.InOutSine }
                     NumberAnimation { to: 1; duration: 700; easing.type: Easing.InOutSine }
@@ -7561,14 +8080,16 @@ PanelWindow {
             Label { text: Devices.layoutCode; font.weight: Font.Bold; color: Theme.textSoft }
         }
 
+        // Pending updates; also there when a restart is due, with its own glyph.
         Capsule {
-            shown: Sys.updates > 0
+            shown: Sys.updates > 0 || Sys.restartReasons.length > 0
             padding: 12
             active: Ui.updatesOpen
             tip: Sys.updatesDetail
             onClicked: Ui.toggle("updates")
-            Glyph { text: "󰚰"; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
-            Label { text: Sys.updates; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
+            Glyph { visible: Sys.updates > 0; text: "󰚰"; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
+            Label { visible: Sys.updates > 0; text: Sys.updates; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
+            Glyph { visible: Sys.restartReasons.length > 0; text: "󰜉"; color: Ui.updatesOpen ? Theme.onAccent : Theme.amber }
         }
 
         Capsule {
@@ -7660,6 +8181,7 @@ PanelWindow {
             spacing: 13
             active: Ui.controlOpen
             tip: `${Devices.networkName} · Bluetooth ${Devices.bluetoothName}` + (Devices.hasBattery ? `\n${Devices.batteryDetail}` : "")
+                + (Devices.peripheralBatteries.length ? "\n" + Devices.peripheralBatteries.join(" · ") : "")
             onClicked: m => m.button === Qt.RightButton ? Ui.run("pavucontrol") : Ui.toggle("control")
             onScrolled: step => Devices.adjust("volume", step > 0 ? "up" : "down")
             readonly property color tint: Ui.controlOpen ? Theme.onAccent : Theme.textSoft
@@ -7971,8 +8493,11 @@ ColumnLayout {
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Quickshell.Io
 
-// Month view under the clock.
+// Month view under the clock, with week numbers if you like (click "Wk") and the events of your
+// calendars (penumbra-calendar reads their .ics files): a dot under each day that has some, and
+// the chosen day's list below.
 Panel {
     id: root
     anchors { top: true; left: true }
@@ -7984,12 +8509,39 @@ Panel {
     property date today: new Date()
     property int month: today.getMonth()
     property int year: today.getFullYear()
-    onOpenChanged: if (open) { today = new Date(); month = today.getMonth(); year = today.getFullYear(); }
+    property date selected: today
+    onOpenChanged: if (open) { today = new Date(); selected = today; month = today.getMonth(); year = today.getFullYear(); loadEvents(); }
     function shift(delta) {
         const d = new Date(year, month + delta, 1);
         month = d.getMonth();
         year = d.getFullYear();
+        loadEvents();
     }
+
+    // The events of the six weeks on show: { "YYYY-MM-DD": [{ time, title }] }.
+    property var events: ({})
+    function iso(d) {
+        return Qt.formatDate(d, "yyyy-MM-dd");
+    }
+    function loadEvents() {
+        const first = new Date(year, month, 1 - 7), last = new Date(year, month + 1, 7);
+        eventList.command = [Ui.bin + "penumbra-calendar", iso(first), iso(last)];
+        eventList.running = true;
+    }
+    Process {
+        id: eventList
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const byDay = {};
+                try {
+                    for (const e of JSON.parse(text))
+                        (byDay[e.date] = byDay[e.date] ?? []).push(e);
+                } catch (error) {}
+                root.events = byDay;
+            }
+        }
+    }
+    readonly property var dayEvents: events[iso(selected)] ?? []
 
     ColumnLayout {
         x: 18
@@ -8017,6 +8569,21 @@ Panel {
                 font.weight: Font.DemiBold
                 color: Theme.textSoft
             }
+            // Week numbers on or off.
+            Rectangle {
+                implicitWidth: 32
+                implicitHeight: 28
+                radius: Theme.corner(14)
+                color: Settings.calendarWeekNumbers ? Theme.alpha(Theme.accent, 0.2) : weekArea.containsMouse ? Theme.hover : "transparent"
+                Label { anchors.centerIn: parent; text: "Wk"; font.pixelSize: Theme.textTiny; font.weight: Font.DemiBold; color: Settings.calendarWeekNumbers ? Theme.accent : Theme.dim }
+                MouseArea {
+                    id: weekArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: Settings.calendarWeekNumbers = !Settings.calendarWeekNumbers
+                }
+            }
             Repeater {
                 model: [{ glyph: "󰅁", delta: -1 }, { glyph: "󰅂", delta: 1 }]
                 delegate: Rectangle {
@@ -8039,6 +8606,7 @@ Panel {
 
         DayOfWeekRow {
             Layout.fillWidth: true
+            Layout.leftMargin: Settings.calendarWeekNumbers ? weeks.width + 4 : 0
             locale: grid.locale
             delegate: Label {
                 required property string shortName
@@ -8049,26 +8617,92 @@ Panel {
             }
         }
 
-        MonthGrid {
-            id: grid
+        RowLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: 6 * 34 + 5 * 2
-            month: root.month
-            year: root.year
-            locale: Qt.locale()
-            spacing: 2
-            delegate: Rectangle {
-                required property var model
-                readonly property bool isToday: model.today
-                implicitWidth: 34
-                implicitHeight: 34
-                radius: Theme.corner(17)
-                color: isToday ? Theme.accent : "transparent"
-                Label {
-                    anchors.centerIn: parent
-                    text: model.day
-                    font.weight: parent.isToday ? Font.Bold : Font.Normal
-                    color: parent.isToday ? Theme.onAccent : model.month === root.month ? Theme.text : Theme.dim
+            spacing: 4
+            WeekNumberColumn {
+                id: weeks
+                visible: Settings.calendarWeekNumbers
+                Layout.preferredHeight: grid.Layout.preferredHeight
+                implicitWidth: 22
+                month: root.month
+                year: root.year
+                locale: grid.locale
+                spacing: 2
+                delegate: Label {
+                    required property int weekNumber
+                    text: weekNumber
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    font.pixelSize: Theme.textTiny
+                    color: Theme.dim
+                }
+            }
+            MonthGrid {
+                id: grid
+                Layout.fillWidth: true
+                Layout.preferredHeight: 6 * 34 + 5 * 2
+                month: root.month
+                year: root.year
+                locale: Qt.locale()
+                spacing: 2
+                onClicked: d => root.selected = d
+                delegate: Rectangle {
+                    required property var model
+                    readonly property bool isToday: model.today
+                    readonly property bool isSelected: root.iso(model.date) === root.iso(root.selected) && !isToday
+                    readonly property bool busy: (root.events[root.iso(model.date)] ?? []).length > 0
+                    implicitWidth: 34
+                    implicitHeight: 34
+                    radius: Theme.corner(17)
+                    color: isToday ? Theme.accent : isSelected ? Theme.raised : "transparent"
+                    border.color: isSelected ? Theme.lineStrong : "transparent"
+                    Label {
+                        anchors.centerIn: parent
+                        text: model.day
+                        font.weight: parent.isToday ? Font.Bold : Font.Normal
+                        color: parent.isToday ? Theme.onAccent : model.month === root.month ? Theme.text : Theme.dim
+                    }
+                    Rectangle {
+                        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 4 }
+                        visible: parent.busy
+                        width: 4
+                        height: 4
+                        radius: 2
+                        color: parent.isToday ? Theme.onAccent : Theme.accentBright
+                    }
+                }
+            }
+        }
+
+        // The chosen day's events.
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: 2
+            visible: root.dayEvents.length > 0
+            spacing: 4
+            Overline {
+                Layout.fillWidth: true
+                text: root.iso(root.selected) === root.iso(root.today) ? "Today" : Qt.formatDate(root.selected, "dddd d MMMM")
+            }
+            Repeater {
+                model: root.dayEvents
+                delegate: RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    spacing: 10
+                    Label {
+                        Layout.preferredWidth: 46
+                        text: modelData.time || "All day"
+                        font.family: Theme.mono
+                        font.pixelSize: Theme.textTiny
+                        color: Theme.accent
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: modelData.title
+                        elide: Text.ElideRight
+                    }
                 }
             }
         }
@@ -8200,6 +8834,8 @@ Singleton {
             command.push("--output", output);
         if (Settings.castSound)
             command.push("--sound");
+        if (Settings.castPort > 0)
+            command.push("--port", String(Settings.castPort));
         // Shown at once; penumbra-cast confirms it in a moment.
         tvId = tv.id;
         tvName = tv.name;
@@ -8337,7 +8973,7 @@ ColumnLayout {
             size: 14
             color: Cast.scanning ? Theme.accent : refreshArea.containsMouse ? Theme.text : Theme.muted
             RotationAnimation on rotation {
-                running: Cast.scanning
+                running: Cast.scanning && !Theme.reducedMotion
                 from: 0
                 to: 360
                 duration: 1200
@@ -8433,6 +9069,34 @@ ColumnLayout {
         subtitle: Cast.casting ? "Applies to the next cast" : "What this computer plays"
         checked: Settings.castSound
         onToggled: Settings.castSound = !Settings.castSound
+    }
+
+    // A fixed port for the stream, so a firewall can let the TV in; empty is any free port.
+    RowLayout {
+        Layout.fillWidth: true
+        Layout.leftMargin: 10
+        spacing: 11
+        Glyph { Layout.preferredWidth: 22; text: "󰒍"; size: 17 }
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 0
+            Label { Layout.fillWidth: true; text: "Port" }
+            Label {
+                Layout.fillWidth: true
+                text: Settings.castPort > 0 ? `Allow TCP ${Settings.castPort} in your firewall` : "Any free one; set one to allow it in a firewall"
+                font.pixelSize: Theme.textSmall
+                color: Theme.muted
+                wrapMode: Text.Wrap
+            }
+        }
+        Field {
+            Layout.preferredWidth: 90
+            text: Settings.castPort > 0 ? String(Settings.castPort) : ""
+            placeholderText: "Any"
+            inputMethodHints: Qt.ImhDigitsOnly
+            invalid: text !== "" && !(/^\d+$/.test(text) && Number(text) >= 1024 && Number(text) <= 65535)
+            onEditingFinished: if (!invalid) Settings.castPort = text === "" ? 0 : Number(text)
+        }
     }
 
     Label {
@@ -8766,6 +9430,13 @@ Panel {
 
         Loader {
             Layout.fillWidth: true
+            active: Ui.controlPage === "notifications"
+            visible: active
+            sourceComponent: Component { NotificationsPage {} }
+        }
+
+        Loader {
+            Layout.fillWidth: true
             active: Ui.controlPage === "apps"
             visible: active
             sourceComponent: Component { AppsPage {} }
@@ -8843,9 +9514,11 @@ Panel {
                     Layout.fillWidth: true
                     glyph: Notifs.dnd ? "󰂛" : "󰂚"
                     title: "Do not disturb"
-                    subtitle: Notifs.dnd ? "Only critical alerts" : "Off"
+                    subtitle: Notifs.dndStatus
                     on: Notifs.dnd
-                    onToggled: Notifs.dnd = !Notifs.dnd
+                    hasMore: true
+                    onToggled: Notifs.toggleDnd()
+                    onMore: Ui.controlPage = "notifications"
                 }
                 Tile {
                     Layout.fillWidth: true
@@ -9190,7 +9863,11 @@ Panel {
                         Layout.rightMargin: 4
                         Label {
                             Layout.fillWidth: true
-                            text: group.app + (group.items.length > 1 ? ` · ${group.items.length}` : "")
+                            // While the pointer is on the rule button, what it does instead of the count.
+                            text: group.app + (ruleArea.containsMouse
+                                ? " · " + ({ "": "click: no popups", "silent": "no popups · click: mute",
+                                             "mute": "muted · click: always keep", "keep": "always kept · click: normal" })[Notifs.rule(group.app)]
+                                : group.items.length > 1 ? ` · ${group.items.length}` : "")
                             font.pixelSize: Theme.textSmall
                             font.weight: Font.DemiBold
                             color: Theme.textSoft
@@ -9209,6 +9886,23 @@ Panel {
                                 onClicked: root.expandedApps = group.expanded
                                     ? root.expandedApps.filter(a => a !== group.app)
                                     : [...root.expandedApps, group.app]
+                            }
+                        }
+                        // The app's rule: normal, no popups, muted, or kept; each click moves to the next.
+                        Glyph {
+                            Layout.leftMargin: 8
+                            readonly property string rule: Notifs.rule(group.app)
+                            readonly property var next: ({ "": "silent", "silent": "mute", "mute": "keep", "keep": "" })
+                            text: ({ "": "󰂚", "silent": "󰂠", "mute": "󰂛", "keep": "󰐃" })[rule] ?? "󰂚"
+                            size: 13
+                            color: ruleArea.containsMouse ? Theme.text : rule ? Theme.accent : Theme.dim
+                            MouseArea {
+                                id: ruleArea
+                                anchors.fill: parent
+                                anchors.margins: -6
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Settings.setRule(group.app, parent.next[parent.rule] ?? "")
                             }
                         }
                         Glyph {
@@ -9428,6 +10122,18 @@ Singleton {
     readonly property string bluetoothGlyph: !adapter ? "󰂲" : !bluetoothOn ? "󰂲" : bluetoothConnected.length ? "󰂱" : "󰂯"
     readonly property string bluetoothName: !adapter ? "No adapter" : !bluetoothOn ? "Off" : bluetoothConnected.length ? bluetoothConnected[0].name : "On"
 
+    // Batteries of headsets, mice, keyboards and controllers: UPower's (which also hears Logitech
+    // receivers), then Bluetooth's for the rest. ["Name 80%"].
+    readonly property var peripheralBatteries: {
+        const percent = p => Math.round(p > 1 ? p : p * 100);
+        const found = UPower.devices.values
+            .filter(d => d.ready && d.isPresent && !d.isLaptopBattery && d.type !== UPowerDeviceType.LinePower && d.type !== UPowerDeviceType.Battery && d.percentage > 0)
+            .map(d => ({ name: d.model || d.nativePath, percent: percent(d.percentage) }));
+        for (const d of bluetoothConnected)
+            if (d.batteryAvailable && !found.some(f => f.name === d.name))
+                found.push({ name: d.name, percent: percent(d.battery) });
+        return found.map(f => `${f.name} ${f.percent}%`);
+    }
     readonly property var battery: UPower.displayDevice
     // Not until UPower has answered: before that the percentage reads 0 and would warn.
     readonly property bool hasBattery: (battery?.ready ?? false) && battery.isPresent && battery.type === UPowerDeviceType.Battery
@@ -10395,6 +11101,8 @@ Variants {
 ```qml
 import QtQuick
 import QtQuick.Layouts
+import Quickshell
+import Quickshell.Wayland
 
 // When an idle computer dims, locks, turns its screens off and (on battery) suspends:
 // settings.conf's idle timings, which penumbra-settings writes into hypridle.conf.
@@ -10415,7 +11123,7 @@ ColumnLayout {
     PageHeader {
         Layout.fillWidth: true
         title: "Idle and sleep"
-        status: Ui.caffeine ? "Paused by Stay awake" : "After this long without input"
+        status: Ui.caffeine ? "Paused by Stay awake" : Ui.awakeApps.length ? "Paused while an app below is open" : "After this long without input"
         showSwitch: false
         onBack: Ui.controlPage = "settings"
     }
@@ -10466,6 +11174,49 @@ ColumnLayout {
                         onDecreased: Config.set({ [row.modelData.key]: row.list[Math.max(0, row.index - 1)] })
                         onIncreased: Config.set({ [row.modelData.key]: row.list[Math.min(row.list.length - 1, row.index + 1)] })
                     }
+                }
+            }
+        }
+    }
+
+    // Apps that keep the screen awake while they are open: video calls, presentations.
+    Overline { Layout.fillWidth: true; Layout.topMargin: 2; text: "Stay awake while open" }
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: 2
+        Repeater {
+            model: Settings.idleInhibitApps
+            delegate: ListRow {
+                required property string modelData
+                readonly property var entry: DesktopEntries.heuristicLookup(modelData)
+                Layout.fillWidth: true
+                glyph: "󰅶"
+                title: entry?.name ?? modelData
+                subtitle: Ui.awakeApps.includes(modelData) ? "Open now · keeping the screen awake" : modelData
+                trailing: "󰅖"
+                onClicked: Settings.idleInhibitApps = Settings.idleInhibitApps.filter(a => a !== modelData)
+            }
+        }
+        // Open apps that could be added.
+        readonly property var candidates: [...new Set(ToplevelManager.toplevels.values.map(t => t.appId).filter(a => a && !Settings.idleInhibitApps.includes(a)))].sort()
+        Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.topMargin: 4
+            text: parent.candidates.length ? "Add an open app:" : "Open an app to add it here."
+            font.pixelSize: Theme.textSmall
+            color: Theme.muted
+        }
+        Flow {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            spacing: 6
+            Repeater {
+                model: parent.parent.candidates
+                delegate: PillButton {
+                    required property string modelData
+                    text: DesktopEntries.heuristicLookup(modelData)?.name ?? modelData
+                    onClicked: Settings.idleInhibitApps = [...Settings.idleInhibitApps, modelData]
                 }
             }
         }
@@ -10686,8 +11437,9 @@ import Quickshell.Widgets
 import "search.js" as Search
 import "symbols.js" as Symbols
 
-// Applications, clipboard history, emoji and symbols, over a dimmed screen. Type to search; `>` runs
-// a command, a sum (or `=`) is worked out and copied; Tab moves to the next mode.
+// Applications, open windows, clipboard history, emoji and symbols, over a dimmed screen. Type to
+// search; `>` runs a command, `?` searches the web, `/` finds files; a sum (or `=`), "10 km in mi"
+// or "100 usd in eur" is worked out and copied. Tab moves to the next mode.
 PanelWindow {
     id: root
     screen: Ui.screen
@@ -10701,11 +11453,13 @@ PanelWindow {
 
     readonly property var modes: [
         { mode: "apps", label: "Apps", glyph: "󰀻" },
+        { mode: "windows", label: "Windows", glyph: "󰖯" },
         { mode: "clipboard", label: "Clipboard", glyph: "󰅍" },
         { mode: "emoji", label: "Emoji", glyph: "󰇵" },
         { mode: "symbols", label: "Symbols", glyph: "󰒠" }
     ]
     readonly property bool clipboard: Ui.launcherMode === "clipboard"
+    readonly property bool windows: Ui.launcherMode === "windows"
     // Emoji and symbols are a grid of characters.
     readonly property bool characters: Ui.launcherMode === "emoji" || Ui.launcherMode === "symbols"
     readonly property var apps: DesktopEntries.applications.values.filter(e => !e.noDisplay)
@@ -10717,7 +11471,7 @@ PanelWindow {
     property var emoji: []
     property var results: []
     property var clips: []
-    property var usage: ({}) // desktop entry id → launches
+    property var usage: ({}) // desktop entry id → { score, at } (frecency, see search.js)
     property var picks: ({}) // emoji or symbol → times picked
     property var pointer: null // where the mouse last was, in window coordinates
 
@@ -10737,8 +11491,15 @@ PanelWindow {
         search.text = "";
         search.forceActiveFocus();
         if (clipboard)
-            clipList.running = true;
+            loadClips();
         refresh();
+    }
+    function loadClips() {
+        if (Settings.clipboardDays > 0) {
+            prune.running = true; // lists the clips once it has expired the old ones
+        } else {
+            clipList.running = true;
+        }
     }
 
     // Hover follows the mouse only when it moves: opening under a still cursor, the card growing or
@@ -10771,17 +11532,44 @@ PanelWindow {
             scored.sort((a, b) => b.score - a.score || a.i - b.i);
             list = scored.map(s => ({ kind: "char", char: s.c }));
         } else if (clipboard) {
-            list = clips.filter(c => !q || c.text.toLowerCase().includes(q)).map(c => ({ kind: "clip", clip: c }));
+            // Pinned texts first; Clear history leaves them.
+            list = Settings.clipboardPins.filter(t => !q || t.toLowerCase().includes(q)).map(t => ({ kind: "pin", text: t }))
+                .concat(clips.filter(c => !q || c.text.toLowerCase().includes(q)).map(c => ({ kind: "clip", clip: c })));
+        } else if (windows) {
+            const open = ToplevelManager.toplevels.values.filter(t => !q || (t.title + " " + t.appId).toLowerCase().includes(q));
+            list = open.map(t => ({ kind: "window", toplevel: t, entry: DesktopEntries.heuristicLookup(t.appId) }));
         } else if (text.startsWith(">")) {
             if (text.slice(1).trim())
                 list = [{ kind: "run", command: text.slice(1).trim() }];
+        } else if (text.startsWith("?")) {
+            if (text.slice(1).trim())
+                list = [{ kind: "web", query: text.slice(1).trim() }];
+        } else if (text.startsWith("/")) {
+            list = files; // findFiles fills them in as you type
         } else {
             const sum = Search.calculate(text);
             if (sum !== null)
                 list.push({ kind: "calc", value: sum });
-            const scored = apps.map(e => ({ entry: e, score: Search.score(e, q, usage[e.id]) })).filter(s => s.score > 0);
+            const units = Search.convert(text);
+            if (units)
+                list.push({ kind: "convert", value: units.value, unit: units.unit });
+            const money = Search.currency(text);
+            if (money) {
+                const answer = exchange(money);
+                if (answer)
+                    list.push(answer);
+            }
+            const now = Date.now();
+            const scored = apps.map(e => ({ entry: e, score: Search.score(e, q, Search.frecency(usage[e.id], now)) })).filter(s => s.score > 0);
+            // Desktop actions ("New Private Window") join in when the query names them.
+            for (const e of apps)
+                for (const a of e.actions ?? []) {
+                    const score = Search.actionScore(e.name, a.name, q);
+                    if (score)
+                        scored.push({ entry: e, action: a, score: score + Search.boost(Search.frecency(usage[e.id], now)) });
+                }
             scored.sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name));
-            list = list.concat(scored.slice(0, 60).map(s => ({ kind: "app", entry: s.entry })));
+            list = list.concat(scored.slice(0, 60).map(s => s.action ? { kind: "action", entry: s.entry, action: s.action } : { kind: "app", entry: s.entry }));
             // Nothing runs unless asked for with `>`: a typo like "reboot" must not reboot.
         }
         results = list;
@@ -10801,8 +11589,22 @@ PanelWindow {
             launch(item.entry);
         } else if (item.kind === "run") {
             Ui.spawn(alternate ? Ui.terminal(["bash", "-c", item.command], ["--hold"]) : ["bash", "-c", item.command]);
-        } else if (item.kind === "calc") {
+        } else if (item.kind === "action") {
+            const command = item.action.command.filter(arg => !/^%[a-zA-Z]$/.test(arg));
+            Ui.spawn({ command, workingDirectory: item.entry.workingDirectory || Quickshell.env("HOME") });
+            usage = Object.assign({}, usage, { [item.entry.id]: Search.launched(usage[item.entry.id], Date.now()) });
+            usageFile.setText(JSON.stringify(usage));
+        } else if (item.kind === "window") {
+            item.toplevel.activate();
+        } else if (item.kind === "web") {
+            Ui.spawn(["xdg-open", "https://duckduckgo.com/?q=" + encodeURIComponent(item.query)]);
+        } else if (item.kind === "file") {
+            // Shift+Enter opens the folder it is in.
+            Ui.spawn(["xdg-open", alternate ? item.path.replace(/\/[^/]*$/, "") || "/" : item.path]);
+        } else if (item.kind === "calc" || item.kind === "convert" || item.kind === "currency" && !item.pending) {
             Ui.spawn(["wl-copy", String(item.value)]);
+        } else if (item.kind === "pin") {
+            Ui.spawn(["wl-copy", "--", item.text]);
         } else if (item.kind === "clip") {
             Ui.spawn(["bash", "-c", 'printf "%s" "$1" | cliphist decode | wl-copy', "_", item.clip.line]);
         } else if (item.kind === "char") {
@@ -10821,18 +11623,126 @@ PanelWindow {
             command: entry.runInTerminal ? Ui.terminal(command) : command,
             workingDirectory: entry.workingDirectory || Quickshell.env("HOME")
         });
-        usage = Object.assign({}, usage, { [entry.id]: (usage[entry.id] ?? 0) + 1 });
+        usage = Object.assign({}, usage, { [entry.id]: Search.launched(usage[entry.id], Date.now()) });
         usageFile.setText(JSON.stringify(usage));
     }
     function forget(index) {
         const item = results[index];
-        if (item?.kind !== "clip")
+        if (item?.kind === "pin") {
+            Settings.clipboardPins = Settings.clipboardPins.filter(t => t !== item.text);
+        } else if (item?.kind === "clip") {
+            Quickshell.execDetached(["bash", "-c", 'printf "%s" "$1" | cliphist delete', "_", item.clip.line]);
+            clips = clips.filter(c => c !== item.clip);
+        } else {
             return;
-        Quickshell.execDetached(["bash", "-c", 'printf "%s" "$1" | cliphist delete', "_", item.clip.line]);
-        clips = clips.filter(c => c !== item.clip);
+        }
         const keep = view.currentIndex;
         refresh();
         view.currentIndex = Math.min(keep, results.length - 1);
+    }
+
+    // Alt+P pins a text clip (the whole text: cliphist's list only has a preview) or unpins a pin.
+    function togglePin(index) {
+        const item = results[index];
+        if (item?.kind === "pin") {
+            forget(index);
+        } else if (item?.kind === "clip" && !item.clip.image) {
+            pinner.command = ["bash", "-c", 'printf "%s" "$1" | cliphist decode', "_", item.clip.line];
+            pinner.running = true;
+        }
+    }
+    Process {
+        id: pinner
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (text && !Settings.clipboardPins.includes(text))
+                    Settings.clipboardPins = [text, ...Settings.clipboardPins];
+                root.refresh();
+            }
+        }
+    }
+
+    // Files for `/name`: fd when it is installed (it skips hidden and ignored files), else find,
+    // in the home folder; asked again a moment after typing stops.
+    property var files: []
+    Timer {
+        id: findFiles
+        interval: 150
+        onTriggered: {
+            const name = search.text.slice(1).trim();
+            fileSearch.running = false;
+            if (!name) {
+                root.files = [];
+                root.refresh();
+                return;
+            }
+            fileSearch.command = ["bash", "-c",
+                'cd "$HOME" && if command -v fd >/dev/null; then fd -i --absolute-path --max-results 40 -- "$1"; '
+                + 'else find "$HOME" -mindepth 1 -name ".*" -prune -o -iname "*$1*" -print 2>/dev/null | head -n 40; fi', "_", name];
+            fileSearch.running = true;
+        }
+    }
+    Process {
+        id: fileSearch
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.files = text.split("\n").filter(l => l).map(path => ({ kind: "file", path: path.replace(/\/$/, "") }));
+                if (search.text.startsWith("/"))
+                    root.refresh();
+            }
+        }
+    }
+
+    // Exchange rates from the European Central Bank (frankfurter.dev), asked for only when a
+    // query names two currencies and kept for 12 hours.
+    property var rates: ({}) // base → { rates, date, at }
+    function exchange(money) {
+        const known = rates[money.from];
+        if (!known || Date.now() - known.at > 12 * 3600000) {
+            if (!rateFetch.running) {
+                rateFetch.base = money.from;
+                rateFetch.command = ["curl", "-sfL", "--max-time", "5", "https://api.frankfurter.dev/v1/latest?base=" + money.from];
+                rateFetch.running = true;
+            }
+            return known ? null : { kind: "currency", pending: true, value: "", text: `${money.amount} ${money.from} in ${money.to}` };
+        }
+        const rate = known.rates[money.to];
+        if (!rate)
+            return null;
+        const value = Number((money.amount * rate).toFixed(rate * money.amount >= 100 ? 2 : 4));
+        return { kind: "currency", value, text: `${value} ${money.to}`, date: known.date, from: money };
+    }
+    Process {
+        id: rateFetch
+        property string base: ""
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const data = JSON.parse(text);
+                    if (data.rates)
+                        root.rates = Object.assign({}, root.rates, { [rateFetch.base]: { rates: data.rates, date: data.date, at: Date.now() } });
+                } catch (e) {
+                    root.rates = Object.assign({}, root.rates, { [rateFetch.base]: { rates: {}, date: "", at: Date.now() } });
+                }
+                if (Ui.launcherOpen)
+                    root.refresh();
+            }
+        }
+    }
+
+    // Clipboard history older than Settings → Clipboard history goes, every hour and before the
+    // clipboard opens.
+    Process {
+        id: prune
+        command: [Ui.bin + "penumbra-clipboard", "prune", String(Settings.clipboardDays)]
+        onExited: if (Ui.launcherOpen && root.clipboard) clipList.running = true
+    }
+    Timer {
+        interval: 3600000
+        running: Settings.clipboardDays > 0
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: if (!prune.running) prune.running = true
     }
 
     function gridKey(key) {
@@ -10978,7 +11888,8 @@ PanelWindow {
                 Layout.preferredHeight: 48
                 spacing: 12
                 Glyph {
-                    text: root.clipboard || root.characters ? root.modes.find(m => m.mode === Ui.launcherMode).glyph : search.text.startsWith(">") ? "󰆍" : "󰍉"
+                    text: Ui.launcherMode !== "apps" ? root.modes.find(m => m.mode === Ui.launcherMode).glyph
+                        : search.text.startsWith(">") ? "󰆍" : search.text.startsWith("?") ? "󰖟" : search.text.startsWith("/") ? "󰈞" : "󰍉"
                     size: 20
                     color: Theme.accentBright
                 }
@@ -10992,12 +11903,16 @@ PanelWindow {
                     font.pixelSize: Theme.textTitle
                     clip: true
                     focus: true
-                    onTextChanged: root.refresh()
+                    onTextChanged: {
+                        root.refresh();
+                        if (text.startsWith("/") && Ui.launcherMode === "apps")
+                            findFiles.restart();
+                    }
                     Label {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: !search.text
-                        text: ({ clipboard: "Search clipboard history…", emoji: "Search emoji…", symbols: "Search symbols…" })[Ui.launcherMode]
-                            ?? "Search applications, > run, = calculate…"
+                        text: ({ windows: "Search open windows…", clipboard: "Search clipboard history…", emoji: "Search emoji…", symbols: "Search symbols…" })[Ui.launcherMode]
+                            ?? "Search apps, > run, ? web, / files, = calculate…"
                         font.pixelSize: Theme.textTitle
                         color: Theme.dim
                     }
@@ -11022,6 +11937,8 @@ PanelWindow {
                             root.activate(root.characters ? grid.currentIndex : view.currentIndex, event.modifiers & Qt.ShiftModifier);
                         } else if (event.key === Qt.Key_Delete && (event.modifiers & Qt.ShiftModifier)) {
                             root.forget(view.currentIndex);
+                        } else if (root.clipboard && event.key === Qt.Key_P && (event.modifiers & Qt.AltModifier)) {
+                            root.togglePin(view.currentIndex);
                         } else {
                             return;
                         }
@@ -11104,24 +12021,25 @@ PanelWindow {
                             visible: !row.isImage
                             implicitWidth: 32
                             implicitHeight: 32
+                            readonly property bool hasIcon: ["app", "action", "window"].includes(row.modelData.kind)
                             IconImage {
                                 anchors.fill: parent
-                                visible: row.modelData.kind === "app"
-                                source: row.modelData.kind === "app" ? Quickshell.iconPath(row.modelData.entry.icon, "application-x-executable") : ""
+                                visible: parent.hasIcon
+                                source: parent.hasIcon ? Quickshell.iconPath(row.modelData.action?.icon || row.modelData.entry?.icon || row.modelData.toplevel?.appId || "", "application-x-executable") : ""
                                 asynchronous: true
                             }
                             // Picked colors (#rrggbb) show as a swatch.
                             Rectangle {
                                 readonly property bool swatch: row.modelData.kind === "clip" && /^#[0-9a-fA-F]{6}$/.test(row.modelData.clip.text)
                                 anchors.fill: parent
-                                visible: row.modelData.kind !== "app"
+                                visible: !parent.hasIcon
                                 radius: Theme.corner(10)
                                 color: swatch ? row.modelData.clip.text : Theme.raised
                                 border.color: swatch ? Theme.lineStrong : "transparent"
                                 Glyph {
                                     anchors.centerIn: parent
                                     visible: !parent.swatch
-                                    text: ({ run: "󰆍", calc: "󰃬", clip: "󰅍" })[row.modelData.kind] ?? ""
+                                    text: ({ run: "󰆍", calc: "󰃬", clip: "󰅍", pin: "󰐃", web: "󰖟", file: "󰈔", convert: "󰁔", currency: "󰄉" })[row.modelData.kind] ?? ""
                                     size: 16
                                     color: Theme.accentBright
                                 }
@@ -11163,12 +12081,28 @@ PanelWindow {
                                         return m.command;
                                     if (m.kind === "calc")
                                         return "= " + m.value;
+                                    if (m.kind === "convert")
+                                        return `= ${m.value} ${m.unit}`;
+                                    if (m.kind === "currency")
+                                        return m.pending ? m.text : "≈ " + m.text;
+                                    if (m.kind === "action")
+                                        return m.action.name;
+                                    if (m.kind === "window")
+                                        return m.toplevel.title || m.toplevel.appId;
+                                    if (m.kind === "web")
+                                        return m.query;
+                                    if (m.kind === "file")
+                                        return m.path.replace(/^.*\//, "");
+                                    if (m.kind === "pin")
+                                        return m.text.replace(/\s+/g, " ").trim();
                                     return m.clip.text;
                                 }
-                                font.pixelSize: row.modelData.kind === "calc" ? 17 : 13
-                                font.family: row.modelData.kind === "run" || row.modelData.kind === "calc" ? Theme.mono : Theme.sans
+                                readonly property bool answer: ["calc", "convert", "currency"].includes(row.modelData.kind)
+                                font.pixelSize: answer ? Theme.textTitle - 1 : Theme.textMedium
+                                font.family: row.modelData.kind === "run" || answer ? Theme.mono : Theme.sans
                                 font.weight: row.current ? Font.DemiBold : Font.Normal
-                                color: row.modelData.kind === "calc" ? Theme.accentBright : Theme.text
+                                color: answer ? Theme.accentBright : Theme.text
+                                elide: Text.ElideRight
                             }
                             Label {
                                 Layout.fillWidth: true
@@ -11179,8 +12113,20 @@ PanelWindow {
                                         return m.entry.genericName || m.entry.comment;
                                     if (m.kind === "run")
                                         return "Run command · Shift+Enter in a terminal";
-                                    if (m.kind === "calc")
+                                    if (m.kind === "calc" || m.kind === "convert")
                                         return "Enter copies the result";
+                                    if (m.kind === "currency")
+                                        return m.pending ? "Asking the European Central Bank for today's rate…" : `${m.from.amount} ${m.from.from} · ECB rate of ${m.date} · Enter copies`;
+                                    if (m.kind === "action")
+                                        return m.entry.name;
+                                    if (m.kind === "window")
+                                        return (m.entry?.name || m.toplevel.appId) + (m.toplevel.activated ? " · focused" : "");
+                                    if (m.kind === "web")
+                                        return "Search the web · DuckDuckGo in your browser";
+                                    if (m.kind === "file")
+                                        return m.path.replace(Quickshell.env("HOME"), "~").replace(/\/[^/]*$/, "") + " · Shift+Enter opens the folder";
+                                    if (m.kind === "pin")
+                                        return "Pinned · Alt+P unpins";
                                     return "";
                                 }
                                 font.pixelSize: Theme.textSmall
@@ -11280,7 +12226,11 @@ PanelWindow {
                             return "Install the unicode-emoji package for the emoji list";
                         if (root.characters)
                             return "Nothing matches";
-                        if (search.text.trim() && !search.text.startsWith(">"))
+                        if (root.windows)
+                            return search.text ? "No open window matches" : "No windows are open";
+                        if (search.text.startsWith("/"))
+                            return search.text.slice(1).trim() ? (fileSearch.running || findFiles.running ? "Looking…" : "No file in your home folder matches") : "Type part of a file or folder name";
+                        if (search.text.trim() && !search.text.startsWith(">") && !search.text.startsWith("?"))
                             return "No application matches · start with > to run it as a command";
                         return "Type to search";
                     }
@@ -11297,11 +12247,13 @@ PanelWindow {
                     Layout.fillWidth: true
                     text: {
                         if (root.clipboard)
-                            return "↑↓ choose · Enter copy · Shift+Del forget · Tab emoji · Esc close";
+                            return "↑↓ choose · Enter copy · Alt+P pin · Shift+Del forget · Tab emoji · Esc close";
+                        if (root.windows)
+                            return "↑↓ choose · Enter go to the window · Tab clipboard · Esc close";
                         if (root.characters)
                             return (Ui.hasTyping ? "Arrows choose · Enter type · Shift+Enter copy" : "Arrows choose · Enter copy")
                                 + (Ui.launcherMode === "emoji" ? " · Tab symbols" : " · Tab apps") + " · Esc close";
-                        return "↑↓ choose · Enter open · Tab clipboard · Esc close";
+                        return "↑↓ choose · Enter open · Tab windows · Esc close";
                     }
                     font.pixelSize: Theme.textSmall
                     color: Theme.dim
@@ -11395,7 +12347,7 @@ Rectangle {
                 text: "󰔟"
                 size: 14
                 color: Theme.accent
-                RotationAnimation on rotation { running: root.busy; from: 0; to: 360; duration: 1200; loops: Animation.Infinite }
+                RotationAnimation on rotation { running: root.busy && !Theme.reducedMotion; from: 0; to: 360; duration: 1200; loops: Animation.Infinite }
             }
             Glyph {
                 visible: root.trailing !== "" && !root.busy
@@ -11456,6 +12408,7 @@ Rectangle {
             id: dawn
             DawnScene {
                 clean: true
+                running: !Theme.reducedMotion
                 pixelScale: width > 0 && height > 0 ? Math.max(surface.width / width, surface.height / height) * surface.pixelRatio : 1
             }
         }
@@ -11463,6 +12416,7 @@ Rectangle {
             id: eclipse
             EclipseScene {
                 clean: true
+                running: !Theme.reducedMotion
                 pixelScale: width > 0 && height > 0 ? Math.max(surface.width / width, surface.height / height) * surface.pixelRatio : 1
             }
         }
@@ -11523,6 +12477,20 @@ Rectangle {
                 font.letterSpacing: 3
                 font.capitalization: Font.AllUppercase
                 color: Theme.accent
+            }
+            // How many notifications came in while locked, never what they say.
+            RowLayout {
+                readonly property int count: Notifs.history.filter(n => (Notifs.received[n.id] ?? 0) > surface.lock.lockedAt).length
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: 14
+                visible: Settings.lockNotificationCount && count > 0
+                spacing: 8
+                Glyph { text: "󰂚"; size: 15; color: Theme.textSoft }
+                Label {
+                    text: `${parent.count} new notification${parent.count === 1 ? "" : "s"}`
+                    font.pixelSize: Theme.textMedium
+                    color: Theme.textSoft
+                }
             }
         }
 
@@ -11609,15 +12577,15 @@ Rectangle {
                     text: surface.lock.busy ? "󰔟" : "󰌆"
                     size: 15
                     color: surface.lock.busy ? Theme.accent : Theme.dim
-                    RotationAnimation on rotation { running: surface.lock.busy; from: 0; to: 360; duration: 1200; loops: Animation.Infinite }
+                    RotationAnimation on rotation { running: surface.lock.busy && !Theme.reducedMotion; from: 0; to: 360; duration: 1200; loops: Animation.Infinite }
                 }
 
                 SequentialAnimation {
                     id: shake
-                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: 18; duration: 50 }
-                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: -14; duration: 70 }
-                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: 10; duration: 60 }
-                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: 0; duration: 60 }
+                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: 18; duration: 50 * Theme.motion }
+                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: -14; duration: 70 * Theme.motion }
+                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: 10; duration: 60 * Theme.motion }
+                    NumberAnimation { target: field; property: "Layout.leftMargin"; to: 0; duration: 60 * Theme.motion }
                 }
             }
 
@@ -11633,7 +12601,7 @@ Rectangle {
                     color: surface.lock.fingerWaiting ? Theme.accentBright : Theme.dim
                     opacity: surface.lock.fingerWaiting ? pulse : 1
                     SequentialAnimation on pulse {
-                        running: surface.lock.fingerWaiting
+                        running: surface.lock.fingerWaiting && !Theme.reducedMotion
                         loops: Animation.Infinite
                         NumberAnimation { to: 0.35; duration: 900; easing.type: Easing.InOutSine }
                         NumberAnimation { to: 1; duration: 900; easing.type: Easing.InOutSine }
@@ -11778,6 +12746,8 @@ Scope {
     // Kept here rather than bound to sessionLock.locked: Quickshell 0.3.2 never signals the
     // unlock, so a binding stays true and the wallpapers stay paused after the first lock.
     property bool locked: false
+    // When the screen was locked (Date.now()), for the lock screen's count of new notifications.
+    property double lockedAt: 0
     signal rejected()
 
     // Fingerprint: whether a finger is enrolled (fprintd-list, checked at each lock), the reader
@@ -11800,6 +12770,7 @@ Scope {
         fingers.running = true;
         checkCaps();
         lockState.setText("locked\n");
+        lockedAt = Date.now();
         sessionLock.locked = true;
         // False if the compositor refused the lock.
         locked = sessionLock.locked;
@@ -14375,19 +15346,196 @@ PanelWindow {
 }
 ```
 
+## `config/quickshell/penumbra/NotificationsPage.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import "sun.js" as Sun
+
+// Notifications: when Do not disturb comes on by itself, sounds, the lock screen, and each app's rule.
+ColumnLayout {
+    id: root
+
+    spacing: 12
+
+    // Steps a "HH:MM" setting by a quarter of an hour.
+    function shifted(text, quarters) {
+        const m = Math.max(0, Sun.minutes(text));
+        return Sun.clock(Math.round(m / 15) * 15 + 15 * quarters);
+    }
+    readonly property var ruleNames: ({ "silent": "No popups", "mute": "Muted", "keep": "Always kept" })
+    readonly property var ruleApps: Object.keys(Settings.notificationRules).sort((a, b) => a.localeCompare(b))
+
+    PageHeader {
+        Layout.fillWidth: true
+        title: "Notifications"
+        status: Notifs.dnd ? "Do not disturb · " + Notifs.dndStatus.toLowerCase() : "Do not disturb is off"
+        checked: Notifs.dnd
+        onBack: Ui.controlPage = "main"
+        onToggled: Notifs.toggleDnd()
+    }
+
+    Overline { Layout.fillWidth: true; Layout.topMargin: 2; text: "Do not disturb by itself" }
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: 2
+        SwitchRow {
+            glyph: "󰑊"
+            title: "While sharing the screen"
+            subtitle: "Recording or casting, so nothing private shows"
+            checked: Settings.dndWhileSharing
+            onToggled: Settings.dndWhileSharing = !Settings.dndWhileSharing
+        }
+        SwitchRow {
+            glyph: "󰊓"
+            title: "While a window is fullscreen"
+            subtitle: "Videos, games and presentations"
+            checked: Settings.dndFullscreen
+            onToggled: Settings.dndFullscreen = !Settings.dndFullscreen
+        }
+        SwitchRow {
+            glyph: "󰔛"
+            title: "On a schedule"
+            subtitle: Settings.dndSchedule ? `${Settings.dndFrom} to ${Settings.dndTo}` : "Every day at set times"
+            checked: Settings.dndSchedule
+            onToggled: Settings.dndSchedule = !Settings.dndSchedule
+        }
+        // Fixed times, a quarter of an hour at a time.
+        Repeater {
+            model: Settings.dndSchedule ? [
+                { title: "From", glyph: "󰖔", key: "dndFrom" },
+                { title: "Until", glyph: "󰖙", key: "dndTo" }
+            ] : []
+            delegate: RowLayout {
+                required property var modelData
+                Layout.fillWidth: true
+                Layout.leftMargin: 10
+                spacing: 11
+                Glyph { Layout.preferredWidth: 22; text: modelData.glyph; size: 17 }
+                Label { Layout.fillWidth: true; text: modelData.title }
+                Stepper {
+                    text: Settings[modelData.key]
+                    lessGlyph: "󰍴"
+                    moreGlyph: "󰐕"
+                    onDecreased: Settings[modelData.key] = root.shifted(Settings[modelData.key], -1)
+                    onIncreased: Settings[modelData.key] = root.shifted(Settings[modelData.key], 1)
+                }
+            }
+        }
+    }
+
+    Overline { Layout.fillWidth: true; Layout.topMargin: 2; text: "Alerts" }
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: 2
+        SwitchRow {
+            glyph: "󰂞"
+            title: "Sounds"
+            subtitle: "For new notifications; critical ones sound different"
+            checked: Settings.notificationSounds
+            onToggled: Settings.notificationSounds = !Settings.notificationSounds
+        }
+        SwitchRow {
+            glyph: "󰌾"
+            title: "Count on the lock screen"
+            subtitle: "How many came in while locked, never what they say"
+            checked: Settings.lockNotificationCount
+            onToggled: Settings.lockNotificationCount = !Settings.lockNotificationCount
+        }
+    }
+
+    Overline { Layout.fillWidth: true; Layout.topMargin: 2; text: "Apps" }
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: 2
+        Repeater {
+            model: root.ruleApps
+            delegate: RowLayout {
+                id: app
+                required property string modelData
+                Layout.fillWidth: true
+                Layout.leftMargin: 10
+                spacing: 11
+                Glyph { Layout.preferredWidth: 22; text: "󰂚"; size: 17 }
+                Label { Layout.fillWidth: true; text: app.modelData; elide: Text.ElideRight }
+                Segmented {
+                    Layout.preferredWidth: 220
+                    current: Settings.notificationRules[app.modelData] ?? ""
+                    options: [
+                        { value: "", title: "Normal" },
+                        { value: "silent", title: "Quiet" },
+                        { value: "mute", title: "Mute" },
+                        { value: "keep", title: "Keep" }
+                    ]
+                    onChosen: value => Settings.setRule(app.modelData, value)
+                }
+            }
+        }
+        Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            text: (root.ruleApps.length ? "" : "No app has a rule yet. ")
+                + "The bell next to an app in the notification history sets one: Quiet keeps its notifications out of the popups, Mute drops them, Keep holds them past the history's limit of " + Notifs.limit + "."
+            wrapMode: Text.Wrap
+            font.pixelSize: Theme.textSmall
+            color: Theme.dim
+        }
+    }
+}
+```
+
 ## `config/quickshell/penumbra/Notifs.qml`
 
 ```qml
 pragma Singleton
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Services.Notifications
+import "sun.js" as Sun
 
-// Notification daemon: popups for new notifications, history for the control center.
+// Notification daemon: popups for new notifications, history for the control center. Do not
+// disturb comes on by hand, on a schedule, or by itself while you share the screen (recording,
+// casting) or a window is fullscreen; per-app rules (Settings → Notifications) can keep an app's
+// notifications out of the popups, drop them, or keep them past the history limit.
 Singleton {
     id: root
 
-    property bool dnd: false
+    // By hand or by the schedule: the schedule sets it when its window starts and ends, so a
+    // toggle by hand lasts until the next change, as with night light.
+    property bool dndOn: false
+    readonly property bool scheduled: Settings.dndSchedule
+        && Sun.between(Clock.date.getHours() * 60 + Clock.date.getMinutes(), Sun.minutes(Settings.dndFrom), Sun.minutes(Settings.dndTo))
+    onScheduledChanged: dndOn = scheduled
+    Component.onCompleted: if (scheduled) dndOn = true
+    // Recording, casting or a fullscreen window turn it on until they end; turning it off by
+    // hand meanwhile holds until they do.
+    readonly property bool sharing: Recorder.recording || Cast.casting || Cast.connecting
+    readonly property bool fullscreen: Hyprland.focusedMonitor?.activeWorkspace?.hasFullscreen ?? false
+    readonly property bool autoQuiet: Settings.dndWhileSharing && sharing || Settings.dndFullscreen && fullscreen
+    property bool autoDismissed: false
+    onAutoQuietChanged: if (!autoQuiet) autoDismissed = false
+    readonly property bool dnd: dndOn || autoQuiet && !autoDismissed
+    readonly property string dndStatus: !dnd ? "Off"
+        : dndOn && scheduled ? `Until ${Settings.dndTo} · only critical alerts`
+        : dndOn ? "Only critical alerts"
+        : sharing && Settings.dndWhileSharing ? "While you share the screen"
+        : "While a window is fullscreen"
+    function toggleDnd() {
+        if (dnd) {
+            dndOn = false;
+            if (autoQuiet)
+                autoDismissed = true;
+        } else {
+            dndOn = true;
+        }
+    }
+
+    // The rule for an app: "" (normal), "silent", "mute" or "keep".
+    function rule(app) {
+        return Settings.notificationRules[app || "Notification"] ?? "";
+    }
     property var popups: []
     // The history keeps this many notifications; older ones expire.
     readonly property int limit: 50
@@ -14424,8 +15572,20 @@ Singleton {
     // A popup timed out: transient notifications go away instead of into the history.
     function retire(n) {
         hidePopup(n);
-        if (n.transient)
+        if (n.transient && rule(n.appName) !== "keep")
             n.expire();
+    }
+
+    // A sound for a new popup (Settings → Notifications): the sound the app asks for, or the
+    // sound theme's; never for low urgency or when the app asks for silence.
+    function chime(n) {
+        const hints = n.hints ?? {};
+        if (!Settings.notificationSounds || n.urgency === NotificationUrgency.Low || hints["suppress-sound"])
+            return;
+        const asked = String(hints["sound-file"] ?? "");
+        const sound = asked.startsWith("/") ? asked
+            : "/usr/share/sounds/freedesktop/stereo/" + (n.urgency === NotificationUrgency.Critical ? "dialog-warning.oga" : "message-new-instant.oga");
+        Quickshell.execDetached(["pw-play", sound]);
     }
     // "now", "5 min", "2 h", "yesterday" or the date; `now` is passed in so callers update with the clock.
     function age(n, now) {
@@ -14459,6 +15619,10 @@ Singleton {
         persistenceSupported: true
 
         onNotification: n => {
+            const rule = root.rule(n.appName);
+            // Muted: never tracked, so it is dropped at once.
+            if (rule === "mute")
+                return;
             n.tracked = true;
             root.received = Object.assign({}, root.received, { [n.id]: Date.now() });
             n.closed.connect(() => {
@@ -14467,7 +15631,9 @@ Singleton {
                 delete received[n.id];
                 root.received = received;
             });
-            const shown = !root.dnd || n.urgency === NotificationUrgency.Critical;
+            const shown = rule !== "silent" && (!root.dnd || n.urgency === NotificationUrgency.Critical);
+            if (shown)
+                root.chime(n);
             if (shown) {
                 const stack = [n, ...root.popups];
                 root.popups = stack.slice(0, 4);
@@ -14476,8 +15642,8 @@ Singleton {
                     root.retire(dropped);
             } else if (n.transient)
                 Qt.callLater(() => n.expire());
-            // Oldest first; keep the newest `limit`.
-            const all = server.trackedNotifications.values;
+            // Oldest first; keep the newest `limit`, apart from apps whose rule is to keep them.
+            const all = server.trackedNotifications.values.filter(o => root.rule(o.appName) !== "keep");
             for (const old of all.slice(0, Math.max(0, all.length - root.limit)))
                 old.expire();
         }
@@ -15245,10 +16411,10 @@ Scope {
 
             SequentialAnimation {
                 id: shake
-                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 14; duration: 50 }
-                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: -12; duration: 70 }
-                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 8; duration: 60 }
-                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 0; duration: 60 }
+                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 14; duration: 50 * Theme.motion }
+                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: -12; duration: 70 * Theme.motion }
+                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 8; duration: 60 * Theme.motion }
+                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 0; duration: 60 * Theme.motion }
             }
 
             ColumnLayout {
@@ -15345,7 +16511,7 @@ Scope {
                         color: root.fingerWaiting ? Theme.accentBright : Theme.dim
                         opacity: root.fingerWaiting ? pulse : 1
                         SequentialAnimation on pulse {
-                            running: root.fingerWaiting
+                            running: root.fingerWaiting && !Theme.reducedMotion
                             loops: Animation.Infinite
                             NumberAnimation { to: 0.35; duration: 900; easing.type: Easing.InOutSine }
                             NumberAnimation { to: 1; duration: 900; easing.type: Easing.InOutSine }
@@ -15397,14 +16563,16 @@ import Quickshell
 import Quickshell.Io
 
 // Screen recordings and capture countdowns. penumbra-record does the recording and keeps it in
-// $XDG_RUNTIME_DIR/penumbra/recording ("started-at\nfile"), so a recording outlives the shell; the
-// bar shows it from there. A capture with a timer counts down here first, shown in the bar too.
+// $XDG_RUNTIME_DIR/penumbra/recording ("started-at\nfile\npaused"; the start moves on by the time
+// spent paused), so a recording outlives the shell; the bar shows it from there. A capture with a
+// timer counts down here first, shown in the bar too.
 Singleton {
     id: root
 
     property bool recording: false
     property real startedAt: 0 // seconds since the epoch
     property string file: ""
+    property bool paused: false
     property int elapsed: 0 // seconds
     readonly property string elapsedText: `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`
 
@@ -15414,6 +16582,9 @@ Singleton {
     function stop() {
         Quickshell.execDetached([Ui.bin + "penumbra-record", "stop"]);
     }
+    function togglePause() {
+        Quickshell.execDetached([Ui.bin + "penumbra-record", paused ? "resume" : "pause"]);
+    }
 
     FileView {
         id: state
@@ -15422,17 +16593,18 @@ Singleton {
         printErrors: false
         onFileChanged: reload()
         onLoaded: {
-            const [started, file] = text().split("\n");
+            const [started, file, paused] = text().split("\n");
             root.startedAt = Number(started) || 0;
             root.file = file ?? "";
+            root.paused = paused === "paused";
             root.recording = root.startedAt > 0;
         }
-        onLoadFailed: root.recording = false
+        onLoadFailed: { root.recording = false; root.paused = false; }
     }
     Timer {
         interval: 1000
         repeat: true
-        running: root.recording
+        running: root.recording && !root.paused
         triggeredOnStart: true
         onTriggered: root.elapsed = Math.max(0, Math.floor(Date.now() / 1000 - root.startedAt))
     }
@@ -15527,12 +16699,15 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Wayland
 
-// Print: the screen freezes; drag a region, click a window or click for the whole screen.
+// Print: the screen freezes; drag a region, click a window or click for the whole screen, or (with
+// several screens) take them all at once, or move the overlay to another screen with Tab.
 // The overlay then steps aside (no closing animation) and penumbra-shot captures the area, or
 // penumbra-record records it (Video); a timer counts down in the bar first.
 PanelWindow {
     id: root
-    screen: Ui.screen
+    // The focused screen when it opens; Tab moves it to the next one.
+    property var shotScreen: Ui.screen
+    screen: shotScreen
     anchors { top: true; bottom: true; left: true; right: true }
     exclusionMode: ExclusionMode.Ignore
     visible: Ui.shotOpen
@@ -15541,10 +16716,11 @@ PanelWindow {
     WlrLayershell.namespace: "penumbra-shot"
     WlrLayershell.keyboardFocus: Ui.shotOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
-    property string mode: "region" // region, window or screen
+    property string mode: "region" // region, window, screen, or all (every screen; not for video)
     property bool annotate: false
     property bool record: false
     property bool sound: false // kept between recordings
+    readonly property bool several: Quickshell.screens.length > 1
     property int delay: 0 // seconds
     readonly property var delays: [0, 3, 5, 10]
     property rect selection: Qt.rect(0, 0, 0, 0)
@@ -15562,13 +16738,19 @@ PanelWindow {
             rect: Qt.rect(t.lastIpcObject.at[0] - monitor.x, t.lastIpcObject.at[1] - monitor.y, t.lastIpcObject.size[0], t.lastIpcObject.size[1])
         }))
     // What gets captured if the user confirms now.
-    readonly property rect target: mode === "screen" ? Qt.rect(0, 0, width, height)
+    readonly property rect target: mode === "screen" || mode === "all" ? Qt.rect(0, 0, width, height)
         : mode === "window" ? (hovered?.rect ?? Qt.rect(0, 0, 0, 0)) : selection
 
     function open(withAnnotate, withRecord) {
         Ui.openShot();
         annotate = withAnnotate;
         record = withRecord;
+    }
+    function nextScreen() {
+        const all = Quickshell.screens;
+        shotScreen = all[(all.indexOf(shotScreen) + 1) % all.length];
+        selection = Qt.rect(0, 0, 0, 0);
+        hovered = null;
     }
     function nextDelay() {
         delay = delays[(delays.indexOf(delay) + 1) % delays.length];
@@ -15580,6 +16762,7 @@ PanelWindow {
             if (!Ui.shotOpen)
                 return;
             Hyprland.refreshToplevels();
+            root.shotScreen = Ui.screen;
             root.annotate = false;
             root.record = false;
             root.delay = 0;
@@ -15594,10 +16777,11 @@ PanelWindow {
         if (r.width < 4 || r.height < 4)
             return;
         const geometry = `${Math.round(r.x + monitor.x)},${Math.round(r.y + monitor.y)} ${Math.round(r.width)}x${Math.round(r.height)}`;
+        const area = mode === "all" && !record ? ["--all"] : ["--geometry", geometry];
         Ui.shotOpen = false;
         Recorder.after(delay, record
-            ? [Ui.bin + "penumbra-record", "start", "--geometry", geometry, ...(sound ? ["--sound"] : [])]
-            : [Ui.bin + "penumbra-shot", ...(annotate ? ["annotate"] : []), "--geometry", geometry]);
+            ? [Ui.bin + "penumbra-record", "start", "--geometry", geometry, ...(sound ? ["--sound"] : []), ...(Settings.recordMicrophone ? ["--microphone"] : [])]
+            : [Ui.bin + "penumbra-shot", ...(annotate ? ["annotate"] : []), ...area]);
     }
     function windowAt(x, y) {
         return windows.find(w => x >= w.rect.x && x < w.rect.x + w.rect.width && y >= w.rect.y && y < w.rect.y + w.rect.height) ?? null;
@@ -15625,10 +16809,19 @@ PanelWindow {
                 root.mode = "window";
             else if (event.key === Qt.Key_S)
                 root.mode = "screen";
+            else if (event.key === Qt.Key_D && root.several && !root.record)
+                root.mode = "all";
+            else if (event.key === Qt.Key_Tab && root.several)
+                root.nextScreen();
+            else if (event.key === Qt.Key_M && root.record)
+                Settings.recordMicrophone = !Settings.recordMicrophone;
             else if (event.key === Qt.Key_E && !root.record)
                 root.annotate = !root.annotate;
-            else if (event.key === Qt.Key_V)
+            else if (event.key === Qt.Key_V) {
                 root.record = !root.record;
+                if (root.record && root.mode === "all")
+                    root.mode = "screen";
+            }
             else if (event.key === Qt.Key_A && root.record)
                 root.sound = !root.sound;
             else if (event.key === Qt.Key_T)
@@ -15766,7 +16959,9 @@ PanelWindow {
                     model: [
                         { mode: "region", glyph: "󰆞", label: "Region", key: "R" },
                         { mode: "window", glyph: "󰖯", label: "Window", key: "W" },
-                        { mode: "screen", glyph: "󰍹", label: "Screen", key: "S" }
+                        { mode: "screen", glyph: "󰍹", label: "Screen", key: "S" },
+                        // wf-recorder records one screen, so video leaves this out.
+                        ...(root.several && !root.record ? [{ mode: "all", glyph: "󰍺", label: "All screens", key: "D" }] : [])
                     ]
                     delegate: Rectangle {
                         required property var modelData
@@ -15804,7 +16999,11 @@ PanelWindow {
                     text: "Video"
                     on: root.record
                     tint: Theme.rose
-                    onClicked: root.record = !root.record
+                    onClicked: {
+                        root.record = !root.record;
+                        if (root.record && root.mode === "all")
+                            root.mode = "screen";
+                    }
                 }
                 Chip {
                     visible: !root.record
@@ -15820,6 +17019,20 @@ PanelWindow {
                     on: root.sound
                     tint: Theme.rose
                     onClicked: root.sound = !root.sound
+                }
+                Chip {
+                    visible: root.record
+                    glyph: Settings.recordMicrophone ? "󰍬" : "󰍭"
+                    text: "Microphone"
+                    on: Settings.recordMicrophone
+                    tint: Theme.rose
+                    onClicked: Settings.recordMicrophone = !Settings.recordMicrophone
+                }
+                Chip {
+                    visible: root.several
+                    glyph: "󰍺"
+                    text: root.screen?.name ?? "Screen"
+                    onClicked: root.nextScreen()
                 }
                 Chip {
                     glyph: "󰔛"
@@ -15847,7 +17060,9 @@ PanelWindow {
         Label {
             anchors { horizontalCenter: parent.horizontalCenter; bottom: toolbar.top; bottomMargin: 12 }
             visible: !root.dragging
-            text: (root.mode === "region" ? "Drag to select" : root.mode === "window" ? "Click a window" : "Click or press Enter for the whole screen")
+            text: (root.mode === "region" ? "Drag to select" : root.mode === "window" ? "Click a window"
+                    : root.mode === "all" ? "Click or press Enter for every screen" : "Click or press Enter for the whole screen")
+                + (root.several ? " · Tab for the next screen" : "")
                 + (root.record ? " · records until you click the bar's red capsule or press Ctrl+Print"
                     : root.annotate ? " · opens in Satty" : " · saved and copied")
                 + (root.delay ? ` · starts after ${root.delay} s` : "") + " · Esc to cancel"
@@ -15951,9 +17166,10 @@ PanelWindow {
     readonly property var entries: [
         { glyph: "󰌾", label: "Lock", command: "loginctl lock-session" },
         { glyph: "󰤄", label: "Suspend", command: "systemctl suspend" },
-        { glyph: "󰍃", label: "Log out", command: "hyprctl dispatch 'hl.dsp.exit()'", confirm: true },
-        { glyph: "󰜉", label: "Restart", command: "systemctl reboot", confirm: true },
-        { glyph: "󰐥", label: "Shut down", command: "systemctl poweroff", confirm: true }
+        // Windows are asked to close first, so apps can save or ask about unsaved work (penumbra-exit).
+        { glyph: "󰍃", label: "Log out", command: Ui.bin + "penumbra-exit logout", confirm: true },
+        { glyph: "󰜉", label: "Restart", command: Ui.bin + "penumbra-exit reboot", confirm: true },
+        { glyph: "󰐥", label: "Shut down", command: Ui.bin + "penumbra-exit poweroff", confirm: true }
     ]
     property int selected: 0
     property int armed: -1
@@ -16093,8 +17309,47 @@ Singleton {
     property alias nightTo: adapter.nightTo
     property alias nightPlace: adapter.nightPlace // a city or "latitude, longitude"; empty: the time zone's
     property alias nightOn: adapter.nightOn // the last toggle by hand, restored on start in manual mode
-    // Casting: whether the TV also plays what the computer plays.
+    // Casting: whether the TV also plays what the computer plays, and a fixed port for the stream
+    // (0: any free one), so a firewall rule can let the TV in.
     property alias castSound: adapter.castSound
+    property alias castPort: adapter.castPort
+    // Accessibility: no animations anywhere (shell, wallpapers, Hyprland), and larger text.
+    property alias reducedMotion: adapter.reducedMotion
+    property alias textScale: adapter.textScale
+    // Do not disturb: on a schedule, while recording or casting, while a window is fullscreen.
+    property alias dndSchedule: adapter.dndSchedule
+    property alias dndFrom: adapter.dndFrom
+    property alias dndTo: adapter.dndTo
+    property alias dndWhileSharing: adapter.dndWhileSharing
+    property alias dndFullscreen: adapter.dndFullscreen
+    // A sound for new notifications (not for low urgency).
+    property alias notificationSounds: adapter.notificationSounds
+    // Per app: { "App name": "silent" (history only) | "mute" (dropped) | "keep" (never expires) }.
+    property alias notificationRules: adapter.notificationRules
+    // Clipboard: pinned texts, which "Clear history" keeps, and days the history keeps (0: always).
+    property alias clipboardPins: adapter.clipboardPins
+    property alias clipboardDays: adapter.clipboardDays
+    // Recording: the microphone along with (or instead of) what the computer plays.
+    property alias recordMicrophone: adapter.recordMicrophone
+    // The lock screen shows how many notifications came in, never what they say.
+    property alias lockNotificationCount: adapter.lockNotificationCount
+    // Window classes (or app ids) that keep the screen awake while open, like a video call.
+    property alias idleInhibitApps: adapter.idleInhibitApps
+    property alias calendarWeekNumbers: adapter.calendarWeekNumbers
+    // Stop charging at this percentage where the battery supports it (100: off).
+    property alias batteryLimit: adapter.batteryLimit
+
+    // hyprland.lua reads it at start; a change applies to the running Hyprland at once.
+    onReducedMotionChanged: Quickshell.execDetached(["hyprctl", "eval", `hl.config({animations = {enabled = ${!reducedMotion}}})`])
+
+    function setRule(app, rule) {
+        const rules = Object.assign({}, notificationRules);
+        if (rule === "" || rule === "normal")
+            delete rules[app];
+        else
+            rules[app] = rule;
+        notificationRules = rules;
+    }
 
     FileView {
         path: Quickshell.env("HOME") + "/.config/penumbra/shell.json"
@@ -16121,6 +17376,23 @@ Singleton {
             property string nightPlace: ""
             property bool nightOn: false
             property bool castSound: true
+            property int castPort: 0
+            property bool reducedMotion: false
+            property real textScale: 1
+            property bool dndSchedule: false
+            property string dndFrom: "22:00"
+            property string dndTo: "07:00"
+            property bool dndWhileSharing: true
+            property bool dndFullscreen: false
+            property bool notificationSounds: false
+            property var notificationRules: ({})
+            property var clipboardPins: []
+            property int clipboardDays: 0
+            property bool recordMicrophone: false
+            property bool lockNotificationCount: true
+            property var idleInhibitApps: []
+            property bool calendarWeekNumbers: false
+            property int batteryLimit: 100
         }
     }
 }
@@ -16132,19 +17404,72 @@ Singleton {
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Io
 
-// Settings: the look, screens, keyboard, idle timings and default apps (each a page of its own), the
-// wallpaper and a few shell behaviours.
+// Settings: the look, screens, keyboard, idle timings, default apps and notifications (each a page
+// of its own), the wallpaper, accessibility, battery care, the clipboard and a few shell
+// behaviours. Typing in the search field finds any of them, on this page or another.
 ColumnLayout {
     id: root
 
     spacing: 12
-    onVisibleChanged: if (visible) Config.loadLayouts()
-    Component.onCompleted: Config.loadLayouts()
+    onVisibleChanged: if (visible) { Config.loadLayouts(); findExport.running = true; }
+    Component.onCompleted: { Config.loadLayouts(); findExport.running = true; }
 
     component Section: Overline {
         Layout.fillWidth: true
         Layout.topMargin: 2
+    }
+
+    // What search finds: a page to open (page), or a row of this page (page: "settings").
+    readonly property var index: [
+        { page: "look", glyph: "󰏘", title: "Look", words: "theme dark light auto colours colors accent hue vividness corners rounded sharp harmonize" },
+        { page: "displays", glyph: "󰍹", title: "Displays", words: "monitors screens resolution refresh rate scale rotation arrangement" },
+        { page: "keyboard", glyph: "󰌌", title: "Keyboard", words: "layout variant options num lock xkb" },
+        { page: "idle", glyph: "󰒲", title: "Idle and sleep", words: "dim lock screens off suspend timeout stay awake apps inhibit video calls" },
+        { page: "apps", glyph: "󰀻", title: "Default apps", words: "browser file manager terminal" },
+        { page: "notifications", glyph: "󰂚", title: "Notifications", words: "do not disturb dnd schedule fullscreen sharing sounds lock screen count mute quiet keep rules" },
+        { page: "night", glyph: "󰖔", title: "Night light", words: "warmth temperature kelvin sunset sunrise schedule hyprsunset" },
+        { page: "wifi", glyph: "󰤨", title: "Wi-Fi", words: "wireless network internet" },
+        { page: "bluetooth", glyph: "󰂯", title: "Bluetooth", words: "devices headphones mouse pair battery" },
+        { page: "mixer", glyph: "󰕾", title: "Sound", words: "audio volume output input microphone speakers apps" },
+        { page: "cast", glyph: "󰄘", title: "Cast screen", words: "tv chromecast dlna firewall port" },
+        { page: "wallpapers", glyph: "󰸉", title: "Wallpaper", words: "background picture image video gif" },
+        { page: "settings", glyph: "󰐊", title: "Animated wallpapers", words: "motion still battery power covered windows" },
+        { page: "settings", glyph: "󰆾", title: "Hot corner", words: "corner control center" },
+        { page: "settings", glyph: "󰘾", title: "Reduced motion", words: "animations accessibility" },
+        { page: "settings", glyph: "󰛖", title: "Text size", words: "font larger bigger accessibility zoom" },
+        { page: "settings", glyph: "󰂄", title: "Battery care", words: "charge limit threshold power" },
+        { page: "settings", glyph: "󰅌", title: "Clipboard history", words: "copy paste keep days expire pins" },
+        { page: "settings", glyph: "󰈝", title: "Export settings", words: "backup move another computer save file" },
+        { page: "settings", glyph: "󰈞", title: "Import settings", words: "restore another computer load file" }
+    ]
+    readonly property string query: search.text.trim().toLowerCase()
+    readonly property var matches: query === "" ? [] : index.filter(e => query.split(/\s+/).every(q => (e.title + " " + e.words).toLowerCase().includes(q)))
+    function open(entry) {
+        search.text = "";
+        if (entry.page === "wallpapers")
+            Ui.toggle("wallpapers");
+        else if (entry.page !== "settings")
+            Ui.controlPage = entry.page;
+    }
+
+    // The newest export in the home folder, offered for import.
+    property string exportFile: ""
+    Process {
+        id: findExport
+        command: ["bash", "-c", "ls -t \"$HOME\"/penumbra-settings-*.json 2>/dev/null | head -n 1"]
+        stdout: StdioCollector { onStreamFinished: root.exportFile = text.trim() }
+    }
+    property string transferMessage: ""
+    Process {
+        id: transfer
+        stdout: StdioCollector { id: transferOut }
+        stderr: StdioCollector { id: transferErr }
+        onExited: code => {
+            root.transferMessage = code === 0 ? transferOut.text.trim().replace(Quickshell.env("HOME"), "~") : transferErr.text.trim();
+            findExport.running = true;
+        }
     }
 
     PageHeader {
@@ -16155,71 +17480,268 @@ ColumnLayout {
         onBack: Ui.controlPage = "main"
     }
 
+    Field {
+        id: search
+        Layout.fillWidth: true
+        placeholderText: "Search settings"
+        Keys.onReturnPressed: if (root.matches.length) root.open(root.matches[0])
+        Keys.onEscapePressed: event => {
+            if (text) {
+                text = "";
+                event.accepted = true;
+            } else {
+                event.accepted = false;
+            }
+        }
+    }
+
+    // Search results.
     ColumnLayout {
         Layout.fillWidth: true
+        visible: root.query !== ""
         spacing: 2
         Repeater {
-            model: [
-                { page: "look", glyph: "󰏘", title: "Look", subtitle: Look.summary },
-                { page: "displays", glyph: "󰍹", title: "Displays", subtitle: Quickshell.screens.length > 1 ? `${Quickshell.screens.length} screens · arrangement, resolution, scale` : "Resolution, refresh rate, scale" },
-                { page: "keyboard", glyph: "󰌌", title: "Keyboard", subtitle: (Config.values.kb_layout ?? "").split(",").map(l => Config.layoutName(l)).join(", ") },
-                { page: "idle", glyph: "󰒲", title: "Idle and sleep", subtitle: `Lock after ${Config.duration(Config.values.idle_lock).toLowerCase()}` },
-                { page: "apps", glyph: "󰀻", title: "Default apps", subtitle: "Browser, file manager, terminal" }
-            ]
+            model: root.matches
             delegate: ListRow {
                 required property var modelData
                 Layout.fillWidth: true
                 glyph: modelData.glyph
                 title: modelData.title
-                subtitle: modelData.subtitle
+                subtitle: modelData.page === "settings" ? "On this page" : ""
                 trailing: "󰅂"
-                onClicked: Ui.controlPage = modelData.page
+                onClicked: root.open(modelData)
             }
+        }
+        Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            visible: root.matches.length === 0
+            text: "No setting matches"
+            color: Theme.muted
         }
     }
 
-    Section { text: "Desktop" }
-
     ColumnLayout {
         Layout.fillWidth: true
-        spacing: 2
-        ListRow {
+        visible: root.query === ""
+        spacing: 12
+
+        ColumnLayout {
             Layout.fillWidth: true
-            glyph: "󰸉"
-            title: "Wallpaper"
-            subtitle: Ui.wallpaperTitle(Ui.wallpaper)
-            trailing: "󰅂"
-            onClicked: Ui.toggle("wallpapers")
+            spacing: 2
+            Repeater {
+                model: [
+                    { page: "look", glyph: "󰏘", title: "Look", subtitle: Look.summary },
+                    { page: "displays", glyph: "󰍹", title: "Displays", subtitle: Quickshell.screens.length > 1 ? `${Quickshell.screens.length} screens · arrangement, resolution, scale` : "Resolution, refresh rate, scale" },
+                    { page: "keyboard", glyph: "󰌌", title: "Keyboard", subtitle: (Config.values.kb_layout ?? "").split(",").map(l => Config.layoutName(l)).join(", ") },
+                    { page: "idle", glyph: "󰒲", title: "Idle and sleep", subtitle: `Lock after ${Config.duration(Config.values.idle_lock).toLowerCase()}` },
+                    { page: "notifications", glyph: "󰂚", title: "Notifications", subtitle: "Do not disturb, sounds, app rules" },
+                    { page: "apps", glyph: "󰀻", title: "Default apps", subtitle: "Browser, file manager, terminal" }
+                ]
+                delegate: ListRow {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    glyph: modelData.glyph
+                    title: modelData.title
+                    subtitle: modelData.subtitle
+                    trailing: "󰅂"
+                    onClicked: Ui.controlPage = modelData.page
+                }
+            }
         }
-        SwitchRow {
-            glyph: "󰐊"
-            title: "Animated wallpapers"
-            subtitle: Settings.animatedWallpapers ? "Dawn, eclipse, GIFs and videos move" : "Still images"
-            checked: Settings.animatedWallpapers
-            onToggled: Settings.animatedWallpapers = !Settings.animatedWallpapers
+
+        Section { text: "Desktop" }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 2
+            ListRow {
+                Layout.fillWidth: true
+                glyph: "󰸉"
+                title: "Wallpaper"
+                subtitle: Ui.wallpaperTitle(Ui.wallpaper)
+                trailing: "󰅂"
+                onClicked: Ui.toggle("wallpapers")
+            }
+            SwitchRow {
+                glyph: "󰐊"
+                title: "Animated wallpapers"
+                subtitle: Settings.reducedMotion ? "Still while Reduced motion is on" : Settings.animatedWallpapers ? "Dawn, eclipse, GIFs and videos move" : "Still images"
+                checked: Settings.animatedWallpapers
+                onToggled: Settings.animatedWallpapers = !Settings.animatedWallpapers
+            }
+            SwitchRow {
+                visible: Settings.animatedWallpapers
+                glyph: "󰖯"
+                title: "Hold still behind windows"
+                subtitle: "While tiled windows hide the wallpaper"
+                checked: Settings.stillWhenCovered
+                onToggled: Settings.stillWhenCovered = !Settings.stillWhenCovered
+            }
+            SwitchRow {
+                visible: Settings.animatedWallpapers
+                glyph: "󰌪"
+                title: "Hold still to save power"
+                subtitle: "On battery or in power saver"
+                checked: Settings.stillOnBattery
+                onToggled: Settings.stillOnBattery = !Settings.stillOnBattery
+            }
+            SwitchRow {
+                glyph: "󰆾"
+                title: "Hot corner"
+                subtitle: "Top-right corner opens the control center"
+                checked: Settings.hotCorner
+                onToggled: Settings.hotCorner = !Settings.hotCorner
+            }
         }
-        SwitchRow {
-            visible: Settings.animatedWallpapers
-            glyph: "󰖯"
-            title: "Hold still behind windows"
-            subtitle: "While tiled windows hide the wallpaper"
-            checked: Settings.stillWhenCovered
-            onToggled: Settings.stillWhenCovered = !Settings.stillWhenCovered
+
+        Section { text: "Accessibility" }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 2
+            SwitchRow {
+                glyph: "󰘾"
+                title: "Reduced motion"
+                subtitle: "No animations in the shell, wallpapers or windows"
+                checked: Settings.reducedMotion
+                onToggled: Settings.reducedMotion = !Settings.reducedMotion
+            }
+            RowLayout {
+                id: textSize
+                readonly property var sizes: [1, 1.1, 1.25, 1.4]
+                readonly property int current: Math.max(0, sizes.indexOf(Settings.textScale))
+                Layout.fillWidth: true
+                Layout.leftMargin: 10
+                Layout.rightMargin: 4
+                spacing: 11
+                Glyph { Layout.preferredWidth: 22; text: "󰛖"; size: 17 }
+                Label { Layout.fillWidth: true; text: "Text size" }
+                Stepper {
+                    text: ["Default", "Large", "Larger", "Largest"][textSize.current]
+                    textWidth: 92
+                    canDecrease: textSize.current > 0
+                    canIncrease: textSize.current < textSize.sizes.length - 1
+                    onDecreased: Settings.textScale = textSize.sizes[textSize.current - 1]
+                    onIncreased: Settings.textScale = textSize.sizes[textSize.current + 1]
+                }
+            }
         }
-        SwitchRow {
-            visible: Settings.animatedWallpapers
-            glyph: "󰌪"
-            title: "Hold still to save power"
-            subtitle: "On battery or in power saver"
-            checked: Settings.stillOnBattery
-            onToggled: Settings.stillOnBattery = !Settings.stillOnBattery
+
+        Section { text: "Battery and clipboard" }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 2
+            // Only where the battery's firmware can stop charging early.
+            RowLayout {
+                id: battery
+                readonly property var limits: [100, 90, 80, 60]
+                readonly property int current: Math.max(0, limits.indexOf(Settings.batteryLimit))
+                Layout.fillWidth: true
+                Layout.leftMargin: 10
+                Layout.rightMargin: 4
+                visible: Sys.chargeLimitFile !== ""
+                spacing: 11
+                Glyph { Layout.preferredWidth: 22; text: "󰂄"; size: 17 }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 0
+                    Label { Layout.fillWidth: true; text: "Battery care" }
+                    Label {
+                        Layout.fillWidth: true
+                        text: !Sys.chargeLimitWritable ? "Run ./install.sh again to allow it" : Settings.batteryLimit < 100 ? "Stops charging early; the battery lasts more years" : "Charges to full"
+                        font.pixelSize: Theme.textSmall
+                        color: Sys.chargeLimitWritable ? Theme.muted : Theme.amber
+                        wrapMode: Text.Wrap
+                    }
+                }
+                Stepper {
+                    text: Settings.batteryLimit < 100 ? `Up to ${Settings.batteryLimit}%` : "Full"
+                    textWidth: 92
+                    canDecrease: Sys.chargeLimitWritable && battery.current < battery.limits.length - 1
+                    canIncrease: Sys.chargeLimitWritable && battery.current > 0
+                    onDecreased: Settings.batteryLimit = battery.limits[battery.current + 1]
+                    onIncreased: Settings.batteryLimit = battery.limits[battery.current - 1]
+                }
+            }
+            RowLayout {
+                id: clipboard
+                readonly property var days: [0, 1, 7, 30]
+                readonly property int current: Math.max(0, days.indexOf(Settings.clipboardDays))
+                Layout.fillWidth: true
+                Layout.leftMargin: 10
+                Layout.rightMargin: 4
+                spacing: 11
+                Glyph { Layout.preferredWidth: 22; text: "󰅌"; size: 17 }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 0
+                    Label { Layout.fillWidth: true; text: "Clipboard history" }
+                    Label {
+                        Layout.fillWidth: true
+                        text: "Pinned entries always stay"
+                        font.pixelSize: Theme.textSmall
+                        color: Theme.muted
+                    }
+                }
+                Stepper {
+                    text: ["Kept", "1 day", "7 days", "30 days"][clipboard.current]
+                    textWidth: 92
+                    canDecrease: clipboard.current > 0
+                    canIncrease: clipboard.current < clipboard.days.length - 1
+                    onDecreased: Settings.clipboardDays = clipboard.days[clipboard.current - 1]
+                    onIncreased: Settings.clipboardDays = clipboard.days[clipboard.current + 1]
+                }
+            }
         }
-        SwitchRow {
-            glyph: "󰆾"
-            title: "Hot corner"
-            subtitle: "Top-right corner opens the control center"
-            checked: Settings.hotCorner
-            onToggled: Settings.hotCorner = !Settings.hotCorner
+
+        Section { text: "Moving to another computer" }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 2
+            ListRow {
+                Layout.fillWidth: true
+                glyph: "󰈝"
+                title: "Export settings"
+                subtitle: "Settings, look and screens, to one file in your home folder"
+                busy: transfer.running
+                onClicked: if (!transfer.running) {
+                    transfer.command = [Ui.bin + "penumbra-settings", "export"];
+                    transfer.running = true;
+                }
+            }
+            ListRow {
+                Layout.fillWidth: true
+                visible: root.exportFile !== ""
+                glyph: "󰈞"
+                title: "Import settings"
+                subtitle: "From " + root.exportFile.replace(/^.*\//, "~/")
+                busy: transfer.running
+                onClicked: if (!transfer.running) {
+                    transfer.command = [Ui.bin + "penumbra-settings", "import", root.exportFile];
+                    transfer.running = true;
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                visible: text !== ""
+                text: root.transferMessage
+                wrapMode: Text.Wrap
+                font.pixelSize: Theme.textSmall
+                color: Theme.muted
+            }
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                visible: root.exportFile === "" && root.transferMessage === ""
+                text: "To import, put a penumbra-settings-….json file from another computer in your home folder."
+                wrapMode: Text.Wrap
+                font.pixelSize: Theme.textSmall
+                color: Theme.dim
+            }
         }
     }
 }
@@ -16617,14 +18139,46 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Polled system state: backlight and pending updates. Resource usage is in Usage.
+// Polled system state: backlight, pending updates and the battery's charge limit. Resource usage
+// is in Usage.
 Singleton {
     id: root
+
+    // Battery care: laptops whose firmware supports it stop charging at Settings.batteryLimit.
+    // The file is root's; Penumbra's udev rule (90-penumbra-battery.rules) lets the session write
+    // it. Firmware may forget it at power-off, so the shell sets it again at each start.
+    property string chargeLimitFile: "" // empty: not supported
+    property bool chargeLimitWritable: false
+    Process {
+        running: true
+        command: ["bash", "-c", "for f in /sys/class/power_supply/BAT*/charge_control_end_threshold; do [[ -e $f ]] || continue; [[ -w $f ]] && echo \"w $f\" || echo \"r $f\"; break; done"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const m = /^([rw]) (.+)$/.exec(text.trim());
+                root.chargeLimitFile = m ? m[2] : "";
+                root.chargeLimitWritable = !!m && m[1] === "w";
+                // At start only a limit you set, so one set by other tools (TLP) stays alone.
+                if (Settings.batteryLimit < 100)
+                    root.applyChargeLimit();
+            }
+        }
+    }
+    function applyChargeLimit() {
+        if (chargeLimitFile && chargeLimitWritable)
+            Quickshell.execDetached(["bash", "-c", 'echo "$1" > "$2"', "bash", String(Settings.batteryLimit), chargeLimitFile]);
+    }
+    Connections {
+        target: Settings
+        function onBatteryLimitChanged() { root.applyChargeLimit(); }
+    }
 
     property int brightness: -1 // -1 when the machine has no backlight
     property int updates: 0
     property string updatesDetail: ""
     property var updateSources: [] // [{ name, packages: ["name old -> new" or a Flatpak ref] }]
+    property var updateNews: [] // the distribution's latest news: [{ title, link, date, new }]
+    property var restartReasons: [] // why a restart is due ("The kernel was updated")
+    readonly property bool unreadNews: updateNews.some(n => n.new)
     property bool checkingUpdates: updateCheck.running
 
     // brightnessctl -m prints: device,class,current,percent%,max
@@ -16688,6 +18242,8 @@ Singleton {
                     root.updates = status.count ?? 0;
                     root.updatesDetail = (status.details ?? []).join("\n");
                     root.updateSources = status.sources ?? [];
+                    root.updateNews = status.news ?? [];
+                    root.restartReasons = status.restart ?? [];
                 } catch (e) {
                     root.updates = 0;
                     root.updateSources = [];
@@ -16870,14 +18426,15 @@ Singleton {
     // The distribution's logo on the bar's launcher button, set by install.sh from distro/NAME/distro.sh.
     readonly property string distroGlyph: "@@DISTRO_GLYPH@@"
 
-    // The type scale. Every text size in the shell is one of these.
-    readonly property int textTiny: 10     // badges, timestamps
-    readonly property int textSmall: 11    // subtitles, section labels
-    readonly property int textBody: 12     // the default
-    readonly property int textMedium: 13   // notification titles, emphasized rows
-    readonly property int textLarge: 15    // page titles, the bar clock
-    readonly property int textTitle: 18    // the launcher's search, big figures
-    readonly property int textHeading: 22  // panel headlines, in the display face
+    // The type scale. Every text size in the shell is one of these, scaled by Settings → Text size.
+    readonly property real textScale: Settings.textScale > 0 ? Settings.textScale : 1
+    readonly property int textTiny: Math.round(10 * textScale)     // badges, timestamps
+    readonly property int textSmall: Math.round(11 * textScale)    // subtitles, section labels
+    readonly property int textBody: Math.round(12 * textScale)     // the default
+    readonly property int textMedium: Math.round(13 * textScale)   // notification titles, emphasized rows
+    readonly property int textLarge: Math.round(15 * textScale)    // page titles, the bar clock
+    readonly property int textTitle: Math.round(18 * textScale)    // the launcher's search, big figures
+    readonly property int textHeading: Math.round(22 * textScale)  // panel headlines, in the display face
     readonly property int textDisplay: 124 // the lock screen clock
 
     // Rounded or sharp corners, as penumbra-corners records them. Every radius goes through
@@ -16900,9 +18457,13 @@ Singleton {
     readonly property int gap: 8
     readonly property int edge: 14
 
-    readonly property int fast: 160
-    readonly property int normal: 260
-    readonly property int slow: 420
+    // Animation timings; all of them are 0 with Settings → Reduced motion. `motion` is for
+    // durations written out where they are used (multiply them by it).
+    readonly property bool reducedMotion: Settings.reducedMotion
+    readonly property real motion: reducedMotion ? 0 : 1
+    readonly property int fast: 160 * motion
+    readonly property int normal: 260 * motion
+    readonly property int slow: 420 * motion
 }
 ```
 
@@ -17006,6 +18567,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
+import Quickshell.Wayland
 
 // Which surfaces are open, and the screen they open on.
 Singleton {
@@ -17018,13 +18580,16 @@ Singleton {
     readonly property bool monitorOpen: openPanel === "monitor"
     readonly property bool updatesOpen: openPanel === "updates"
     readonly property bool wallpapersOpen: openPanel === "wallpapers"
-    property string controlPage: "main" // main, wifi, bluetooth, mixer, night, cast, settings or a settings page
+    property string controlPage: "main" // main, wifi, bluetooth, mixer, night, cast, notifications, settings or a settings page
     property bool sessionOpen: false
     property bool launcherOpen: false
-    property string launcherMode: "apps" // apps, clipboard, emoji or symbols
+    property string launcherMode: "apps" // apps, windows, clipboard, emoji or symbols
     property bool shotOpen: false
     property bool overviewOpen: false
     property bool caffeine: false
+    // Open apps from Settings → Idle and sleep that keep the screen awake (by app id).
+    readonly property var awakeApps: ToplevelManager.toplevels.values.map(t => t.appId).filter(a => Settings.idleInhibitApps.includes(a))
+    readonly property bool stayAwake: caffeine || awakeApps.length > 0
 
     property string osdKind: "volume" // volume, microphone, brightness, or capslock and layout (text only)
     property int osdValue: 0
@@ -17181,7 +18746,9 @@ Singleton {
 import QtQuick
 import QtQuick.Layouts
 
-// Pending updates by source, under the updates capsule; "Update now" opens the Kitty session.
+// Pending updates by source, under the updates capsule; "Update now" opens the update session in a
+// terminal. Above them, a restart that is due and the distribution's news since the last upgrade
+// (Arch's sometimes ask for a step by hand), each opening in the browser.
 Panel {
     id: root
     anchors { top: true; right: true }
@@ -17218,9 +18785,59 @@ Panel {
                     font.weight: Font.DemiBold
                 }
                 Label {
-                    text: Sys.checkingUpdates ? "Checking…" : "Checked every 15 minutes"
+                    text: Sys.checkingUpdates ? "Checking…" : Sys.updates === 0 && Sys.restartReasons.length ? "Restart to finish the last upgrade" : "Checked every 15 minutes"
                     font.pixelSize: Theme.textSmall
                     color: Theme.muted
+                }
+            }
+        }
+
+        // A restart that is due.
+        Rectangle {
+            Layout.fillWidth: true
+            visible: Sys.restartReasons.length > 0
+            implicitHeight: restartRow.implicitHeight + 20
+            radius: Theme.radiusSmall
+            color: Theme.alpha(Theme.amber, 0.12)
+            border.color: Theme.alpha(Theme.amber, 0.4)
+            RowLayout {
+                id: restartRow
+                anchors { fill: parent; margins: 10 }
+                spacing: 10
+                Glyph { text: "󰜉"; size: 17; color: Theme.amber }
+                Label {
+                    Layout.fillWidth: true
+                    text: Sys.restartReasons.join(" · ") + ". Restart when convenient to use the new versions."
+                    wrapMode: Text.Wrap
+                    font.pixelSize: Theme.textSmall
+                }
+                PillButton {
+                    text: "Restart"
+                    onClicked: { Ui.close(); Ui.openSession(); }
+                }
+            }
+        }
+
+        // The latest news; new since the last upgrade ones are lit.
+        ColumnLayout {
+            Layout.fillWidth: true
+            visible: Sys.updateNews.length > 0
+            spacing: 2
+            Overline { Layout.fillWidth: true; text: Sys.unreadNews ? "News · read before updating" : "News" }
+            Repeater {
+                model: Sys.updateNews
+                delegate: ListRow {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    glyph: modelData.new ? "󰎕" : "󰈙"
+                    highlighted: modelData.new
+                    title: modelData.title
+                    subtitle: Qt.formatDate(new Date(modelData.date), "d MMMM yyyy") + (modelData.new ? " · since your last upgrade" : "")
+                    trailing: "󰏌"
+                    onClicked: {
+                        Ui.close();
+                        Ui.spawn(["xdg-open", modelData.link]);
+                    }
                 }
             }
         }
@@ -17666,7 +19283,7 @@ Scope {
     // The chosen wallpaper; the animated one that should be up, and the one loaded now (they
     // differ while one fades out).
     property string chosen: ""
-    readonly property string target: Settings.animatedWallpapers && Ui.wallpaperKind(chosen) !== "still" ? chosen : ""
+    readonly property string target: Settings.animatedWallpapers && !Settings.reducedMotion && Ui.wallpaperKind(chosen) !== "still" ? chosen : ""
     property string scene: ""
     // awww's transition is still running.
     property bool waiting: false
@@ -17678,7 +19295,7 @@ Scope {
         && (UPower.onBattery || (Ui.hasPowerProfiles && PowerProfiles.profile === PowerProfile.PowerSaver))
 
     property real fade: shown ? 1 : 0
-    Behavior on fade { NumberAnimation { duration: root.shown ? 900 : 350; easing.type: Easing.InOutQuad } }
+    Behavior on fade { NumberAnimation { duration: (root.shown ? 900 : 350) * Theme.motion; easing.type: Easing.InOutQuad } }
     onFadeChanged: if (fade === 0) scene = target
     onTargetChanged: if (fade === 0) scene = target
 
@@ -18743,12 +20360,31 @@ function charScore(c, terms, picks) {
     return s + boost;
 }
 
+// Frecency: each launch adds 1 to an app's score, and the score halves every `halfLife` days, so
+// apps used often *lately* rise and old habits fade. A record is { score, at } (at: ms since the
+// epoch); a bare number is a launch count from before, taken as that many recent launches.
+var halfLife = 14;
+function frecency(record, now) {
+    if (typeof record === "number")
+        return Math.min(record, 15);
+    if (!record || !(record.score > 0))
+        return 0;
+    return record.score * Math.pow(0.5, Math.max(0, now - record.at) / (halfLife * 86400000));
+}
+function launched(record, now) {
+    return { score: frecency(record, now) + 1, at: now };
+}
+// The boost frecency gives a match: up to 15, rising quickly then slowly, so apps never tie at a cap.
+function boost(uses) {
+    return 15 * (1 - Math.exp(-(uses ?? 0) / 5));
+}
+
 // Name matches first, then initials and scattered letters, then descriptions; often-launched
-// apps rise a little (`uses`: how often this one was launched). Everything matches an empty query.
+// apps rise a little (`uses`: the app's frecency). Everything matches an empty query.
 function score(entry, q, uses) {
-    const boost = Math.min(15, uses ?? 0);
+    const lift = boost(uses);
     if (!q)
-        return 1 + boost;
+        return 1 + lift;
     const name = entry.name.toLowerCase();
     let s = 0;
     if (name === q)
@@ -18763,8 +20399,20 @@ function score(entry, q, uses) {
         s = 30 + fuzzy(name, q);
     else if ([entry.genericName, entry.keywords.join(" "), entry.comment, entry.id].join(" ").toLowerCase().includes(q))
         s = 25;
-    return s ? s + boost : 0;
+    return s ? s + lift : 0;
 }
+
+// A desktop action ("New Private Window" of Firefox) for a query of three letters or more: every
+// word in the app's name and the action's together; the action's own name matching scores more.
+function actionScore(appName, actionName, q) {
+    if (q.length < 3)
+        return 0;
+    const action = actionName.toLowerCase(), all = appName.toLowerCase() + " " + action;
+    if (!q.split(/\s+/).every(t => all.includes(t)))
+        return 0;
+    return action.includes(q) ? 60 : 45;
+}
+
 // Letters of q in order inside name; fewer gaps score higher (1–30), no match is 0.
 function fuzzy(name, q) {
     let at = -1, gaps = 0;
@@ -18808,6 +20456,49 @@ function calculate(text) {
     } catch (e) {
         return null;
     }
+}
+
+// Unit conversion: "10 km in mi", "5kg to lb", "70 f in c", "2 GiB in MB". Each unit is a factor to
+// its kind's base unit (temperatures convert through kelvin). Returns { value, unit } or null.
+var units = {
+    length: { mm: 0.001, cm: 0.01, m: 1, km: 1000, in: 0.0254, inch: 0.0254, inches: 0.0254, ft: 0.3048, feet: 0.3048, foot: 0.3048, yd: 0.9144, mi: 1609.344, mile: 1609.344, miles: 1609.344, nmi: 1852 },
+    mass: { mg: 1e-6, g: 0.001, kg: 1, t: 1000, oz: 0.028349523125, lb: 0.45359237, lbs: 0.45359237, st: 6.35029318 },
+    volume: { ml: 0.001, cl: 0.01, dl: 0.1, l: 1, tsp: 0.00492892159375, tbsp: 0.01478676478125, floz: 0.0295735295625, cup: 0.2365882365, pt: 0.473176473, qt: 0.946352946, gal: 3.785411784 },
+    data: { b: 1, kb: 1e3, mb: 1e6, gb: 1e9, tb: 1e12, kib: 1024, mib: 1048576, gib: 1073741824, tib: 1099511627776 },
+    time: { ms: 0.001, s: 1, sec: 1, min: 60, h: 3600, hr: 3600, hours: 3600, d: 86400, days: 86400, wk: 604800, week: 604800, weeks: 604800, yr: 31557600, year: 31557600, years: 31557600 },
+    speed: { "m/s": 1, "km/h": 1 / 3.6, kmh: 1 / 3.6, kph: 1 / 3.6, mph: 0.44704, kn: 0.514444, knots: 0.514444 },
+    area: { m2: 1, km2: 1e6, ha: 1e4, acre: 4046.8564224, acres: 4046.8564224, ft2: 0.09290304, sqft: 0.09290304 }
+};
+var temperatures = { c: "c", "°c": "c", celsius: "c", f: "f", "°f": "f", fahrenheit: "f", k: "k", kelvin: "k" };
+function convert(text) {
+    const m = /^\s*(-?\d+(?:[.,]\d+)?)\s*([a-z°/0-9]+)\s+(?:in|to|as|->)\s+([a-z°/0-9]+)\s*$/i.exec(text);
+    if (!m)
+        return null;
+    const amount = Number(m[1].replace(",", ".")), from = m[2].toLowerCase(), to = m[3].toLowerCase();
+    if (temperatures[from] && temperatures[to]) {
+        const toK = { c: v => v + 273.15, f: v => (v - 32) * 5 / 9 + 273.15, k: v => v }[temperatures[from]];
+        const fromK = { c: v => v - 273.15, f: v => (v - 273.15) * 9 / 5 + 32, k: v => v }[temperatures[to]];
+        return { value: Number(fromK(toK(amount)).toPrecision(6)), unit: { c: "°C", f: "°F", k: "K" }[temperatures[to]] };
+    }
+    for (const kind in units) {
+        const table = units[kind];
+        // Data units are case-sensitive in spirit (b is a byte here), but people type them any way.
+        if (from in table && to in table)
+            return { value: Number((amount * table[from] / table[to]).toPrecision(6)), unit: m[3] };
+    }
+    return null;
+}
+// A currency conversion, "100 usd in eur" or "20€ to $": { amount, from, to } in ISO codes, or null.
+var currencySigns = { "$": "USD", "€": "EUR", "£": "GBP", "¥": "JPY", "₹": "INR", "₩": "KRW", "₽": "RUB", "₺": "TRY", "₿": "" };
+function currency(text) {
+    const m = /^\s*([$€£¥₹₩₺])?\s*(\d+(?:[.,]\d+)?)\s*([a-z]{3}|[$€£¥₹₩₺])?\s+(?:in|to)\s+([a-z]{3}|[$€£¥₹₩₺])\s*$/i.exec(text);
+    if (!m || (!m[1] && !m[3]) || (m[1] && m[3]))
+        return null;
+    const code = t => currencySigns[t] ?? t.toUpperCase();
+    const from = code(m[1] || m[3]), to = code(m[4]);
+    if (!from || !to || from === to)
+        return null;
+    return { amount: Number(m[2].replace(",", ".")), from, to };
 }
 ```
 
@@ -18930,6 +20621,7 @@ ShellRoot {
         function clipboard(): void { Ui.toggleLauncher("clipboard"); }
         function emoji(): void { Ui.toggleLauncher("emoji"); }
         function symbols(): void { Ui.toggleLauncher("symbols"); }
+        function windows(): void { Ui.toggleLauncher("windows"); }
     }
 
     IpcHandler {
@@ -18944,6 +20636,7 @@ ShellRoot {
         // penumbra-record calls this when a recording starts or ends.
         function refresh(): void { Recorder.refresh(); }
         function stop(): void { Recorder.stop(); }
+        function pause(): void { Recorder.togglePause(); }
     }
 
     IpcHandler {
@@ -18969,7 +20662,7 @@ ShellRoot {
     IpcHandler {
         target: "notifications"
         function clear(): void { Notifs.clear(); }
-        function dnd(): void { Notifs.dnd = !Notifs.dnd; }
+        function dnd(): void { Notifs.toggleDnd(); }
     }
 
     IpcHandler {
@@ -21354,6 +23047,14 @@ Font=Inter,10,-1,5,50,0,0,0,0,0
 [General]
 # In a virtual machine the installer adds 91-penumbra-vm.conf, which renders in software at scale 1.
 GreeterEnvironment=QT_QUICK_CONTROLS_STYLE=Basic
+```
+
+## `system/etc/udev/rules.d/90-penumbra-battery.rules`
+
+```
+# Penumbra: let the desktop session set the battery's charge limit (Settings → Battery care in the
+# shell). Only on laptops whose firmware offers charge_control_end_threshold.
+SUBSYSTEM=="power_supply", ATTR{type}=="Battery", TEST=="charge_control_end_threshold", RUN+="/bin/chmod 0666 /sys%p/charge_control_end_threshold"
 ```
 
 ## `system/usr/share/icons/Penumbra-Cursors/index.theme`

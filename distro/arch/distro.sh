@@ -12,7 +12,7 @@ PACKAGES=(
     hyprland quickshell awww sddm hyprlock hypridle hyprsunset rofi
     xdg-desktop-portal-hyprland xdg-desktop-portal-gtk
     # Terminal and editor
-    kitty fish starship fastfetch btop neovim git ripgrep unzip nodejs npm tree-sitter-cli gcc
+    kitty fish starship fastfetch btop neovim git ripgrep fd unzip nodejs npm tree-sitter-cli gcc
     # Applications
     pavucontrol blueman network-manager-applet xdg-utils
     # Themes and fonts
@@ -20,6 +20,8 @@ PACKAGES=(
     qt6ct ttf-jetbrains-mono-nerd inter-font
     # Hardware and services
     networkmanager bluez bluez-utils pipewire-pulse wireplumber brightnessctl playerctl cava
+    # Notification sounds (Settings → Notifications)
+    sound-theme-freedesktop
     # Passwords apps save, unlocked when you sign in
     gnome-keyring seahorse
     # Screenshots, screen recording, clipboard, color picker, emoji and symbols

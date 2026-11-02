@@ -16,7 +16,7 @@ Scope {
     // The chosen wallpaper; the animated one that should be up, and the one loaded now (they
     // differ while one fades out).
     property string chosen: ""
-    readonly property string target: Settings.animatedWallpapers && Ui.wallpaperKind(chosen) !== "still" ? chosen : ""
+    readonly property string target: Settings.animatedWallpapers && !Settings.reducedMotion && Ui.wallpaperKind(chosen) !== "still" ? chosen : ""
     property string scene: ""
     // awww's transition is still running.
     property bool waiting: false
@@ -28,7 +28,7 @@ Scope {
         && (UPower.onBattery || (Ui.hasPowerProfiles && PowerProfiles.profile === PowerProfile.PowerSaver))
 
     property real fade: shown ? 1 : 0
-    Behavior on fade { NumberAnimation { duration: root.shown ? 900 : 350; easing.type: Easing.InOutQuad } }
+    Behavior on fade { NumberAnimation { duration: (root.shown ? 900 : 350) * Theme.motion; easing.type: Easing.InOutQuad } }
     onFadeChanged: if (fade === 0) scene = target
     onTargetChanged: if (fade === 0) scene = target
 

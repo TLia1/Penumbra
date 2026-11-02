@@ -30,7 +30,5 @@ confirm_glyphs=(󰜺 "${glyphs[choice]}")
 answer=$(menu confirm confirm_glyphs | pick CONFIRM 'window { width: 300px; } listview { columns: 2; }') || exit 0
 [[ "$answer" = 1 ]] || exit 0
 case "$action" in
- logout) hyprctl dispatch 'hl.dsp.exit()';;
- reboot) systemctl reboot;;
- poweroff) systemctl poweroff;;
+ logout | reboot | poweroff) exec "${0%/*}/penumbra-exit" "$action";;
 esac

@@ -1,7 +1,9 @@
 import QtQuick
 import QtQuick.Layouts
 
-// Pending updates by source, under the updates capsule; "Update now" opens the Kitty session.
+// Pending updates by source, under the updates capsule; "Update now" opens the update session in a
+// terminal. Above them, a restart that is due and the distribution's news since the last upgrade
+// (Arch's sometimes ask for a step by hand), each opening in the browser.
 Panel {
     id: root
     anchors { top: true; right: true }
@@ -38,9 +40,59 @@ Panel {
                     font.weight: Font.DemiBold
                 }
                 Label {
-                    text: Sys.checkingUpdates ? "Checking…" : "Checked every 15 minutes"
+                    text: Sys.checkingUpdates ? "Checking…" : Sys.updates === 0 && Sys.restartReasons.length ? "Restart to finish the last upgrade" : "Checked every 15 minutes"
                     font.pixelSize: Theme.textSmall
                     color: Theme.muted
+                }
+            }
+        }
+
+        // A restart that is due.
+        Rectangle {
+            Layout.fillWidth: true
+            visible: Sys.restartReasons.length > 0
+            implicitHeight: restartRow.implicitHeight + 20
+            radius: Theme.radiusSmall
+            color: Theme.alpha(Theme.amber, 0.12)
+            border.color: Theme.alpha(Theme.amber, 0.4)
+            RowLayout {
+                id: restartRow
+                anchors { fill: parent; margins: 10 }
+                spacing: 10
+                Glyph { text: "󰜉"; size: 17; color: Theme.amber }
+                Label {
+                    Layout.fillWidth: true
+                    text: Sys.restartReasons.join(" · ") + ". Restart when convenient to use the new versions."
+                    wrapMode: Text.Wrap
+                    font.pixelSize: Theme.textSmall
+                }
+                PillButton {
+                    text: "Restart"
+                    onClicked: { Ui.close(); Ui.openSession(); }
+                }
+            }
+        }
+
+        // The latest news; new since the last upgrade ones are lit.
+        ColumnLayout {
+            Layout.fillWidth: true
+            visible: Sys.updateNews.length > 0
+            spacing: 2
+            Overline { Layout.fillWidth: true; text: Sys.unreadNews ? "News · read before updating" : "News" }
+            Repeater {
+                model: Sys.updateNews
+                delegate: ListRow {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    glyph: modelData.new ? "󰎕" : "󰈙"
+                    highlighted: modelData.new
+                    title: modelData.title
+                    subtitle: Qt.formatDate(new Date(modelData.date), "d MMMM yyyy") + (modelData.new ? " · since your last upgrade" : "")
+                    trailing: "󰏌"
+                    onClicked: {
+                        Ui.close();
+                        Ui.spawn(["xdg-open", modelData.link]);
+                    }
                 }
             }
         }

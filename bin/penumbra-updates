@@ -59,11 +59,26 @@ def status():
     details = [f"{name}: {len(lines) if lines is not None else 'check unavailable'}"
                for name, lines in found]
     details.extend(packages.notes() if packages else ["System packages: run ./install.sh to enable"])
+    # The distribution's news since the last upgrade, and whether a restart is due, where it has them.
+    news, restart = [], []
+    if packages and hasattr(packages, "news"):
+        try:
+            news = packages.news(Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "penumbra/news.xml")
+        except Exception as error:  # the network, or a feed that changed shape
+            print(f"news: {error}", file=sys.stderr)
+    if packages and hasattr(packages, "restart_reasons"):
+        restart = packages.restart_reasons()
+    if restart:
+        details.insert(0, "Restart to finish: " + "; ".join(restart).lower())
+    if any(item["new"] for item in news):
+        details.insert(0, "News since your last upgrade: read it before updating")
     details.append("Click for the list · checked every 15 minutes")
     # For the shell: the count, the lines of the bar's tooltip, and each source's updates, one line
     # each as the distribution's check prints it (pacman: "name old -> new") or a Flatpak ref.
     print(json.dumps({"count": total,
                       "details": details,
+                      "news": news,
+                      "restart": restart,
                       "sources": [{"name": name, "packages": lines}
                                   for name, lines in found if lines]}))
 
@@ -102,7 +117,7 @@ def update():
         failed = True
     finally:
         # Refresh the bar's update count, including after a partial upgrade.
-        subprocess.run(["quickshell", "-c", "penumbra", "ipc", "call", "updates", "refresh"],
+        subprocess.run([str(Path(__file__).resolve().with_name("penumbra-ipc")), "updates", "refresh"],
                        capture_output=True, check=False)
         handle.close()
     if failed:

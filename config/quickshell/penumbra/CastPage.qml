@@ -73,7 +73,7 @@ ColumnLayout {
             size: 14
             color: Cast.scanning ? Theme.accent : refreshArea.containsMouse ? Theme.text : Theme.muted
             RotationAnimation on rotation {
-                running: Cast.scanning
+                running: Cast.scanning && !Theme.reducedMotion
                 from: 0
                 to: 360
                 duration: 1200
@@ -169,6 +169,34 @@ ColumnLayout {
         subtitle: Cast.casting ? "Applies to the next cast" : "What this computer plays"
         checked: Settings.castSound
         onToggled: Settings.castSound = !Settings.castSound
+    }
+
+    // A fixed port for the stream, so a firewall can let the TV in; empty is any free port.
+    RowLayout {
+        Layout.fillWidth: true
+        Layout.leftMargin: 10
+        spacing: 11
+        Glyph { Layout.preferredWidth: 22; text: "󰒍"; size: 17 }
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 0
+            Label { Layout.fillWidth: true; text: "Port" }
+            Label {
+                Layout.fillWidth: true
+                text: Settings.castPort > 0 ? `Allow TCP ${Settings.castPort} in your firewall` : "Any free one; set one to allow it in a firewall"
+                font.pixelSize: Theme.textSmall
+                color: Theme.muted
+                wrapMode: Text.Wrap
+            }
+        }
+        Field {
+            Layout.preferredWidth: 90
+            text: Settings.castPort > 0 ? String(Settings.castPort) : ""
+            placeholderText: "Any"
+            inputMethodHints: Qt.ImhDigitsOnly
+            invalid: text !== "" && !(/^\d+$/.test(text) && Number(text) >= 1024 && Number(text) <= 65535)
+            onEditingFinished: if (!invalid) Settings.castPort = text === "" ? 0 : Number(text)
+        }
     }
 
     Label {

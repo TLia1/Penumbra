@@ -76,6 +76,18 @@ Singleton {
     readonly property string bluetoothGlyph: !adapter ? "󰂲" : !bluetoothOn ? "󰂲" : bluetoothConnected.length ? "󰂱" : "󰂯"
     readonly property string bluetoothName: !adapter ? "No adapter" : !bluetoothOn ? "Off" : bluetoothConnected.length ? bluetoothConnected[0].name : "On"
 
+    // Batteries of headsets, mice, keyboards and controllers: UPower's (which also hears Logitech
+    // receivers), then Bluetooth's for the rest. ["Name 80%"].
+    readonly property var peripheralBatteries: {
+        const percent = p => Math.round(p > 1 ? p : p * 100);
+        const found = UPower.devices.values
+            .filter(d => d.ready && d.isPresent && !d.isLaptopBattery && d.type !== UPowerDeviceType.LinePower && d.type !== UPowerDeviceType.Battery && d.percentage > 0)
+            .map(d => ({ name: d.model || d.nativePath, percent: percent(d.percentage) }));
+        for (const d of bluetoothConnected)
+            if (d.batteryAvailable && !found.some(f => f.name === d.name))
+                found.push({ name: d.name, percent: percent(d.battery) });
+        return found.map(f => `${f.name} ${f.percent}%`);
+    }
     readonly property var battery: UPower.displayDevice
     // Not until UPower has answered: before that the percentage reads 0 and would warn.
     readonly property bool hasBattery: (battery?.ready ?? false) && battery.isPresent && battery.type === UPowerDeviceType.Battery

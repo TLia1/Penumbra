@@ -1,10 +1,38 @@
 #!/usr/bin/env bash
 # Clipboard history from cliphist, in the shell's launcher; this rofi menu is the fallback without it.
+# `clear` wipes it (pinned entries are the shell's, in shell.json, and stay); `prune DAYS` expires it.
 set -euo pipefail
 if [[ ${1:-} = clear ]]; then
  cliphist wipe
  rm -rf "${XDG_RUNTIME_DIR:-/tmp}/penumbra/clipboard"
  notify-send -a Penumbra 'Clipboard cleared' 'History has been wiped.'
+ exit
+fi
+# prune DAYS: forget entries older than DAYS (Settings → Clipboard history). cliphist keeps no
+# dates, so the first time each entry is seen here is noted in clipboard-seen.json; the shell runs
+# this every hour and when the clipboard opens.
+if [[ ${1:-} = prune ]]; then
+ days=${2:-0}
+ [[ $days =~ ^[0-9]+$ ]] || { echo 'Usage: penumbra-clipboard prune DAYS' >&2; exit 2; }
+ cliphist list | python3 -c '
+import json, os, sys, time
+seen_file, days = sys.argv[1], int(sys.argv[2])
+try:
+    seen = json.load(open(seen_file))
+except (OSError, ValueError):
+    seen = {}
+now, lines = time.time(), [l for l in sys.stdin.read().split("\n") if "\t" in l]
+ids = {l.split("\t", 1)[0] for l in lines}
+seen = {i: t for i, t in seen.items() if i in ids}
+for i in ids:
+    seen.setdefault(i, now)
+old = [l for l in lines if days and now - seen[l.split("\t", 1)[0]] > days * 86400]
+for l in old:
+    del seen[l.split("\t", 1)[0]]
+os.makedirs(os.path.dirname(seen_file), exist_ok=True)
+json.dump(seen, open(seen_file, "w"))
+sys.stdout.write("".join(l + "\n" for l in old))
+' "$HOME/.local/state/penumbra/clipboard-seen.json" "$days" | { [[ $days -gt 0 ]] && cliphist delete || cat >/dev/null; }
  exit
 fi
 "${0%/*}/penumbra-ipc" launcher clipboard >/dev/null 2>&1 && exit

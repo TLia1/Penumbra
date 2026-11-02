@@ -1,0 +1,3 @@
+# Penumbra: let the desktop session set the battery's charge limit (Settings → Battery care in the
+# shell). Only on laptops whose firmware offers charge_control_end_threshold.
+SUBSYSTEM=="power_supply", ATTR{type}=="Battery", TEST=="charge_control_end_threshold", RUN+="/bin/chmod 0666 /sys%p/charge_control_end_threshold"

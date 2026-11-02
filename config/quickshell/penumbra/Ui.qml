@@ -3,6 +3,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
+import Quickshell.Wayland
 
 // Which surfaces are open, and the screen they open on.
 Singleton {
@@ -15,13 +16,16 @@ Singleton {
     readonly property bool monitorOpen: openPanel === "monitor"
     readonly property bool updatesOpen: openPanel === "updates"
     readonly property bool wallpapersOpen: openPanel === "wallpapers"
-    property string controlPage: "main" // main, wifi, bluetooth, mixer, night, cast, settings or a settings page
+    property string controlPage: "main" // main, wifi, bluetooth, mixer, night, cast, notifications, settings or a settings page
     property bool sessionOpen: false
     property bool launcherOpen: false
-    property string launcherMode: "apps" // apps, clipboard, emoji or symbols
+    property string launcherMode: "apps" // apps, windows, clipboard, emoji or symbols
     property bool shotOpen: false
     property bool overviewOpen: false
     property bool caffeine: false
+    // Open apps from Settings → Idle and sleep that keep the screen awake (by app id).
+    readonly property var awakeApps: ToplevelManager.toplevels.values.map(t => t.appId).filter(a => Settings.idleInhibitApps.includes(a))
+    readonly property bool stayAwake: caffeine || awakeApps.length > 0
 
     property string osdKind: "volume" // volume, microphone, brightness, or capslock and layout (text only)
     property int osdValue: 0

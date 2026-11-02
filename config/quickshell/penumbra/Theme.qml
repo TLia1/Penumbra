@@ -157,14 +157,15 @@ Singleton {
     // The distribution's logo on the bar's launcher button, set by install.sh from distro/NAME/distro.sh.
     readonly property string distroGlyph: "@@DISTRO_GLYPH@@"
 
-    // The type scale. Every text size in the shell is one of these.
-    readonly property int textTiny: 10     // badges, timestamps
-    readonly property int textSmall: 11    // subtitles, section labels
-    readonly property int textBody: 12     // the default
-    readonly property int textMedium: 13   // notification titles, emphasized rows
-    readonly property int textLarge: 15    // page titles, the bar clock
-    readonly property int textTitle: 18    // the launcher's search, big figures
-    readonly property int textHeading: 22  // panel headlines, in the display face
+    // The type scale. Every text size in the shell is one of these, scaled by Settings → Text size.
+    readonly property real textScale: Settings.textScale > 0 ? Settings.textScale : 1
+    readonly property int textTiny: Math.round(10 * textScale)     // badges, timestamps
+    readonly property int textSmall: Math.round(11 * textScale)    // subtitles, section labels
+    readonly property int textBody: Math.round(12 * textScale)     // the default
+    readonly property int textMedium: Math.round(13 * textScale)   // notification titles, emphasized rows
+    readonly property int textLarge: Math.round(15 * textScale)    // page titles, the bar clock
+    readonly property int textTitle: Math.round(18 * textScale)    // the launcher's search, big figures
+    readonly property int textHeading: Math.round(22 * textScale)  // panel headlines, in the display face
     readonly property int textDisplay: 124 // the lock screen clock
 
     // Rounded or sharp corners, as penumbra-corners records them. Every radius goes through
@@ -187,7 +188,11 @@ Singleton {
     readonly property int gap: 8
     readonly property int edge: 14
 
-    readonly property int fast: 160
-    readonly property int normal: 260
-    readonly property int slow: 420
+    // Animation timings; all of them are 0 with Settings → Reduced motion. `motion` is for
+    // durations written out where they are used (multiply them by it).
+    readonly property bool reducedMotion: Settings.reducedMotion
+    readonly property real motion: reducedMotion ? 0 : 1
+    readonly property int fast: 160 * motion
+    readonly property int normal: 260 * motion
+    readonly property int slow: 420 * motion
 }

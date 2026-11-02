@@ -31,6 +31,8 @@ Singleton {
             command.push("--output", output);
         if (Settings.castSound)
             command.push("--sound");
+        if (Settings.castPort > 0)
+            command.push("--port", String(Settings.castPort));
         // Shown at once; penumbra-cast confirms it in a moment.
         tvId = tv.id;
         tvName = tv.name;

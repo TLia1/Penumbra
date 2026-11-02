@@ -1,34 +1,54 @@
 #!/usr/bin/env bash
 # Screen recording to ~/Videos/Screencasts with wf-recorder. The shell's overlay picks the area and
-# runs `start --geometry "X,Y WxH"` (--sound adds what the computer plays); `stop` finishes the
-# recording. With no argument (Ctrl+Print), it stops a recording or opens the overlay to start one;
-# without the shell, slurp asks for a region.
+# runs `start --geometry "X,Y WxH"` (--sound adds what the computer plays, --microphone your voice);
+# `pause` and `resume` hold it (each stretch is a file of its own, joined at the end), and `stop`
+# finishes it. With no argument (Ctrl+Print), it stops a recording or opens the overlay to start
+# one; without the shell, slurp asks for a region. `gif FILE` makes a short GIF of a recording.
 set -euo pipefail
 state=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/penumbra/recording
-pidfile=$state.pid
+pidfile=$state.pid       # this script, while it records
+segment_pid=$state.wf    # wf-recorder, while a stretch records
+paused=$state.paused     # present while paused
+stopping=$state.stop     # present once stop is asked for
 log=$state.log
 
 # The shell shows a recording in the bar; it reads $state again when told.
 refresh() { "${0%/*}/penumbra-ipc" recorder refresh >/dev/null 2>&1 || true; }
 recording() { [[ -f $pidfile ]] && kill -0 "$(<"$pidfile")" 2>/dev/null; }
-stop() { recording && kill -INT "$(<"$pidfile")" || true; }
-usage() { echo 'Usage: penumbra-record [toggle|stop|start [--geometry "X,Y WxH"] [--sound]]' >&2; exit 2; }
+end_segment() { [[ -f $segment_pid ]] && kill -INT "$(<"$segment_pid")" 2>/dev/null || true; }
+stop() { recording || return 0; touch "$stopping"; rm -f "$paused"; end_segment; }
+usage() { echo 'Usage: penumbra-record [toggle|stop|pause|resume|start [--geometry "X,Y WxH"] [--sound] [--microphone]|gif FILE]' >&2; exit 2; }
 
 case ${1:-toggle} in
  stop) stop; exit 0;;
+ pause) recording && [[ ! -f $paused ]] && { touch "$paused"; end_segment; }; exit 0;;
+ resume) rm -f "$paused"; exit 0;;
  toggle)
   if recording; then stop; exit 0; fi
   "${0%/*}/penumbra-ipc" shot record >/dev/null 2>&1 && exit 0
   exec "$0" start;;
+ gif)
+  source=${2:-}; [[ -f $source ]] || usage
+  gif=${source%.*}.gif
+  notify-send -a Penumbra -i image-gif 'Making a GIF' "${gif/#$HOME/\~}"
+  # 15 frames a second, at most 800 pixels wide, with a palette made for this clip.
+  if ffmpeg -loglevel error -y -i "$source" -vf "fps=15,scale='min(800,iw)':-2:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4" "$gif"; then
+   printf 'file://%s\n' "$gif" | wl-copy --type text/uri-list
+   notify-send -a Penumbra -i "$gif" 'GIF saved' "Copied to clipboard · ${gif/#$HOME/\~}"
+  else
+   notify-send -a Penumbra -u critical 'GIF failed' "ffmpeg could not convert ${source##*/}"
+  fi
+  exit 0;;
  start) shift;;
  *) usage;;
 esac
 
-geometry= sound=false
+geometry= sound=false microphone=false
 while (( $# )); do
  case $1 in
   --geometry) geometry=${2?--geometry needs "X,Y WxH"}; shift;;
   --sound) sound=true;;
+  --microphone) microphone=true;;
   *) usage;;
  esac
  shift
@@ -47,29 +67,83 @@ file=$dir/$(date +%Y-%m-%d_%H-%M-%S)
 suffix=; n=1
 while [[ -e $file$suffix.mp4 ]]; do n=$((n + 1)); suffix=-$n; done
 file=$file$suffix.mp4
-args=(-g "$geometry" -f "$file" -c libx264 -p preset=veryfast -p crf=23 -x yuv420p)
-# The default output's monitor carries what the computer plays.
-if $sound; then args+=("--audio=$(pactl get-default-sink).monitor"); fi
+parts=$(mktemp -d "${state%/*}/recording-parts.XXXXXX")
+args=(-g "$geometry" -c libx264 -p preset=veryfast -p crf=23 -x yuv420p)
 
-# This script stays until the recording ends, so it can report it. Job control keeps the recorder
-# from inheriting "ignore SIGINT", the signal `stop` finishes it with.
-set -m
-wf-recorder "${args[@]}" >"$log" 2>&1 &
-pid=$!
-set +m
-echo "$pid" > "$pidfile"
-printf '%s\n%s\n' "$(date +%s)" "$file" > "$state"
+# Sound: what the computer plays (the default output's monitor), your microphone (the default
+# input), or both, mixed in a null sink that lives as long as the recording.
+modules=()
+cleanup() {
+ local m
+ for m in "${modules[@]}"; do pactl unload-module "$m" 2>/dev/null || true; done
+ rm -rf "$parts"
+ rm -f "$state" "$pidfile" "$segment_pid" "$paused" "$stopping"
+}
+trap cleanup EXIT
+if $sound && $microphone; then
+ modules+=("$(pactl load-module module-null-sink sink_name=penumbra_recording sink_properties=device.description=Penumbra-recording)")
+ modules+=("$(pactl load-module module-loopback source="$(pactl get-default-sink).monitor" sink=penumbra_recording latency_msec=30)")
+ modules+=("$(pactl load-module module-loopback source="$(pactl get-default-source)" sink=penumbra_recording latency_msec=30)")
+ args+=(--audio=penumbra_recording.monitor)
+elif $sound; then
+ args+=("--audio=$(pactl get-default-sink).monitor")
+elif $microphone; then
+ args+=("--audio=$(pactl get-default-source)")
+fi
+
+# This script stays until the recording ends, so it can report it. The state file says when it
+# started, counting out the time spent paused, then the file, then "paused" while paused.
+echo $$ > "$pidfile"
+rm -f "$paused" "$stopping"
+: > "$log"
+start=$(date +%s) count=0
+write_state() { printf '%s\n%s\n%s\n' "$start" "$file" "${1:-}" > "$state"; refresh; }
+while :; do
+ count=$((count + 1))
+ # Job control keeps the recorder from inheriting "ignore SIGINT", the signal that ends a stretch.
+ set -m
+ wf-recorder "${args[@]}" -f "$parts/$count.mp4" >>"$log" 2>&1 &
+ echo $! > "$segment_pid"
+ set +m
+ write_state
+ wait "$(<"$segment_pid")" || true
+ rm -f "$segment_pid"
+ [[ -f $paused && ! -f $stopping ]] || break
+ since=$(date +%s)
+ write_state paused
+ while [[ -f $paused && ! -f $stopping ]]; do sleep 0.2; done
+ [[ -f $stopping ]] && break
+ start=$((start + $(date +%s) - since))
+done
+rm -f "$state"
 refresh
-wait "$pid" || true
-rm -f "$state" "$pidfile"
-refresh
+
+# One stretch is the recording; several are joined without encoding them again.
+shopt -s nullglob
+segments=()
+for (( i = 1; i <= count; i++ )); do [[ -s $parts/$i.mp4 ]] && segments+=("$parts/$i.mp4"); done
+if (( ${#segments[@]} == 1 )); then
+ mv "${segments[0]}" "$file"
+elif (( ${#segments[@]} > 1 )); then
+ printf "file '%s'\n" "${segments[@]}" > "$parts/list.txt"
+ ffmpeg -loglevel error -f concat -safe 0 -i "$parts/list.txt" -c copy "$file" >>"$log" 2>&1 || true
+fi
 
 if [[ -s $file ]]; then
  # Copied as a file, so it can be pasted into a chat or a file manager.
  printf 'file://%s\n' "$file" | wl-copy --type text/uri-list
- action=$(notify-send -a Penumbra -i video-x-generic --action=open=Play 'Recording saved' \
+ # A GIF is offered for short clips (a minute or less).
+ seconds=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$file" 2>/dev/null || true)
+ seconds=${seconds%.*}
+ [[ $seconds =~ ^[0-9]+$ ]] || seconds=999
+ actions=(--action=open=Play)
+ if (( seconds <= 60 )); then actions+=(--action=gif='Make a GIF'); fi
+ action=$(notify-send -a Penumbra -i video-x-generic "${actions[@]}" 'Recording saved' \
   "Copied to clipboard · ${file/#$HOME/\~}") || true
- [[ $action = open ]] && xdg-open "$file"
+ case $action in
+  open) xdg-open "$file";;
+  gif) "$0" gif "$file";;
+ esac
 else
  rm -f "$file"
  notify-send -a Penumbra -u critical 'Recording failed' "$(tail -n 3 "$log")"

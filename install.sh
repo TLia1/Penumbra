@@ -420,6 +420,11 @@ install_system_files() {
         done < <(find "$from" -type f -print0)
     done
     configure_vm_greeter
+    # The battery charge limit rule (Settings → Battery care) applies without a reboot.
+    if command -v udevadm >/dev/null; then
+        udevadm control --reload 2>/dev/null || true
+        udevadm trigger --subsystem-match=power_supply 2>/dev/null || true
+    fi
 }
 
 # In a virtual machine the login screen renders in software at scale 1; elsewhere it uses the GPU

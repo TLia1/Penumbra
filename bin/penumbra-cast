@@ -2,7 +2,7 @@
 """Cast the screen to a TV on the same network: Chromecast and Google TV, or any DLNA TV.
 
     penumbra-cast scan        a JSON list of the TVs found: id, name, kind (chromecast or dlna), model
-    penumbra-cast start ID [--name NAME] [--output MONITOR] [--sound]
+    penumbra-cast start ID [--name NAME] [--output MONITOR] [--port PORT] [--sound]
     penumbra-cast stop
 
 `start` records the screen with wf-recorder, serves it from this computer over HTTP and tells the TV
@@ -346,7 +346,7 @@ class Stream:
             return bool(self.clients)
 
 
-def server_for(stream, path, content_type):
+def server_for(stream, path, content_type, port=0):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
 
@@ -375,12 +375,13 @@ def server_for(stream, path, content_type):
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer(('', 0), Handler)
+    # Port 0 is any free one; a fixed port (Cast screen → Port) lets a firewall rule allow the TV.
+    server = ThreadingHTTPServer(('', port), Handler)
     server.daemon_threads = True
     return server
 
 
-def start(device, name, output, sound):
+def start(device, name, output, sound, port=0):
     if running_cast():
         stop()
         for _ in range(50):
@@ -425,7 +426,7 @@ def start(device, name, output, sound):
         stream = Stream(encoder.stdout, extension == 'mp4')
         threading.Thread(target=stream.run, daemon=True).start()
         path = f'/{secrets.token_urlsafe(12)}/screen.{extension}'
-        server = server_for(stream, path, content_type)
+        server = server_for(stream, path, content_type, port)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         url = f'http://{local_address(tv.host)}:{server.server_address[1]}{path}'
 
@@ -478,7 +479,7 @@ def main(argv):
     elif argv[:1] == ['stop']:
         stop()
     elif argv[:1] == ['start'] and len(argv) > 1:
-        options = {'--name': 'TV', '--output': ''}
+        options = {'--name': 'TV', '--output': '', '--port': '0'}
         sound = False
         rest = argv[2:]
         while rest:
@@ -489,7 +490,9 @@ def main(argv):
                 options[option] = rest.pop(0)
             else:
                 sys.exit(__doc__)
-        start(argv[1], options['--name'], options['--output'], sound)
+        if not options['--port'].isdigit() or int(options['--port']) > 65535:
+            sys.exit('penumbra-cast: --port needs a number from 1 to 65535 (0: any free port)')
+        start(argv[1], options['--name'], options['--output'], sound, int(options['--port']))
     else:
         sys.exit(__doc__)
 

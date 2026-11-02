@@ -105,10 +105,10 @@ Scope {
 
             SequentialAnimation {
                 id: shake
-                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 14; duration: 50 }
-                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: -12; duration: 70 }
-                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 8; duration: 60 }
-                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 0; duration: 60 }
+                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 14; duration: 50 * Theme.motion }
+                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: -12; duration: 70 * Theme.motion }
+                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 8; duration: 60 * Theme.motion }
+                NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 0; duration: 60 * Theme.motion }
             }
 
             ColumnLayout {
@@ -205,7 +205,7 @@ Scope {
                         color: root.fingerWaiting ? Theme.accentBright : Theme.dim
                         opacity: root.fingerWaiting ? pulse : 1
                         SequentialAnimation on pulse {
-                            running: root.fingerWaiting
+                            running: root.fingerWaiting && !Theme.reducedMotion
                             loops: Animation.Infinite
                             NumberAnimation { to: 0.35; duration: 900; easing.type: Easing.InOutSine }
                             NumberAnimation { to: 1; duration: 900; easing.type: Easing.InOutSine }

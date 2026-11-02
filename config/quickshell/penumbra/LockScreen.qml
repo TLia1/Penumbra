@@ -17,6 +17,8 @@ Scope {
     // Kept here rather than bound to sessionLock.locked: Quickshell 0.3.2 never signals the
     // unlock, so a binding stays true and the wallpapers stay paused after the first lock.
     property bool locked: false
+    // When the screen was locked (Date.now()), for the lock screen's count of new notifications.
+    property double lockedAt: 0
     signal rejected()
 
     // Fingerprint: whether a finger is enrolled (fprintd-list, checked at each lock), the reader
@@ -39,6 +41,7 @@ Scope {
         fingers.running = true;
         checkCaps();
         lockState.setText("locked\n");
+        lockedAt = Date.now();
         sessionLock.locked = true;
         // False if the compositor refused the lock.
         locked = sessionLock.locked;

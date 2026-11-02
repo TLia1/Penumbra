@@ -7,8 +7,9 @@ import Quickshell.Widgets
 import "search.js" as Search
 import "symbols.js" as Symbols
 
-// Applications, clipboard history, emoji and symbols, over a dimmed screen. Type to search; `>` runs
-// a command, a sum (or `=`) is worked out and copied; Tab moves to the next mode.
+// Applications, open windows, clipboard history, emoji and symbols, over a dimmed screen. Type to
+// search; `>` runs a command, `?` searches the web, `/` finds files; a sum (or `=`), "10 km in mi"
+// or "100 usd in eur" is worked out and copied. Tab moves to the next mode.
 PanelWindow {
     id: root
     screen: Ui.screen
@@ -22,11 +23,13 @@ PanelWindow {
 
     readonly property var modes: [
         { mode: "apps", label: "Apps", glyph: "󰀻" },
+        { mode: "windows", label: "Windows", glyph: "󰖯" },
         { mode: "clipboard", label: "Clipboard", glyph: "󰅍" },
         { mode: "emoji", label: "Emoji", glyph: "󰇵" },
         { mode: "symbols", label: "Symbols", glyph: "󰒠" }
     ]
     readonly property bool clipboard: Ui.launcherMode === "clipboard"
+    readonly property bool windows: Ui.launcherMode === "windows"
     // Emoji and symbols are a grid of characters.
     readonly property bool characters: Ui.launcherMode === "emoji" || Ui.launcherMode === "symbols"
     readonly property var apps: DesktopEntries.applications.values.filter(e => !e.noDisplay)
@@ -38,7 +41,7 @@ PanelWindow {
     property var emoji: []
     property var results: []
     property var clips: []
-    property var usage: ({}) // desktop entry id → launches
+    property var usage: ({}) // desktop entry id → { score, at } (frecency, see search.js)
     property var picks: ({}) // emoji or symbol → times picked
     property var pointer: null // where the mouse last was, in window coordinates
 
@@ -58,8 +61,15 @@ PanelWindow {
         search.text = "";
         search.forceActiveFocus();
         if (clipboard)
-            clipList.running = true;
+            loadClips();
         refresh();
+    }
+    function loadClips() {
+        if (Settings.clipboardDays > 0) {
+            prune.running = true; // lists the clips once it has expired the old ones
+        } else {
+            clipList.running = true;
+        }
     }
 
     // Hover follows the mouse only when it moves: opening under a still cursor, the card growing or
@@ -92,17 +102,44 @@ PanelWindow {
             scored.sort((a, b) => b.score - a.score || a.i - b.i);
             list = scored.map(s => ({ kind: "char", char: s.c }));
         } else if (clipboard) {
-            list = clips.filter(c => !q || c.text.toLowerCase().includes(q)).map(c => ({ kind: "clip", clip: c }));
+            // Pinned texts first; Clear history leaves them.
+            list = Settings.clipboardPins.filter(t => !q || t.toLowerCase().includes(q)).map(t => ({ kind: "pin", text: t }))
+                .concat(clips.filter(c => !q || c.text.toLowerCase().includes(q)).map(c => ({ kind: "clip", clip: c })));
+        } else if (windows) {
+            const open = ToplevelManager.toplevels.values.filter(t => !q || (t.title + " " + t.appId).toLowerCase().includes(q));
+            list = open.map(t => ({ kind: "window", toplevel: t, entry: DesktopEntries.heuristicLookup(t.appId) }));
         } else if (text.startsWith(">")) {
             if (text.slice(1).trim())
                 list = [{ kind: "run", command: text.slice(1).trim() }];
+        } else if (text.startsWith("?")) {
+            if (text.slice(1).trim())
+                list = [{ kind: "web", query: text.slice(1).trim() }];
+        } else if (text.startsWith("/")) {
+            list = files; // findFiles fills them in as you type
         } else {
             const sum = Search.calculate(text);
             if (sum !== null)
                 list.push({ kind: "calc", value: sum });
-            const scored = apps.map(e => ({ entry: e, score: Search.score(e, q, usage[e.id]) })).filter(s => s.score > 0);
+            const units = Search.convert(text);
+            if (units)
+                list.push({ kind: "convert", value: units.value, unit: units.unit });
+            const money = Search.currency(text);
+            if (money) {
+                const answer = exchange(money);
+                if (answer)
+                    list.push(answer);
+            }
+            const now = Date.now();
+            const scored = apps.map(e => ({ entry: e, score: Search.score(e, q, Search.frecency(usage[e.id], now)) })).filter(s => s.score > 0);
+            // Desktop actions ("New Private Window") join in when the query names them.
+            for (const e of apps)
+                for (const a of e.actions ?? []) {
+                    const score = Search.actionScore(e.name, a.name, q);
+                    if (score)
+                        scored.push({ entry: e, action: a, score: score + Search.boost(Search.frecency(usage[e.id], now)) });
+                }
             scored.sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name));
-            list = list.concat(scored.slice(0, 60).map(s => ({ kind: "app", entry: s.entry })));
+            list = list.concat(scored.slice(0, 60).map(s => s.action ? { kind: "action", entry: s.entry, action: s.action } : { kind: "app", entry: s.entry }));
             // Nothing runs unless asked for with `>`: a typo like "reboot" must not reboot.
         }
         results = list;
@@ -122,8 +159,22 @@ PanelWindow {
             launch(item.entry);
         } else if (item.kind === "run") {
             Ui.spawn(alternate ? Ui.terminal(["bash", "-c", item.command], ["--hold"]) : ["bash", "-c", item.command]);
-        } else if (item.kind === "calc") {
+        } else if (item.kind === "action") {
+            const command = item.action.command.filter(arg => !/^%[a-zA-Z]$/.test(arg));
+            Ui.spawn({ command, workingDirectory: item.entry.workingDirectory || Quickshell.env("HOME") });
+            usage = Object.assign({}, usage, { [item.entry.id]: Search.launched(usage[item.entry.id], Date.now()) });
+            usageFile.setText(JSON.stringify(usage));
+        } else if (item.kind === "window") {
+            item.toplevel.activate();
+        } else if (item.kind === "web") {
+            Ui.spawn(["xdg-open", "https://duckduckgo.com/?q=" + encodeURIComponent(item.query)]);
+        } else if (item.kind === "file") {
+            // Shift+Enter opens the folder it is in.
+            Ui.spawn(["xdg-open", alternate ? item.path.replace(/\/[^/]*$/, "") || "/" : item.path]);
+        } else if (item.kind === "calc" || item.kind === "convert" || item.kind === "currency" && !item.pending) {
             Ui.spawn(["wl-copy", String(item.value)]);
+        } else if (item.kind === "pin") {
+            Ui.spawn(["wl-copy", "--", item.text]);
         } else if (item.kind === "clip") {
             Ui.spawn(["bash", "-c", 'printf "%s" "$1" | cliphist decode | wl-copy', "_", item.clip.line]);
         } else if (item.kind === "char") {
@@ -142,18 +193,126 @@ PanelWindow {
             command: entry.runInTerminal ? Ui.terminal(command) : command,
             workingDirectory: entry.workingDirectory || Quickshell.env("HOME")
         });
-        usage = Object.assign({}, usage, { [entry.id]: (usage[entry.id] ?? 0) + 1 });
+        usage = Object.assign({}, usage, { [entry.id]: Search.launched(usage[entry.id], Date.now()) });
         usageFile.setText(JSON.stringify(usage));
     }
     function forget(index) {
         const item = results[index];
-        if (item?.kind !== "clip")
+        if (item?.kind === "pin") {
+            Settings.clipboardPins = Settings.clipboardPins.filter(t => t !== item.text);
+        } else if (item?.kind === "clip") {
+            Quickshell.execDetached(["bash", "-c", 'printf "%s" "$1" | cliphist delete', "_", item.clip.line]);
+            clips = clips.filter(c => c !== item.clip);
+        } else {
             return;
-        Quickshell.execDetached(["bash", "-c", 'printf "%s" "$1" | cliphist delete', "_", item.clip.line]);
-        clips = clips.filter(c => c !== item.clip);
+        }
         const keep = view.currentIndex;
         refresh();
         view.currentIndex = Math.min(keep, results.length - 1);
+    }
+
+    // Alt+P pins a text clip (the whole text: cliphist's list only has a preview) or unpins a pin.
+    function togglePin(index) {
+        const item = results[index];
+        if (item?.kind === "pin") {
+            forget(index);
+        } else if (item?.kind === "clip" && !item.clip.image) {
+            pinner.command = ["bash", "-c", 'printf "%s" "$1" | cliphist decode', "_", item.clip.line];
+            pinner.running = true;
+        }
+    }
+    Process {
+        id: pinner
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (text && !Settings.clipboardPins.includes(text))
+                    Settings.clipboardPins = [text, ...Settings.clipboardPins];
+                root.refresh();
+            }
+        }
+    }
+
+    // Files for `/name`: fd when it is installed (it skips hidden and ignored files), else find,
+    // in the home folder; asked again a moment after typing stops.
+    property var files: []
+    Timer {
+        id: findFiles
+        interval: 150
+        onTriggered: {
+            const name = search.text.slice(1).trim();
+            fileSearch.running = false;
+            if (!name) {
+                root.files = [];
+                root.refresh();
+                return;
+            }
+            fileSearch.command = ["bash", "-c",
+                'cd "$HOME" && if command -v fd >/dev/null; then fd -i --absolute-path --max-results 40 -- "$1"; '
+                + 'else find "$HOME" -mindepth 1 -name ".*" -prune -o -iname "*$1*" -print 2>/dev/null | head -n 40; fi', "_", name];
+            fileSearch.running = true;
+        }
+    }
+    Process {
+        id: fileSearch
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.files = text.split("\n").filter(l => l).map(path => ({ kind: "file", path: path.replace(/\/$/, "") }));
+                if (search.text.startsWith("/"))
+                    root.refresh();
+            }
+        }
+    }
+
+    // Exchange rates from the European Central Bank (frankfurter.dev), asked for only when a
+    // query names two currencies and kept for 12 hours.
+    property var rates: ({}) // base → { rates, date, at }
+    function exchange(money) {
+        const known = rates[money.from];
+        if (!known || Date.now() - known.at > 12 * 3600000) {
+            if (!rateFetch.running) {
+                rateFetch.base = money.from;
+                rateFetch.command = ["curl", "-sfL", "--max-time", "5", "https://api.frankfurter.dev/v1/latest?base=" + money.from];
+                rateFetch.running = true;
+            }
+            return known ? null : { kind: "currency", pending: true, value: "", text: `${money.amount} ${money.from} in ${money.to}` };
+        }
+        const rate = known.rates[money.to];
+        if (!rate)
+            return null;
+        const value = Number((money.amount * rate).toFixed(rate * money.amount >= 100 ? 2 : 4));
+        return { kind: "currency", value, text: `${value} ${money.to}`, date: known.date, from: money };
+    }
+    Process {
+        id: rateFetch
+        property string base: ""
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const data = JSON.parse(text);
+                    if (data.rates)
+                        root.rates = Object.assign({}, root.rates, { [rateFetch.base]: { rates: data.rates, date: data.date, at: Date.now() } });
+                } catch (e) {
+                    root.rates = Object.assign({}, root.rates, { [rateFetch.base]: { rates: {}, date: "", at: Date.now() } });
+                }
+                if (Ui.launcherOpen)
+                    root.refresh();
+            }
+        }
+    }
+
+    // Clipboard history older than Settings → Clipboard history goes, every hour and before the
+    // clipboard opens.
+    Process {
+        id: prune
+        command: [Ui.bin + "penumbra-clipboard", "prune", String(Settings.clipboardDays)]
+        onExited: if (Ui.launcherOpen && root.clipboard) clipList.running = true
+    }
+    Timer {
+        interval: 3600000
+        running: Settings.clipboardDays > 0
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: if (!prune.running) prune.running = true
     }
 
     function gridKey(key) {
@@ -299,7 +458,8 @@ PanelWindow {
                 Layout.preferredHeight: 48
                 spacing: 12
                 Glyph {
-                    text: root.clipboard || root.characters ? root.modes.find(m => m.mode === Ui.launcherMode).glyph : search.text.startsWith(">") ? "󰆍" : "󰍉"
+                    text: Ui.launcherMode !== "apps" ? root.modes.find(m => m.mode === Ui.launcherMode).glyph
+                        : search.text.startsWith(">") ? "󰆍" : search.text.startsWith("?") ? "󰖟" : search.text.startsWith("/") ? "󰈞" : "󰍉"
                     size: 20
                     color: Theme.accentBright
                 }
@@ -313,12 +473,16 @@ PanelWindow {
                     font.pixelSize: Theme.textTitle
                     clip: true
                     focus: true
-                    onTextChanged: root.refresh()
+                    onTextChanged: {
+                        root.refresh();
+                        if (text.startsWith("/") && Ui.launcherMode === "apps")
+                            findFiles.restart();
+                    }
                     Label {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: !search.text
-                        text: ({ clipboard: "Search clipboard history…", emoji: "Search emoji…", symbols: "Search symbols…" })[Ui.launcherMode]
-                            ?? "Search applications, > run, = calculate…"
+                        text: ({ windows: "Search open windows…", clipboard: "Search clipboard history…", emoji: "Search emoji…", symbols: "Search symbols…" })[Ui.launcherMode]
+                            ?? "Search apps, > run, ? web, / files, = calculate…"
                         font.pixelSize: Theme.textTitle
                         color: Theme.dim
                     }
@@ -343,6 +507,8 @@ PanelWindow {
                             root.activate(root.characters ? grid.currentIndex : view.currentIndex, event.modifiers & Qt.ShiftModifier);
                         } else if (event.key === Qt.Key_Delete && (event.modifiers & Qt.ShiftModifier)) {
                             root.forget(view.currentIndex);
+                        } else if (root.clipboard && event.key === Qt.Key_P && (event.modifiers & Qt.AltModifier)) {
+                            root.togglePin(view.currentIndex);
                         } else {
                             return;
                         }
@@ -425,24 +591,25 @@ PanelWindow {
                             visible: !row.isImage
                             implicitWidth: 32
                             implicitHeight: 32
+                            readonly property bool hasIcon: ["app", "action", "window"].includes(row.modelData.kind)
                             IconImage {
                                 anchors.fill: parent
-                                visible: row.modelData.kind === "app"
-                                source: row.modelData.kind === "app" ? Quickshell.iconPath(row.modelData.entry.icon, "application-x-executable") : ""
+                                visible: parent.hasIcon
+                                source: parent.hasIcon ? Quickshell.iconPath(row.modelData.action?.icon || row.modelData.entry?.icon || row.modelData.toplevel?.appId || "", "application-x-executable") : ""
                                 asynchronous: true
                             }
                             // Picked colors (#rrggbb) show as a swatch.
                             Rectangle {
                                 readonly property bool swatch: row.modelData.kind === "clip" && /^#[0-9a-fA-F]{6}$/.test(row.modelData.clip.text)
                                 anchors.fill: parent
-                                visible: row.modelData.kind !== "app"
+                                visible: !parent.hasIcon
                                 radius: Theme.corner(10)
                                 color: swatch ? row.modelData.clip.text : Theme.raised
                                 border.color: swatch ? Theme.lineStrong : "transparent"
                                 Glyph {
                                     anchors.centerIn: parent
                                     visible: !parent.swatch
-                                    text: ({ run: "󰆍", calc: "󰃬", clip: "󰅍" })[row.modelData.kind] ?? ""
+                                    text: ({ run: "󰆍", calc: "󰃬", clip: "󰅍", pin: "󰐃", web: "󰖟", file: "󰈔", convert: "󰁔", currency: "󰄉" })[row.modelData.kind] ?? ""
                                     size: 16
                                     color: Theme.accentBright
                                 }
@@ -484,12 +651,28 @@ PanelWindow {
                                         return m.command;
                                     if (m.kind === "calc")
                                         return "= " + m.value;
+                                    if (m.kind === "convert")
+                                        return `= ${m.value} ${m.unit}`;
+                                    if (m.kind === "currency")
+                                        return m.pending ? m.text : "≈ " + m.text;
+                                    if (m.kind === "action")
+                                        return m.action.name;
+                                    if (m.kind === "window")
+                                        return m.toplevel.title || m.toplevel.appId;
+                                    if (m.kind === "web")
+                                        return m.query;
+                                    if (m.kind === "file")
+                                        return m.path.replace(/^.*\//, "");
+                                    if (m.kind === "pin")
+                                        return m.text.replace(/\s+/g, " ").trim();
                                     return m.clip.text;
                                 }
-                                font.pixelSize: row.modelData.kind === "calc" ? 17 : 13
-                                font.family: row.modelData.kind === "run" || row.modelData.kind === "calc" ? Theme.mono : Theme.sans
+                                readonly property bool answer: ["calc", "convert", "currency"].includes(row.modelData.kind)
+                                font.pixelSize: answer ? Theme.textTitle - 1 : Theme.textMedium
+                                font.family: row.modelData.kind === "run" || answer ? Theme.mono : Theme.sans
                                 font.weight: row.current ? Font.DemiBold : Font.Normal
-                                color: row.modelData.kind === "calc" ? Theme.accentBright : Theme.text
+                                color: answer ? Theme.accentBright : Theme.text
+                                elide: Text.ElideRight
                             }
                             Label {
                                 Layout.fillWidth: true
@@ -500,8 +683,20 @@ PanelWindow {
                                         return m.entry.genericName || m.entry.comment;
                                     if (m.kind === "run")
                                         return "Run command · Shift+Enter in a terminal";
-                                    if (m.kind === "calc")
+                                    if (m.kind === "calc" || m.kind === "convert")
                                         return "Enter copies the result";
+                                    if (m.kind === "currency")
+                                        return m.pending ? "Asking the European Central Bank for today's rate…" : `${m.from.amount} ${m.from.from} · ECB rate of ${m.date} · Enter copies`;
+                                    if (m.kind === "action")
+                                        return m.entry.name;
+                                    if (m.kind === "window")
+                                        return (m.entry?.name || m.toplevel.appId) + (m.toplevel.activated ? " · focused" : "");
+                                    if (m.kind === "web")
+                                        return "Search the web · DuckDuckGo in your browser";
+                                    if (m.kind === "file")
+                                        return m.path.replace(Quickshell.env("HOME"), "~").replace(/\/[^/]*$/, "") + " · Shift+Enter opens the folder";
+                                    if (m.kind === "pin")
+                                        return "Pinned · Alt+P unpins";
                                     return "";
                                 }
                                 font.pixelSize: Theme.textSmall
@@ -601,7 +796,11 @@ PanelWindow {
                             return "Install the unicode-emoji package for the emoji list";
                         if (root.characters)
                             return "Nothing matches";
-                        if (search.text.trim() && !search.text.startsWith(">"))
+                        if (root.windows)
+                            return search.text ? "No open window matches" : "No windows are open";
+                        if (search.text.startsWith("/"))
+                            return search.text.slice(1).trim() ? (fileSearch.running || findFiles.running ? "Looking…" : "No file in your home folder matches") : "Type part of a file or folder name";
+                        if (search.text.trim() && !search.text.startsWith(">") && !search.text.startsWith("?"))
                             return "No application matches · start with > to run it as a command";
                         return "Type to search";
                     }
@@ -618,11 +817,13 @@ PanelWindow {
                     Layout.fillWidth: true
                     text: {
                         if (root.clipboard)
-                            return "↑↓ choose · Enter copy · Shift+Del forget · Tab emoji · Esc close";
+                            return "↑↓ choose · Enter copy · Alt+P pin · Shift+Del forget · Tab emoji · Esc close";
+                        if (root.windows)
+                            return "↑↓ choose · Enter go to the window · Tab clipboard · Esc close";
                         if (root.characters)
                             return (Ui.hasTyping ? "Arrows choose · Enter type · Shift+Enter copy" : "Arrows choose · Enter copy")
                                 + (Ui.launcherMode === "emoji" ? " · Tab symbols" : " · Tab apps") + " · Esc close";
-                        return "↑↓ choose · Enter open · Tab clipboard · Esc close";
+                        return "↑↓ choose · Enter open · Tab windows · Esc close";
                     }
                     font.pixelSize: Theme.textSmall
                     color: Theme.dim

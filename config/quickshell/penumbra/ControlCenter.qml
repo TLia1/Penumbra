@@ -123,6 +123,13 @@ Panel {
 
         Loader {
             Layout.fillWidth: true
+            active: Ui.controlPage === "notifications"
+            visible: active
+            sourceComponent: Component { NotificationsPage {} }
+        }
+
+        Loader {
+            Layout.fillWidth: true
             active: Ui.controlPage === "apps"
             visible: active
             sourceComponent: Component { AppsPage {} }
@@ -200,9 +207,11 @@ Panel {
                     Layout.fillWidth: true
                     glyph: Notifs.dnd ? "󰂛" : "󰂚"
                     title: "Do not disturb"
-                    subtitle: Notifs.dnd ? "Only critical alerts" : "Off"
+                    subtitle: Notifs.dndStatus
                     on: Notifs.dnd
-                    onToggled: Notifs.dnd = !Notifs.dnd
+                    hasMore: true
+                    onToggled: Notifs.toggleDnd()
+                    onMore: Ui.controlPage = "notifications"
                 }
                 Tile {
                     Layout.fillWidth: true
@@ -547,7 +556,11 @@ Panel {
                         Layout.rightMargin: 4
                         Label {
                             Layout.fillWidth: true
-                            text: group.app + (group.items.length > 1 ? ` · ${group.items.length}` : "")
+                            // While the pointer is on the rule button, what it does instead of the count.
+                            text: group.app + (ruleArea.containsMouse
+                                ? " · " + ({ "": "click: no popups", "silent": "no popups · click: mute",
+                                             "mute": "muted · click: always keep", "keep": "always kept · click: normal" })[Notifs.rule(group.app)]
+                                : group.items.length > 1 ? ` · ${group.items.length}` : "")
                             font.pixelSize: Theme.textSmall
                             font.weight: Font.DemiBold
                             color: Theme.textSoft
@@ -566,6 +579,23 @@ Panel {
                                 onClicked: root.expandedApps = group.expanded
                                     ? root.expandedApps.filter(a => a !== group.app)
                                     : [...root.expandedApps, group.app]
+                            }
+                        }
+                        // The app's rule: normal, no popups, muted, or kept; each click moves to the next.
+                        Glyph {
+                            Layout.leftMargin: 8
+                            readonly property string rule: Notifs.rule(group.app)
+                            readonly property var next: ({ "": "silent", "silent": "mute", "mute": "keep", "keep": "" })
+                            text: ({ "": "󰂚", "silent": "󰂠", "mute": "󰂛", "keep": "󰐃" })[rule] ?? "󰂚"
+                            size: 13
+                            color: ruleArea.containsMouse ? Theme.text : rule ? Theme.accent : Theme.dim
+                            MouseArea {
+                                id: ruleArea
+                                anchors.fill: parent
+                                anchors.margins: -6
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Settings.setRule(group.app, parent.next[parent.rule] ?? "")
                             }
                         }
                         Glyph {

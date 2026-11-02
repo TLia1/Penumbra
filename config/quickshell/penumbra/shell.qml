@@ -78,6 +78,7 @@ ShellRoot {
         function clipboard(): void { Ui.toggleLauncher("clipboard"); }
         function emoji(): void { Ui.toggleLauncher("emoji"); }
         function symbols(): void { Ui.toggleLauncher("symbols"); }
+        function windows(): void { Ui.toggleLauncher("windows"); }
     }
 
     IpcHandler {
@@ -92,6 +93,7 @@ ShellRoot {
         // penumbra-record calls this when a recording starts or ends.
         function refresh(): void { Recorder.refresh(); }
         function stop(): void { Recorder.stop(); }
+        function pause(): void { Recorder.togglePause(); }
     }
 
     IpcHandler {
@@ -117,7 +119,7 @@ ShellRoot {
     IpcHandler {
         target: "notifications"
         function clear(): void { Notifs.clear(); }
-        function dnd(): void { Notifs.dnd = !Notifs.dnd; }
+        function dnd(): void { Notifs.toggleDnd(); }
     }
 
     IpcHandler {

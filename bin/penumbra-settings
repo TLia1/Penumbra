@@ -10,7 +10,11 @@ a restart of hypridle). install.sh runs `apply` after copying, so both stay in s
   penumbra-settings check KEY=VALUE...   only check
   penumbra-settings apply [--no-restart] write hypridle.conf and apply everything
   penumbra-settings layouts              keyboard layouts and their variants, as JSON
+  penumbra-settings export [FILE]        every Penumbra choice in one file, for another computer
+                                         (default: ~/penumbra-settings-DATE.json); prints its path
+  penumbra-settings import FILE          take those choices back and apply them
 """
+import datetime
 import json
 import os
 from pathlib import Path
@@ -196,6 +200,67 @@ def apply(values, changed=None, restart=True):
         subprocess.run(['hyprctl', 'eval', lua], capture_output=True)
 
 
+# What export carries: these settings, the shell's preferences, the theme and the screens. Paths
+# are relative to the home folder, so the file works for another user name too.
+EXPORTED = {
+    'settings.conf': '.config/penumbra/settings.conf',
+    'shell.json': '.config/penumbra/shell.json',
+    'theme.json': '.local/state/penumbra/theme.json',
+    'monitors.lua': '.config/penumbra/monitors.lua',
+}
+
+
+def export(target):
+    home = Path.home()
+    files = {}
+    for name, rel in EXPORTED.items():
+        try:
+            files[name] = (home / rel).read_text()
+        except OSError:
+            pass
+    target = Path(target or home / f'penumbra-settings-{datetime.date.today().isoformat()}.json').expanduser()
+    target.write_text(json.dumps({'penumbra': 1, 'files': files}, indent=2) + '\n')
+    return target
+
+
+def import_(source):
+    """Write the exported files back (each one replaced is kept as NAME.bak), then apply them."""
+    try:
+        data = json.loads(Path(source).expanduser().read_text())
+    except (OSError, ValueError) as error:
+        sys.exit(f'penumbra-settings: cannot read {source}: {error}')
+    files = data.get('files') if isinstance(data, dict) and data.get('penumbra') == 1 else None
+    if not isinstance(files, dict) or not files or any(n not in EXPORTED or not isinstance(t, str) for n, t in files.items()):
+        sys.exit(f'penumbra-settings: {source} is not a Penumbra settings export')
+    if 'settings.conf' in files:
+        for line in files['settings.conf'].splitlines():
+            key, sep, value = line.partition('=')
+            if sep and not line.startswith('#') and key in DEFAULTS and problem(key, value):
+                sys.exit(f'penumbra-settings: {source}: {problem(key, value)}')
+    if 'shell.json' in files or 'theme.json' in files:
+        for name in ('shell.json', 'theme.json'):
+            try:
+                if name in files:
+                    json.loads(files[name])
+            except ValueError:
+                sys.exit(f'penumbra-settings: {source}: {name} is not valid JSON')
+    home = Path.home()
+    for name, text in files.items():
+        path = home / EXPORTED[name]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            shutil.copyfile(path, path.with_name(path.name + '.bak'))
+        path.write_text(text)
+    # The shell follows shell.json by itself; the rest needs applying.
+    apply(load())
+    theme = home / '.local/bin/penumbra-theme'
+    if 'theme.json' in files and theme.exists():
+        subprocess.run([str(theme), 'restore'], capture_output=True)
+    if os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and shutil.which('hyprctl'):
+        subprocess.run(['hyprctl', 'reload'], capture_output=True)
+    return sorted(files)
+
+
 def parse(pairs):
     updates = {}
     for pair in pairs:
@@ -225,6 +290,10 @@ def main():
         apply(values, changed)
     elif command == 'apply':
         apply(load(), restart='--no-restart' not in args)
+    elif command == 'export':
+        print(export(args[0] if args else None))
+    elif command == 'import' and len(args) == 1:
+        print('Imported ' + ', '.join(import_(args[0])))
     elif command == 'layouts':
         layouts = xkb_section('layout') or {}
         variants = {}
