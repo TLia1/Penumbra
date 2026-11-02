@@ -16,7 +16,7 @@ Rectangle {
     opacity: available ? 1 : 0.45
     color: primary ? (area.containsMouse ? Theme.accentBright : Theme.accent) : area.containsMouse ? Theme.hover : Theme.raised
     border.color: danger ? Theme.alpha(Theme.rose, 0.5) : primary ? Theme.accentBright : Theme.line
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
     Label {
         id: label

@@ -20,7 +20,7 @@ Rectangle {
     radius: Theme.radiusSmall
     color: highlighted ? Theme.line : area.containsMouse || expanded ? Theme.raised : "transparent"
     border.color: highlighted ? Theme.lineStrong : expanded ? Theme.line : "transparent"
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
     Behavior on implicitHeight { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
     clip: true
 

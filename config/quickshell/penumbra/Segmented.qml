@@ -32,7 +32,7 @@ Rectangle {
                 color: current ? Theme.alpha(Theme.accent, 0.22) : segmentArea.containsMouse ? Theme.hover : "transparent"
                 border.color: current ? Theme.alpha(Theme.accentBright, 0.55) : "transparent"
                 opacity: available ? 1 : 0.45
-                Behavior on color { ColorAnimation { duration: Theme.fast } }
+                Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
                 RowLayout {
                     anchors.centerIn: parent
                     width: Math.min(implicitWidth, parent.width - 8)

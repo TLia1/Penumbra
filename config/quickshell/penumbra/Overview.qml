@@ -196,7 +196,7 @@ PanelWindow {
                             color: drop.containsDrag ? Theme.alpha(Theme.accent, 0.2) : Theme.alpha(Theme.base, 0.55)
                             border.width: tile.current || drop.containsDrag ? 2 : 1
                             border.color: tile.current || drop.containsDrag ? Theme.accent : Theme.line
-                            Behavior on color { ColorAnimation { duration: Theme.fast } }
+                            Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
                             // The wallpaper behind the windows.
                             Image {

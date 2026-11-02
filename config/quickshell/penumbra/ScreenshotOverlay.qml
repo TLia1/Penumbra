@@ -32,7 +32,7 @@ PanelWindow {
     readonly property var monitor: Hyprland.monitorFor(screen)
     // Windows on this screen's workspace in local coordinates, floating ones first (they're on top).
     readonly property var windows: (monitor?.activeWorkspace?.toplevels.values ?? [])
-        .filter(t => t.lastIpcObject.size)
+        .filter(t => t.lastIpcObject?.size)
         .sort((a, b) => (b.lastIpcObject.floating ?? false) - (a.lastIpcObject.floating ?? false))
         .map(t => ({
             title: t.title,
@@ -204,7 +204,7 @@ PanelWindow {
             radius: Theme.corner(19)
             color: on ? Theme.alpha(tint, 0.2) : chipArea.containsMouse ? Theme.hover : "transparent"
             border.color: on ? tint : "transparent"
-            Behavior on color { ColorAnimation { duration: Theme.fast } }
+            Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
             RowLayout {
                 id: chipRow
                 anchors.centerIn: parent
@@ -252,7 +252,7 @@ PanelWindow {
                         implicitHeight: 38
                         radius: Theme.corner(19)
                         color: current ? Theme.accent : toolArea.containsMouse ? Theme.hover : "transparent"
-                        Behavior on color { ColorAnimation { duration: Theme.fast } }
+                        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
                         RowLayout {
                             id: toolRow
                             anchors.centerIn: parent

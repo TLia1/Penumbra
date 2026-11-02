@@ -48,6 +48,8 @@ Singleton {
             Ui.showOsd("brightness", root.brightness, false);
             return true;
         }
+        if (action !== "up" && action !== "down")
+            return false;
         brightnessStep.command = ["brightnessctl", "-m", "--class=backlight", "--min-value=1", "set", action === "up" ? "5%+" : "5%-"];
         brightnessStep.running = true;
         return true;

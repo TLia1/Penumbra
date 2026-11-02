@@ -96,7 +96,7 @@ PanelWindow {
                         border.color: isArmed ? Theme.rose : current ? Theme.accent : Theme.line
                         scale: current ? 1.04 : 1
                         Behavior on scale { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
-                        Behavior on color { ColorAnimation { duration: Theme.fast } }
+                        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
                         ColumnLayout {
                             anchors.centerIn: parent

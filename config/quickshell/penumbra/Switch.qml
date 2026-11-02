@@ -12,7 +12,7 @@ Rectangle {
     radius: Theme.corner(12)
     color: checked ? Theme.accent : Theme.raised
     border.color: checked ? Theme.accentBright : Theme.lineStrong
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
     Rectangle {
         width: 18

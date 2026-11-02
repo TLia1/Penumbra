@@ -33,7 +33,7 @@ Rectangle {
     color: active ? Theme.accent : (interactive && hovered ? Theme.hover : Theme.glass)
     border.width: 1
     border.color: active ? Theme.accentBright : Theme.line
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
     Behavior on implicitWidth { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
 
     // Declared before the row so it sits underneath: children with their own

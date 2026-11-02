@@ -4,7 +4,6 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import Quickshell.Networking
-import Quickshell.Services.Mpris
 import Quickshell.Services.UPower
 import Quickshell.Widgets
 
@@ -17,7 +16,7 @@ Panel {
     open: Ui.controlOpen
     onDismissed: Ui.dismiss()
 
-    readonly property var player: Mpris.players.values.find(p => p.isPlaying) ?? Mpris.players.values[0] ?? null
+    readonly property var player: Media.player
     property var expandedApps: []
 
     property string uptime: ""

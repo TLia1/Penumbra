@@ -9,7 +9,7 @@ Text {
     font.pixelSize: size
     verticalAlignment: Text.AlignVCenter
     horizontalAlignment: Text.AlignHCenter
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
     // The non-Mono Nerd Font draws most icons wider than their one-cell advance, hanging off to
     // the right, so centring the advance leaves the icon off-centre. Pad the short side so the

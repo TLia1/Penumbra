@@ -101,12 +101,12 @@ PanelWindow {
                 Layout.preferredHeight: 18
                 // Centred pills that stretch both ways, so a quiet passage is a row of short dashes.
                 Repeater {
-                    model: Media.bars
+                    model: Media.count
                     delegate: Rectangle {
-                        required property real modelData
+                        required property int index
                         anchors.verticalCenter: parent?.verticalCenter
                         width: 3
-                        height: 5 + modelData * 13
+                        height: 5 + (Media.bars[index] ?? 0) * 13
                         radius: Theme.corner(1.5)
                         color: Theme.accentBright
                         Behavior on height { NumberAnimation { duration: 60 } }
@@ -230,7 +230,7 @@ PanelWindow {
             spacing: 12
             active: Ui.monitorOpen
             tip: `CPU ${Usage.cpu}% · Memory ${Usage.memoryDetail}`
-            onClicked: m => m.button === Qt.RightButton ? Ui.run("kitty --class penumbra-monitor htop") : Ui.toggleMonitor()
+            onClicked: m => m.button === Qt.RightButton ? Ui.run("kitty --class penumbra-monitor btop") : Ui.toggleMonitor()
             readonly property color tint: Ui.monitorOpen ? Theme.onAccent : Theme.subtle
             Repeater {
                 model: [{ name: "CPU", value: Usage.cpu }, { name: "RAM", value: Usage.memory }]

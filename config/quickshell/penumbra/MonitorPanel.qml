@@ -183,7 +183,7 @@ Panel {
         radius: Theme.radius
         color: interactive && meterArea.containsMouse ? Theme.hover : Theme.raised
         border.color: Theme.line
-        Behavior on color { ColorAnimation { duration: Theme.fast } }
+        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
         MouseArea {
             id: meterArea
@@ -309,7 +309,7 @@ Panel {
                     radius: Theme.corner(16)
                     color: current ? Theme.accent : pageArea.containsMouse ? Theme.hover : Theme.raised
                     border.color: current ? Theme.accentBright : Theme.line
-                    Behavior on color { ColorAnimation { duration: Theme.fast } }
+                    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
                     Behavior on implicitWidth { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
                     RowLayout {
                         id: pageRow
@@ -633,7 +633,7 @@ Panel {
                             color: area.containsMouse || expanded ? Theme.raised : "transparent"
                             border.color: expanded ? Theme.line : "transparent"
                             clip: true
-                            Behavior on color { ColorAnimation { duration: Theme.fast } }
+                            Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
                             Behavior on implicitHeight { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
 
                             MouseArea {

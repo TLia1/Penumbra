@@ -35,7 +35,7 @@ Rectangle {
     radius: Theme.radius
     color: compact ? (area.containsMouse ? Theme.hover : Theme.raised) : Theme.glassStrong
     border.color: critical ? Theme.rose : compact ? Theme.line : Theme.lineStrong
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
     Shadow {
         z: -1

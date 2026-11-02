@@ -951,7 +951,7 @@ uninstall_user() {
     mkdir -p "$BACKUP"
     step 'Removing Penumbra from your account'
     systemctl --user stop penumbra-shell.service 2>/dev/null || true
-    undo_runs "$dir" "$HOME" .config .local .gitconfig .mozilla
+    undo_runs "$dir" "$HOME" .config .local .gitconfig .mozilla .var
     # The lock screen's link to the current wallpaper, the theme choice, its palette and the colours
     # found in wallpapers, and folders left empty.
     [[ -L $HOME/.local/share/penumbra/lock.png ]] && rm -f "$HOME/.local/share/penumbra/lock.png"
@@ -4547,7 +4547,7 @@ if __name__ == '__main__':
 set -euo pipefail
 color=$(hyprpicker --autocopy --format=hex --no-fancy --quiet 2>/dev/null) || exit 0
 [[ -n "$color" ]] || exit 0
-notify-send -a Penumbra "Color copied · $color" "<span foreground='$color'>██████</span>  $color"
+notify-send -a Penumbra "Color copied · $color" "<font color='$color'>██████</font>  $color"
 ```
 
 ## `bin/penumbra-power`
@@ -7214,12 +7214,12 @@ PanelWindow {
                 Layout.preferredHeight: 18
                 // Centred pills that stretch both ways, so a quiet passage is a row of short dashes.
                 Repeater {
-                    model: Media.bars
+                    model: Media.count
                     delegate: Rectangle {
-                        required property real modelData
+                        required property int index
                         anchors.verticalCenter: parent?.verticalCenter
                         width: 3
-                        height: 5 + modelData * 13
+                        height: 5 + (Media.bars[index] ?? 0) * 13
                         radius: Theme.corner(1.5)
                         color: Theme.accentBright
                         Behavior on height { NumberAnimation { duration: 60 } }
@@ -7343,7 +7343,7 @@ PanelWindow {
             spacing: 12
             active: Ui.monitorOpen
             tip: `CPU ${Usage.cpu}% · Memory ${Usage.memoryDetail}`
-            onClicked: m => m.button === Qt.RightButton ? Ui.run("kitty --class penumbra-monitor htop") : Ui.toggleMonitor()
+            onClicked: m => m.button === Qt.RightButton ? Ui.run("kitty --class penumbra-monitor btop") : Ui.toggleMonitor()
             readonly property color tint: Ui.monitorOpen ? Theme.onAccent : Theme.subtle
             Repeater {
                 model: [{ name: "CPU", value: Usage.cpu }, { name: "RAM", value: Usage.memory }]
@@ -7877,7 +7877,7 @@ Rectangle {
     color: active ? Theme.accent : (interactive && hovered ? Theme.hover : Theme.glass)
     border.width: 1
     border.color: active ? Theme.accentBright : Theme.line
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
     Behavior on implicitWidth { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
 
     // Declared before the row so it sits underneath: children with their own
@@ -8409,7 +8409,6 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import Quickshell.Networking
-import Quickshell.Services.Mpris
 import Quickshell.Services.UPower
 import Quickshell.Widgets
 
@@ -8422,7 +8421,7 @@ Panel {
     open: Ui.controlOpen
     onDismissed: Ui.dismiss()
 
-    readonly property var player: Mpris.players.values.find(p => p.isPlaying) ?? Mpris.players.values[0] ?? null
+    readonly property var player: Media.player
     property var expandedApps: []
 
     property string uptime: ""
@@ -10035,7 +10034,7 @@ Text {
     font.pixelSize: size
     verticalAlignment: Text.AlignVCenter
     horizontalAlignment: Text.AlignHCenter
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
     // The non-Mono Nerd Font draws most icons wider than their one-cell advance, hanging off to
     // the right, so centring the advance leaves the icon off-centre. Pad the short side so the
@@ -10212,7 +10211,7 @@ ColumnLayout {
                 implicitHeight: 52
                 radius: Theme.radiusSmall
                 color: hover.hovered ? Theme.raised : "transparent"
-                Behavior on color { ColorAnimation { duration: Theme.fast } }
+                Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
                 HoverHandler { id: hover }
                 RowLayout {
                     anchors { fill: parent; leftMargin: 10; rightMargin: 4 }
@@ -10441,7 +10440,7 @@ Text {
     font.features: { "tnum": 1 }
     verticalAlignment: Text.AlignVCenter
     elide: Text.ElideRight
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 }
 ```
 
@@ -10885,7 +10884,7 @@ PanelWindow {
                         radius: Theme.corner(15)
                         color: current ? Theme.accent : modeArea.containsMouse ? Theme.hover : Theme.raised
                         border.color: current ? Theme.accentBright : Theme.line
-                        Behavior on color { ColorAnimation { duration: Theme.fast } }
+                        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
                         RowLayout {
                             id: modeRow
                             anchors.centerIn: parent
@@ -11198,7 +11197,7 @@ Rectangle {
     radius: Theme.radiusSmall
     color: highlighted ? Theme.line : area.containsMouse || expanded ? Theme.raised : "transparent"
     border.color: highlighted ? Theme.lineStrong : expanded ? Theme.line : "transparent"
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
     Behavior on implicitHeight { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
     clip: true
 
@@ -11269,7 +11268,6 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
-import Quickshell.Services.Mpris
 import Quickshell.Widgets
 
 // One monitor of the lock screen: the wordmark-free wallpaper (dawn and eclipse keep moving),
@@ -11280,7 +11278,7 @@ Rectangle {
     property real pixelRatio: 1
     color: Theme.base
 
-    readonly property var player: Mpris.players.values.find(p => p.isPlaying) ?? null
+    readonly property var player: Media.player
 
     // ── Wallpaper ───────────────────────────────────────────────────
     Image {
@@ -12033,7 +12031,7 @@ ColumnLayout {
         color: current ? Theme.alpha(Theme.accent, 0.12) : choiceArea.containsMouse ? Theme.hover : Theme.raised
         border.width: current ? 2 : 1
         border.color: current ? Theme.accent : Theme.line
-        Behavior on color { ColorAnimation { duration: Theme.fast } }
+        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
         Item {
             id: holder
@@ -12264,7 +12262,7 @@ ColumnLayout {
                             color: modelData
                             border.width: 2
                             border.color: Theme.surface
-                            Behavior on color { ColorAnimation { duration: Theme.slow } }
+                            Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.slow } }
                         }
                     }
                 }
@@ -13018,7 +13016,7 @@ Panel {
         radius: Theme.radius
         color: interactive && meterArea.containsMouse ? Theme.hover : Theme.raised
         border.color: Theme.line
-        Behavior on color { ColorAnimation { duration: Theme.fast } }
+        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
         MouseArea {
             id: meterArea
@@ -13144,7 +13142,7 @@ Panel {
                     radius: Theme.corner(16)
                     color: current ? Theme.accent : pageArea.containsMouse ? Theme.hover : Theme.raised
                     border.color: current ? Theme.accentBright : Theme.line
-                    Behavior on color { ColorAnimation { duration: Theme.fast } }
+                    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
                     Behavior on implicitWidth { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
                     RowLayout {
                         id: pageRow
@@ -13468,7 +13466,7 @@ Panel {
                             color: area.containsMouse || expanded ? Theme.raised : "transparent"
                             border.color: expanded ? Theme.line : "transparent"
                             clip: true
-                            Behavior on color { ColorAnimation { duration: Theme.fast } }
+                            Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
                             Behavior on implicitHeight { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
 
                             MouseArea {
@@ -13951,7 +13949,7 @@ Rectangle {
     radius: Theme.radius
     color: compact ? (area.containsMouse ? Theme.hover : Theme.raised) : Theme.glassStrong
     border.color: critical ? Theme.rose : compact ? Theme.line : Theme.lineStrong
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
     Shadow {
         z: -1
@@ -14647,7 +14645,7 @@ PanelWindow {
                             color: drop.containsDrag ? Theme.alpha(Theme.accent, 0.2) : Theme.alpha(Theme.base, 0.55)
                             border.width: tile.current || drop.containsDrag ? 2 : 1
                             border.color: tile.current || drop.containsDrag ? Theme.accent : Theme.line
-                            Behavior on color { ColorAnimation { duration: Theme.fast } }
+                            Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
                             // The wallpaper behind the windows.
                             Image {
@@ -14959,7 +14957,7 @@ Rectangle {
     opacity: available ? 1 : 0.45
     color: primary ? (area.containsMouse ? Theme.accentBright : Theme.accent) : area.containsMouse ? Theme.hover : Theme.raised
     border.color: danger ? Theme.alpha(Theme.rose, 0.5) : primary ? Theme.accentBright : Theme.line
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
     Label {
         id: label
@@ -15400,7 +15398,7 @@ PanelWindow {
     readonly property var monitor: Hyprland.monitorFor(screen)
     // Windows on this screen's workspace in local coordinates, floating ones first (they're on top).
     readonly property var windows: (monitor?.activeWorkspace?.toplevels.values ?? [])
-        .filter(t => t.lastIpcObject.size)
+        .filter(t => t.lastIpcObject?.size)
         .sort((a, b) => (b.lastIpcObject.floating ?? false) - (a.lastIpcObject.floating ?? false))
         .map(t => ({
             title: t.title,
@@ -15572,7 +15570,7 @@ PanelWindow {
             radius: Theme.corner(19)
             color: on ? Theme.alpha(tint, 0.2) : chipArea.containsMouse ? Theme.hover : "transparent"
             border.color: on ? tint : "transparent"
-            Behavior on color { ColorAnimation { duration: Theme.fast } }
+            Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
             RowLayout {
                 id: chipRow
                 anchors.centerIn: parent
@@ -15620,7 +15618,7 @@ PanelWindow {
                         implicitHeight: 38
                         radius: Theme.corner(19)
                         color: current ? Theme.accent : toolArea.containsMouse ? Theme.hover : "transparent"
-                        Behavior on color { ColorAnimation { duration: Theme.fast } }
+                        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
                         RowLayout {
                             id: toolRow
                             anchors.centerIn: parent
@@ -15740,7 +15738,7 @@ Rectangle {
                 color: current ? Theme.alpha(Theme.accent, 0.22) : segmentArea.containsMouse ? Theme.hover : "transparent"
                 border.color: current ? Theme.alpha(Theme.accentBright, 0.55) : "transparent"
                 opacity: available ? 1 : 0.45
-                Behavior on color { ColorAnimation { duration: Theme.fast } }
+                Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
                 RowLayout {
                     anchors.centerIn: parent
                     width: Math.min(implicitWidth, parent.width - 8)
@@ -15874,7 +15872,7 @@ PanelWindow {
                         border.color: isArmed ? Theme.rose : current ? Theme.accent : Theme.line
                         scale: current ? 1.04 : 1
                         Behavior on scale { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
-                        Behavior on color { ColorAnimation { duration: Theme.fast } }
+                        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
                         ColumnLayout {
                             anchors.centerIn: parent
@@ -16335,7 +16333,7 @@ Item {
         radius: Theme.corner(width / 2)
         color: root.color
         border.color: Theme.overlayStrong
-        Behavior on color { ColorAnimation { duration: Theme.slow } }
+        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.slow } }
     }
     MouseArea {
         id: area
@@ -16364,7 +16362,7 @@ Rectangle {
     radius: Theme.corner(12)
     color: checked ? Theme.accent : Theme.raised
     border.color: checked ? Theme.accentBright : Theme.lineStrong
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
     Rectangle {
         width: 18
@@ -16403,7 +16401,7 @@ Rectangle {
     implicitHeight: 52
     radius: Theme.radiusSmall
     color: rowArea.containsMouse ? Theme.raised : "transparent"
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
     MouseArea {
         id: rowArea
@@ -16483,6 +16481,8 @@ Singleton {
             Ui.showOsd("brightness", root.brightness, false);
             return true;
         }
+        if (action !== "up" && action !== "down")
+            return false;
         brightnessStep.command = ["brightnessctl", "-m", "--class=backlight", "--min-value=1", "set", action === "up" ? "5%+" : "5%-"];
         brightnessStep.running = true;
         return true;
@@ -16750,7 +16750,7 @@ Rectangle {
     color: on ? Theme.alpha(Theme.accent, body.containsMouse ? 0.3 : 0.22) : body.containsMouse ? Theme.hover : Theme.raised
     border.color: on ? Theme.alpha(Theme.accentBright, 0.55) : Theme.line
     opacity: available ? 1 : 0.45
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
     MouseArea {
         id: body
@@ -16769,7 +16769,7 @@ Rectangle {
             implicitHeight: 36
             radius: Theme.corner(18)
             color: root.on ? Theme.accent : Theme.alpha(Theme.accent, 0.12)
-            Behavior on color { ColorAnimation { duration: Theme.fast } }
+            Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
             Glyph {
                 anchors.centerIn: parent
                 text: root.glyph

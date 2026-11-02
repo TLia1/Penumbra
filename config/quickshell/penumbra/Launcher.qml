@@ -435,7 +435,7 @@ PanelWindow {
                         radius: Theme.corner(15)
                         color: current ? Theme.accent : modeArea.containsMouse ? Theme.hover : Theme.raised
                         border.color: current ? Theme.accentBright : Theme.line
-                        Behavior on color { ColorAnimation { duration: Theme.fast } }
+                        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
                         RowLayout {
                             id: modeRow
                             anchors.centerIn: parent

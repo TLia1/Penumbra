@@ -3,4 +3,4 @@
 set -euo pipefail
 color=$(hyprpicker --autocopy --format=hex --no-fancy --quiet 2>/dev/null) || exit 0
 [[ -n "$color" ]] || exit 0
-notify-send -a Penumbra "Color copied · $color" "<span foreground='$color'>██████</span>  $color"
+notify-send -a Penumbra "Color copied · $color" "<font color='$color'>██████</font>  $color"

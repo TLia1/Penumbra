@@ -45,7 +45,7 @@ ColumnLayout {
                 implicitHeight: 52
                 radius: Theme.radiusSmall
                 color: hover.hovered ? Theme.raised : "transparent"
-                Behavior on color { ColorAnimation { duration: Theme.fast } }
+                Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
                 HoverHandler { id: hover }
                 RowLayout {
                     anchors { fill: parent; leftMargin: 10; rightMargin: 4 }

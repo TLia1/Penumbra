@@ -30,7 +30,7 @@ ColumnLayout {
         color: current ? Theme.alpha(Theme.accent, 0.12) : choiceArea.containsMouse ? Theme.hover : Theme.raised
         border.width: current ? 2 : 1
         border.color: current ? Theme.accent : Theme.line
-        Behavior on color { ColorAnimation { duration: Theme.fast } }
+        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
         Item {
             id: holder
@@ -261,7 +261,7 @@ ColumnLayout {
                             color: modelData
                             border.width: 2
                             border.color: Theme.surface
-                            Behavior on color { ColorAnimation { duration: Theme.slow } }
+                            Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.slow } }
                         }
                     }
                 }

@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
-import Quickshell.Services.Mpris
 import Quickshell.Widgets
 
 // One monitor of the lock screen: the wordmark-free wallpaper (dawn and eclipse keep moving),
@@ -13,7 +12,7 @@ Rectangle {
     property real pixelRatio: 1
     color: Theme.base
 
-    readonly property var player: Mpris.players.values.find(p => p.isPlaying) ?? null
+    readonly property var player: Media.player
 
     // ── Wallpaper ───────────────────────────────────────────────────
     Image {

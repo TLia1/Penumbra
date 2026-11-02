@@ -14,7 +14,7 @@ Rectangle {
     implicitHeight: 52
     radius: Theme.radiusSmall
     color: rowArea.containsMouse ? Theme.raised : "transparent"
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
     MouseArea {
         id: rowArea

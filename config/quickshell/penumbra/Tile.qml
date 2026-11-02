@@ -20,7 +20,7 @@ Rectangle {
     color: on ? Theme.alpha(Theme.accent, body.containsMouse ? 0.3 : 0.22) : body.containsMouse ? Theme.hover : Theme.raised
     border.color: on ? Theme.alpha(Theme.accentBright, 0.55) : Theme.line
     opacity: available ? 1 : 0.45
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
     MouseArea {
         id: body
@@ -39,7 +39,7 @@ Rectangle {
             implicitHeight: 36
             radius: Theme.corner(18)
             color: root.on ? Theme.accent : Theme.alpha(Theme.accent, 0.12)
-            Behavior on color { ColorAnimation { duration: Theme.fast } }
+            Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
             Glyph {
                 anchors.centerIn: parent
                 text: root.glyph

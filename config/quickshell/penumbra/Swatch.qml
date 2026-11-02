@@ -24,7 +24,7 @@ Item {
         radius: Theme.corner(width / 2)
         color: root.color
         border.color: Theme.overlayStrong
-        Behavior on color { ColorAnimation { duration: Theme.slow } }
+        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.slow } }
     }
     MouseArea {
         id: area
