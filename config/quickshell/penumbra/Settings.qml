@@ -14,6 +14,7 @@ Singleton {
     property alias nightFrom: adapter.nightFrom
     property alias nightTo: adapter.nightTo
     property alias nightPlace: adapter.nightPlace // a city or "latitude, longitude"; empty: the time zone's
+    property alias nightOn: adapter.nightOn // the last toggle by hand, restored on start in manual mode
     // Casting: whether the TV also plays what the computer plays.
     property alias castSound: adapter.castSound
 
@@ -38,6 +39,7 @@ Singleton {
             property string nightFrom: "21:00"
             property string nightTo: "07:00"
             property string nightPlace: ""
+            property bool nightOn: false
             property bool castSound: true
         }
     }

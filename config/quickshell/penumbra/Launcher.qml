@@ -196,7 +196,7 @@ PanelWindow {
         if (item.kind === "app") {
             launch(item.entry);
         } else if (item.kind === "run") {
-            Ui.spawn(alternate ? ["kitty", "--hold", "bash", "-c", item.command] : ["bash", "-c", item.command]);
+            Ui.spawn(alternate ? Ui.terminal(["bash", "-c", item.command], ["--hold"]) : ["bash", "-c", item.command]);
         } else if (item.kind === "calc") {
             Ui.spawn(["wl-copy", String(item.value)]);
         } else if (item.kind === "clip") {
@@ -214,7 +214,7 @@ PanelWindow {
         // Field codes (%u, %F…) stand for files and URLs; there are none to pass.
         const command = entry.command.filter(arg => !/^%[a-zA-Z]$/.test(arg));
         Ui.spawn({
-            command: entry.runInTerminal ? ["kitty", "--", ...command] : command,
+            command: entry.runInTerminal ? Ui.terminal(command) : command,
             workingDirectory: entry.workingDirectory || Quickshell.env("HOME")
         });
         usage = Object.assign({}, usage, { [entry.id]: (usage[entry.id] ?? 0) + 1 });

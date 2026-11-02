@@ -507,12 +507,16 @@ Panel {
                 visible: Notifs.count > 0
                 clip: true
                 spacing: 12
-                model: Notifs.groups
+                // Keyed by app name: the group objects are rebuilt on every notification,
+                // but the names stay, so existing delegates are kept and `displaced` runs.
+                model: ScriptModel { values: Notifs.groups.map(g => g.app) }
                 boundsBehavior: Flickable.StopAtBounds
                 delegate: ColumnLayout {
                     id: group
-                    required property var modelData
-                    readonly property bool expanded: root.expandedApps.includes(modelData.app)
+                    required property string modelData
+                    readonly property string app: modelData
+                    readonly property var items: Notifs.groups.find(g => g.app === app)?.items ?? []
+                    readonly property bool expanded: root.expandedApps.includes(app)
                     width: ListView.view.width
                     spacing: 6
 
@@ -522,13 +526,13 @@ Panel {
                         Layout.rightMargin: 4
                         Label {
                             Layout.fillWidth: true
-                            text: group.modelData.app + (group.modelData.items.length > 1 ? ` · ${group.modelData.items.length}` : "")
+                            text: group.app + (group.items.length > 1 ? ` · ${group.items.length}` : "")
                             font.pixelSize: Theme.textSmall
                             font.weight: Font.DemiBold
                             color: Theme.textSoft
                         }
                         Label {
-                            visible: group.modelData.items.length > 1
+                            visible: group.items.length > 1
                             text: group.expanded ? "Show less" : "Show all"
                             font.pixelSize: Theme.textSmall
                             color: expandArea.containsMouse ? Theme.accentBright : Theme.accent
@@ -539,8 +543,8 @@ Panel {
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: root.expandedApps = group.expanded
-                                    ? root.expandedApps.filter(a => a !== group.modelData.app)
-                                    : [...root.expandedApps, group.modelData.app]
+                                    ? root.expandedApps.filter(a => a !== group.app)
+                                    : [...root.expandedApps, group.app]
                             }
                         }
                         Glyph {
@@ -554,13 +558,13 @@ Panel {
                                 anchors.margins: -6
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: Notifs.clearApp(group.modelData.app)
+                                onClicked: Notifs.clearApp(group.app)
                             }
                         }
                     }
 
                     Repeater {
-                        model: group.expanded ? group.modelData.items : group.modelData.items.slice(0, 1)
+                        model: ScriptModel { values: group.expanded ? group.items : group.items.slice(0, 1) }
                         delegate: NotificationCard {
                             required property var modelData
                             Layout.fillWidth: true

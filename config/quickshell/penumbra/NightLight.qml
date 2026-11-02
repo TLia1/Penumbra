@@ -7,7 +7,7 @@ import "sun.js" as Sun
 // Night light: hyprsunset warms the screen. It is turned on by hand, or by a schedule (fixed
 // times, or sunset to sunrise where you are), and fades between warm and neutral rather than
 // jumping. The choices are in Settings (shell.json); a toggle by hand lasts until the schedule
-// next turns it on or off.
+// next turns it on or off, and in manual mode it is saved so it survives a shell restart.
 Singleton {
     id: root
 
@@ -19,6 +19,8 @@ Singleton {
 
     function toggle() {
         on = !on;
+        if (schedule === "manual")
+            Settings.nightOn = on;
         fade(0);
     }
 
@@ -123,11 +125,17 @@ Singleton {
     }
     // A typed place, or the list of cities once it has loaded.
     onPlaceChanged: if (schedule === "sun") followSchedule(false, true)
-    // Settings load just after the shell starts.
+    // Settings load just after the shell starts; manual mode comes back as it was left.
     Timer {
         interval: 1500
         running: true
-        onTriggered: root.followSchedule(false, true)
+        onTriggered: {
+            if (root.schedule === "manual" && Settings.nightOn && !root.on) {
+                root.on = true;
+                root.fade(0);
+            }
+            root.followSchedule(false, true);
+        }
     }
     // The slider moves in many small steps; send hyprsunset only where it stops.
     onTemperatureChanged: if (on) settle.restart()

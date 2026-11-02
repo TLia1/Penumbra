@@ -186,5 +186,10 @@ Singleton {
     function run(command) {
         spawn(["bash", "-c", command]);
     }
+    // The argument list for running `command` (a list) in the terminal from Settings → Default
+    // apps; `options` are penumbra-terminal's, such as ["--class", "penumbra-monitor", "--hold"].
+    function terminal(command, options) {
+        return [bin + "penumbra-terminal", ...(options ?? []), "--", ...command];
+    }
     readonly property string bin: Quickshell.env("HOME") + "/.local/bin/"
 }

@@ -487,15 +487,20 @@ enable_keyring_unlock() {
     echo "Added gnome-keyring to $pam, so the keyring unlocks when you sign in."
 }
 
-# Administrator prompts take a fingerprint once fprintd is installed: pam_fprintd goes first in
-# polkit's PAM stack, for one scan or ten seconds, then the password as before. It steps aside at
-# once when no finger is enrolled, and "-" skips it if fprintd is removed. The lock screen has a
-# stack of its own in the shell (config/quickshell/penumbra/pam/fingerprint).
+# Administrator prompts can take a fingerprint once fprintd is installed, if you say so (a
+# fingerprint is fine for unlocking to many people, but not for root actions): pam_fprintd goes
+# first in polkit's PAM stack, for one scan or ten seconds, then the password as before. It steps
+# aside at once when no finger is enrolled, and "-" skips it if fprintd is removed. The lock
+# screen has a stack of its own in the shell (config/quickshell/penumbra/pam/fingerprint).
 enable_fingerprint_polkit() {
     local pam=/etc/pam.d/polkit-1 vendor=/usr/lib/pam.d/polkit-1 from
     command -v fprintd-list >/dev/null || return 0
     if [[ -f $pam ]]; then from=$pam; elif [[ -f $vendor ]]; then from=$vendor; else return 0; fi
     grep -Eq '^-?auth[[:space:]].*pam_fprintd\.so' "$from" && return 0
+    local question='Accept a fingerprint, instead of your password, for administrator prompts?'
+    # The edited copy in /etc shadows the package's file, so its later updates would not apply.
+    [[ $from == "$vendor" ]] && question+=" (This copies $vendor to $pam, which then hides package updates to it.)"
+    ask "$question" || return 0
     backup_file "$pam" "${pam#/}"
     awk '!done && /^-?auth[[:space:]]/ { print "-auth      sufficient   pam_fprintd.so max-tries=1 timeout=10"; done = 1 } { print }' \
         "$from" > "$pam.penumbra" && mv "$pam.penumbra" "$pam"
@@ -4994,6 +4999,84 @@ wl-copy < "$file"
 notify-send -a Penumbra -i "$file" 'Screenshot saved' "Copied to clipboard · ${file/#$HOME/\~}"
 ```
 
+## `bin/penumbra-terminal`
+
+```bash
+#!/usr/bin/env bash
+# Run a command in the terminal chosen in Settings → Default apps (terminal= in settings.conf).
+# Usage: penumbra-terminal [--class NAME] [--title TITLE] [--hold] [-- COMMAND…]
+# Terminals spell these options differently; the ones below are known, others get the command
+# through xdg-terminal-exec when it is installed, or kitty.
+set -euo pipefail
+
+class="" title="" hold=0
+while (($#)); do
+    case $1 in
+        --class) class=$2; shift 2 ;;
+        --title) title=$2; shift 2 ;;
+        --hold) hold=1; shift ;;
+        --) shift; break ;;
+        *) break ;;
+    esac
+done
+
+# The setting names a desktop file; its Exec= line gives the program.
+id=$(sed -n 's/^terminal=//p' "$HOME/.config/penumbra/settings.conf" 2>/dev/null | tail -n 1)
+program=""
+IFS=: read -ra dirs <<<"${XDG_DATA_HOME:-$HOME/.local/share}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+for dir in "${dirs[@]}"; do
+    file="$dir/applications/${id:-kitty}.desktop"
+    if [[ -n $id && -r $file ]]; then
+        program=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' "$file" | head -n 1)
+        break
+    fi
+done
+[[ -n $program ]] && command -v "$program" >/dev/null || program=kitty
+
+kitty_args() {
+    [[ -n $class ]] && args+=(--class "$class")
+    [[ -n $title ]] && args+=(--title "$title")
+    ((hold)) && args+=(--hold)
+    args+=(--)
+}
+
+args=()
+case ${program##*/} in
+    kitty) kitty_args ;;
+    foot)
+        [[ -n $class ]] && args+=(--app-id "$class")
+        [[ -n $title ]] && args+=(--title "$title")
+        ((hold)) && args+=(--hold) ;;
+    alacritty)
+        [[ -n $class ]] && args+=(--class "$class")
+        [[ -n $title ]] && args+=(--title "$title")
+        ((hold)) && args+=(--hold)
+        (($#)) && args+=(-e) ;;
+    ghostty)
+        [[ -n $class ]] && args+=("--class=$class")
+        [[ -n $title ]] && args+=("--title=$title")
+        ((hold)) && args+=(--wait-after-command)
+        (($#)) && args+=(-e) ;;
+    wezterm)
+        args+=(start)
+        [[ -n $class ]] && args+=(--class "$class")
+        (($#)) && args+=(--) ;;
+    konsole)
+        ((hold)) && args+=(--hold)
+        (($#)) && args+=(-e) ;;
+    *)
+        # Unknown terminal: no options, and the command only through xdg-terminal-exec.
+        if (($#)) && command -v xdg-terminal-exec >/dev/null; then
+            exec xdg-terminal-exec "$@"
+        fi
+        if (($#)); then
+            program=kitty
+            kitty_args
+        fi ;;
+esac
+exec "$program" "${args[@]}" "$@"
+```
+
 ## `bin/penumbra-theme`
 
 ```python
@@ -5488,7 +5571,7 @@ if __name__ == '__main__':
 
 ```python
 #!/usr/bin/env python3
-"""Update checks for the Penumbra bar and an interactive Kitty update session."""
+"""Update checks for the Penumbra bar and an interactive update session in the terminal."""
 import fcntl
 import html
 import importlib.util
@@ -5608,8 +5691,10 @@ def main():
         handle = lock("terminal.lock")
         if handle is not None:
             try:
-                return subprocess.call(["kitty", "--class", "penumbra-updates",
-                                        "--title", "Penumbra · Updates",
+                # penumbra-terminal opens the terminal from Settings → Default apps.
+                terminal = Path(__file__).resolve().with_name("penumbra-terminal")
+                return subprocess.call([str(terminal), "--class", "penumbra-updates",
+                                        "--title", "Penumbra · Updates", "--",
                                         str(Path(__file__).resolve()), "run"])
             finally:
                 handle.close()
@@ -7178,9 +7263,11 @@ PanelWindow {
         RowLayout {
             spacing: Theme.gap
             Repeater {
-                model: Hyprland.workspaces.values
-                    .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
-                    .sort((a, b) => a.id - b.id)
+                model: ScriptModel {
+                    values: Hyprland.workspaces.values
+                        .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
+                        .sort((a, b) => a.id - b.id)
+                }
                 delegate: Capsule {
                     id: workspace
                     required property var modelData
@@ -7343,21 +7430,21 @@ PanelWindow {
             spacing: 12
             active: Ui.monitorOpen
             tip: `CPU ${Usage.cpu}% · Memory ${Usage.memoryDetail}`
-            onClicked: m => m.button === Qt.RightButton ? Ui.run("kitty --class penumbra-monitor btop") : Ui.toggleMonitor()
+            onClicked: m => m.button === Qt.RightButton ? Ui.spawn(Ui.terminal(["btop"], ["--class", "penumbra-monitor"])) : Ui.toggleMonitor()
             readonly property color tint: Ui.monitorOpen ? Theme.onAccent : Theme.subtle
             Repeater {
-                model: [{ name: "CPU", value: Usage.cpu }, { name: "RAM", value: Usage.memory }]
+                model: ["CPU", "RAM"]
                 delegate: RowLayout {
-                    required property var modelData
+                    required property string modelData
                     spacing: 5
                     Label {
-                        text: modelData.name
+                        text: modelData
                         font.pixelSize: Theme.textTiny
                         font.weight: Font.DemiBold
                         font.letterSpacing: 0.6
                         color: Ui.monitorOpen ? Theme.onAccent : Theme.dim
                     }
-                    Label { text: modelData.value + "%"; color: monitor.tint }
+                    Label { text: (modelData === "CPU" ? Usage.cpu : Usage.memory) + "%"; color: monitor.tint }
                 }
             }
         }
@@ -8912,12 +8999,16 @@ Panel {
                 visible: Notifs.count > 0
                 clip: true
                 spacing: 12
-                model: Notifs.groups
+                // Keyed by app name: the group objects are rebuilt on every notification,
+                // but the names stay, so existing delegates are kept and `displaced` runs.
+                model: ScriptModel { values: Notifs.groups.map(g => g.app) }
                 boundsBehavior: Flickable.StopAtBounds
                 delegate: ColumnLayout {
                     id: group
-                    required property var modelData
-                    readonly property bool expanded: root.expandedApps.includes(modelData.app)
+                    required property string modelData
+                    readonly property string app: modelData
+                    readonly property var items: Notifs.groups.find(g => g.app === app)?.items ?? []
+                    readonly property bool expanded: root.expandedApps.includes(app)
                     width: ListView.view.width
                     spacing: 6
 
@@ -8927,13 +9018,13 @@ Panel {
                         Layout.rightMargin: 4
                         Label {
                             Layout.fillWidth: true
-                            text: group.modelData.app + (group.modelData.items.length > 1 ? ` · ${group.modelData.items.length}` : "")
+                            text: group.app + (group.items.length > 1 ? ` · ${group.items.length}` : "")
                             font.pixelSize: Theme.textSmall
                             font.weight: Font.DemiBold
                             color: Theme.textSoft
                         }
                         Label {
-                            visible: group.modelData.items.length > 1
+                            visible: group.items.length > 1
                             text: group.expanded ? "Show less" : "Show all"
                             font.pixelSize: Theme.textSmall
                             color: expandArea.containsMouse ? Theme.accentBright : Theme.accent
@@ -8944,8 +9035,8 @@ Panel {
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: root.expandedApps = group.expanded
-                                    ? root.expandedApps.filter(a => a !== group.modelData.app)
-                                    : [...root.expandedApps, group.modelData.app]
+                                    ? root.expandedApps.filter(a => a !== group.app)
+                                    : [...root.expandedApps, group.app]
                             }
                         }
                         Glyph {
@@ -8959,13 +9050,13 @@ Panel {
                                 anchors.margins: -6
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: Notifs.clearApp(group.modelData.app)
+                                onClicked: Notifs.clearApp(group.app)
                             }
                         }
                     }
 
                     Repeater {
-                        model: group.expanded ? group.modelData.items : group.modelData.items.slice(0, 1)
+                        model: ScriptModel { values: group.expanded ? group.items : group.items.slice(0, 1) }
                         delegate: NotificationCard {
                             required property var modelData
                             Layout.fillWidth: true
@@ -10645,7 +10736,7 @@ PanelWindow {
         if (item.kind === "app") {
             launch(item.entry);
         } else if (item.kind === "run") {
-            Ui.spawn(alternate ? ["kitty", "--hold", "bash", "-c", item.command] : ["bash", "-c", item.command]);
+            Ui.spawn(alternate ? Ui.terminal(["bash", "-c", item.command], ["--hold"]) : ["bash", "-c", item.command]);
         } else if (item.kind === "calc") {
             Ui.spawn(["wl-copy", String(item.value)]);
         } else if (item.kind === "clip") {
@@ -10663,7 +10754,7 @@ PanelWindow {
         // Field codes (%u, %F…) stand for files and URLs; there are none to pass.
         const command = entry.command.filter(arg => !/^%[a-zA-Z]$/.test(arg));
         Ui.spawn({
-            command: entry.runInTerminal ? ["kitty", "--", ...command] : command,
+            command: entry.runInTerminal ? Ui.terminal(command) : command,
             workingDirectory: entry.workingDirectory || Quickshell.env("HOME")
         });
         usage = Object.assign({}, usage, { [entry.id]: (usage[entry.id] ?? 0) + 1 });
@@ -13573,7 +13664,7 @@ Panel {
                 primary: true
                 onClicked: {
                     Ui.close();
-                    Ui.run("kitty --class penumbra-monitor btop");
+                    Ui.spawn(Ui.terminal(["btop"], ["--class", "penumbra-monitor"]));
                 }
             }
         }
@@ -13593,7 +13684,7 @@ import "sun.js" as Sun
 // Night light: hyprsunset warms the screen. It is turned on by hand, or by a schedule (fixed
 // times, or sunset to sunrise where you are), and fades between warm and neutral rather than
 // jumping. The choices are in Settings (shell.json); a toggle by hand lasts until the schedule
-// next turns it on or off.
+// next turns it on or off, and in manual mode it is saved so it survives a shell restart.
 Singleton {
     id: root
 
@@ -13605,6 +13696,8 @@ Singleton {
 
     function toggle() {
         on = !on;
+        if (schedule === "manual")
+            Settings.nightOn = on;
         fade(0);
     }
 
@@ -13709,11 +13802,17 @@ Singleton {
     }
     // A typed place, or the list of cities once it has loaded.
     onPlaceChanged: if (schedule === "sun") followSchedule(false, true)
-    // Settings load just after the shell starts.
+    // Settings load just after the shell starts; manual mode comes back as it was left.
     Timer {
         interval: 1500
         running: true
-        onTriggered: root.followSchedule(false, true)
+        onTriggered: {
+            if (root.schedule === "manual" && Settings.nightOn && !root.on) {
+                root.on = true;
+                root.fade(0);
+            }
+            root.followSchedule(false, true);
+        }
     }
     // The slider moves in many small steps; send hyprsunset only where it stops.
     onTemperatureChanged: if (on) settle.restart()
@@ -14201,8 +14300,10 @@ PanelWindow {
         spacing: 8
         move: Transition { NumberAnimation { property: "y"; duration: Theme.normal; easing.type: Easing.OutCubic } }
 
+        // ScriptModel keeps existing cards when the array is replaced, so their
+        // timers, hover state and reply text survive a new notification.
         Repeater {
-            model: Notifs.popups
+            model: ScriptModel { values: Notifs.popups }
             delegate: NotificationCard {
                 id: card
                 required property var modelData
@@ -14313,11 +14414,20 @@ Singleton {
         onNotification: n => {
             n.tracked = true;
             root.received = Object.assign({}, root.received, { [n.id]: Date.now() });
-            n.closed.connect(() => root.hidePopup(n));
+            n.closed.connect(() => {
+                root.hidePopup(n);
+                const received = Object.assign({}, root.received);
+                delete received[n.id];
+                root.received = received;
+            });
             const shown = !root.dnd || n.urgency === NotificationUrgency.Critical;
-            if (shown)
-                root.popups = [n, ...root.popups].slice(0, 4);
-            else if (n.transient)
+            if (shown) {
+                const stack = [n, ...root.popups];
+                root.popups = stack.slice(0, 4);
+                // Pushed out of the stack counts as timed out, so transient ones still expire.
+                for (const dropped of stack.slice(4))
+                    root.retire(dropped);
+            } else if (n.transient)
                 Qt.callLater(() => n.expire());
             // Oldest first; keep the newest `limit`.
             const all = server.trackedNotifications.values;
@@ -15932,6 +16042,7 @@ Singleton {
     property alias nightFrom: adapter.nightFrom
     property alias nightTo: adapter.nightTo
     property alias nightPlace: adapter.nightPlace // a city or "latitude, longitude"; empty: the time zone's
+    property alias nightOn: adapter.nightOn // the last toggle by hand, restored on start in manual mode
     // Casting: whether the TV also plays what the computer plays.
     property alias castSound: adapter.castSound
 
@@ -15956,6 +16067,7 @@ Singleton {
             property string nightFrom: "21:00"
             property string nightTo: "07:00"
             property string nightPlace: ""
+            property bool nightOn: false
             property bool castSound: true
         }
     }
@@ -17007,6 +17119,11 @@ Singleton {
     }
     function run(command) {
         spawn(["bash", "-c", command]);
+    }
+    // The argument list for running `command` (a list) in the terminal from Settings → Default
+    // apps; `options` are penumbra-terminal's, such as ["--class", "penumbra-monitor", "--hold"].
+    function terminal(command, options) {
+        return [bin + "penumbra-terminal", ...(options ?? []), "--", ...command];
     }
     readonly property string bin: Quickshell.env("HOME") + "/.local/bin/"
 }

@@ -65,9 +65,11 @@ PanelWindow {
         RowLayout {
             spacing: Theme.gap
             Repeater {
-                model: Hyprland.workspaces.values
-                    .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
-                    .sort((a, b) => a.id - b.id)
+                model: ScriptModel {
+                    values: Hyprland.workspaces.values
+                        .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
+                        .sort((a, b) => a.id - b.id)
+                }
                 delegate: Capsule {
                     id: workspace
                     required property var modelData
@@ -230,21 +232,21 @@ PanelWindow {
             spacing: 12
             active: Ui.monitorOpen
             tip: `CPU ${Usage.cpu}% · Memory ${Usage.memoryDetail}`
-            onClicked: m => m.button === Qt.RightButton ? Ui.run("kitty --class penumbra-monitor btop") : Ui.toggleMonitor()
+            onClicked: m => m.button === Qt.RightButton ? Ui.spawn(Ui.terminal(["btop"], ["--class", "penumbra-monitor"])) : Ui.toggleMonitor()
             readonly property color tint: Ui.monitorOpen ? Theme.onAccent : Theme.subtle
             Repeater {
-                model: [{ name: "CPU", value: Usage.cpu }, { name: "RAM", value: Usage.memory }]
+                model: ["CPU", "RAM"]
                 delegate: RowLayout {
-                    required property var modelData
+                    required property string modelData
                     spacing: 5
                     Label {
-                        text: modelData.name
+                        text: modelData
                         font.pixelSize: Theme.textTiny
                         font.weight: Font.DemiBold
                         font.letterSpacing: 0.6
                         color: Ui.monitorOpen ? Theme.onAccent : Theme.dim
                     }
-                    Label { text: modelData.value + "%"; color: monitor.tint }
+                    Label { text: (modelData === "CPU" ? Usage.cpu : Usage.memory) + "%"; color: monitor.tint }
                 }
             }
         }

@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Run a command in the terminal chosen in Settings → Default apps (terminal= in settings.conf).
+# Usage: penumbra-terminal [--class NAME] [--title TITLE] [--hold] [-- COMMAND…]
+# Terminals spell these options differently; the ones below are known, others get the command
+# through xdg-terminal-exec when it is installed, or kitty.
+set -euo pipefail
+
+class="" title="" hold=0
+while (($#)); do
+    case $1 in
+        --class) class=$2; shift 2 ;;
+        --title) title=$2; shift 2 ;;
+        --hold) hold=1; shift ;;
+        --) shift; break ;;
+        *) break ;;
+    esac
+done
+
+# The setting names a desktop file; its Exec= line gives the program.
+id=$(sed -n 's/^terminal=//p' "$HOME/.config/penumbra/settings.conf" 2>/dev/null | tail -n 1)
+program=""
+IFS=: read -ra dirs <<<"${XDG_DATA_HOME:-$HOME/.local/share}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+for dir in "${dirs[@]}"; do
+    file="$dir/applications/${id:-kitty}.desktop"
+    if [[ -n $id && -r $file ]]; then
+        program=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' "$file" | head -n 1)
+        break
+    fi
+done
+[[ -n $program ]] && command -v "$program" >/dev/null || program=kitty
+
+kitty_args() {
+    [[ -n $class ]] && args+=(--class "$class")
+    [[ -n $title ]] && args+=(--title "$title")
+    ((hold)) && args+=(--hold)
+    args+=(--)
+}
+
+args=()
+case ${program##*/} in
+    kitty) kitty_args ;;
+    foot)
+        [[ -n $class ]] && args+=(--app-id "$class")
+        [[ -n $title ]] && args+=(--title "$title")
+        ((hold)) && args+=(--hold) ;;
+    alacritty)
+        [[ -n $class ]] && args+=(--class "$class")
+        [[ -n $title ]] && args+=(--title "$title")
+        ((hold)) && args+=(--hold)
+        (($#)) && args+=(-e) ;;
+    ghostty)
+        [[ -n $class ]] && args+=("--class=$class")
+        [[ -n $title ]] && args+=("--title=$title")
+        ((hold)) && args+=(--wait-after-command)
+        (($#)) && args+=(-e) ;;
+    wezterm)
+        args+=(start)
+        [[ -n $class ]] && args+=(--class "$class")
+        (($#)) && args+=(--) ;;
+    konsole)
+        ((hold)) && args+=(--hold)
+        (($#)) && args+=(-e) ;;
+    *)
+        # Unknown terminal: no options, and the command only through xdg-terminal-exec.
+        if (($#)) && command -v xdg-terminal-exec >/dev/null; then
+            exec xdg-terminal-exec "$@"
+        fi
+        if (($#)); then
+            program=kitty
+            kitty_args
+        fi ;;
+esac
+exec "$program" "${args[@]}" "$@"

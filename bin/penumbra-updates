@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Update checks for the Penumbra bar and an interactive Kitty update session."""
+"""Update checks for the Penumbra bar and an interactive update session in the terminal."""
 import fcntl
 import html
 import importlib.util
@@ -119,8 +119,10 @@ def main():
         handle = lock("terminal.lock")
         if handle is not None:
             try:
-                return subprocess.call(["kitty", "--class", "penumbra-updates",
-                                        "--title", "Penumbra · Updates",
+                # penumbra-terminal opens the terminal from Settings → Default apps.
+                terminal = Path(__file__).resolve().with_name("penumbra-terminal")
+                return subprocess.call([str(terminal), "--class", "penumbra-updates",
+                                        "--title", "Penumbra · Updates", "--",
                                         str(Path(__file__).resolve()), "run"])
             finally:
                 handle.close()

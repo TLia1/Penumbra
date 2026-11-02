@@ -476,15 +476,20 @@ enable_keyring_unlock() {
     echo "Added gnome-keyring to $pam, so the keyring unlocks when you sign in."
 }
 
-# Administrator prompts take a fingerprint once fprintd is installed: pam_fprintd goes first in
-# polkit's PAM stack, for one scan or ten seconds, then the password as before. It steps aside at
-# once when no finger is enrolled, and "-" skips it if fprintd is removed. The lock screen has a
-# stack of its own in the shell (config/quickshell/penumbra/pam/fingerprint).
+# Administrator prompts can take a fingerprint once fprintd is installed, if you say so (a
+# fingerprint is fine for unlocking to many people, but not for root actions): pam_fprintd goes
+# first in polkit's PAM stack, for one scan or ten seconds, then the password as before. It steps
+# aside at once when no finger is enrolled, and "-" skips it if fprintd is removed. The lock
+# screen has a stack of its own in the shell (config/quickshell/penumbra/pam/fingerprint).
 enable_fingerprint_polkit() {
     local pam=/etc/pam.d/polkit-1 vendor=/usr/lib/pam.d/polkit-1 from
     command -v fprintd-list >/dev/null || return 0
     if [[ -f $pam ]]; then from=$pam; elif [[ -f $vendor ]]; then from=$vendor; else return 0; fi
     grep -Eq '^-?auth[[:space:]].*pam_fprintd\.so' "$from" && return 0
+    local question='Accept a fingerprint, instead of your password, for administrator prompts?'
+    # The edited copy in /etc shadows the package's file, so its later updates would not apply.
+    [[ $from == "$vendor" ]] && question+=" (This copies $vendor to $pam, which then hides package updates to it.)"
+    ask "$question" || return 0
     backup_file "$pam" "${pam#/}"
     awk '!done && /^-?auth[[:space:]]/ { print "-auth      sufficient   pam_fprintd.so max-tries=1 timeout=10"; done = 1 } { print }' \
         "$from" > "$pam.penumbra" && mv "$pam.penumbra" "$pam"

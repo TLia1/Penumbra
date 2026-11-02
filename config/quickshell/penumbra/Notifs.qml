@@ -81,11 +81,20 @@ Singleton {
         onNotification: n => {
             n.tracked = true;
             root.received = Object.assign({}, root.received, { [n.id]: Date.now() });
-            n.closed.connect(() => root.hidePopup(n));
+            n.closed.connect(() => {
+                root.hidePopup(n);
+                const received = Object.assign({}, root.received);
+                delete received[n.id];
+                root.received = received;
+            });
             const shown = !root.dnd || n.urgency === NotificationUrgency.Critical;
-            if (shown)
-                root.popups = [n, ...root.popups].slice(0, 4);
-            else if (n.transient)
+            if (shown) {
+                const stack = [n, ...root.popups];
+                root.popups = stack.slice(0, 4);
+                // Pushed out of the stack counts as timed out, so transient ones still expire.
+                for (const dropped of stack.slice(4))
+                    root.retire(dropped);
+            } else if (n.transient)
                 Qt.callLater(() => n.expire());
             // Oldest first; keep the newest `limit`.
             const all = server.trackedNotifications.values;

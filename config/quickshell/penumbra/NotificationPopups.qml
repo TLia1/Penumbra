@@ -30,8 +30,10 @@ PanelWindow {
         spacing: 8
         move: Transition { NumberAnimation { property: "y"; duration: Theme.normal; easing.type: Easing.OutCubic } }
 
+        // ScriptModel keeps existing cards when the array is replaced, so their
+        // timers, hover state and reply text survive a new notification.
         Repeater {
-            model: Notifs.popups
+            model: ScriptModel { values: Notifs.popups }
             delegate: NotificationCard {
                 id: card
                 required property var modelData
