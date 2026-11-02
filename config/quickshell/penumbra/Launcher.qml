@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Widgets
+import "search.js" as Search
 import "symbols.js" as Symbols
 
 // Applications, clipboard history, emoji and symbols, over a dimmed screen. Type to search; `>` runs
@@ -83,7 +84,7 @@ PanelWindow {
         if (characters) {
             const terms = q.split(/\s+/).filter(t => t);
             const pool = Ui.launcherMode === "emoji" ? emoji : symbols;
-            const scored = pool.map((c, i) => ({ c, i, score: charScore(c, terms) })).filter(s => s.score > 0);
+            const scored = pool.map((c, i) => ({ c, i, score: Search.charScore(c, terms, picks[c.char]) })).filter(s => s.score > 0);
             scored.sort((a, b) => b.score - a.score || a.i - b.i);
             list = scored.map(s => ({ kind: "char", char: s.c }));
         } else if (clipboard) {
@@ -92,10 +93,10 @@ PanelWindow {
             if (text.slice(1).trim())
                 list = [{ kind: "run", command: text.slice(1).trim() }];
         } else {
-            const sum = calculate(text);
+            const sum = Search.calculate(text);
             if (sum !== null)
                 list.push({ kind: "calc", value: sum });
-            const scored = apps.map(e => ({ entry: e, score: score(e, q) })).filter(s => s.score > 0);
+            const scored = apps.map(e => ({ entry: e, score: Search.score(e, q, usage[e.id]) })).filter(s => s.score > 0);
             scored.sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name));
             list = list.concat(scored.slice(0, 60).map(s => ({ kind: "app", entry: s.entry })));
             // Nothing runs unless asked for with `>`: a typo like "reboot" must not reboot.
@@ -105,86 +106,6 @@ PanelWindow {
         view.positionViewAtBeginning();
         grid.currentIndex = 0;
         grid.positionViewAtBeginning();
-    }
-
-    // Every term in the name or group; names that start with the first term come first, and
-    // often-picked characters rise. Everything matches no terms, most picked first.
-    function charScore(c, terms) {
-        const boost = Math.min(40, picks[c.char] ?? 0);
-        if (!terms.length)
-            return 1 + boost;
-        const name = c.name.toLowerCase(), all = name + " " + c.group.toLowerCase();
-        if (!terms.every(t => all.includes(t)))
-            return 0;
-        const first = terms[0];
-        const s = name === terms.join(" ") ? 100 : name.startsWith(first) ? 60 : name.split(/[\s:\-]+/).some(w => w.startsWith(first)) ? 40 : 10;
-        return s + boost;
-    }
-
-    // Name matches first, then initials and scattered letters, then descriptions; often-launched
-    // apps rise a little. Everything matches an empty query.
-    function score(entry, q) {
-        const boost = Math.min(15, usage[entry.id] ?? 0);
-        if (!q)
-            return 1 + boost;
-        const name = entry.name.toLowerCase();
-        let s = 0;
-        if (name === q)
-            s = 120;
-        else if (name.startsWith(q))
-            s = 100;
-        else if (name.split(/[\s\-_.]+/).some(w => w.startsWith(q)))
-            s = 85;
-        else if (name.includes(q))
-            s = 70;
-        else if (fuzzy(name, q))
-            s = 30 + fuzzy(name, q);
-        else if ([entry.genericName, entry.keywords.join(" "), entry.comment, entry.id].join(" ").toLowerCase().includes(q))
-            s = 25;
-        return s ? s + boost : 0;
-    }
-    // Letters of q in order inside name; fewer gaps score higher (1–30), no match is 0.
-    function fuzzy(name, q) {
-        let at = -1, gaps = 0;
-        for (const c of q) {
-            const next = name.indexOf(c, at + 1);
-            if (next < 0)
-                return 0;
-            gaps += next - at - 1;
-            at = next;
-        }
-        return Math.max(1, 30 - gaps);
-    }
-
-    // Arithmetic and Math functions only; anything else is not a sum.
-    readonly property var mathNames: ({
-        pi: "Math.PI", e: "Math.E", sqrt: "Math.sqrt", cbrt: "Math.cbrt", abs: "Math.abs", round: "Math.round",
-        floor: "Math.floor", ceil: "Math.ceil", sin: "Math.sin", cos: "Math.cos", tan: "Math.tan",
-        asin: "Math.asin", acos: "Math.acos", atan: "Math.atan", ln: "Math.log", log: "Math.log10",
-        exp: "Math.exp", min: "Math.min", max: "Math.max", pow: "Math.pow"
-    })
-    function calculate(text) {
-        const forced = text.startsWith("=");
-        let expr = text.replace(/^=/, "").trim().toLowerCase();
-        if (!expr || !/^[\d\s+\-*/%^().,a-z]+$/.test(expr) || !/\d|pi/.test(expr))
-            return null;
-        // A sum needs an operator or a function; a bare number is a search.
-        if (!forced && !/[+\-*/%^]|[a-z]+\s*\(/.test(expr.replace(/^-/, "")))
-            return null;
-        // A comma is a decimal point (3,5), unless it separates a function's arguments.
-        if (!/[a-z]\s*\(/.test(expr))
-            expr = expr.replace(/(\d),(\d)/g, "$1.$2");
-        let unknown = false;
-        expr = expr.replace(/\^/g, "**")
-            .replace(/[a-z]+/g, word => root.mathNames[word] ?? (unknown = true, word));
-        if (unknown)
-            return null;
-        try {
-            const value = Function(`"use strict"; return (${expr});`)();
-            return typeof value === "number" && isFinite(value) ? Number(value.toPrecision(12)) : null;
-        } catch (e) {
-            return null;
-        }
     }
 
     // ── Actions ─────────────────────────────────────────────────────

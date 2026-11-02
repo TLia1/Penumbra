@@ -1,0 +1,22 @@
+# Tests, generated files and shell scripts, on Arch as Penumbra itself runs.
+name: CI
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: archlinux:base
+    steps:
+      - name: Install tools
+        run: pacman -Syu --noconfirm --needed git python nodejs qt6-shadertools ffmpeg shellcheck
+      - uses: actions/checkout@v4
+      # Unit tests (with the shell's JavaScript under Node), and generated colour files, compiled
+      # shaders and CONFIGURATION.md matching their sources.
+      - name: Tests
+        run: python -m unittest discover -s tests -v
+      - name: Shell scripts
+        run: |
+          grep -lE '^#!.*\b(ba)?sh$' install.sh bin/* tools/*.sh distro/*/*.sh |
+            xargs shellcheck --severity=error --external-sources

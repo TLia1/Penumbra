@@ -1,0 +1,12 @@
+[Unit]
+Description=Penumbra lock fallback: hyprlock when the shell can no longer come back while locked
+# penumbra-shell.service starts this through OnFailure= once systemd gives up restarting it.
+
+[Service]
+Type=oneshot
+# Only when the session was locked (the shell keeps that outside itself), and while the
+# compositor is up.
+ExecCondition=/bin/sh -c 'test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" && grep -qx locked "$XDG_RUNTIME_DIR/penumbra-locked"'
+# hyprlock takes over the session lock the dead shell left (allow_session_lock_restore). Once
+# unlocked there the session is unlocked, so the marker goes and the next shell does not lock again.
+ExecStart=/bin/sh -c 'pidof hyprlock >/dev/null || hyprlock; rm -f "$XDG_RUNTIME_DIR/penumbra-locked"'

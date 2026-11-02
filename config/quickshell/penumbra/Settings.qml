@@ -7,6 +7,9 @@ import Quickshell.Io
 // style is penumbra-corners' instead (see Theme), since Hyprland and other apps follow it too.
 Singleton {
     property alias animatedWallpapers: adapter.animatedWallpapers
+    // Animated wallpapers hold still while tiled windows hide them, and on battery or in power saver.
+    property alias stillWhenCovered: adapter.stillWhenCovered
+    property alias stillOnBattery: adapter.stillOnBattery
     property alias hotCorner: adapter.hotCorner
     // Night light: its warmth in kelvin, and when it comes on (see NightLight).
     property alias nightTemperature: adapter.nightTemperature
@@ -33,6 +36,8 @@ Singleton {
         JsonAdapter {
             id: adapter
             property bool animatedWallpapers: true
+            property bool stillWhenCovered: true
+            property bool stillOnBattery: true
             property bool hotCorner: true
             property int nightTemperature: 4500
             property string nightSchedule: "manual"

@@ -3,12 +3,14 @@ import QtMultimedia
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
+import Quickshell.Services.UPower
 import Quickshell.Wayland
 
 // Animated wallpapers: the dawn and eclipse scenes, and your GIFs and videos. Each sits on the
 // bottom layer over awww's still copy of the same image (a GIF's or video's first frame), so
 // fading it in or out changes nothing at rest; night and plain images have nothing to animate.
-// penumbra-wallpaper says when the wallpaper changes; the settings page can keep them still.
+// penumbra-wallpaper says when the wallpaper changes; the settings page can keep them still, and
+// they stop while tiled windows hide them and, if chosen, on battery or in power saver.
 Scope {
     id: root
 
@@ -22,6 +24,9 @@ Scope {
     readonly property bool shown: target !== "" && scene === target && !waiting
     // Nothing to see behind the lock screen; stop drawing.
     property bool paused: false
+    // Saving power: on battery, or in the power saver profile.
+    readonly property bool saving: Settings.stillOnBattery
+        && (UPower.onBattery || (Ui.hasPowerProfiles && PowerProfiles.profile === PowerProfile.PowerSaver))
 
     property real fade: shown ? 1 : 0
     Behavior on fade { NumberAnimation { duration: root.shown ? 900 : 350; easing.type: Easing.InOutQuad } }
@@ -40,6 +45,29 @@ Scope {
     Timer {
         id: reveal
         onTriggered: root.waiting = false
+    }
+
+    // Whether a window floats is only in Hyprland's IPC objects, which have to be asked for again
+    // when windows open, close, move or float, and when workspaces change.
+    readonly property bool watchCovers: Settings.stillWhenCovered && target !== ""
+    onWatchCoversChanged: if (watchCovers) clients.restart()
+    Connections {
+        target: Hyprland
+        enabled: root.watchCovers
+        function onRawEvent(event) {
+            if (["openwindow", "closewindow", "movewindow", "changefloatingmode", "workspace", "focusedmon", "moveworkspace"]
+                    .includes(event.name.replace(/v2$/, "")))
+                clients.restart();
+        }
+    }
+    Timer {
+        id: clients
+        interval: 200
+        onTriggered: Hyprland.refreshToplevels()
+    }
+    // A tiled window fills the workspace, gaps aside: the wallpaper is hidden.
+    function covered(workspace) {
+        return watchCovers && (workspace?.toplevels.values.some(t => t.lastIpcObject?.floating === false && !t.lastIpcObject.hidden) ?? false);
     }
 
     FileView {
@@ -68,8 +96,10 @@ Scope {
                     // Not penumbra-*: the glass layer rule would blur it.
                     WlrLayershell.namespace: "animated-wallpaper"
 
-                    // Nothing to see under a fullscreen window; stop drawing.
-                    readonly property bool running: !root.paused && !(Hyprland.monitorFor(screen)?.activeWorkspace?.hasFullscreen ?? false)
+                    // Nothing to see under a fullscreen or tiled window; stop drawing.
+                    readonly property var workspace: Hyprland.monitorFor(screen)?.activeWorkspace ?? null
+                    readonly property bool running: !root.paused && !root.saving
+                        && !(workspace?.hasFullscreen ?? false) && !root.covered(workspace)
 
                     // Cover the screen like `awww img --resize crop`.
                     Loader {

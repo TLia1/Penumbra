@@ -944,7 +944,8 @@ uninstall_user() {
     BACKUP=$dir/uninstall-$STAMP
     mkdir -p "$BACKUP"
     step 'Removing Penumbra from your account'
-    systemctl --user stop penumbra-shell.service 2>/dev/null || true
+    systemctl --user stop penumbra-shell.service penumbra-hypridle.service penumbra-awww.service \
+        'penumbra-cliphist@*.service' 2>/dev/null || true
     undo_runs "$dir" "$HOME" .config .local .gitconfig .mozilla .var
     # The lock screen's link to the current wallpaper, the theme choice, its palette and the colours
     # found in wallpapers, and folders left empty.

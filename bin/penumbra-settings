@@ -177,12 +177,10 @@ def apply(values, changed=None, restart=True):
     if touched('idle_dim', 'idle_lock', 'idle_screen_off', 'idle_suspend'):
         HYPRIDLE.parent.mkdir(parents=True, exist_ok=True)
         HYPRIDLE.write_text(hypridle(values))
-        # hypridle reads its configuration once; start it again with the new timings.
-        if restart and subprocess.run(['pgrep', '-u', str(os.getuid()), '-x', 'hypridle'],
-                                      capture_output=True).returncode == 0:
-            subprocess.run(['pkill', '-u', str(os.getuid()), '-x', 'hypridle'])
-            subprocess.Popen(['systemd-run', '--user', '--scope', '--slice=app.slice', '--collect', '--quiet', 'hypridle'],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        # hypridle reads its configuration once; start it again with the new timings
+        # (penumbra-hypridle.service, when the session started it).
+        if restart:
+            subprocess.run(['systemctl', '--user', 'try-restart', 'penumbra-hypridle.service'], capture_output=True)
     lua = hyprland(values, touched('kb_layout', 'kb_variant', 'kb_options', 'numlock'), touched('scale'))
     if lua and os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and shutil.which('hyprctl'):
         subprocess.run(['hyprctl', 'eval', lua], capture_output=True)

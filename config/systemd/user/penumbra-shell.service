@@ -5,6 +5,8 @@ After=graphical-session.target
 # A shell that keeps crashing stops being restarted.
 StartLimitIntervalSec=60
 StartLimitBurst=5
+# Once systemd gives up, a session that was locked stays locked under hyprlock.
+OnFailure=penumbra-lock-fallback.service
 
 [Service]
 Type=exec

@@ -955,7 +955,8 @@ uninstall_user() {
     BACKUP=$dir/uninstall-$STAMP
     mkdir -p "$BACKUP"
     step 'Removing Penumbra from your account'
-    systemctl --user stop penumbra-shell.service 2>/dev/null || true
+    systemctl --user stop penumbra-shell.service penumbra-hypridle.service penumbra-awww.service \
+        'penumbra-cliphist@*.service' 2>/dev/null || true
     undo_runs "$dir" "$HOME" .config .local .gitconfig .mozilla .var
     # The lock screen's link to the current wallpaper, the theme choice, its palette and the colours
     # found in wallpapers, and folders left empty.
@@ -1837,6 +1838,38 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
+```
+
+## `tools/build-shaders.py`
+
+```python
+#!/usr/bin/env python3
+"""Compile the shell's own shaders (config/quickshell/penumbra/shaders/*.frag) to the .qsb files
+Qt loads; they ship compiled. Needs qsb from qt6-shadertools. --check only reports stale ones.
+The wallpaper scenes' shaders are built by build-wallpapers.py."""
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+root = Path(__file__).resolve().parents[1]
+qsb = shutil.which('qsb') or '/usr/lib/qt6/bin/qsb'
+check = '--check' in sys.argv[1:]
+stale = []
+for shader in sorted((root / 'config/quickshell/penumbra/shaders').glob('*.frag')):
+    target = shader.with_name(shader.name + '.qsb')
+    with tempfile.TemporaryDirectory() as tmp:
+        built = Path(tmp) / target.name
+        subprocess.run([qsb, '--qt6', '-o', str(built), str(shader)], check=True)
+        if target.exists() and target.read_bytes() == built.read_bytes():
+            continue
+        stale.append(target.relative_to(root))
+        if not check:
+            shutil.copyfile(built, target)
+for path in stale:
+    print(f'{"stale" if check else "built"}: {path}')
+sys.exit(1 if check and stale else 0)
 ```
 
 ## `tools/build-wallpapers.py`
@@ -3087,8 +3120,9 @@ if __name__ == '__main__':
 ## `tests/test_generated.py`
 
 ```python
-"""The generated colour files and CONFIGURATION.md match their sources."""
+"""The generated colour files, compiled shaders and CONFIGURATION.md match their sources."""
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import unittest
@@ -3104,6 +3138,10 @@ class GeneratedFiles(unittest.TestCase):
 
     def test_palette_files_are_current(self):
         self.check('build-palette.py')
+
+    @unittest.skipUnless(shutil.which('qsb') or Path('/usr/lib/qt6/bin/qsb').exists(), 'needs qsb (qt6-shadertools)')
+    def test_shaders_are_current(self):
+        self.check('build-shaders.py')
 
     def test_configuration_md_is_current(self):
         self.check('build-configuration.py')
@@ -3314,6 +3352,50 @@ class AppColors(unittest.TestCase):
             '#nav-bar { padding: 0 }',
             'delta.features=side-by-side',
             '2', '2', ''])
+
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
+## `tests/test_shell.py`
+
+```python
+"""The shell's JavaScript logic (tests/shell/*.test.mjs, run with Node), and its OKLCH maths
+against palette.py's, so swatches in the shell are the colours penumbra-theme renders."""
+import json
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import unittest
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / 'share' / 'penumbra'))
+import palette  # noqa: E402
+
+NODE = shutil.which('node')
+
+
+@unittest.skipUnless(NODE, 'needs Node.js')
+class ShellLogic(unittest.TestCase):
+    def test_suites(self):
+        result = subprocess.run([NODE, '--test', str(ROOT / 'tests' / 'shell')],
+                                capture_output=True, text=True, cwd=ROOT)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_oklch_matches_palette_py(self):
+        grid = [(L / 10, C / 20, H) for L in range(1, 10) for C in range(0, 8) for H in range(0, 360, 30)]
+        script = ("import { load } from './tests/shell/load.mjs';"
+                  "const O = load('oklch.js');"
+                  "process.stdout.write(JSON.stringify(JSON.parse(process.argv[1]).map(c => O.color(...c))));")
+        result = subprocess.run([NODE, '--input-type=module', '-e', script, json.dumps(grid)],
+                                capture_output=True, text=True, cwd=ROOT, check=True)
+        for color, shell in zip(grid, json.loads(result.stdout)):
+            python = palette.oklch_to_hex(*color)
+            # Python rounds halves to even, JavaScript up: a channel may differ by one.
+            difference = max(abs(a - b) for a, b in zip(palette.rgb255(shell), palette.rgb255(python)))
+            self.assertLessEqual(difference, 1, f'{color}: shell {shell}, palette.py {python}')
 
 
 if __name__ == '__main__':
@@ -4697,27 +4779,22 @@ if [[ ${1:-} = restart ]]; then
  systemctl --user restart penumbra-shell.service
  exit
 fi
-start() {
- local process=$1; shift
- if ! pgrep -u "$UID" -x "$process" >/dev/null; then
-  nohup "$@" >"$HOME/.local/state/penumbra/$process.log" 2>&1 9>&- &
- fi
-}
 hyprctl setcursor Penumbra-Cursors 28 >/dev/null
-start awww-daemon awww-daemon
 # The shell is the polkit agent too; an older KDE agent would hold the registration.
 pkill -u "$UID" -f '^/usr/lib/(.*/)?polkit-kde-authentication-agent-1' || true
 # Bar, notifications, OSD, control center, launcher, overlays, lock screen and polkit agent;
 # systemd restarts it if it dies (see ~/.config/systemd/user/penumbra-shell.service).
-systemctl --user reset-failed penumbra-shell.service 2>/dev/null
-systemctl --user restart penumbra-shell.service
-start hypridle hypridle
-# Clipboard history for text and images.
-if ! pgrep -u "$UID" -f "^wl-paste --type text --watch cliphist store" >/dev/null; then
- nohup wl-paste --type text --watch cliphist store >/dev/null 2>&1 9>&- &
- nohup wl-paste --type image --watch cliphist store >/dev/null 2>&1 9>&- &
-fi
-nohup "$HOME/.local/bin/penumbra-wallpaper" restore >"$HOME/.local/state/penumbra/wallpaper.log" 2>&1 9>&- &
+# The helpers are user services too, so one that dies comes back: hypridle above all, or the
+# screen would stop locking. Older Penumbra versions started them by hand; those go first.
+helpers=(penumbra-shell.service penumbra-awww.service penumbra-hypridle.service
+ penumbra-cliphist@text.service penumbra-cliphist@image.service)
+systemctl --user is-active -q penumbra-hypridle.service || pkill -u "$UID" -x hypridle
+systemctl --user is-active -q penumbra-awww.service || pkill -u "$UID" -x awww-daemon
+systemctl --user is-active -q penumbra-cliphist@text.service || pkill -u "$UID" -f '^wl-paste --type (text|image) --watch cliphist store'
+systemctl --user reset-failed "${helpers[@]}" penumbra-lock-fallback.service 2>/dev/null
+# A new login brings a new compositor: restart them all with its environment. penumbra-awww
+# shows the wallpaper again once it is up.
+systemctl --user restart "${helpers[@]}"
 exec 9>&-
 ```
 
@@ -4903,12 +4980,10 @@ def apply(values, changed=None, restart=True):
     if touched('idle_dim', 'idle_lock', 'idle_screen_off', 'idle_suspend'):
         HYPRIDLE.parent.mkdir(parents=True, exist_ok=True)
         HYPRIDLE.write_text(hypridle(values))
-        # hypridle reads its configuration once; start it again with the new timings.
-        if restart and subprocess.run(['pgrep', '-u', str(os.getuid()), '-x', 'hypridle'],
-                                      capture_output=True).returncode == 0:
-            subprocess.run(['pkill', '-u', str(os.getuid()), '-x', 'hypridle'])
-            subprocess.Popen(['systemd-run', '--user', '--scope', '--slice=app.slice', '--collect', '--quiet', 'hypridle'],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        # hypridle reads its configuration once; start it again with the new timings
+        # (penumbra-hypridle.service, when the session started it).
+        if restart:
+            subprocess.run(['systemctl', '--user', 'try-restart', 'penumbra-hypridle.service'], capture_output=True)
     lua = hyprland(values, touched('kb_layout', 'kb_variant', 'kb_options', 'numlock'), touched('scale'))
     if lua and os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and shutil.which('hyprctl'):
         subprocess.run(['hyprctl', 'eval', lua], capture_output=True)
@@ -10069,45 +10144,24 @@ TextField {
 
 ```qml
 import QtQuick
-import QtQuick.Effects
 
 // The lit top edge of a glass surface: a hairline bright at the top that fades out halfway down,
 // over the surface's own border. It is what makes frosted glass read as glass. Fill the surface.
-Item {
+// One shader pass (shaders/glass-edge.frag): every bar capsule has one, so no layer or mask.
+ShaderEffect {
     id: root
 
     property real radius: 0
     property real strength: 0.22
 
     anchors.fill: parent
+    visible: strength > 0 && width > 0 && height > 0
 
-    Rectangle {
-        id: light
-        anchors.fill: parent
-        visible: false
-        gradient: Gradient {
-            GradientStop { position: 0; color: Theme.alpha(Theme.highlight, Math.min(1, root.strength * Theme.highlightGain)) }
-            GradientStop { position: 0.5; color: Theme.alpha(Theme.highlight, 0) }
-        }
-    }
-    Rectangle {
-        id: ring
-        anchors.fill: parent
-        visible: false
-        layer.enabled: true
-        radius: root.radius
-        color: "transparent"
-        border.width: 1
-        border.color: "white"
-    }
-    MultiEffect {
-        anchors.fill: parent
-        source: light
-        maskEnabled: true
-        maskSource: ring
-        maskThresholdMin: 0.25
-        maskSpreadAtMin: 0.25
-    }
+    property size size: Qt.size(width, height)
+    readonly property real edge: Math.min(1, strength * Theme.highlightGain)
+    // Passed opaque, with the alpha apart, since the shader gets colours premultiplied.
+    readonly property color tint: Qt.rgba(Theme.highlight.r, Theme.highlight.g, Theme.highlight.b, 1)
+    fragmentShader: "shaders/glass-edge.frag.qsb"
 }
 ```
 
@@ -10544,6 +10598,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Widgets
+import "search.js" as Search
 import "symbols.js" as Symbols
 
 // Applications, clipboard history, emoji and symbols, over a dimmed screen. Type to search; `>` runs
@@ -10623,7 +10678,7 @@ PanelWindow {
         if (characters) {
             const terms = q.split(/\s+/).filter(t => t);
             const pool = Ui.launcherMode === "emoji" ? emoji : symbols;
-            const scored = pool.map((c, i) => ({ c, i, score: charScore(c, terms) })).filter(s => s.score > 0);
+            const scored = pool.map((c, i) => ({ c, i, score: Search.charScore(c, terms, picks[c.char]) })).filter(s => s.score > 0);
             scored.sort((a, b) => b.score - a.score || a.i - b.i);
             list = scored.map(s => ({ kind: "char", char: s.c }));
         } else if (clipboard) {
@@ -10632,10 +10687,10 @@ PanelWindow {
             if (text.slice(1).trim())
                 list = [{ kind: "run", command: text.slice(1).trim() }];
         } else {
-            const sum = calculate(text);
+            const sum = Search.calculate(text);
             if (sum !== null)
                 list.push({ kind: "calc", value: sum });
-            const scored = apps.map(e => ({ entry: e, score: score(e, q) })).filter(s => s.score > 0);
+            const scored = apps.map(e => ({ entry: e, score: Search.score(e, q, usage[e.id]) })).filter(s => s.score > 0);
             scored.sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name));
             list = list.concat(scored.slice(0, 60).map(s => ({ kind: "app", entry: s.entry })));
             // Nothing runs unless asked for with `>`: a typo like "reboot" must not reboot.
@@ -10645,86 +10700,6 @@ PanelWindow {
         view.positionViewAtBeginning();
         grid.currentIndex = 0;
         grid.positionViewAtBeginning();
-    }
-
-    // Every term in the name or group; names that start with the first term come first, and
-    // often-picked characters rise. Everything matches no terms, most picked first.
-    function charScore(c, terms) {
-        const boost = Math.min(40, picks[c.char] ?? 0);
-        if (!terms.length)
-            return 1 + boost;
-        const name = c.name.toLowerCase(), all = name + " " + c.group.toLowerCase();
-        if (!terms.every(t => all.includes(t)))
-            return 0;
-        const first = terms[0];
-        const s = name === terms.join(" ") ? 100 : name.startsWith(first) ? 60 : name.split(/[\s:\-]+/).some(w => w.startsWith(first)) ? 40 : 10;
-        return s + boost;
-    }
-
-    // Name matches first, then initials and scattered letters, then descriptions; often-launched
-    // apps rise a little. Everything matches an empty query.
-    function score(entry, q) {
-        const boost = Math.min(15, usage[entry.id] ?? 0);
-        if (!q)
-            return 1 + boost;
-        const name = entry.name.toLowerCase();
-        let s = 0;
-        if (name === q)
-            s = 120;
-        else if (name.startsWith(q))
-            s = 100;
-        else if (name.split(/[\s\-_.]+/).some(w => w.startsWith(q)))
-            s = 85;
-        else if (name.includes(q))
-            s = 70;
-        else if (fuzzy(name, q))
-            s = 30 + fuzzy(name, q);
-        else if ([entry.genericName, entry.keywords.join(" "), entry.comment, entry.id].join(" ").toLowerCase().includes(q))
-            s = 25;
-        return s ? s + boost : 0;
-    }
-    // Letters of q in order inside name; fewer gaps score higher (1–30), no match is 0.
-    function fuzzy(name, q) {
-        let at = -1, gaps = 0;
-        for (const c of q) {
-            const next = name.indexOf(c, at + 1);
-            if (next < 0)
-                return 0;
-            gaps += next - at - 1;
-            at = next;
-        }
-        return Math.max(1, 30 - gaps);
-    }
-
-    // Arithmetic and Math functions only; anything else is not a sum.
-    readonly property var mathNames: ({
-        pi: "Math.PI", e: "Math.E", sqrt: "Math.sqrt", cbrt: "Math.cbrt", abs: "Math.abs", round: "Math.round",
-        floor: "Math.floor", ceil: "Math.ceil", sin: "Math.sin", cos: "Math.cos", tan: "Math.tan",
-        asin: "Math.asin", acos: "Math.acos", atan: "Math.atan", ln: "Math.log", log: "Math.log10",
-        exp: "Math.exp", min: "Math.min", max: "Math.max", pow: "Math.pow"
-    })
-    function calculate(text) {
-        const forced = text.startsWith("=");
-        let expr = text.replace(/^=/, "").trim().toLowerCase();
-        if (!expr || !/^[\d\s+\-*/%^().,a-z]+$/.test(expr) || !/\d|pi/.test(expr))
-            return null;
-        // A sum needs an operator or a function; a bare number is a search.
-        if (!forced && !/[+\-*/%^]|[a-z]+\s*\(/.test(expr.replace(/^-/, "")))
-            return null;
-        // A comma is a decimal point (3,5), unless it separates a function's arguments.
-        if (!/[a-z]\s*\(/.test(expr))
-            expr = expr.replace(/(\d),(\d)/g, "$1.$2");
-        let unknown = false;
-        expr = expr.replace(/\^/g, "**")
-            .replace(/[a-z]+/g, word => root.mathNames[word] ?? (unknown = true, word));
-        if (unknown)
-            return null;
-        try {
-            const value = Function(`"use strict"; return (${expr});`)();
-            return typeof value === "number" && isFinite(value) ? Number(value.toPrecision(12)) : null;
-        } catch (e) {
-            return null;
-        }
     }
 
     // ── Actions ─────────────────────────────────────────────────────
@@ -12928,6 +12903,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import Quickshell.Widgets
+import "processes.js" as Processes
 
 // The system monitor, under the system capsule: live graphs of the processor, memory,
 // graphics, disks and network with storage, or the busiest apps.
@@ -12961,13 +12937,18 @@ Panel {
     onPageChanged: pageIn.restart()
     onSortByChanged: refreshList()
 
-    // Two batch iterations: the second measures CPU over the one-second delay.
-    // The C locale keeps decimal points out of the user's locale.
+    // Two batch iterations: the second measures CPU over the one-second delay. Then each
+    // process's cgroup, which tells apps apart (processes.js). The C locale keeps decimal points
+    // out of the user's locale.
     Process {
         id: top
-        command: ["env", "LC_ALL=C", "top", "-b", "-n", "2", "-d", "1", "-w", "512", "-c", "-e", "k"]
+        command: ["bash", "-c", "LC_ALL=C top -b -n 2 -d 1 -w 512 -c -e k; echo '## cgroups'; grep -sH '' /proc/[0-9]*/cgroup"]
         stdout: StdioCollector {
-            onStreamFinished: root.parse(text)
+            onStreamFinished: {
+                const at = text.indexOf("\n## cgroups\n");
+                root.groups = Processes.group(at < 0 ? text : text.slice(0, at), at < 0 ? "" : text.slice(at));
+                root.refreshList();
+            }
         }
     }
     Timer {
@@ -12978,42 +12959,6 @@ Panel {
         onTriggered: if (!top.running) top.running = true
     }
 
-    // RES is in KiB, but top shortens values too wide for the column (e.g. 10.2g).
-    function kib(value) {
-        const scale = { m: 1024, g: 1048576, t: 1073741824 }[value.slice(-1)];
-        return scale ? parseFloat(value) * scale : Number(value);
-    }
-    // Processes are grouped by executable, so a browser counts once.
-    function parse(out) {
-        const lines = out.split("\n");
-        let start = lines.length;
-        for (let i = lines.length - 1; i >= 0; i--) {
-            if (/^\s*PID\s+USER/.test(lines[i])) {
-                start = i + 1;
-                break;
-            }
-        }
-        const found = {};
-        for (const line of lines.slice(start)) {
-            // PID USER PR NI VIRT RES SHR S %CPU %MEM TIME+ COMMAND
-            const m = line.match(/^\s*(\d+)\s+(\S+)\s+\S+\s+\S+\s+\S+\s+(\S+)\s+\S+\s+\S\s+([\d.]+)\s+\S+\s+\S+\s+(.+)$/);
-            if (!m || m[5].startsWith("top -b -n 2"))
-                continue;
-            const key = m[5].startsWith("[") ? "kernel" : m[5].split(" ")[0].split("/").pop().replace(/^-/, "");
-            if (!key)
-                continue;
-            if (!found[key])
-                found[key] = { key, cpu: 0, mem: 0, pids: [], user: m[2] };
-            const g = found[key];
-            g.cpu += Number(m[4]);
-            g.mem += kib(m[3]);
-            g.pids.push(m[1]);
-            if (g.user !== m[2])
-                g.user = "";
-        }
-        groups = Object.values(found);
-        refreshList();
-    }
     // Apps whose desktop file is named after something else (com.anthropic.Claude runs
     // claude-desktop) are found by the program they launch; wrappers say nothing about the app.
     readonly property var launchers: {
@@ -13032,16 +12977,20 @@ Panel {
         const byMem = (a, b) => b.mem - a.mem;
         const top = groups.slice().sort(sortBy === "cpu" ? byCpu : byMem).slice(0, shown);
         top.forEach((g, i) => {
-            const entry = g.key === "kernel" ? null : DesktopEntries.heuristicLookup(g.key) ?? launchers[g.key];
+            // By the unit's desktop file ID, else by its program.
+            const entry = g.key === "kernel" ? null
+                : (g.appId ? DesktopEntries.heuristicLookup(g.appId) : null) ?? DesktopEntries.heuristicLookup(g.exe) ?? launchers[g.exe];
             const row = {
                 key: g.key,
-                name: g.key === "kernel" ? "Kernel" : entry?.name || g.key,
+                name: g.key === "kernel" ? "Kernel" : entry?.name || g.name,
                 icon: entry?.icon ? Quickshell.iconPath(entry.icon, true) : "",
                 cpu: g.cpu / Usage.cores,
                 mem: g.mem,
                 pids: g.pids.join(" "),
                 count: g.pids.length,
-                user: g.user
+                user: g.user,
+                units: g.units.join(" "),
+                guarded: g.guarded
             };
             if (i < rows.count)
                 rows.set(i, row);
@@ -13075,8 +13024,13 @@ Panel {
     function level(value, calm) {
         return value >= 90 ? Theme.rose : value >= 75 ? Theme.amber : calm;
     }
-    function end(pids, force) {
-        Quickshell.execDetached(["kill", force ? "-KILL" : "-TERM"].concat(pids.split(" ")));
+    // An app in its own unit is ended through systemd, which also reaches processes started
+    // since the last sample; anything else by its PIDs.
+    function end(row, force) {
+        if (row.units)
+            Quickshell.execDetached(["systemctl", "--user", "kill", "--signal=" + (force ? "KILL" : "TERM"), "--"].concat(row.units.split(" ")));
+        else
+            Quickshell.execDetached(["kill", force ? "-KILL" : "-TERM", "--"].concat(row.pids.split(" ")));
         expanded = "";
         refreshSoon.restart();
     }
@@ -13548,6 +13502,8 @@ Panel {
                             required property string pids
                             required property int count
                             required property string user
+                            required property string units
+                            required property bool guarded
                             readonly property bool expanded: root.expanded === key
                             readonly property bool mine: user === Quickshell.env("USER")
 
@@ -13627,20 +13583,21 @@ Panel {
                                     spacing: 8
                                     Label {
                                         Layout.fillWidth: true
-                                        text: row.mine ? `Running as ${row.user}` : row.key === "kernel" ? "Kernel threads" : "Owned by another user"
+                                        text: row.key === "kernel" ? "Kernel threads" : !row.mine ? "Owned by another user"
+                                            : row.guarded ? "Part of the desktop" : `Running as ${row.user}`
                                         font.pixelSize: Theme.textSmall
                                         color: Theme.dim
                                     }
                                     PillButton {
-                                        visible: row.mine
+                                        visible: row.mine && !row.guarded
                                         text: "End"
-                                        onClicked: root.end(row.pids, false)
+                                        onClicked: root.end(row, false)
                                     }
                                     PillButton {
-                                        visible: row.mine
+                                        visible: row.mine && !row.guarded
                                         text: "Force quit"
                                         danger: true
-                                        onClicked: root.end(row.pids, true)
+                                        onClicked: root.end(row, true)
                                     }
                                 }
                             }
@@ -16035,6 +15992,9 @@ import Quickshell.Io
 // style is penumbra-corners' instead (see Theme), since Hyprland and other apps follow it too.
 Singleton {
     property alias animatedWallpapers: adapter.animatedWallpapers
+    // Animated wallpapers hold still while tiled windows hide them, and on battery or in power saver.
+    property alias stillWhenCovered: adapter.stillWhenCovered
+    property alias stillOnBattery: adapter.stillOnBattery
     property alias hotCorner: adapter.hotCorner
     // Night light: its warmth in kelvin, and when it comes on (see NightLight).
     property alias nightTemperature: adapter.nightTemperature
@@ -16061,6 +16021,8 @@ Singleton {
         JsonAdapter {
             id: adapter
             property bool animatedWallpapers: true
+            property bool stillWhenCovered: true
+            property bool stillOnBattery: true
             property bool hotCorner: true
             property int nightTemperature: 4500
             property string nightSchedule: "manual"
@@ -16144,6 +16106,22 @@ ColumnLayout {
             subtitle: Settings.animatedWallpapers ? "Dawn, eclipse, GIFs and videos move" : "Still images"
             checked: Settings.animatedWallpapers
             onToggled: Settings.animatedWallpapers = !Settings.animatedWallpapers
+        }
+        SwitchRow {
+            visible: Settings.animatedWallpapers
+            glyph: "󰖯"
+            title: "Hold still behind windows"
+            subtitle: "While tiled windows hide the wallpaper"
+            checked: Settings.stillWhenCovered
+            onToggled: Settings.stillWhenCovered = !Settings.stillWhenCovered
+        }
+        SwitchRow {
+            visible: Settings.animatedWallpapers
+            glyph: "󰌪"
+            title: "Hold still to save power"
+            subtitle: "On battery or in power saver"
+            checked: Settings.stillOnBattery
+            onToggled: Settings.stillOnBattery = !Settings.stillOnBattery
         }
         SwitchRow {
             glyph: "󰆾"
@@ -17607,12 +17585,14 @@ import QtMultimedia
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
+import Quickshell.Services.UPower
 import Quickshell.Wayland
 
 // Animated wallpapers: the dawn and eclipse scenes, and your GIFs and videos. Each sits on the
 // bottom layer over awww's still copy of the same image (a GIF's or video's first frame), so
 // fading it in or out changes nothing at rest; night and plain images have nothing to animate.
-// penumbra-wallpaper says when the wallpaper changes; the settings page can keep them still.
+// penumbra-wallpaper says when the wallpaper changes; the settings page can keep them still, and
+// they stop while tiled windows hide them and, if chosen, on battery or in power saver.
 Scope {
     id: root
 
@@ -17626,6 +17606,9 @@ Scope {
     readonly property bool shown: target !== "" && scene === target && !waiting
     // Nothing to see behind the lock screen; stop drawing.
     property bool paused: false
+    // Saving power: on battery, or in the power saver profile.
+    readonly property bool saving: Settings.stillOnBattery
+        && (UPower.onBattery || (Ui.hasPowerProfiles && PowerProfiles.profile === PowerProfile.PowerSaver))
 
     property real fade: shown ? 1 : 0
     Behavior on fade { NumberAnimation { duration: root.shown ? 900 : 350; easing.type: Easing.InOutQuad } }
@@ -17644,6 +17627,29 @@ Scope {
     Timer {
         id: reveal
         onTriggered: root.waiting = false
+    }
+
+    // Whether a window floats is only in Hyprland's IPC objects, which have to be asked for again
+    // when windows open, close, move or float, and when workspaces change.
+    readonly property bool watchCovers: Settings.stillWhenCovered && target !== ""
+    onWatchCoversChanged: if (watchCovers) clients.restart()
+    Connections {
+        target: Hyprland
+        enabled: root.watchCovers
+        function onRawEvent(event) {
+            if (["openwindow", "closewindow", "movewindow", "changefloatingmode", "workspace", "focusedmon", "moveworkspace"]
+                    .includes(event.name.replace(/v2$/, "")))
+                clients.restart();
+        }
+    }
+    Timer {
+        id: clients
+        interval: 200
+        onTriggered: Hyprland.refreshToplevels()
+    }
+    // A tiled window fills the workspace, gaps aside: the wallpaper is hidden.
+    function covered(workspace) {
+        return watchCovers && (workspace?.toplevels.values.some(t => t.lastIpcObject?.floating === false && !t.lastIpcObject.hidden) ?? false);
     }
 
     FileView {
@@ -17672,8 +17678,10 @@ Scope {
                     // Not penumbra-*: the glass layer rule would blur it.
                     WlrLayershell.namespace: "animated-wallpaper"
 
-                    // Nothing to see under a fullscreen window; stop drawing.
-                    readonly property bool running: !root.paused && !(Hyprland.monitorFor(screen)?.activeWorkspace?.hasFullscreen ?? false)
+                    // Nothing to see under a fullscreen or tiled window; stop drawing.
+                    readonly property var workspace: Hyprland.monitorFor(screen)?.activeWorkspace ?? null
+                    readonly property bool running: !root.paused && !root.saving
+                        && !(workspace?.hasFullscreen ?? false) && !root.covered(workspace)
 
                     // Cover the screen like `awww img --resize crop`.
                     Loader {
@@ -18464,6 +18472,303 @@ auth     required  pam_fprintd.so  max-tries=1
 account  required  pam_unix.so
 ```
 
+## `config/quickshell/penumbra/processes.js`
+
+```javascript
+.pragma library
+
+// The system monitor's process list: top's last sample, grouped into apps by systemd unit.
+// Apps started by the shell, a launcher or an autostart file each run in their own scope or
+// service under app.slice, so a unit is one app, all of its processes and nothing else. Processes
+// in a unit shared by unrelated programs (the compositor's, a login session's) are grouped by
+// executable within it, and interpreters and shells there one process at a time: ending "python3"
+// must not end every Python script.
+
+// Units that hold whatever was started from them rather than one app.
+function shared(unit) {
+    return /^(session-.*\.scope|init\.scope|user@\d+\.service|wayland-wm@.*\.service|.*\.slice)$/.test(unit);
+}
+
+// Programs that run something else, so their name says nothing about the app.
+var interpreters = ["sh", "bash", "dash", "zsh", "fish", "python", "python3", "perl", "ruby", "node", "lua", "env"];
+function interpreter(exe) {
+    return interpreters.includes(exe) || /^python3\.\d+$/.test(exe);
+}
+
+// The desktop's own pieces: ending one would end the session, its lock screen or this list.
+function guarded(unit, exe) {
+    return unit.startsWith("penumbra-") || ["Hyprland", "quickshell", "systemd", "hypridle"].includes(exe);
+}
+
+// cgroups(text) → { pid: path } from `grep -H '' /proc/[0-9]*/cgroup`, which prints
+// "/proc/PID/cgroup:0::/user.slice/…/app-firefox@1.scope" (cgroup v2's line is the "0::" one).
+function cgroups(text) {
+    const paths = {};
+    for (const line of text.split("\n")) {
+        const m = line.match(/^\/proc\/(\d+)\/cgroup:0::(.*)$/);
+        if (m)
+            paths[m[1]] = m[2];
+    }
+    return paths;
+}
+
+// The unit at the end of a cgroup path, and whether it is one of the user's own (so
+// `systemctl --user` can signal it).
+function unitOf(path) {
+    const parts = (path ?? "").split("/").filter(p => p);
+    const unit = parts.length ? parts[parts.length - 1] : "";
+    return { unit: /\.(scope|service)$/.test(unit) ? unit : "", user: /\/user@\d+\.service\//.test(path ?? "") };
+}
+
+// The PID a scope was made by, when its name says so: systemd-run's run-pPID-iN.scope, or
+// kitty-PID-N.scope (a terminal's tabs); 0 otherwise. Apps' own scopes (app-…) stand alone.
+function parent(unit) {
+    const m = unit.match(/^(?:run-p(\d+)-i\d+|(?!app-)[a-z][\w.]*-(\d+)-\d+)\.scope$/);
+    return m ? Number(m[1] ?? m[2]) : 0;
+}
+
+// The desktop file ID in a unit named the XDG way, app-[LAUNCHER-]ID-RANDOM.scope or
+// app-[LAUNCHER-]ID@RANDOM.service, with systemd's \x escapes undone; "" otherwise.
+function appId(unit) {
+    const m = unit.match(/^app-(.+?)(?:-[0-9a-f]+\.scope|@[^@]*\.service|\.service|\.scope)$/);
+    return m ? m[1].replace(/\\x([0-9a-f]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16))) : "";
+}
+
+// The program a command line runs; for an interpreter, its script ("python3 /x/penumbra-cast …"
+// is penumbra-cast).
+function program(command) {
+    const words = command.split(" ").filter(w => w);
+    const exe = (words[0] ?? "").split("/").pop().replace(/^-/, "").replace(/:$/, "");
+    if (!interpreter(exe))
+        return { exe, name: exe };
+    const script = words.slice(1).find(w => !w.startsWith("-") && !w.includes("="));
+    return { exe, name: script && exe !== "env" ? script.split("/").pop() : exe };
+}
+
+// RES is in KiB, but top shortens values too wide for the column (e.g. 10.2g).
+function kib(value) {
+    const scale = { m: 1024, g: 1048576, t: 1073741824 }[value.slice(-1)];
+    return scale ? parseFloat(value) * scale : Number(value);
+}
+
+// group(top, cgroupText) → [{ key, units, exe, name, appId, cpu, mem, pids, user, guarded }]:
+// one per app. `top` is `top -b -n 2 -c` output (only the last sample counts), the sampling itself
+// left out. `units` lists the user units to signal when every process came from one, else is empty
+// and the PIDs are signalled.
+function group(top, cgroupText) {
+    const lines = top.split("\n");
+    let start = lines.length;
+    for (let i = lines.length - 1; i >= 0; i--) {
+        if (/^\s*PID\s+USER/.test(lines[i])) {
+            start = i + 1;
+            break;
+        }
+    }
+    const paths = cgroups(cgroupText);
+    const found = {};
+    const keyOf = {}; // pid → key
+    const made = {}; // key → the PID that made its scope
+    for (const line of lines.slice(start)) {
+        // PID USER PR NI VIRT RES SHR S %CPU %MEM TIME+ COMMAND
+        const m = line.match(/^\s*(\d+)\s+(\S+)\s+\S+\s+\S+\s+\S+\s+(\S+)\s+\S+\s+\S\s+([\d.]+)\s+\S+\s+\S+\s+(.+)$/);
+        if (!m || m[5].includes("top -b -n 2"))
+            continue;
+        const pid = m[1], command = m[5];
+        let key, unit = "", userUnit = false, exe, name;
+        if (command.startsWith("[")) {
+            key = "kernel";
+            exe = name = "kernel";
+        } else {
+            ({ exe, name } = program(command));
+            if (!exe)
+                continue;
+            const u = unitOf(paths[pid]);
+            if (u.unit && !shared(u.unit)) {
+                key = u.unit;
+                unit = u.unit;
+                userUnit = u.user;
+                if (parent(unit))
+                    made[key] = parent(unit);
+            } else {
+                // Shared or unknown: by program within the unit, interpreters one by one.
+                key = (interpreter(exe) ? `${name}#${pid}` : exe) + "@" + (u.unit || "?");
+            }
+        }
+        if (!found[key])
+            found[key] = { key, units: [], loose: false, exe: "", name: "", appId: appId(unit), cpu: 0, mem: 0, pids: [], user: m[2], guarded: false, lowest: Infinity };
+        const g = found[key];
+        keyOf[pid] = key;
+        g.cpu += Number(m[4]);
+        g.mem += kib(m[3]);
+        g.pids.push(pid);
+        if (g.user !== m[2])
+            g.user = "";
+        if (userUnit && !g.units.includes(unit))
+            g.units.push(unit);
+        else if (!userUnit)
+            g.loose = true;
+        g.guarded = g.guarded || guarded(unit, exe);
+        // An app's name is its first program that is not a wrapper, else its first.
+        const rank = Number(pid) + (interpreter(exe) ? 1e9 : 0);
+        if (rank < g.lowest) {
+            g.lowest = rank;
+            g.exe = exe;
+            g.name = name;
+        }
+    }
+    // A scope an app made for its helpers is part of that app, unless the app is the desktop's
+    // (the shell starts every app in a scope of its own: those stay apart).
+    for (const key in made) {
+        const into = found[keyOf[made[key]]];
+        const from = found[key];
+        if (!into || into === from || into.guarded || into.key === "kernel")
+            continue;
+        into.cpu += from.cpu;
+        into.mem += from.mem;
+        into.pids = into.pids.concat(from.pids);
+        into.units = into.units.concat(from.units.filter(u => !into.units.includes(u)));
+        into.loose = into.loose || from.loose;
+        if (into.user !== from.user)
+            into.user = "";
+        into.guarded = into.guarded || from.guarded;
+        delete found[key];
+    }
+    return Object.values(found).map(g => {
+        if (g.loose)
+            g.units = [];
+        delete g.loose;
+        delete g.lowest;
+        return g;
+    });
+}
+```
+
+## `config/quickshell/penumbra/search.js`
+
+```javascript
+.pragma library
+
+// The launcher's matching, kept apart from Launcher.qml so it can be tested (tests/shell).
+
+// Every term in the name or group; names that start with the first term come first, and
+// often-picked characters rise (`picks`: how often this one was picked). Everything matches no
+// terms, most picked first.
+function charScore(c, terms, picks) {
+    const boost = Math.min(40, picks ?? 0);
+    if (!terms.length)
+        return 1 + boost;
+    const name = c.name.toLowerCase(), all = name + " " + c.group.toLowerCase();
+    if (!terms.every(t => all.includes(t)))
+        return 0;
+    const first = terms[0];
+    const s = name === terms.join(" ") ? 100 : name.startsWith(first) ? 60 : name.split(/[\s:\-]+/).some(w => w.startsWith(first)) ? 40 : 10;
+    return s + boost;
+}
+
+// Name matches first, then initials and scattered letters, then descriptions; often-launched
+// apps rise a little (`uses`: how often this one was launched). Everything matches an empty query.
+function score(entry, q, uses) {
+    const boost = Math.min(15, uses ?? 0);
+    if (!q)
+        return 1 + boost;
+    const name = entry.name.toLowerCase();
+    let s = 0;
+    if (name === q)
+        s = 120;
+    else if (name.startsWith(q))
+        s = 100;
+    else if (name.split(/[\s\-_.]+/).some(w => w.startsWith(q)))
+        s = 85;
+    else if (name.includes(q))
+        s = 70;
+    else if (fuzzy(name, q))
+        s = 30 + fuzzy(name, q);
+    else if ([entry.genericName, entry.keywords.join(" "), entry.comment, entry.id].join(" ").toLowerCase().includes(q))
+        s = 25;
+    return s ? s + boost : 0;
+}
+// Letters of q in order inside name; fewer gaps score higher (1–30), no match is 0.
+function fuzzy(name, q) {
+    let at = -1, gaps = 0;
+    for (const c of q) {
+        const next = name.indexOf(c, at + 1);
+        if (next < 0)
+            return 0;
+        gaps += next - at - 1;
+        at = next;
+    }
+    return Math.max(1, 30 - gaps);
+}
+
+// Arithmetic and Math functions only; anything else is not a sum.
+var mathNames = {
+    pi: "Math.PI", e: "Math.E", sqrt: "Math.sqrt", cbrt: "Math.cbrt", abs: "Math.abs", round: "Math.round",
+    floor: "Math.floor", ceil: "Math.ceil", sin: "Math.sin", cos: "Math.cos", tan: "Math.tan",
+    asin: "Math.asin", acos: "Math.acos", atan: "Math.atan", ln: "Math.log", log: "Math.log10",
+    exp: "Math.exp", min: "Math.min", max: "Math.max", pow: "Math.pow"
+};
+// The value of a sum ("2+2", "=12", "sqrt(2)", "3,5*2"), or null when the text is not one.
+function calculate(text) {
+    const forced = text.startsWith("=");
+    let expr = text.replace(/^=/, "").trim().toLowerCase();
+    if (!expr || !/^[\d\s+\-*/%^().,a-z]+$/.test(expr) || !/\d|pi/.test(expr))
+        return null;
+    // A sum needs an operator or a function; a bare number is a search.
+    if (!forced && !/[+\-*/%^]|[a-z]+\s*\(/.test(expr.replace(/^-/, "")))
+        return null;
+    // A comma is a decimal point (3,5), unless it separates a function's arguments.
+    if (!/[a-z]\s*\(/.test(expr))
+        expr = expr.replace(/(\d),(\d)/g, "$1.$2");
+    let unknown = false;
+    expr = expr.replace(/\^/g, "**")
+        .replace(/[a-z]+/g, word => mathNames[word] ?? (unknown = true, word));
+    if (unknown)
+        return null;
+    try {
+        const value = Function(`"use strict"; return (${expr});`)();
+        return typeof value === "number" && isFinite(value) ? Number(value.toPrecision(12)) : null;
+    } catch (e) {
+        return null;
+    }
+}
+```
+
+## `config/quickshell/penumbra/shaders/glass-edge.frag`
+
+```glsl
+#version 440
+// GlassEdge: a 1 px ring just inside a rounded rectangle, full strength at the top and fading out
+// halfway down. Drawn in one pass, with no offscreen layer or mask.
+// Compiled to glass-edge.frag.qsb by tools/build-shaders.py.
+layout(location = 0) in vec2 qt_TexCoord0;
+layout(location = 0) out vec4 fragColor;
+layout(std140, binding = 0) uniform buf {
+    mat4 qt_Matrix;
+    float qt_Opacity;
+    vec2 size;      // item size, pixels
+    float radius;   // corner radius, pixels
+    float edge;     // alpha at the top edge
+    vec4 tint;      // the light's colour, opaque
+};
+
+// Signed distance to a rounded rectangle of half size b centred on the origin.
+float box(vec2 p, vec2 b, float r) {
+    vec2 q = abs(p) - b + r;
+    return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
+}
+
+void main() {
+    vec2 p = qt_TexCoord0 * size;
+    float r = min(radius, 0.5 * min(size.x, size.y));
+    float d = box(p - 0.5 * size, 0.5 * size, r);
+    // Coverage of the band between the outer edge and 1 px inside it, antialiased.
+    float ring = clamp(0.5 - d, 0.0, 1.0) - clamp(-0.5 - d, 0.0, 1.0);
+    float fade = clamp(1.0 - p.y / (0.5 * size.y), 0.0, 1.0);
+    float alpha = ring * fade * edge * qt_Opacity;
+    fragColor = vec4(tint.rgb * alpha, alpha);
+}
+```
+
 ## `config/quickshell/penumbra/shell.qml`
 
 ```qml
@@ -18900,6 +19205,81 @@ time_format = "%H:%M"
 format = "[󰥔 $time](#71637f)"
 ```
 
+## `config/systemd/user/penumbra-awww.service`
+
+```ini
+[Unit]
+Description=Penumbra wallpaper daemon (awww)
+PartOf=graphical-session.target
+After=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+ExecCondition=/bin/sh -c 'test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"'
+ExecStart=/usr/bin/awww-daemon
+# A new daemon starts blank: show the wallpaper again.
+ExecStartPost=-/bin/sh -c 'exec "$HOME/.local/bin/penumbra-wallpaper" restore'
+Restart=on-failure
+RestartSec=1
+```
+
+## `config/systemd/user/penumbra-cliphist@.service`
+
+```ini
+[Unit]
+Description=Penumbra clipboard history (%i)
+PartOf=graphical-session.target
+After=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+ExecCondition=/bin/sh -c 'test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"'
+# penumbra-session starts one for text and one for images.
+ExecStart=/usr/bin/wl-paste --type %i --watch cliphist store
+Restart=on-failure
+RestartSec=1
+```
+
+## `config/systemd/user/penumbra-hypridle.service`
+
+```ini
+[Unit]
+Description=Penumbra idle: dim, lock, screens off and suspend (hypridle)
+PartOf=graphical-session.target
+After=graphical-session.target penumbra-shell.service
+# Without it the screen no longer locks when idle or before sleep, so it keeps coming back.
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+Type=exec
+ExecCondition=/bin/sh -c 'test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"'
+ExecStart=/usr/bin/hypridle
+Restart=on-failure
+RestartSec=1
+```
+
+## `config/systemd/user/penumbra-lock-fallback.service`
+
+```ini
+[Unit]
+Description=Penumbra lock fallback: hyprlock when the shell can no longer come back while locked
+# penumbra-shell.service starts this through OnFailure= once systemd gives up restarting it.
+
+[Service]
+Type=oneshot
+# Only when the session was locked (the shell keeps that outside itself), and while the
+# compositor is up.
+ExecCondition=/bin/sh -c 'test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" && grep -qx locked "$XDG_RUNTIME_DIR/penumbra-locked"'
+# hyprlock takes over the session lock the dead shell left (allow_session_lock_restore). Once
+# unlocked there the session is unlocked, so the marker goes and the next shell does not lock again.
+ExecStart=/bin/sh -c 'pidof hyprlock >/dev/null || hyprlock; rm -f "$XDG_RUNTIME_DIR/penumbra-locked"'
+```
+
 ## `config/systemd/user/penumbra-shell.service`
 
 ```ini
@@ -18910,6 +19290,8 @@ After=graphical-session.target
 # A shell that keeps crashing stops being restarted.
 StartLimitIntervalSec=60
 StartLimitBurst=5
+# Once systemd gives up, a session that was locked stays locked under hyprlock.
+OnFailure=penumbra-lock-fallback.service
 
 [Service]
 Type=exec

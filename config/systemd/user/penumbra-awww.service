@@ -1,0 +1,15 @@
+[Unit]
+Description=Penumbra wallpaper daemon (awww)
+PartOf=graphical-session.target
+After=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+ExecCondition=/bin/sh -c 'test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"'
+ExecStart=/usr/bin/awww-daemon
+# A new daemon starts blank: show the wallpaper again.
+ExecStartPost=-/bin/sh -c 'exec "$HOME/.local/bin/penumbra-wallpaper" restore'
+Restart=on-failure
+RestartSec=1

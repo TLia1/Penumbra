@@ -118,7 +118,10 @@ For an app Penumbra doesn't install, put the template under `palette/templates/a
 
 ```bash
 python tools/build-palette.py
+python tools/build-shaders.py   # after editing config/quickshell/penumbra/shaders/*.frag (needs qt6-shadertools)
 python tools/build-configuration.py
 python -m unittest discover -s tests -v
 ./install.sh --user-only
 ```
+
+The shell's pure logic lives in `.pragma library` scripts (`processes.js`, `search.js`, `sun.js`, `oklch.js`) so it can be tested: `tests/shell/*.test.mjs` load them under Node (`node --test tests/shell`), and `tests/test_shell.py` runs those suites from the Python ones (skipped without Node). Logic worth testing that is still inside a QML file belongs in such a script. `.github/workflows/ci.yml` runs all of it on Arch, plus shellcheck on the shell scripts.

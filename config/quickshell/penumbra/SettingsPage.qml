@@ -67,6 +67,22 @@ ColumnLayout {
             onToggled: Settings.animatedWallpapers = !Settings.animatedWallpapers
         }
         SwitchRow {
+            visible: Settings.animatedWallpapers
+            glyph: "󰖯"
+            title: "Hold still behind windows"
+            subtitle: "While tiled windows hide the wallpaper"
+            checked: Settings.stillWhenCovered
+            onToggled: Settings.stillWhenCovered = !Settings.stillWhenCovered
+        }
+        SwitchRow {
+            visible: Settings.animatedWallpapers
+            glyph: "󰌪"
+            title: "Hold still to save power"
+            subtitle: "On battery or in power saver"
+            checked: Settings.stillOnBattery
+            onToggled: Settings.stillOnBattery = !Settings.stillOnBattery
+        }
+        SwitchRow {
             glyph: "󰆾"
             title: "Hot corner"
             subtitle: "Top-right corner opens the control center"

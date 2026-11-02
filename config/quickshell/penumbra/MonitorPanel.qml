@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import Quickshell.Widgets
+import "processes.js" as Processes
 
 // The system monitor, under the system capsule: live graphs of the processor, memory,
 // graphics, disks and network with storage, or the busiest apps.
@@ -37,13 +38,18 @@ Panel {
     onPageChanged: pageIn.restart()
     onSortByChanged: refreshList()
 
-    // Two batch iterations: the second measures CPU over the one-second delay.
-    // The C locale keeps decimal points out of the user's locale.
+    // Two batch iterations: the second measures CPU over the one-second delay. Then each
+    // process's cgroup, which tells apps apart (processes.js). The C locale keeps decimal points
+    // out of the user's locale.
     Process {
         id: top
-        command: ["env", "LC_ALL=C", "top", "-b", "-n", "2", "-d", "1", "-w", "512", "-c", "-e", "k"]
+        command: ["bash", "-c", "LC_ALL=C top -b -n 2 -d 1 -w 512 -c -e k; echo '## cgroups'; grep -sH '' /proc/[0-9]*/cgroup"]
         stdout: StdioCollector {
-            onStreamFinished: root.parse(text)
+            onStreamFinished: {
+                const at = text.indexOf("\n## cgroups\n");
+                root.groups = Processes.group(at < 0 ? text : text.slice(0, at), at < 0 ? "" : text.slice(at));
+                root.refreshList();
+            }
         }
     }
     Timer {
@@ -54,42 +60,6 @@ Panel {
         onTriggered: if (!top.running) top.running = true
     }
 
-    // RES is in KiB, but top shortens values too wide for the column (e.g. 10.2g).
-    function kib(value) {
-        const scale = { m: 1024, g: 1048576, t: 1073741824 }[value.slice(-1)];
-        return scale ? parseFloat(value) * scale : Number(value);
-    }
-    // Processes are grouped by executable, so a browser counts once.
-    function parse(out) {
-        const lines = out.split("\n");
-        let start = lines.length;
-        for (let i = lines.length - 1; i >= 0; i--) {
-            if (/^\s*PID\s+USER/.test(lines[i])) {
-                start = i + 1;
-                break;
-            }
-        }
-        const found = {};
-        for (const line of lines.slice(start)) {
-            // PID USER PR NI VIRT RES SHR S %CPU %MEM TIME+ COMMAND
-            const m = line.match(/^\s*(\d+)\s+(\S+)\s+\S+\s+\S+\s+\S+\s+(\S+)\s+\S+\s+\S\s+([\d.]+)\s+\S+\s+\S+\s+(.+)$/);
-            if (!m || m[5].startsWith("top -b -n 2"))
-                continue;
-            const key = m[5].startsWith("[") ? "kernel" : m[5].split(" ")[0].split("/").pop().replace(/^-/, "");
-            if (!key)
-                continue;
-            if (!found[key])
-                found[key] = { key, cpu: 0, mem: 0, pids: [], user: m[2] };
-            const g = found[key];
-            g.cpu += Number(m[4]);
-            g.mem += kib(m[3]);
-            g.pids.push(m[1]);
-            if (g.user !== m[2])
-                g.user = "";
-        }
-        groups = Object.values(found);
-        refreshList();
-    }
     // Apps whose desktop file is named after something else (com.anthropic.Claude runs
     // claude-desktop) are found by the program they launch; wrappers say nothing about the app.
     readonly property var launchers: {
@@ -108,16 +78,20 @@ Panel {
         const byMem = (a, b) => b.mem - a.mem;
         const top = groups.slice().sort(sortBy === "cpu" ? byCpu : byMem).slice(0, shown);
         top.forEach((g, i) => {
-            const entry = g.key === "kernel" ? null : DesktopEntries.heuristicLookup(g.key) ?? launchers[g.key];
+            // By the unit's desktop file ID, else by its program.
+            const entry = g.key === "kernel" ? null
+                : (g.appId ? DesktopEntries.heuristicLookup(g.appId) : null) ?? DesktopEntries.heuristicLookup(g.exe) ?? launchers[g.exe];
             const row = {
                 key: g.key,
-                name: g.key === "kernel" ? "Kernel" : entry?.name || g.key,
+                name: g.key === "kernel" ? "Kernel" : entry?.name || g.name,
                 icon: entry?.icon ? Quickshell.iconPath(entry.icon, true) : "",
                 cpu: g.cpu / Usage.cores,
                 mem: g.mem,
                 pids: g.pids.join(" "),
                 count: g.pids.length,
-                user: g.user
+                user: g.user,
+                units: g.units.join(" "),
+                guarded: g.guarded
             };
             if (i < rows.count)
                 rows.set(i, row);
@@ -151,8 +125,13 @@ Panel {
     function level(value, calm) {
         return value >= 90 ? Theme.rose : value >= 75 ? Theme.amber : calm;
     }
-    function end(pids, force) {
-        Quickshell.execDetached(["kill", force ? "-KILL" : "-TERM"].concat(pids.split(" ")));
+    // An app in its own unit is ended through systemd, which also reaches processes started
+    // since the last sample; anything else by its PIDs.
+    function end(row, force) {
+        if (row.units)
+            Quickshell.execDetached(["systemctl", "--user", "kill", "--signal=" + (force ? "KILL" : "TERM"), "--"].concat(row.units.split(" ")));
+        else
+            Quickshell.execDetached(["kill", force ? "-KILL" : "-TERM", "--"].concat(row.pids.split(" ")));
         expanded = "";
         refreshSoon.restart();
     }
@@ -624,6 +603,8 @@ Panel {
                             required property string pids
                             required property int count
                             required property string user
+                            required property string units
+                            required property bool guarded
                             readonly property bool expanded: root.expanded === key
                             readonly property bool mine: user === Quickshell.env("USER")
 
@@ -703,20 +684,21 @@ Panel {
                                     spacing: 8
                                     Label {
                                         Layout.fillWidth: true
-                                        text: row.mine ? `Running as ${row.user}` : row.key === "kernel" ? "Kernel threads" : "Owned by another user"
+                                        text: row.key === "kernel" ? "Kernel threads" : !row.mine ? "Owned by another user"
+                                            : row.guarded ? "Part of the desktop" : `Running as ${row.user}`
                                         font.pixelSize: Theme.textSmall
                                         color: Theme.dim
                                     }
                                     PillButton {
-                                        visible: row.mine
+                                        visible: row.mine && !row.guarded
                                         text: "End"
-                                        onClicked: root.end(row.pids, false)
+                                        onClicked: root.end(row, false)
                                     }
                                     PillButton {
-                                        visible: row.mine
+                                        visible: row.mine && !row.guarded
                                         text: "Force quit"
                                         danger: true
-                                        onClicked: root.end(row.pids, true)
+                                        onClicked: root.end(row, true)
                                     }
                                 }
                             }

@@ -18,25 +18,20 @@ if [[ ${1:-} = restart ]]; then
  systemctl --user restart penumbra-shell.service
  exit
 fi
-start() {
- local process=$1; shift
- if ! pgrep -u "$UID" -x "$process" >/dev/null; then
-  nohup "$@" >"$HOME/.local/state/penumbra/$process.log" 2>&1 9>&- &
- fi
-}
 hyprctl setcursor Penumbra-Cursors 28 >/dev/null
-start awww-daemon awww-daemon
 # The shell is the polkit agent too; an older KDE agent would hold the registration.
 pkill -u "$UID" -f '^/usr/lib/(.*/)?polkit-kde-authentication-agent-1' || true
 # Bar, notifications, OSD, control center, launcher, overlays, lock screen and polkit agent;
 # systemd restarts it if it dies (see ~/.config/systemd/user/penumbra-shell.service).
-systemctl --user reset-failed penumbra-shell.service 2>/dev/null
-systemctl --user restart penumbra-shell.service
-start hypridle hypridle
-# Clipboard history for text and images.
-if ! pgrep -u "$UID" -f "^wl-paste --type text --watch cliphist store" >/dev/null; then
- nohup wl-paste --type text --watch cliphist store >/dev/null 2>&1 9>&- &
- nohup wl-paste --type image --watch cliphist store >/dev/null 2>&1 9>&- &
-fi
-nohup "$HOME/.local/bin/penumbra-wallpaper" restore >"$HOME/.local/state/penumbra/wallpaper.log" 2>&1 9>&- &
+# The helpers are user services too, so one that dies comes back: hypridle above all, or the
+# screen would stop locking. Older Penumbra versions started them by hand; those go first.
+helpers=(penumbra-shell.service penumbra-awww.service penumbra-hypridle.service
+ penumbra-cliphist@text.service penumbra-cliphist@image.service)
+systemctl --user is-active -q penumbra-hypridle.service || pkill -u "$UID" -x hypridle
+systemctl --user is-active -q penumbra-awww.service || pkill -u "$UID" -x awww-daemon
+systemctl --user is-active -q penumbra-cliphist@text.service || pkill -u "$UID" -f '^wl-paste --type (text|image) --watch cliphist store'
+systemctl --user reset-failed "${helpers[@]}" penumbra-lock-fallback.service 2>/dev/null
+# A new login brings a new compositor: restart them all with its environment. penumbra-awww
+# shows the wallpaper again once it is up.
+systemctl --user restart "${helpers[@]}"
 exec 9>&-

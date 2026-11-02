@@ -1,5 +1,6 @@
-"""The generated colour files and CONFIGURATION.md match their sources."""
+"""The generated colour files, compiled shaders and CONFIGURATION.md match their sources."""
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import unittest
@@ -15,6 +16,10 @@ class GeneratedFiles(unittest.TestCase):
 
     def test_palette_files_are_current(self):
         self.check('build-palette.py')
+
+    @unittest.skipUnless(shutil.which('qsb') or Path('/usr/lib/qt6/bin/qsb').exists(), 'needs qsb (qt6-shadertools)')
+    def test_shaders_are_current(self):
+        self.check('build-shaders.py')
 
     def test_configuration_md_is_current(self):
         self.check('build-configuration.py')
