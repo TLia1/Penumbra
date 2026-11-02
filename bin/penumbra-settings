@@ -91,7 +91,9 @@ def load():
     try:
         for line in SETTINGS.read_text().splitlines():
             key, sep, value = line.partition('=')
-            if sep and re.fullmatch(r'[a-z_]+', key) and key in DEFAULTS:
+            # A value edited by hand into something wrong keeps its default: these values end up
+            # in Lua for hyprctl eval and in hypridle.conf.
+            if sep and re.fullmatch(r'[a-z_]+', key) and key in DEFAULTS and not problem(key, value):
                 values[key] = value
                 configured.add(key)
     except OSError:
@@ -130,9 +132,11 @@ def hypridle(values):
     text = ['# Written by penumbra-settings from ~/.config/penumbra/settings.conf (idle_*); change',
             '# the timings in the shell\'s Settings → Idle and sleep, which rewrites this file.',
             'general {',
-            '    # The shell\'s lock screen; hyprlock when the shell isn\'t running.',
-            '    lock_cmd = quickshell -c penumbra ipc call lock lock || pidof hyprlock || hyprlock',
+            '    # The shell\'s lock screen; hyprlock when the shell isn\'t running or could not lock.',
+            '    lock_cmd = ~/.local/bin/penumbra-ipc lock lock || pidof hyprlock || hyprlock',
             '    before_sleep_cmd = loginctl lock-session',
+            '    # Hold the suspend until the lock screen is up, so the desktop never shows on resume.',
+            '    inhibit_sleep = 3',
             '    after_sleep_cmd = hyprctl dispatch \'hl.dsp.dpms({action = "on"})\'',
             '}']
     steps = [
@@ -144,8 +148,14 @@ def hypridle(values):
           'on-resume = hyprctl dispatch \'hl.dsp.dpms({action = "on"})\'']),
         ('idle_suspend', '# Suspend, only on battery.', ['on-timeout = ~/.local/bin/penumbra-idle suspend']),
     ]
+    # Dimming only warns of the lock, so it comes before it: half a minute before, or halfway
+    # for a lock sooner than a minute.
+    timeouts = {key: seconds(values[key]) for key, _, _ in steps}
+    lock = timeouts['idle_lock']
+    if lock is not None and timeouts['idle_dim'] is not None and timeouts['idle_dim'] >= lock:
+        timeouts['idle_dim'] = max(1, lock - 30 if lock >= 60 else lock // 2)
     for key, comment, actions in steps:
-        timeout = seconds(values[key])
+        timeout = timeouts[key]
         if timeout is None:
             text.append(f'# {key} is never: no listener.')
             continue

@@ -8,6 +8,7 @@ ColumnLayout {
 
     spacing: 12
     onVisibleChanged: if (visible) Config.loadLayouts()
+    Component.onCompleted: Config.loadLayouts()
 
     // The comma-separated entry being typed in a field: its index and text.
     function token(field) {

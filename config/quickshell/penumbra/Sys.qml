@@ -71,8 +71,8 @@ Singleton {
             onStreamFinished: {
                 try {
                     const status = JSON.parse(text);
-                    root.updates = parseInt(status.text.replace(/\D/g, "")) || 0;
-                    root.updatesDetail = status.tooltip.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+                    root.updates = status.count ?? 0;
+                    root.updatesDetail = (status.details ?? []).join("\n");
                     root.updateSources = status.sources ?? [];
                 } catch (e) {
                     root.updates = 0;

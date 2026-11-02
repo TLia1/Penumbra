@@ -8,12 +8,14 @@ import Quickshell.Io
 Singleton {
     id: root
 
-    property bool controlOpen: false
+    // At most one panel is open: control, calendar, monitor, updates, wallpapers, or "".
+    property string openPanel: ""
+    readonly property bool controlOpen: openPanel === "control"
+    readonly property bool calendarOpen: openPanel === "calendar"
+    readonly property bool monitorOpen: openPanel === "monitor"
+    readonly property bool updatesOpen: openPanel === "updates"
+    readonly property bool wallpapersOpen: openPanel === "wallpapers"
     property string controlPage: "main" // main, wifi, bluetooth, mixer, night, cast, settings or a settings page
-    property bool calendarOpen: false
-    property bool monitorOpen: false
-    property bool updatesOpen: false
-    property bool wallpapersOpen: false
     property bool sessionOpen: false
     property bool launcherOpen: false
     property string launcherMode: "apps" // apps, clipboard, emoji or symbols
@@ -31,11 +33,7 @@ Singleton {
     readonly property var screen: Quickshell.screens.find(s => s.name === Hyprland.focusedMonitor?.name) ?? Quickshell.screens[0]
 
     function close() {
-        controlOpen = false;
-        calendarOpen = false;
-        monitorOpen = false;
-        updatesOpen = false;
-        wallpapersOpen = false;
+        openPanel = "";
     }
     // Full-screen overlays replace each other and any open panel.
     function closeOverlays() {
@@ -51,37 +49,16 @@ Singleton {
         closedAt = Date.now();
         close();
     }
-    function toggleControl() {
-        const reopen = !controlOpen && Date.now() - closedAt > 250;
-        close();
-        if (reopen)
+    // Open panel `name`, or close it if it is open. The control center always opens on its main page.
+    function toggle(name) {
+        const reopen = openPanel !== name && Date.now() - closedAt > 250;
+        if (reopen && name === "control")
             controlPage = "main";
-        controlOpen = reopen;
+        openPanel = reopen ? name : "";
     }
     function openControl(page) {
-        close();
         controlPage = page;
-        controlOpen = true;
-    }
-    function toggleCalendar() {
-        const reopen = !calendarOpen && Date.now() - closedAt > 250;
-        close();
-        calendarOpen = reopen;
-    }
-    function toggleMonitor() {
-        const reopen = !monitorOpen && Date.now() - closedAt > 250;
-        close();
-        monitorOpen = reopen;
-    }
-    function toggleUpdates() {
-        const reopen = !updatesOpen && Date.now() - closedAt > 250;
-        close();
-        updatesOpen = reopen;
-    }
-    function toggleWallpapers() {
-        const reopen = !wallpapersOpen && Date.now() - closedAt > 250;
-        close();
-        wallpapersOpen = reopen;
+        openPanel = "control";
     }
     function openSession() {
         closeOverlays();

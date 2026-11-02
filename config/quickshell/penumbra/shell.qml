@@ -55,7 +55,7 @@ ShellRoot {
 
     IpcHandler {
         target: "panel"
-        function control(): void { Ui.toggleControl(); }
+        function control(): void { Ui.toggle("control"); }
         function wifi(): void { Ui.openControl("wifi"); }
         function bluetooth(): void { Ui.openControl("bluetooth"); }
         function mixer(): void { Ui.openControl("mixer"); }
@@ -64,11 +64,11 @@ ShellRoot {
         // A page of Settings: look, displays, keyboard, idle or apps; or night (night light).
         function page(name: string): void { Ui.openControl(name); }
         function overview(): void { Ui.toggleOverview(); }
-        function calendar(): void { Ui.toggleCalendar(); }
-        function monitor(): void { Ui.toggleMonitor(); }
+        function calendar(): void { Ui.toggle("calendar"); }
+        function monitor(): void { Ui.toggle("monitor"); }
         function session(): void { Ui.openSession(); }
-        function updates(): void { Ui.toggleUpdates(); }
-        function wallpapers(): void { Ui.toggleWallpapers(); }
+        function updates(): void { Ui.toggle("updates"); }
+        function wallpapers(): void { Ui.toggle("wallpapers"); }
         function close(): void { Ui.closeOverlays(); }
     }
 
@@ -103,7 +103,8 @@ ShellRoot {
 
     IpcHandler {
         target: "lock"
-        function lock(): void { lockScreen.lock(); }
+        // False if the compositor refused; hypridle then falls back to hyprlock.
+        function lock(): bool { return lockScreen.lock(); }
         function isLocked(): bool { return lockScreen.locked; }
     }
 

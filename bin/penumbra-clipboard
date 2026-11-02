@@ -7,7 +7,7 @@ if [[ ${1:-} = clear ]]; then
  notify-send -a Penumbra 'Clipboard cleared' 'History has been wiped.'
  exit
 fi
-quickshell -c penumbra ipc call launcher clipboard >/dev/null 2>&1 && exit
+"${0%/*}/penumbra-ipc" launcher clipboard >/dev/null 2>&1 && exit
 choice=$(cliphist list | rofi -dmenu -i -p CLIPBOARD -display-columns 2 \
  -theme-str 'entry { placeholder: "Search clipboard history…"; } listview { lines: 8; } element { padding: 9px 12px; }') || exit 0
 cliphist decode <<<"$choice" | wl-copy

@@ -7,6 +7,8 @@ ColumnLayout {
     id: root
 
     spacing: 12
+    // Cities are only read for the place field and sunset schedules.
+    Component.onCompleted: NightLight.citiesWanted = true
 
     // Steps a "HH:MM" setting by a quarter of an hour.
     function shifted(text, quarters) {

@@ -9,7 +9,7 @@ pidfile=$state.pid
 log=$state.log
 
 # The shell shows a recording in the bar; it reads $state again when told.
-refresh() { quickshell -c penumbra ipc call recorder refresh >/dev/null 2>&1 || true; }
+refresh() { "${0%/*}/penumbra-ipc" recorder refresh >/dev/null 2>&1 || true; }
 recording() { [[ -f $pidfile ]] && kill -0 "$(<"$pidfile")" 2>/dev/null; }
 stop() { recording && kill -INT "$(<"$pidfile")" || true; }
 usage() { echo 'Usage: penumbra-record [toggle|stop|start [--geometry "X,Y WxH"] [--sound]]' >&2; exit 2; }
@@ -18,7 +18,7 @@ case ${1:-toggle} in
  stop) stop; exit 0;;
  toggle)
   if recording; then stop; exit 0; fi
-  quickshell -c penumbra ipc call shot record >/dev/null 2>&1 && exit 0
+  "${0%/*}/penumbra-ipc" shot record >/dev/null 2>&1 && exit 0
   exec "$0" start;;
  start) shift;;
  *) usage;;
@@ -42,7 +42,11 @@ fi
 
 dir=$HOME/Videos/Screencasts
 mkdir -p "$dir" "${state%/*}"
-file=$dir/$(date +%Y-%m-%d_%H-%M-%S).mp4
+# Two recordings in the same second get -2, -3… rather than overwriting each other.
+file=$dir/$(date +%Y-%m-%d_%H-%M-%S)
+suffix=; n=1
+while [[ -e $file$suffix.mp4 ]]; do n=$((n + 1)); suffix=-$n; done
+file=$file$suffix.mp4
 args=(-g "$geometry" -f "$file" -c libx264 -p preset=veryfast -p crf=23 -x yuv420p)
 # The default output's monitor carries what the computer plays.
 if $sound; then args+=("--audio=$(pactl get-default-sink).monitor"); fi

@@ -644,7 +644,8 @@ install_app_colors() {
         for command in ${APP_COMMANDS[$app]:-$app}; do
             command -v "$command" >/dev/null && found=1
         done
-        if [[ $app = lia-files ]] && command -v flatpak >/dev/null && flatpak info io.github.lia.Files >/dev/null 2>&1; then            found=1
+        if [[ $app = lia-files ]] && command -v flatpak >/dev/null && flatpak info io.github.lia.Files >/dev/null 2>&1; then
+            found=1
             install_tree "$dir/config" "$HOME/.var/app/io.github.lia.Files/config"
             install_tree "$ROOT/share/gtksourceview-5" "$HOME/.var/app/io.github.lia.Files/data/gtksourceview-5"
             install_tree "$ROOT/share/lia-files" "$HOME/.var/app/io.github.lia.Files/data/lia-files"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # The Penumbra shell draws the session overlay; this rofi menu is the fallback without it.
-quickshell -c penumbra ipc call panel session >/dev/null 2>&1 && exit
+"${0%/*}/penumbra-ipc" panel session >/dev/null 2>&1 && exit
 # One row of large icon tiles; rofi returns the selected index, so labels can change freely.
 tiles='window { width: 620px; padding: 22px; } mainbox { children: [ listview ]; }
 listview { columns: 5; lines: 1; spacing: 10px; fixed-columns: true; fixed-height: true; }

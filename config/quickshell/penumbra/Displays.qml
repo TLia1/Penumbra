@@ -5,9 +5,10 @@ import Quickshell.Hyprland
 import Quickshell.Io
 
 // Screens for Settings → Displays: what Hyprland has, a draft you change, and applying it. A draft
-// is written to ~/.config/penumbra/monitors.lua (which hyprland.lua reads before user.lua) and
-// applied at once through `hyprctl eval`; unless you keep it within 15 seconds it is undone, in
-// case the screen went dark.
+// is tried at once through `hyprctl eval`; unless you keep it within 15 seconds it is undone, in
+// case the screen went dark. Only a kept draft is written to ~/.config/penumbra/monitors.lua
+// (which hyprland.lua reads before user.lua), so a shell that dies during the trial leaves the
+// file as it was and the next reload or login brings the old layout back.
 Singleton {
     id: root
 
@@ -16,8 +17,6 @@ Singleton {
     property var draft: []
     readonly property bool changed: JSON.stringify(screens) !== JSON.stringify(draft)
     property int countdown: 0 // seconds left to keep an applied change
-    property string previousFile: ""
-    property bool hadFile: false
 
     function refresh() {
         if (!list.running)
@@ -152,28 +151,21 @@ Singleton {
     function apply() {
         if (!changed)
             return;
-        hadFile = file.loaded;
-        previousFile = file.loaded ? file.text() : "";
-        const text = lua(draft);
-        file.setText(header + text + "\n");
-        evaluate(text);
+        evaluate(lua(draft));
         countdown = 15;
         timer.restart();
     }
     function keep() {
         timer.stop();
         countdown = 0;
+        file.setText(header + lua(draft) + "\n");
         refresh();
     }
     function revert() {
         timer.stop();
         countdown = 0;
-        // The screens as they were, then the file as it was.
+        // The file was never touched; only the screens need putting back.
         evaluate(lua(screens));
-        if (hadFile)
-            file.setText(previousFile);
-        else
-            remove.running = true;
         draft = JSON.parse(JSON.stringify(screens));
         refresh();
     }
@@ -190,15 +182,9 @@ Singleton {
                 root.revert();
         }
     }
-    Process {
-        id: remove
-        command: ["rm", "-f", file.path]
-        onExited: file.reload()
-    }
     FileView {
         id: file
         path: Quickshell.env("HOME") + "/.config/penumbra/monitors.lua"
         printErrors: false
-        blockLoading: true
     }
 }

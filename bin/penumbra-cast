@@ -96,10 +96,16 @@ def local_address(host):
 
 # DLNA (UPnP media renderers)
 
+MAX_DESCRIPTION = 1 << 20
+
 def describe(location):
     """A DLNA renderer's name, model and AVTransport control URL, from its description; None if it has none."""
+    # Any device on the network can answer the search; a description is a few kilobytes.
     with urllib.request.urlopen(location, timeout=3) as response:
-        root = ElementTree.fromstring(response.read())
+        data = response.read(MAX_DESCRIPTION + 1)
+    if len(data) > MAX_DESCRIPTION:
+        return None
+    root = ElementTree.fromstring(data)
     base = root.findtext('d:URLBase', namespaces=UPNP) or location
     for device in root.iter(f'{{{UPNP["d"]}}}device'):
         for service in device.iterfind('d:serviceList/d:service', UPNP):

@@ -12,6 +12,7 @@ ColumnLayout {
     readonly property var current: Displays.draft[Math.min(selected, Displays.draft.length - 1)] ?? null
     readonly property int enabledCount: Displays.draft.filter(s => s.enabled).length
     onVisibleChanged: if (visible && Displays.countdown === 0 && !Displays.changed) Displays.refresh()
+    Component.onCompleted: if (Displays.countdown === 0 && !Displays.changed) Displays.refresh()
 
     // Change the selected screen, then put it back against its neighbours: a new size may overlap.
     function change(changes) {

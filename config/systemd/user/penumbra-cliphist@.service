@@ -8,7 +8,9 @@ StartLimitBurst=5
 [Service]
 Type=exec
 ExecCondition=/bin/sh -c 'test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"'
-# penumbra-session starts one for text and one for images.
+# penumbra-session starts one for text and one for images. Copies a password manager marks as
+# sensitive (x-kde-passwordManagerHint) reach cliphist with CLIPBOARD_STATE=sensitive, and it
+# skips them (wl-clipboard 2.2 and cliphist 0.5 or newer).
 ExecStart=/usr/bin/wl-paste --type %i --watch cliphist store
 Restart=on-failure
 RestartSec=1

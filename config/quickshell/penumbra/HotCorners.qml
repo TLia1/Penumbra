@@ -32,7 +32,7 @@ Variants {
         Timer {
             id: dwell
             interval: 160
-            onTriggered: Ui.toggleControl()
+            onTriggered: Ui.toggle("control")
         }
     }
 }

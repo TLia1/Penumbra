@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Update checks for the Penumbra bar and an interactive update session in the terminal."""
+from concurrent.futures import ThreadPoolExecutor
 import fcntl
-import html
 import importlib.util
 import json
 import os
@@ -50,18 +50,20 @@ def status():
                         "command": ["flatpak", "remote-ls", f"--{scope}", "--updates",
                                     "--all", "--arch=*", "--columns=ref"]}
                        for scope in ("user", "system"))
-    found = [(source["name"], check(source["command"], source.get("empty", ()),
-                                    source.get("empty_if_silent", ())))
-             for source in sources]
+    # The checks wait on the network, so they run side by side.
+    with ThreadPoolExecutor(max_workers=max(1, len(sources))) as pool:
+        results = pool.map(lambda source: check(source["command"], source.get("empty", ()),
+                                                source.get("empty_if_silent", ())), sources)
+        found = list(zip((source["name"] for source in sources), results))
     total = sum(len(lines) for _, lines in found if lines is not None)
-    tooltip = [f"{name}: {len(lines) if lines is not None else 'check unavailable'}"
+    details = [f"{name}: {len(lines) if lines is not None else 'check unavailable'}"
                for name, lines in found]
-    tooltip.extend(packages.notes() if packages else ["System packages: run ./install.sh to enable"])
-    tooltip.append("Click for the list · checked every 15 minutes")
-    # Each line is what the distribution's check prints (pacman: "name old -> new") or a Flatpak ref.
-    print(json.dumps({"text": f"󰚰 {total}" if total else "",
-                      "tooltip": html.escape("\n".join(tooltip)),
-                      "class": "available",
+    details.extend(packages.notes() if packages else ["System packages: run ./install.sh to enable"])
+    details.append("Click for the list · checked every 15 minutes")
+    # For the shell: the count, the lines of the bar's tooltip, and each source's updates, one line
+    # each as the distribution's check prints it (pacman: "name old -> new") or a Flatpak ref.
+    print(json.dumps({"count": total,
+                      "details": details,
                       "sources": [{"name": name, "packages": lines}
                                   for name, lines in found if lines]}))
 

@@ -9,6 +9,7 @@ ColumnLayout {
 
     spacing: 12
     onVisibleChanged: if (visible) Config.loadLayouts()
+    Component.onCompleted: Config.loadLayouts()
 
     component Section: Overline {
         Layout.fillWidth: true
@@ -57,7 +58,7 @@ ColumnLayout {
             title: "Wallpaper"
             subtitle: Ui.wallpaperTitle(Ui.wallpaper)
             trailing: "󰅂"
-            onClicked: Ui.toggleWallpapers()
+            onClicked: Ui.toggle("wallpapers")
         }
         SwitchRow {
             glyph: "󰐊"

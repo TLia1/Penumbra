@@ -103,6 +103,6 @@ if [[ ${1:-next} != restore && $current != "$previous" ]]; then
 fi
 # The shell animates dawn, eclipse, GIFs and videos over awww's still image, once the transition has finished.
 [[ ${1:-next} = restore ]] && delay=0 || delay=1400
-quickshell -c penumbra ipc call wallpaper set "$current" "$delay" >/dev/null 2>&1 || true
+"${0%/*}/penumbra-ipc" wallpaper set "$current" "$delay" >/dev/null 2>&1 || true
 for _ in {1..50}; do awww query >/dev/null 2>&1 && break; sleep 0.1; done
 exec awww img "$image" --resize crop "${transition[@]}"

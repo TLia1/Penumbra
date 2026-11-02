@@ -2,14 +2,13 @@ import QtQuick
 import QtMultimedia
 import Quickshell
 import Quickshell.Hyprland
-import Quickshell.Io
 import Quickshell.Services.UPower
 import Quickshell.Wayland
 
 // Animated wallpapers: the dawn and eclipse scenes, and your GIFs and videos. Each sits on the
 // bottom layer over awww's still copy of the same image (a GIF's or video's first frame), so
 // fading it in or out changes nothing at rest; night and plain images have nothing to animate.
-// penumbra-wallpaper says when the wallpaper changes; the settings page can keep them still, and
+// Ui and penumbra-wallpaper say when the wallpaper changes; the settings page can keep them still, and
 // they stop while tiled windows hide them and, if chosen, on battery or in power saver.
 Scope {
     id: root
@@ -70,10 +69,18 @@ Scope {
         return watchCovers && (workspace?.toplevels.values.some(t => t.lastIpcObject?.floating === false && !t.lastIpcObject.hidden) ?? false);
     }
 
-    FileView {
-        path: Quickshell.env("HOME") + "/.local/state/penumbra/wallpaper"
-        onLoaded: root.show(text().trim(), 0)
+    // Ui watches the state file. penumbra-wallpaper writes it, then calls show() with the delay;
+    // if that call is missed, the file still has the last word, only without the wait.
+    Connections {
+        target: Ui
+        function onWallpaperChanged() { follow.restart(); }
     }
+    Timer {
+        id: follow
+        interval: 500
+        onTriggered: if (root.chosen !== Ui.wallpaper) root.show(Ui.wallpaper, 0)
+    }
+    Component.onCompleted: follow.restart()
 
     Variants {
         model: Quickshell.screens

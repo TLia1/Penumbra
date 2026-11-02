@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 # The Penumbra shell draws the launcher; this rofi menu is the fallback without it.
-quickshell -c penumbra ipc call launcher apps >/dev/null 2>&1 && exit
+"${0%/*}/penumbra-ipc" launcher apps >/dev/null 2>&1 && exit
 exec rofi -show drun

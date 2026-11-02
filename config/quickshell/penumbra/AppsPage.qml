@@ -19,6 +19,7 @@ ColumnLayout {
         if (visible)
             current.running = true;
     }
+    Component.onCompleted: current.running = true
 
     // Desktop entry ids, with or without ".desktop".
     function bare(id) {

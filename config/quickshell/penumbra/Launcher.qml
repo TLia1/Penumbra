@@ -30,7 +30,11 @@ PanelWindow {
     // Emoji and symbols are a grid of characters.
     readonly property bool characters: Ui.launcherMode === "emoji" || Ui.launcherMode === "symbols"
     readonly property var apps: DesktopEntries.applications.values.filter(e => !e.noDisplay)
-    readonly property var symbols: Symbols.groups.reduce((all, g) => all.concat(g[1].map(s => ({ char: s[0], name: s[1], group: g[0] }))), [])
+    // Emoji and symbols are read the first time either opens, not at startup.
+    property bool charactersUsed: false
+    onCharactersChanged: if (characters) charactersUsed = true
+    onSymbolsChanged: if (Ui.launcherOpen) refresh()
+    readonly property var symbols: charactersUsed ? Symbols.groups.reduce((all, g) => all.concat(g[1].map(s => ({ char: s[0], name: s[1], group: g[0] }))), []) : []
     property var emoji: []
     property var results: []
     property var clips: []
@@ -201,7 +205,7 @@ PanelWindow {
     // "1F600 ; fully-qualified # 😀 E1.0 grinning face", under "# group: …" headings.
     // Skin-tone variants are left out.
     FileView {
-        path: "/usr/share/unicode/emoji/emoji-test.txt"
+        path: root.charactersUsed ? "/usr/share/unicode/emoji/emoji-test.txt" : ""
         printErrors: false
         onLoaded: {
             let group = "";

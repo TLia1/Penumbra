@@ -49,63 +49,83 @@ Panel {
             NumberAnimation { target: pages; property: "x"; from: Ui.controlPage === "main" ? -6 : 42; to: 18; duration: Theme.slow; easing.type: Easing.OutExpo }
         }
 
-        WifiPage {
+        // Pages are built when first shown and dropped when left: most of the time the control
+        // center is closed, and what must outlive a page lives in the singletons.
+        Loader {
             Layout.fillWidth: true
-            visible: Ui.controlPage === "wifi"
-            active: root.open && visible
+            active: Ui.controlPage === "wifi"
+            visible: active
+            sourceComponent: Component { WifiPage { active: root.open } }
         }
 
-        BluetoothPage {
+        Loader {
             Layout.fillWidth: true
-            visible: Ui.controlPage === "bluetooth"
-            active: root.open && visible
+            active: Ui.controlPage === "bluetooth"
+            visible: active
+            sourceComponent: Component { BluetoothPage { active: root.open } }
         }
 
-        MixerPage {
+        Loader {
             Layout.fillWidth: true
-            visible: Ui.controlPage === "mixer"
-            active: root.open && visible
+            active: Ui.controlPage === "mixer"
+            visible: active
+            sourceComponent: Component { MixerPage { active: root.open } }
         }
 
-        NightLightPage {
+        Loader {
             Layout.fillWidth: true
-            visible: Ui.controlPage === "night"
+            active: Ui.controlPage === "night"
+            visible: active
+            sourceComponent: Component { NightLightPage {} }
         }
 
-        CastPage {
+        Loader {
             Layout.fillWidth: true
-            visible: Ui.controlPage === "cast"
-            active: root.open && visible
+            active: Ui.controlPage === "cast"
+            visible: active
+            sourceComponent: Component { CastPage { active: root.open } }
         }
 
-        SettingsPage {
+        Loader {
             Layout.fillWidth: true
-            visible: Ui.controlPage === "settings"
+            active: Ui.controlPage === "settings"
+            visible: active
+            sourceComponent: Component { SettingsPage {} }
         }
 
-        LookPage {
+        Loader {
             Layout.fillWidth: true
-            visible: Ui.controlPage === "look"
+            active: Ui.controlPage === "look"
+            visible: active
+            sourceComponent: Component { LookPage {} }
         }
 
-        DisplaysPage {
+        Loader {
             Layout.fillWidth: true
-            visible: Ui.controlPage === "displays"
+            active: Ui.controlPage === "displays"
+            visible: active
+            sourceComponent: Component { DisplaysPage {} }
         }
 
-        KeyboardPage {
+        Loader {
             Layout.fillWidth: true
-            visible: Ui.controlPage === "keyboard"
+            active: Ui.controlPage === "keyboard"
+            visible: active
+            sourceComponent: Component { KeyboardPage {} }
         }
 
-        IdlePage {
+        Loader {
             Layout.fillWidth: true
-            visible: Ui.controlPage === "idle"
+            active: Ui.controlPage === "idle"
+            visible: active
+            sourceComponent: Component { IdlePage {} }
         }
 
-        AppsPage {
+        Loader {
             Layout.fillWidth: true
-            visible: Ui.controlPage === "apps"
+            active: Ui.controlPage === "apps"
+            visible: active
+            sourceComponent: Component { AppsPage {} }
         }
 
         ColumnLayout {
@@ -127,7 +147,7 @@ Panel {
                 Repeater {
                     model: [
                         { glyph: "󰒓", tip: "Settings", run: () => Ui.controlPage = "settings" },
-                        { glyph: "󰸉", tip: "Wallpaper", run: () => Ui.toggleWallpapers() },
+                        { glyph: "󰸉", tip: "Wallpaper", run: () => Ui.toggle("wallpapers") },
                         { glyph: "󰌾", tip: "Lock", run: () => { Ui.close(); Ui.run("loginctl lock-session"); } },
                         { glyph: "󰐥", tip: "Session", run: () => Ui.openSession() }
                     ]
@@ -432,14 +452,16 @@ Panel {
                         visible: Media.hasLength(root.player)
                         spacing: 10
                         Label {
-                            text: Media.time(root.player?.position ?? 0)
+                            text: Media.time(seekArea.pressed ? seekArea.target * (root.player?.length ?? 0) : root.player?.position ?? 0)
                             font.pixelSize: Theme.textTiny
                             color: Theme.textSoft
                         }
                         Item {
                             Layout.fillWidth: true
                             implicitHeight: 14
-                            readonly property real progress: root.player?.length > 0 ? Math.min(1, root.player.position / root.player.length) : 0
+                            // While dragging, the bar follows the pointer; the player seeks once, on release.
+                            readonly property real progress: seekArea.pressed ? seekArea.target
+                                : root.player?.length > 0 ? Math.min(1, root.player.position / root.player.length) : 0
                             Rectangle {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width
@@ -460,11 +482,10 @@ Panel {
                                 hoverEnabled: true
                                 enabled: root.player?.canSeek ?? false
                                 cursorShape: Qt.PointingHandCursor
-                                function seek(x) {
-                                    root.player.position = Math.max(0, Math.min(1, x / width)) * root.player.length;
-                                }
-                                onPressed: m => seek(m.x)
-                                onPositionChanged: m => { if (pressed) seek(m.x); }
+                                property real target: 0
+                                onPressed: m => target = Math.max(0, Math.min(1, m.x / width))
+                                onPositionChanged: m => { if (pressed) target = Math.max(0, Math.min(1, m.x / width)); }
+                                onReleased: if (root.player) root.player.position = target * root.player.length
                             }
                         }
                         Label {

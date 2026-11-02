@@ -52,7 +52,7 @@ PanelWindow {
             padding: 18
             active: Ui.calendarOpen
             tip: Qt.formatDateTime(Clock.date, "dddd d MMMM yyyy")
-            onClicked: Ui.toggleCalendar()
+            onClicked: Ui.toggle("calendar")
             Label {
                 text: Qt.formatDateTime(Clock.date, "HH:mm")
                 font.pixelSize: Theme.textLarge
@@ -95,8 +95,9 @@ PanelWindow {
             padding: 14
             spacing: 10
             tip: Media.player ? [Media.player.trackTitle, Media.player.trackArtist].filter(t => t).join(" · ") + "\nMiddle-click to pause · scroll to skip" : ""
-            onClicked: m => m.button === Qt.MiddleButton ? Media.player.togglePlaying() : Ui.toggleControl()
-            onScrolled: step => step > 0 ? Media.player.previous() : Media.player.next()
+            // Media.player can already be null while the capsule fades out.
+            onClicked: m => m.button === Qt.MiddleButton ? Media.player?.togglePlaying() : Ui.toggle("control")
+            onScrolled: step => step > 0 ? Media.player?.previous() : Media.player?.next()
             Row {
                 visible: Ui.hasVisualizer
                 spacing: 2
@@ -221,7 +222,7 @@ PanelWindow {
             padding: 12
             active: Ui.updatesOpen
             tip: Sys.updatesDetail
-            onClicked: Ui.toggleUpdates()
+            onClicked: Ui.toggle("updates")
             Glyph { text: "󰚰"; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
             Label { text: Sys.updates; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
         }
@@ -232,7 +233,7 @@ PanelWindow {
             spacing: 12
             active: Ui.monitorOpen
             tip: `CPU ${Usage.cpu}% · Memory ${Usage.memoryDetail}`
-            onClicked: m => m.button === Qt.RightButton ? Ui.spawn(Ui.terminal(["btop"], ["--class", "penumbra-monitor"])) : Ui.toggleMonitor()
+            onClicked: m => m.button === Qt.RightButton ? Ui.spawn(Ui.terminal(["btop"], ["--class", "penumbra-monitor"])) : Ui.toggle("monitor")
             readonly property color tint: Ui.monitorOpen ? Theme.onAccent : Theme.subtle
             Repeater {
                 model: ["CPU", "RAM"]
@@ -315,7 +316,7 @@ PanelWindow {
             spacing: 13
             active: Ui.controlOpen
             tip: `${Devices.networkName} · Bluetooth ${Devices.bluetoothName}` + (Devices.hasBattery ? `\n${Devices.batteryDetail}` : "")
-            onClicked: m => m.button === Qt.RightButton ? Ui.run("pavucontrol") : Ui.toggleControl()
+            onClicked: m => m.button === Qt.RightButton ? Ui.run("pavucontrol") : Ui.toggle("control")
             onScrolled: step => Devices.adjust("volume", step > 0 ? "up" : "down")
             readonly property color tint: Ui.controlOpen ? Theme.onAccent : Theme.textSoft
 

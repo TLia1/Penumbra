@@ -1,7 +1,9 @@
 """Every distribution folder gives install.sh what it needs, and every template fills in."""
+import importlib.machinery
 import importlib.util
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -59,6 +61,37 @@ class Distributions(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stderr, '')
                 self.assertNotRegex(result.stdout, r'@@[A-Z_]+@@')
+
+
+def settings_defaults():
+    """penumbra-settings' DEFAULTS, loaded from the script."""
+    loader = importlib.machinery.SourceFileLoader('penumbra_settings', str(ROOT / 'bin/penumbra-settings'))
+    spec = importlib.util.spec_from_loader('penumbra_settings', loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module.DEFAULTS
+
+
+class SettingsDefaults(unittest.TestCase):
+    """install.sh, penumbra-settings and hyprland.lua each know the settings' defaults."""
+
+    def test_installer_matches_penumbra_settings(self):
+        # With nothing detected: no keyboard from localectl, and Lia Files installed.
+        result = bash('localectl_field() { :; }; lia_files_installed() { true; }; settings=(); detect_settings; '
+                      'for key in "${SETTING_KEYS[@]}"; do printf "%s=%s\\n" "$key" "${settings[$key]}"; done', 'arch')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        installer = dict(line.split('=', 1) for line in result.stdout.splitlines())
+        defaults = settings_defaults()
+        self.assertEqual(list(installer), list(defaults), 'SETTING_KEYS and DEFAULTS list different keys or orders')
+        self.assertEqual(installer, defaults)
+
+    def test_hyprland_matches_penumbra_settings(self):
+        text = (ROOT / 'config/hypr/hyprland.lua').read_text()
+        table = re.search(r'local s = \{(.*?)\}\n', text).group(1)
+        lua = dict(re.findall(r'(\w+) = "([^"]*)"', table))
+        self.assertTrue(lua)
+        defaults = settings_defaults()
+        self.assertEqual({key: defaults[key] for key in lua}, lua)
 
 
 # Stand-ins for the apps in apps/ (and systemctl, for the uninstall): each records how it was

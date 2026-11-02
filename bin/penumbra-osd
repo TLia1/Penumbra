@@ -55,7 +55,7 @@ def main():
         value = min(100, max(0, value))
         # The Penumbra shell draws the popup; fall back to a plain notification without it.
         try:
-            shown = subprocess.run(['quickshell', '-c', 'penumbra', 'ipc', 'call', 'osd', 'flash',
+            shown = subprocess.run([str(Path(__file__).with_name('penumbra-ipc')), 'osd', 'flash',
                                     control, str(value), 'true' if muted else 'false'],
                                    capture_output=True).returncode == 0
         except OSError:

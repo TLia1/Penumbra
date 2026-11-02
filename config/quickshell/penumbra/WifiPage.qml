@@ -24,6 +24,9 @@ ColumnLayout {
     }
     onActiveChanged: { updateScanner(); if (!active) expanded = ""; }
     onDeviceChanged: updateScanner()
+    // The control center builds the page when it is shown and drops it when it is left.
+    Component.onCompleted: updateScanner()
+    Component.onDestruction: if (device) device.scannerEnabled = false
     Connections {
         target: Networking
         function onWifiEnabledChanged() { root.updateScanner(); }

@@ -26,9 +26,10 @@ Scope {
     property string fingerMessage: ""
     property int fingerTries: 0
 
+    // Whether the screen is locked afterwards.
     function lock() {
         if (sessionLock.locked)
-            return;
+            return true;
         Ui.closeOverlays();
         capsLeds.running = true;
         password = "";
@@ -41,6 +42,7 @@ Scope {
         sessionLock.locked = true;
         // False if the compositor refused the lock.
         locked = sessionLock.locked;
+        return locked;
     }
     function submit() {
         if (busy || password === "")

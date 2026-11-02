@@ -63,14 +63,9 @@ Singleton {
     }
 
     // Show a choice in the shell only, without saving it or touching the apps (while a slider is
-    // dragged); the latest one wins. endPreview() shows the saved choice again.
+    // dragged); the latest one wins. Saving the choice on release replaces the preview.
     function preview(changes) {
         previewing = Object.assign({}, choice, changes);
-        if (!previewer.running)
-            showPreview();
-    }
-    function endPreview() {
-        previewing = {};
         if (!previewer.running)
             showPreview();
     }

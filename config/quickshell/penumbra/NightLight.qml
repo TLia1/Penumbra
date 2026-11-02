@@ -27,10 +27,12 @@ Singleton {
     // ── Where you are, for sunset and sunrise ───────────────────────
     // zone1970.tab lists a city with coordinates for every time zone, so a typed city is found
     // without a network lookup; with nothing typed, this computer's time zone stands in.
+    // The list is read only for a sun schedule, or once the night light page asks for it.
     property var cities: [] // [{ name: "New York", zone: "America/New_York", latitude, longitude }]
+    property bool citiesWanted: false
     property string timeZone: ""
     FileView {
-        path: "/usr/share/zoneinfo/zone1970.tab"
+        path: root.citiesWanted || root.schedule === "sun" ? "/usr/share/zoneinfo/zone1970.tab" : ""
         printErrors: false
         onLoaded: {
             const found = [];

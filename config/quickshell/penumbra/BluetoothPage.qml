@@ -28,6 +28,9 @@ ColumnLayout {
     }
     onActiveChanged: { updateDiscovery(); if (!active) expanded = ""; }
     onPoweredChanged: updateDiscovery()
+    // The control center builds the page when it is shown and drops it when it is left.
+    Component.onCompleted: updateDiscovery()
+    Component.onDestruction: if (adapter?.discovering) adapter.discovering = false
 
     function glyphFor(device) {
         const icon = device.icon ?? "";

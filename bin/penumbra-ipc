@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Call the Penumbra shell: penumbra-ipc TARGET FUNCTION [ARGUMENT…], printing what it returns.
+# It succeeds only when the call ran and did not return false. `quickshell ipc call` exits 0 even
+# for an unknown target or function or wrong arguments (it prints why, on stdout), so scripts that
+# fall back to rofi, slurp or hyprlock when the shell can't help must not trust its exit code.
+set -u
+out=$(quickshell -c penumbra ipc call "$@" 2>&1) || exit 1
+case $out in
+ 'Target not found.'* | 'Function not found.'* | 'Too few arguments'* | 'Too many arguments'* | *'Function definition:'*)
+  printf 'penumbra-ipc: %s\n' "${out%%$'\n'*}" >&2
+  exit 1;;
+ false) exit 1;;
+esac
+[[ -z $out ]] || printf '%s\n' "$out"

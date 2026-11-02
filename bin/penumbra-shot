@@ -14,11 +14,15 @@ while (( $# )); do
  shift
 done
 if [[ -z $region ]]; then
- quickshell -c penumbra ipc call shot open "$annotate" >/dev/null 2>&1 && exit
+ "${0%/*}/penumbra-ipc" shot open "$annotate" >/dev/null 2>&1 && exit
  region=$(slurp -b 100d18aa -c b69af7 -w 2) || exit 0
 fi
 mkdir -p "$HOME/Pictures/Screenshots"
-file="$HOME/Pictures/Screenshots/$(date +%Y-%m-%d_%H-%M-%S).png"
+# Two captures in the same second get -2, -3… rather than overwriting each other.
+file="$HOME/Pictures/Screenshots/$(date +%Y-%m-%d_%H-%M-%S)"
+suffix=; n=1
+while [[ -e $file$suffix.png ]]; do n=$((n + 1)); suffix=-$n; done
+file=$file$suffix.png
 if [[ $annotate = true ]]; then
  grim -g "$region" - | satty --filename - --output-filename "$file"
  exit

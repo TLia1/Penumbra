@@ -16,6 +16,7 @@ ColumnLayout {
 
     // Look for TVs while the page is on screen, again every so often.
     onActiveChanged: if (active) { output = ""; Cast.scan(); }
+    Component.onCompleted: if (active) Cast.scan()
     Timer {
         interval: 20000
         repeat: true
