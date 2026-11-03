@@ -28,6 +28,7 @@ ColumnLayout {
         { page: "apps", glyph: "󰀻", title: "Default apps", words: "browser file manager terminal" },
         { page: "notifications", glyph: "󰂚", title: "Notifications", words: "do not disturb dnd schedule fullscreen sharing sounds lock screen count mute quiet keep rules" },
         { page: "night", glyph: "󰖔", title: "Night light", words: "warmth temperature kelvin sunset sunrise schedule hyprsunset" },
+        { page: "weather", glyph: "󰖐", title: "Weather", words: "location city coordinates forecast temperature calendar clock bar" },
         { page: "wifi", glyph: "󰤨", title: "Wi-Fi", words: "wireless network internet" },
         { page: "bluetooth", glyph: "󰂯", title: "Bluetooth", words: "devices headphones mouse pair battery" },
         { page: "mixer", glyph: "󰕾", title: "Sound", words: "audio volume output input microphone speakers apps" },

@@ -178,8 +178,9 @@ WallpaperScene {
         y: 640
         width: 1600
         height: 960
-        property real time: root.t
-        // Keep the original drifting aurora at rest; music lifts its curtains and glow.
+        // Audio takes over the curtains completely; only the ambient mode uses the clock.
+        property real time: desktopDepth.live ? 0 : root.t
+        property real audioActive: desktopDepth.live ? 1 : 0
         // DesktopDepth disconnects Cava while paused, locked, disabled or in reduced motion.
         property real bass: ((desktopDepth.samples[0] ?? 0) + (desktopDepth.samples[1] ?? 0)
             + (desktopDepth.samples[2] ?? 0)) / 3
@@ -188,15 +189,15 @@ WallpaperScene {
         property real treble: ((desktopDepth.samples[6] ?? 0) + (desktopDepth.samples[7] ?? 0)) / 2
         Behavior on bass {
             enabled: desktopDepth.live
-            NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: 60; easing.type: Easing.OutCubic }
         }
         Behavior on mids {
             enabled: desktopDepth.live
-            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: 80; easing.type: Easing.OutCubic }
         }
         Behavior on treble {
             enabled: desktopDepth.live
-            NumberAnimation { duration: 100; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: 60; easing.type: Easing.OutCubic }
         }
         property size size: Qt.size(width, height)
         property point center: Qt.point(root.world.x - x, root.world.y - y)

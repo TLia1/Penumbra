@@ -98,6 +98,13 @@ Panel {
 
             Loader {
                 Layout.fillWidth: true
+                active: Ui.controlPage === "weather"
+                visible: active
+                sourceComponent: Component { WeatherPage {} }
+            }
+
+            Loader {
+                Layout.fillWidth: true
                 active: Ui.controlPage === "cast"
                 visible: active
                 sourceComponent: Component { CastPage { active: root.open } }

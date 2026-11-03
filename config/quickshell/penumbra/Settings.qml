@@ -20,6 +20,7 @@ Singleton {
     property alias weatherInBar: adapter.weatherInBar
     property alias screenFrame: adapter.screenFrame
     property alias weatherEnabled: adapter.weatherEnabled
+    property alias weatherPlace: adapter.weatherPlace
     property alias dockMode: adapter.dockMode
     property alias dockPins: adapter.dockPins
     property alias hotCorner: adapter.hotCorner
@@ -98,6 +99,9 @@ Singleton {
             property bool weatherInBar: false
             property bool screenFrame: false
             property bool weatherEnabled: false
+            // null preserves the old shared location until a weather location is chosen;
+            // an empty string explicitly uses the computer's time zone.
+            property var weatherPlace: null
             property string dockMode: "off" // off, auto, empty
             property var dockPins: ["firefox", "kitty", "org.kde.dolphin"]
             property bool hotCorner: true

@@ -586,7 +586,7 @@ ColumnLayout {
     Section { text: "Calendar weather" }
     SwitchRow {
         title: "Show weather"
-        subtitle: "Open-Meteo · Uses the location set in Night Light"
+        subtitle: "Open-Meteo · " + (Weather.place?.name ?? "Choose a weather location")
         glyph: "󰖐"
         checked: Settings.weatherEnabled
         onToggled: Settings.weatherEnabled = !Settings.weatherEnabled
@@ -599,7 +599,7 @@ ColumnLayout {
         checked: Settings.weatherInBar
         onToggled: Settings.weatherInBar = !Settings.weatherInBar
     }
-    PillButton { text: "Choose location"; onClicked: Ui.controlPage = "night" }
+    PillButton { text: "Choose location"; onClicked: Ui.controlPage = "weather" }
     Section { text: "Floating dock" }
     Segmented {
         Layout.fillWidth: true

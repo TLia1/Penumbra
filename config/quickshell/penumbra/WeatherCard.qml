@@ -32,7 +32,8 @@ Rectangle {
             Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
             Label {
                 Layout.fillWidth: true
-                text: Weather.place?.name ?? "Choose a location in Night Light"
+                text: Weather.place?.name ?? "Choose a location in Settings → Look → Weather"
+                wrapMode: Text.Wrap
                 textFormat: Text.PlainText
                 font.pixelSize: Theme.textSmall
                 color: Theme.textSoft

@@ -55,6 +55,7 @@ import Quickshell
 Singleton {
     property bool citiesWanted: false
     property var place: ({name: "First", latitude: 1, longitude: 0})
+    function locate(text) { return {name: text, latitude: Number(text), longitude: 0}; }
 }
 ''')
             (folder / 'Ui.qml').write_text('''pragma Singleton
@@ -90,7 +91,8 @@ ShellRoot {
             interval: 600; running: true
             onTriggered: {
                 testPlayer.trackTitle = "second";
-                NightLight.place = {name: "Second", latitude: 2, longitude: 0};
+                Settings.weatherPlace = "2";
+                NightLight.place = {name: "Night light only", latitude: 9, longitude: 0};
             }
         }
         Timer {
@@ -102,7 +104,7 @@ ShellRoot {
                 testPlayer.position = 2;
                 if (lyrics.current !== 0) { console.error("seek failure"); Qt.exit(1); return; }
                 Settings.weatherEnabled = false;
-                NightLight.place = {name: "Third", latitude: 3, longitude: 0};
+                Settings.weatherPlace = "3";
                 lyrics.active = false;
                 testPlayer.trackTitle = "third";
             }

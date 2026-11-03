@@ -3049,7 +3049,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SHELL = ROOT / 'config/quickshell/penumbra'
 
 STUBS = {
-    'Settings': 'property real glassFrost: 0; property real textScale: 1; property bool reducedMotion: true; property bool weatherEnabled: true',
+    'Settings': 'property real glassFrost: 0; property real textScale: 1; property bool reducedMotion: true; property bool weatherEnabled: true; property var weatherPlace: null',
     'Ui': 'property string bin: "/nonexistent/"',
     'Media': 'function isLive(p) { return false; }',
     'Clock': 'property date date: new Date("2026-11-03T17:30:00Z")',
@@ -4137,7 +4137,7 @@ class QmlLoad(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='penumbra-load-') as temp:
             stage = Path(temp)
             shutil.copytree(ROOT / 'config/quickshell/penumbra', stage, dirs_exist_ok=True)
-            names = ['Bar', 'LookPage', 'Osd', 'Overview', 'Wallpaper', 'ControlCenter',
+            names = ['Bar', 'LookPage', 'WeatherPage', 'Osd', 'Overview', 'Wallpaper', 'ControlCenter',
                      'MonitorPanel', 'WallpaperPicker', 'ScreenFrame', 'SessionMenu', 'Launcher']
             for path in stage.glob('*.qml'):
                 path.write_text(path.read_text().replace('PanelWindow {', 'TestPanelWindow {'))
@@ -4783,6 +4783,7 @@ import Quickshell
 Singleton {
     property bool citiesWanted: false
     property var place: ({name: "First", latitude: 1, longitude: 0})
+    function locate(text) { return {name: text, latitude: Number(text), longitude: 0}; }
 }
 ''')
             (folder / 'Ui.qml').write_text('''pragma Singleton
@@ -4818,7 +4819,8 @@ ShellRoot {
             interval: 600; running: true
             onTriggered: {
                 testPlayer.trackTitle = "second";
-                NightLight.place = {name: "Second", latitude: 2, longitude: 0};
+                Settings.weatherPlace = "2";
+                NightLight.place = {name: "Night light only", latitude: 9, longitude: 0};
             }
         }
         Timer {
@@ -4830,7 +4832,7 @@ ShellRoot {
                 testPlayer.position = 2;
                 if (lyrics.current !== 0) { console.error("seek failure"); Qt.exit(1); return; }
                 Settings.weatherEnabled = false;
-                NightLight.place = {name: "Third", latitude: 3, longitude: 0};
+                Settings.weatherPlace = "3";
                 lyrics.active = false;
                 testPlayer.trackTitle = "third";
             }
@@ -10751,6 +10753,13 @@ Panel {
 
             Loader {
                 Layout.fillWidth: true
+                active: Ui.controlPage === "weather"
+                visible: active
+                sourceComponent: Component { WeatherPage {} }
+            }
+
+            Loader {
+                Layout.fillWidth: true
                 active: Ui.controlPage === "cast"
                 visible: active
                 sourceComponent: Component { CastPage { active: root.open } }
@@ -12659,8 +12668,9 @@ WallpaperScene {
         y: 640
         width: 1600
         height: 960
-        property real time: root.t
-        // Keep the original drifting aurora at rest; music lifts its curtains and glow.
+        // Audio takes over the curtains completely; only the ambient mode uses the clock.
+        property real time: desktopDepth.live ? 0 : root.t
+        property real audioActive: desktopDepth.live ? 1 : 0
         // DesktopDepth disconnects Cava while paused, locked, disabled or in reduced motion.
         property real bass: ((desktopDepth.samples[0] ?? 0) + (desktopDepth.samples[1] ?? 0)
             + (desktopDepth.samples[2] ?? 0)) / 3
@@ -12669,15 +12679,15 @@ WallpaperScene {
         property real treble: ((desktopDepth.samples[6] ?? 0) + (desktopDepth.samples[7] ?? 0)) / 2
         Behavior on bass {
             enabled: desktopDepth.live
-            NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: 60; easing.type: Easing.OutCubic }
         }
         Behavior on mids {
             enabled: desktopDepth.live
-            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: 80; easing.type: Easing.OutCubic }
         }
         Behavior on treble {
             enabled: desktopDepth.live
-            NumberAnimation { duration: 100; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: 60; easing.type: Easing.OutCubic }
         }
         property size size: Qt.size(width, height)
         property point center: Qt.point(root.world.x - x, root.world.y - y)
@@ -15682,7 +15692,7 @@ ColumnLayout {
     Section { text: "Calendar weather" }
     SwitchRow {
         title: "Show weather"
-        subtitle: "Open-Meteo · Uses the location set in Night Light"
+        subtitle: "Open-Meteo · " + (Weather.place?.name ?? "Choose a weather location")
         glyph: "󰖐"
         checked: Settings.weatherEnabled
         onToggled: Settings.weatherEnabled = !Settings.weatherEnabled
@@ -15695,7 +15705,7 @@ ColumnLayout {
         checked: Settings.weatherInBar
         onToggled: Settings.weatherInBar = !Settings.weatherInBar
     }
-    PillButton { text: "Choose location"; onClicked: Ui.controlPage = "night" }
+    PillButton { text: "Choose location"; onClicked: Ui.controlPage = "weather" }
     Section { text: "Floating dock" }
     Segmented {
         Layout.fillWidth: true
@@ -19922,6 +19932,7 @@ Singleton {
     property alias weatherInBar: adapter.weatherInBar
     property alias screenFrame: adapter.screenFrame
     property alias weatherEnabled: adapter.weatherEnabled
+    property alias weatherPlace: adapter.weatherPlace
     property alias dockMode: adapter.dockMode
     property alias dockPins: adapter.dockPins
     property alias hotCorner: adapter.hotCorner
@@ -20000,6 +20011,9 @@ Singleton {
             property bool weatherInBar: false
             property bool screenFrame: false
             property bool weatherEnabled: false
+            // null preserves the old shared location until a weather location is chosen;
+            // an empty string explicitly uses the computer's time zone.
+            property var weatherPlace: null
             property string dockMode: "off" // off, auto, empty
             property var dockPins: ["firefox", "kitty", "org.kde.dolphin"]
             property bool hotCorner: true
@@ -20065,6 +20079,7 @@ ColumnLayout {
         { page: "apps", glyph: "󰀻", title: "Default apps", words: "browser file manager terminal" },
         { page: "notifications", glyph: "󰂚", title: "Notifications", words: "do not disturb dnd schedule fullscreen sharing sounds lock screen count mute quiet keep rules" },
         { page: "night", glyph: "󰖔", title: "Night light", words: "warmth temperature kelvin sunset sunrise schedule hyprsunset" },
+        { page: "weather", glyph: "󰖐", title: "Weather", words: "location city coordinates forecast temperature calendar clock bar" },
         { page: "wifi", glyph: "󰤨", title: "Wi-Fi", words: "wireless network internet" },
         { page: "bluetooth", glyph: "󰂯", title: "Bluetooth", words: "devices headphones mouse pair battery" },
         { page: "mixer", glyph: "󰕾", title: "Sound", words: "audio volume output input microphone speakers apps" },
@@ -22547,7 +22562,7 @@ import Quickshell.Io
 
 Singleton {
     id: root
-    readonly property var place: NightLight.place
+    readonly property var place: Settings.weatherPlace == null ? NightLight.place : NightLight.locate(Settings.weatherPlace)
     readonly property string locationKey: place ? `${place.latitude},${place.longitude}` : ""
     property var result: ({})
     property string loaded: ""
@@ -22641,7 +22656,8 @@ Rectangle {
             Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
             Label {
                 Layout.fillWidth: true
-                text: Weather.place?.name ?? "Choose a location in Night Light"
+                text: Weather.place?.name ?? "Choose a location in Settings → Look → Weather"
+                wrapMode: Text.Wrap
                 textFormat: Text.PlainText
                 font.pixelSize: Theme.textSmall
                 color: Theme.textSoft
@@ -22672,6 +22688,84 @@ Rectangle {
                 onClicked: { Weather.lastAttempt = 0; Weather.refresh(); }
             }
         }
+    }
+}
+```
+
+## `config/quickshell/penumbra/WeatherPage.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+
+ColumnLayout {
+    id: root
+    spacing: 12
+
+    Component.onCompleted: NightLight.citiesWanted = true
+
+    PageHeader {
+        Layout.fillWidth: true
+        title: "Weather"
+        status: Settings.weatherEnabled ? Weather.place?.name ?? "Choose a location" : "Off"
+        checked: Settings.weatherEnabled
+        onToggled: Settings.weatherEnabled = !Settings.weatherEnabled
+        onBack: Ui.controlPage = "look"
+    }
+
+    Overline { Layout.fillWidth: true; text: "Location" }
+    Field {
+        id: location
+        Layout.fillWidth: true
+        text: Settings.weatherPlace ?? Settings.nightPlace
+        placeholderText: "City or latitude, longitude"
+        invalid: text.trim() !== "" && !NightLight.locate(text)
+        onEditingFinished: if (!invalid) Settings.weatherPlace = text.trim()
+    }
+    Label {
+        Layout.fillWidth: true
+        Layout.leftMargin: 4
+        text: location.invalid ? "City not found. Try a nearby time zone city, or latitude, longitude (for example, 48.86, 2.35)."
+            : location.text.trim() === "" ? "Uses your computer's time zone city. Enter a city or coordinates for a more precise location."
+            : "Location: " + (NightLight.locate(location.text)?.name ?? location.text)
+        color: location.invalid ? Theme.rose : Theme.muted
+        font.pixelSize: Theme.textSmall
+        wrapMode: Text.Wrap
+    }
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: 8
+        PillButton {
+            text: "Apply location"
+            primary: true
+            available: !location.invalid
+            onClicked: Settings.weatherPlace = location.text.trim()
+        }
+        PillButton {
+            text: "Use time zone"
+            onClicked: { location.text = ""; Settings.weatherPlace = ""; }
+        }
+    }
+
+    Overline { Layout.fillWidth: true; text: "Display" }
+    SwitchRow {
+        Layout.fillWidth: true
+        title: "Weather beside the clock"
+        subtitle: "Temperature and sky conditions in the bar"
+        glyph: "󰖐"
+        checked: Settings.weatherInBar
+        onToggled: Settings.weatherInBar = !Settings.weatherInBar
+    }
+    WeatherCard {
+        Layout.fillWidth: true
+        visible: Settings.weatherEnabled
+    }
+    Label {
+        Layout.fillWidth: true
+        text: "Open-Meteo · Updates every 30 minutes while weather is enabled."
+        color: Theme.dim
+        font.pixelSize: Theme.textSmall
+        wrapMode: Text.Wrap
     }
 }
 ```
@@ -23079,6 +23173,7 @@ layout(std140, binding = 0) uniform buf {
     float bass;
     float mids;
     float treble;
+    float audioActive;
 };
 
 void main() {
@@ -23092,21 +23187,31 @@ void main() {
     float envelope = smoothstep(0.0, 0.22, u) * smoothstep(1.0, 0.7, u);
     float fold = 0.5 + 0.5 * sin(s * 0.011 - time * 0.45 + 1.8 * sin(s * 0.0037 + time * 0.12));
     float ripple = 0.5 + 0.5 * sin(s * 0.029 + time * 0.9 + 2.0 * sin(s * 0.006 - time * 0.3));
-    float light = fold * (0.35 + 0.65 * ripple);
     float rays = 0.74 + 0.16 * sin(s * 0.21 + 4.0 * sin(s * 0.012 - time * 0.55)) + 0.1 * sin(s * 0.083 - time * 0.3);
 
     // Low to high frequencies spread along the horizon, blended into continuous curtains.
-    // Zero audio preserves the original aurora exactly, including on the lock screen.
     float energy = mix(bass, mids, smoothstep(0.0, 0.5, u));
     energy = mix(energy, treble, smoothstep(0.5, 1.0, u));
     float top = 150.0 + 130.0 * (0.5 + 0.5 * sin(s * 0.005 + time * 0.2));
-    top *= 1.0 + 0.55 * energy + 0.2 * bass;
+    float strength = 1.0;
+    if (audioActive > 0.5) {
+        // Replace the timed drift with spectrum-driven folds, rays and height. Silence
+        // settles to a low, faint rim; bass beats lift the whole horizon, while mids and
+        // treble shape their own sections. No motion here is driven by elapsed time.
+        fold = 0.5 + 0.5 * sin(s * 0.011 - bass * 2.5 + 1.8 * sin(s * 0.0037 + mids * 2.0));
+        ripple = 0.5 + 0.5 * sin(s * 0.029 + mids * 3.0 + 2.0 * sin(s * 0.006 - treble * 2.0));
+        rays = 0.74 + 0.16 * sin(s * 0.21 + 4.0 * sin(s * 0.012 - treble * 2.5))
+            + 0.1 * sin(s * 0.083 - mids * 2.0);
+        top = 45.0 + 320.0 * energy + 100.0 * bass;
+        strength = 0.12 + 2.6 * energy + 0.5 * bass;
+    }
+    float light = fold * (0.35 + 0.65 * ripple);
     // Curtains thin out well before the top of the item, so its edge never shows.
     float curtain = smoothstep(0.0, 22.0, h) * exp(-max(h, 0.0) / top) * (1.0 - smoothstep(top, top * 2.0, h)) * rays;
     float below = exp(min(h, 0.0) / 40.0) * (1.0 - step(0.0, h)) * 0.35;
 
     float alpha = 0.55 * envelope * light * (curtain + below) * smoothstep(0.0, 160.0, p.y);
-    alpha = min(0.9, alpha * (1.0 + 0.9 * energy));
+    alpha = min(0.9, alpha * strength);
     vec3 color = mix(vec3(0.77, 0.65, 1.0), vec3(0.89, 0.54, 0.75), smoothstep(30.0, 260.0, h));
     fragColor = vec4(color * alpha, alpha) * qt_Opacity;
 }

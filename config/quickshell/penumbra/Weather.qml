@@ -5,7 +5,7 @@ import Quickshell.Io
 
 Singleton {
     id: root
-    readonly property var place: NightLight.place
+    readonly property var place: Settings.weatherPlace == null ? NightLight.place : NightLight.locate(Settings.weatherPlace)
     readonly property string locationKey: place ? `${place.latitude},${place.longitude}` : ""
     property var result: ({})
     property string loaded: ""
