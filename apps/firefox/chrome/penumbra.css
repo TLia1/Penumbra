@@ -66,9 +66,13 @@
 /* Floating tabs preserve Firefox's pinned-tab and vertical-tab sizing. */
 .tab-background {
     border-radius: 10px !important;
-    margin: 4px 2px !important;
+    box-sizing: border-box !important;
     border: 1px solid transparent !important;
     transition: background-color 160ms ease, border-color 160ms ease !important;
+}
+/* Only horizontal tabs get custom margins; vertical tabs keep Firefox's own centring. */
+#tabbrowser-tabs[orient="horizontal"] .tab-background {
+    margin: 4px 2px !important;
 }
 .tab-background[selected] {
     background: linear-gradient(#1c1528, #0d0a12) !important;
