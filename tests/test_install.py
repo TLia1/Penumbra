@@ -104,12 +104,13 @@ exit 0
 # Your own settings before the install, then two installs: the second must change nothing.
 APP_SETUP = '''
 runs=$HOME/.local/state/penumbra/backups; PATH=$1:$PATH
-mkdir -p ~/.config/mozilla/firefox/abc.default/chrome ~/.config/mpv ~/.config/vesktop/settings ~/.config/btop
+mkdir -p ~/.config/mozilla/firefox/abc.default/chrome ~/.config/mpv ~/.config/vesktop/settings ~/.config/btop ~/.config/cava
 printf '[Profile0]\\nName=default\\nIsRelative=1\\nPath=abc.default\\n' > ~/.config/mozilla/firefox/profiles.ini
 printf '#nav-bar { padding: 0 }\\n' > ~/.config/mozilla/firefox/abc.default/chrome/userChrome.css
 printf '[quiet]\\nvolume=50' > ~/.config/mpv/mpv.conf
 printf 'color_theme = "Default"\\nupdate_ms = 1000\\n' > ~/.config/btop/btop.conf
 echo '{"enabledThemes": ["mine.css"]}' > ~/.config/vesktop/settings/settings.json
+printf '[input]\\nmethod = fifo\\n[color]\\nforeground = cyan\\n' > ~/.config/cava/config
 git config --file ~/.gitconfig delta.features side-by-side
 BACKUP=$runs/20260101-000000; mkdir -p "$BACKUP"; install_app_colors >/dev/null
 find ~ -type f ! -path "$runs/*" ! -name calls ! -name first -exec md5sum {} + | sort > ~/first
@@ -133,6 +134,47 @@ class AppColors(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stderr, '')
         return result.stdout
+
+    def test_glass_and_cava_preserve_settings_and_restore(self):
+        out = self.run_install('''
+            python3 -c 'import json,os; s=json.load(open(os.path.expanduser("~/.config/vesktop/settings/settings.json"))); print(s["transparent"], s["enabledThemes"])'
+            cat ~/.config/cava/config
+            test -s ~/.config/cava/themes/penumbra
+            STAMP=later uninstall_user >/dev/null
+            cat ~/.config/cava/config
+            cat ~/.config/vesktop/settings/settings.json
+        ''')
+        self.assertEqual(out.splitlines(), [
+            "True ['mine.css', 'penumbra.theme.css']",
+            '[input]', 'method = fifo', '[color]', "theme = 'penumbra'", 'foreground = cyan',
+            '[input]', 'method = fifo', '[color]', 'foreground = cyan',
+            '{"enabledThemes": ["mine.css"]}',
+        ])
+
+    def test_cava_keeps_named_theme_and_handles_fresh_config(self):
+        out = self.run_install('''
+            printf '[color]\\ntheme = "my-theme"\\n' > ~/.config/cava/config
+            color_cava
+            cat ~/.config/cava/config
+            rm ~/.config/cava/config
+            color_cava
+            color_cava
+            cat ~/.config/cava/config
+        ''')
+        self.assertEqual(out.splitlines(), ['[color]', 'theme = "my-theme"',
+            '[general]', 'framerate = 60', 'sleep_timer = 2', '', '[color]', "theme = 'penumbra'"])
+
+    def test_vesktop_enables_glass_with_existing_theme_or_fresh_settings(self):
+        out = self.run_install('''
+            echo '{"enabledThemes": ["penumbra.theme.css"], "transparent": false, "custom": 42}' > ~/.config/vesktop/settings/settings.json
+            color_vesktop
+            python3 -c 'import json,os; s=json.load(open(os.path.expanduser("~/.config/vesktop/settings/settings.json"))); print(s["transparent"], s["enabledThemes"], s["custom"])'
+            rm ~/.config/vesktop/settings/settings.json
+            color_vesktop
+            color_vesktop
+            python3 -c 'import json,os; s=json.load(open(os.path.expanduser("~/.config/vesktop/settings/settings.json"))); print(s["transparent"], s["enabledThemes"])'
+        ''')
+        self.assertEqual(out.splitlines(), ["True ['penumbra.theme.css'] 42", "True ['penumbra.theme.css']"])
 
     def test_file_manager_detection_preserves_existing_choice(self):
         out = self.run_install('''

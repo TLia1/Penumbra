@@ -803,19 +803,45 @@ color_vscode() {
     echo '"window.autoDetectColorScheme" with Penumbra and Penumbra Light as the preferred dark and light themes.'
 }
 
-# Vesktop: turn the theme on in its settings, which it writes on first start. A running Vesktop
-# keeps its own copy, so this shows after a restart.
+# Cava: choose our gradient without replacing audio, smoothing or output settings, or a named theme.
+color_cava() {
+    local conf=$HOME/.config/cava/config
+    if [[ -f $conf ]] && grep -qE '^[[:space:]]*theme[[:space:]]*=' "$conf"; then return 0; fi
+    backup_file "$conf" .config/cava/config
+    mkdir -p "${conf%/*}"
+    python3 - "$conf" <<'EOF'
+from pathlib import Path
+import re, sys
+path = Path(sys.argv[1])
+text = path.read_text() if path.exists() else '[general]\nframerate = 60\nsleep_timer = 2\n'
+section = re.search(r'^[ \t]*\[color\][ \t]*$', text, re.M)
+if section:
+    text = text[:section.end()] + "\ntheme = 'penumbra'" + text[section.end():]
+else:
+    text = text.rstrip() + "\n\n[color]\ntheme = 'penumbra'\n"
+path.write_text(text)
+EOF
+}
+
+# Vesktop: enable the theme and a transparent native window. A running Vesktop keeps its own
+# copy, so this shows after a restart. Other settings and enabled themes are preserved.
 color_vesktop() {
     local settings=$HOME/.config/vesktop/settings/settings.json
-    [[ -f $settings ]] || return 0
-    python3 -c 'import json, sys; sys.exit("penumbra.theme.css" in json.load(open(sys.argv[1])).get("enabledThemes", []))' \
-        "$settings" || return 0
+    if [[ -f $settings ]]; then
+        python3 -c 'import json, sys; s = json.load(open(sys.argv[1])); sys.exit("penumbra.theme.css" in s.get("enabledThemes", []) and s.get("transparent") is True)' \
+            "$settings" || return 0
+    fi
     backup_file "$settings" .config/vesktop/settings/settings.json
+    mkdir -p "${settings%/*}"
     python3 - "$settings" <<'EOF'
 import json, sys
-with open(sys.argv[1]) as file:
-    settings = json.load(file)
-settings.setdefault('enabledThemes', []).append('penumbra.theme.css')
+from pathlib import Path
+path = Path(sys.argv[1])
+settings = json.loads(path.read_text()) if path.exists() else {}
+themes = settings.setdefault('enabledThemes', [])
+if 'penumbra.theme.css' not in themes:
+    themes.append('penumbra.theme.css')
+settings['transparent'] = True
 with open(sys.argv[1], 'w') as file:
     json.dump(settings, file, indent=4)
 EOF
@@ -3347,12 +3373,13 @@ exit 0
 # Your own settings before the install, then two installs: the second must change nothing.
 APP_SETUP = '''
 runs=$HOME/.local/state/penumbra/backups; PATH=$1:$PATH
-mkdir -p ~/.config/mozilla/firefox/abc.default/chrome ~/.config/mpv ~/.config/vesktop/settings ~/.config/btop
+mkdir -p ~/.config/mozilla/firefox/abc.default/chrome ~/.config/mpv ~/.config/vesktop/settings ~/.config/btop ~/.config/cava
 printf '[Profile0]\\nName=default\\nIsRelative=1\\nPath=abc.default\\n' > ~/.config/mozilla/firefox/profiles.ini
 printf '#nav-bar { padding: 0 }\\n' > ~/.config/mozilla/firefox/abc.default/chrome/userChrome.css
 printf '[quiet]\\nvolume=50' > ~/.config/mpv/mpv.conf
 printf 'color_theme = "Default"\\nupdate_ms = 1000\\n' > ~/.config/btop/btop.conf
 echo '{"enabledThemes": ["mine.css"]}' > ~/.config/vesktop/settings/settings.json
+printf '[input]\\nmethod = fifo\\n[color]\\nforeground = cyan\\n' > ~/.config/cava/config
 git config --file ~/.gitconfig delta.features side-by-side
 BACKUP=$runs/20260101-000000; mkdir -p "$BACKUP"; install_app_colors >/dev/null
 find ~ -type f ! -path "$runs/*" ! -name calls ! -name first -exec md5sum {} + | sort > ~/first
@@ -3376,6 +3403,47 @@ class AppColors(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stderr, '')
         return result.stdout
+
+    def test_glass_and_cava_preserve_settings_and_restore(self):
+        out = self.run_install('''
+            python3 -c 'import json,os; s=json.load(open(os.path.expanduser("~/.config/vesktop/settings/settings.json"))); print(s["transparent"], s["enabledThemes"])'
+            cat ~/.config/cava/config
+            test -s ~/.config/cava/themes/penumbra
+            STAMP=later uninstall_user >/dev/null
+            cat ~/.config/cava/config
+            cat ~/.config/vesktop/settings/settings.json
+        ''')
+        self.assertEqual(out.splitlines(), [
+            "True ['mine.css', 'penumbra.theme.css']",
+            '[input]', 'method = fifo', '[color]', "theme = 'penumbra'", 'foreground = cyan',
+            '[input]', 'method = fifo', '[color]', 'foreground = cyan',
+            '{"enabledThemes": ["mine.css"]}',
+        ])
+
+    def test_cava_keeps_named_theme_and_handles_fresh_config(self):
+        out = self.run_install('''
+            printf '[color]\\ntheme = "my-theme"\\n' > ~/.config/cava/config
+            color_cava
+            cat ~/.config/cava/config
+            rm ~/.config/cava/config
+            color_cava
+            color_cava
+            cat ~/.config/cava/config
+        ''')
+        self.assertEqual(out.splitlines(), ['[color]', 'theme = "my-theme"',
+            '[general]', 'framerate = 60', 'sleep_timer = 2', '', '[color]', "theme = 'penumbra'"])
+
+    def test_vesktop_enables_glass_with_existing_theme_or_fresh_settings(self):
+        out = self.run_install('''
+            echo '{"enabledThemes": ["penumbra.theme.css"], "transparent": false, "custom": 42}' > ~/.config/vesktop/settings/settings.json
+            color_vesktop
+            python3 -c 'import json,os; s=json.load(open(os.path.expanduser("~/.config/vesktop/settings/settings.json"))); print(s["transparent"], s["enabledThemes"], s["custom"])'
+            rm ~/.config/vesktop/settings/settings.json
+            color_vesktop
+            color_vesktop
+            python3 -c 'import json,os; s=json.load(open(os.path.expanduser("~/.config/vesktop/settings/settings.json"))); print(s["transparent"], s["enabledThemes"])'
+        ''')
+        self.assertEqual(out.splitlines(), ["True ['penumbra.theme.css'] 42", "True ['penumbra.theme.css']"])
 
     def test_file_manager_detection_preserves_existing_choice(self):
         out = self.run_install('''
@@ -3678,7 +3746,7 @@ class Command(unittest.TestCase):
         for name in ('penumbra-theme', 'penumbra-corners'):
             (self.home / '.local/bin').mkdir(parents=True, exist_ok=True)
             shutil.copy(ROOT / 'bin' / name, self.home / '.local/bin')
-        # The generated files where install.sh puts them, and one app's: bat's.
+        # The generated files where install.sh puts them, plus optional app themes.
         for template in TEMPLATES.rglob('*'):
             rel = template.relative_to(TEMPLATES)
             if template.is_file() and rel.parts[0] in ('config', 'share'):
@@ -3687,6 +3755,7 @@ class Command(unittest.TestCase):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(ROOT / rel, target)
         shutil.copytree(ROOT / 'apps/bat/config', self.home / '.config', dirs_exist_ok=True)
+        shutil.copytree(ROOT / 'apps/cava/config', self.home / '.config', dirs_exist_ok=True)
         shutil.copytree(ROOT / 'apps/lia-files/config', self.home / '.config', dirs_exist_ok=True)
         for version in ('gtk-3.0', 'gtk-4.0'):
             shutil.copy(ROOT / 'config' / version / 'settings.ini', self.home / '.config' / version)
@@ -3749,6 +3818,8 @@ class Command(unittest.TestCase):
         self.assertIn("mode = 'light'", (config / 'nvim/lua/penumbra/palette.lua').read_text())
         self.assertIn('mode = "light"', (config / 'hypr/colors.lua').read_text())
         self.assertIn(light['base'], (config / 'bat/themes/Penumbra.tmTheme').read_text())
+        self.assertIn(f"gradient_color_1 = '{light['accentDeep']}'", (config / 'cava/themes/penumbra').read_text())
+        self.assertIn(f"gradient_color_4 = '{light['pink']}'", (config / 'cava/themes/penumbra').read_text())
         for version in ('gtk-3.0', 'gtk-4.0'):
             text = (config / version / 'settings.ini').read_text()
             self.assertIn('gtk-theme-name=Breeze\n', text)
@@ -3757,6 +3828,7 @@ class Command(unittest.TestCase):
         self.assertEqual((config / 'quickshell/penumbra/palette.js').read_bytes(),
                          (ROOT / 'config/quickshell/penumbra/palette.js').read_bytes())
         calls = self.calls()
+        self.assertIn(f'pkill -USR2 -u {os.getuid()} -x cava', calls)
         for call in ('gsettings set org.gnome.desktop.interface color-scheme prefer-light',
                      'gsettings set org.gnome.desktop.interface gtk-theme Breeze',
                      'hyprctl eval hl.config(', 'dbus-send --session --type=signal /KGlobalSettings',
@@ -6083,6 +6155,8 @@ def reload_apps(colors, mode, changed, icons):
                'org.kde.KGlobalSettings.notifyChange', 'int32:0', 'int32:0'])
     if 'config/kitty/penumbra-colors.conf' in changed and has('pkill'):
         quiet(['pkill', '-USR1', '-u', str(os.getuid()), '-x', 'kitty'])
+    if 'apps/cava/config/cava/themes/penumbra' in changed and has('pkill'):
+        quiet(['pkill', '-USR2', '-u', str(os.getuid()), '-x', 'cava'])
     # Every running fish sources its colours again when this universal variable changes.
     if 'config/fish/conf.d/penumbra-colors.fish' in changed and has('fish'):
         quiet(['fish', '-c', f'set -U penumbra_theme {time.time_ns()}'])
@@ -6800,18 +6874,18 @@ gtk-decoration-layout=:close
 @define-color success_color #a5ccb3;
 @define-color warning_color #e5c89a;
 @define-color error_color #ef8fa4;
-@define-color window_bg_color #100d18;
+@define-color window_bg_color alpha(#100d18, 0.84);
 @define-color window_fg_color #e9e1f5;
-@define-color view_bg_color #0d0a12;
+@define-color view_bg_color alpha(#0d0a12, 0.18);
 @define-color view_fg_color #e9e1f5;
-@define-color headerbar_bg_color #16111f;
+@define-color headerbar_bg_color alpha(#16111f, 0.76);
 @define-color headerbar_fg_color #e9e1f5;
 @define-color headerbar_border_color #33263f;
-@define-color headerbar_backdrop_color #100d18;
-@define-color sidebar_bg_color #16111f;
+@define-color headerbar_backdrop_color alpha(#100d18, 0.76);
+@define-color sidebar_bg_color alpha(#16111f, 0.76);
 @define-color sidebar_fg_color #e9e1f5;
-@define-color sidebar_backdrop_color #100d18;
-@define-color secondary_sidebar_bg_color #100d18;
+@define-color sidebar_backdrop_color alpha(#100d18, 0.76);
+@define-color secondary_sidebar_bg_color alpha(#100d18, 0.76);
 @define-color secondary_sidebar_fg_color #e9e1f5;
 @define-color card_bg_color #1c1528;
 @define-color card_fg_color #e9e1f5;
@@ -6823,16 +6897,25 @@ gtk-decoration-layout=:close
 @define-color thumbnail_fg_color #e9e1f5;
 @define-color theme_selected_bg_color #916dcf;
 @define-color theme_selected_fg_color #ffffff;
-@define-color theme_bg_color #100d18;
+@define-color theme_bg_color alpha(#100d18, 0.84);
 @define-color theme_fg_color #e9e1f5;
-@define-color theme_base_color #0d0a12;
+@define-color theme_base_color alpha(#0d0a12, 0.18);
 @define-color theme_text_color #e9e1f5;
-window, dialog { background-color: var(--window-bg-color, #100d18); color: var(--window-fg-color, #e9e1f5); }
-headerbar { background: var(--headerbar-bg-color, #16111f); color: var(--headerbar-fg-color, #e9e1f5); }
+window, dialog { background-color: var(--window-bg-color, @window_bg_color); color: var(--window-fg-color, #e9e1f5); }
+headerbar { background: var(--headerbar-bg-color, @headerbar_bg_color); color: var(--headerbar-fg-color, #e9e1f5); }
 selection { background-color: var(--accent-bg-color, #916dcf); color: var(--accent-fg-color, #ffffff); }
 
 /* libadwaita otherwise derives these foregrounds from the background colours. */
+/* Modern libadwaita uses CSS variables; older releases use the named colours above.
+   Views tint the window lightly rather than stacking another nearly opaque background. */
 :root {
+  --window-bg-color: alpha(#100d18, 0.84);
+  --view-bg-color: alpha(#0d0a12, 0.18);
+  --headerbar-bg-color: alpha(#16111f, 0.76);
+  --headerbar-backdrop-color: alpha(#100d18, 0.76);
+  --sidebar-bg-color: alpha(#16111f, 0.76);
+  --sidebar-backdrop-color: alpha(#100d18, 0.76);
+  --secondary-sidebar-bg-color: alpha(#100d18, 0.76);
   --accent-color: #b69af7;
   --error-color: #ef8fa4;
   --destructive-color: #ef8fa4;
@@ -6920,11 +7003,12 @@ hl.config({
  cursor = { no_hardware_cursors = @@SOFTWARE_CURSOR@@, enable_hyprcursor = false },
  general = { gaps_in = 6, gaps_out = 14, border_size = 2, resize_on_border = true, layout = "dwindle",
   col = { active_border = {colors = {"rgba(" .. c.accent .. "ee)", "rgba(" .. c.accentDeep .. "bb)"}, angle = 45}, inactive_border = "rgba(" .. c.black .. "ff)" } },
+ -- Global blur also covers the alpha backgrounds in GTK, Vesktop and terminal apps.
  decoration = { rounding = sharp and 0 or 16, rounding_power = 2, active_opacity = 1, inactive_opacity = 0.97,
   shadow = {enabled = true, range = 28, render_power = 3, color = light and "rgba(" .. c.shade .. "30)" or "rgba(" .. c.onAccent .. "88)",
    color_inactive = light and "rgba(00000022)" or "rgba(00000055)"},
   glow = {enabled = true, range = 18, render_power = 3, color = "rgba(" .. c.accentDeep .. "40)", color_inactive = "rgba(00000000)"},
-  blur = {enabled = true, size = 6, passes = 3, vibrancy = 0.2, noise = 0.02, contrast = 1.1, brightness = light and 1 or 0.9, popups = true} },
+  blur = {enabled = true, size = 10, passes = 4, vibrancy = 0.28, vibrancy_darkness = 0.15, noise = 0.025, contrast = 1.1, brightness = light and 1 or 0.9, popups = true} },
  animations = {enabled = not still},
  dwindle = {preserve_split = true},
  input = {kb_layout = s.kb_layout, kb_variant = s.kb_variant, kb_options = s.kb_options, numlock_by_default = s.numlock == "on",
@@ -7321,14 +7405,16 @@ if vim.g.syntax_on then vim.cmd('syntax reset') end
 -- penumbra-theme rewrites the palette for the theme you choose and runs :colorscheme penumbra again.
 package.loaded['penumbra.palette'] = nil
 local c = require('penumbra.palette')
+-- Let the terminal's glass show through; set vim.g.penumbra_transparent = false for a solid editor.
+local background = vim.g.penumbra_transparent == false and c.bg or 'NONE'
 vim.o.background = c.mode or 'dark'
 vim.g.colors_name = 'penumbra'
 local groups = {
-  Normal = { fg = c.fg, bg = c.bg }, NormalNC = { fg = c.fg, bg = c.bg },
+  Normal = { fg = c.fg, bg = background }, NormalNC = { fg = c.fg, bg = background },
   NormalFloat = { fg = c.fg, bg = c.panel }, FloatBorder = { fg = c.accent, bg = c.panel },
   FloatTitle = { fg = c.accent, bg = c.panel, bold = true },
   CursorLine = { bg = c.raised }, CursorLineNr = { fg = c.accent, bold = true },
-  LineNr = { fg = c.muted }, SignColumn = { bg = c.bg }, EndOfBuffer = { fg = c.border },
+  LineNr = { fg = c.muted }, SignColumn = { bg = background }, EndOfBuffer = { fg = c.border },
   WinSeparator = { fg = c.border }, Visual = { bg = c.selection },
   Search = { fg = c.bg, bg = c.gold }, IncSearch = { fg = c.bg, bg = c.accent }, CurSearch = { fg = c.bg, bg = c.accent },
   Pmenu = { fg = c.fg, bg = c.panel }, PmenuSel = { fg = c.bg, bg = c.accent },
@@ -7901,6 +7987,7 @@ PanelWindow {
         spacing: Theme.gap
 
         Capsule {
+            id: launcherCapsule
             padding: 14
             tip: "Applications · right-click for the clipboard"
             active: Ui.launcherOpen
@@ -7922,62 +8009,19 @@ PanelWindow {
             }
         }
 
-        // Workspaces sit right of the clock.
-        RowLayout {
-            spacing: Theme.gap
-            Repeater {
-                model: ScriptModel {
-                    values: Hyprland.workspaces.values
-                        .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
-                        .sort((a, b) => a.id - b.id)
-                }
-                delegate: Capsule {
-                    id: workspace
-                    required property var modelData
-                    readonly property bool current: modelData.active && modelData.monitor?.name === bar.screen.name
-                    implicitWidth: Math.max(current ? 52 : Theme.barHeight, workspaceLabel.implicitWidth + 26)
-                    padding: 0
-                    active: current
-                    color: current ? Theme.accent : modelData.urgent ? Theme.rose : (hovered ? Theme.hover : Theme.glass)
-                    onClicked: modelData.activate()
-                    Label {
-                        id: workspaceLabel
-                        text: workspace.modelData.name
-                        color: workspace.current || workspace.modelData.urgent ? Theme.onAccent : workspace.hovered ? Theme.text : Theme.subtle
-                        font.weight: workspace.current ? Font.Bold : Font.DemiBold
-                    }
-                }
-            }
+        WorkspaceStrip {
+            id: workspaceStrip
+            workspaces: Hyprland.workspaces.values
+                .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
+                .sort((a, b) => a.id - b.id)
+            showIcons: content.width - rightSide.width > 850
         }
 
-        // Cava's spectrum while something plays (a note when cava is missing); hidden while paused.
-        Capsule {
-            shown: !!Media.playing
-            padding: 14
-            spacing: 10
-            tip: Media.player ? [Media.player.trackTitle, Media.player.trackArtist].filter(t => t).join(" · ") + "\nMiddle-click to pause · scroll to skip" : ""
-            // Media.player can already be null while the capsule fades out.
-            onClicked: m => m.button === Qt.MiddleButton ? Media.player?.togglePlaying() : Ui.toggle("control")
-            onScrolled: step => step > 0 ? Media.player?.previous() : Media.player?.next()
-            Row {
-                visible: Ui.hasVisualizer
-                spacing: 2
-                Layout.preferredHeight: 18
-                // Centred pills that stretch both ways, so a quiet passage is a row of short dashes.
-                Repeater {
-                    model: Media.count
-                    delegate: Rectangle {
-                        required property int index
-                        anchors.verticalCenter: parent?.verticalCenter
-                        width: 3
-                        height: 5 + (Media.bars[index] ?? 0) * 13
-                        radius: Theme.corner(1.5)
-                        color: Theme.accentBright
-                        Behavior on height { NumberAnimation { duration: 60 * Theme.motion } }
-                    }
-                }
-            }
-            Glyph { visible: !Ui.hasVisualizer; text: "󰎆"; color: Theme.accentBright }
+        MediaCapsule {
+            // Reserve the status area first; long titles elide and small screens keep just art + spectrum.
+            titleWidth: Math.max(0, Math.min(140, content.width - rightSide.width
+                - workspaceStrip.implicitWidth - clockCapsule.implicitWidth - launcherCapsule.implicitWidth
+                - 5 * Theme.gap - 108))
         }
     }
 
@@ -7998,7 +8042,9 @@ PanelWindow {
                 const names = [entry?.name, client?.appId].filter(n => n).map(n => n.toLowerCase());
                 return m && names.some(n => m[2].toLowerCase().includes(n)) ? m[1] : t;
             }
-            shown: !!client && client.activated && text !== "" && client.screens.some(s => s.name === bar.screen.name)
+            readonly property real availableWidth: 2 * Math.min(content.width / 2 - leftSide.x - leftSide.width,
+                rightSide.x - content.width / 2) - 2 * Theme.gap
+            shown: availableWidth >= 80 && !!client && client.activated && text !== "" && client.screens.some(s => s.name === bar.screen.name)
             interactive: false
             padding: 15
             spacing: 8
@@ -8012,7 +8058,7 @@ PanelWindow {
             Label {
                 text: title.text
                 // As wide as the room between the side capsules allows, up to a point.
-                Layout.maximumWidth: Math.max(60, Math.min(300, 2 * Math.min(content.width / 2 - leftSide.x - leftSide.width, rightSide.x - content.width / 2) - 2 * Theme.gap - 60))
+                Layout.maximumWidth: Math.max(0, Math.min(300, title.availableWidth - 60))
                 color: Theme.textSoft
             }
         }
@@ -9338,609 +9384,626 @@ Panel {
     }
 
     // One page at a time: the main view, or Wi-Fi, Bluetooth, sound, night light, casting, settings
-    // and the settings' own pages.
-    ColumnLayout {
-        id: pages
+    // and the settings' own pages. A page taller than the room under the bar scrolls.
+    Flickable {
+        id: scroller
         x: 18
         y: 18
         width: root.sheetWidth - 36
-        spacing: 0
-
+        // The sheet's padding and shadow room above and below.
+        height: Math.min(pages.implicitHeight, root.height - 2 * root.shadowRoom - 36)
+        contentWidth: width
+        contentHeight: pages.implicitHeight
+        clip: true
+        interactive: contentHeight > height
+        boundsBehavior: Flickable.StopAtBounds
+        // Each page, and each opening, starts at the top.
         Connections {
-            target: Ui
-            function onControlPageChanged() { pageIn.restart(); }
-        }
-        ParallelAnimation {
-            id: pageIn
-            NumberAnimation { target: pages; property: "opacity"; from: 0; to: 1; duration: Theme.normal; easing.type: Easing.OutCubic }
-            NumberAnimation { target: pages; property: "x"; from: Ui.controlPage === "main" ? -6 : 42; to: 18; duration: Theme.slow; easing.type: Easing.OutExpo }
-        }
-
-        // Pages are built when first shown and dropped when left: most of the time the control
-        // center is closed, and what must outlive a page lives in the singletons.
-        Loader {
-            Layout.fillWidth: true
-            active: Ui.controlPage === "wifi"
-            visible: active
-            sourceComponent: Component { WifiPage { active: root.open } }
-        }
-
-        Loader {
-            Layout.fillWidth: true
-            active: Ui.controlPage === "bluetooth"
-            visible: active
-            sourceComponent: Component { BluetoothPage { active: root.open } }
-        }
-
-        Loader {
-            Layout.fillWidth: true
-            active: Ui.controlPage === "mixer"
-            visible: active
-            sourceComponent: Component { MixerPage { active: root.open } }
-        }
-
-        Loader {
-            Layout.fillWidth: true
-            active: Ui.controlPage === "night"
-            visible: active
-            sourceComponent: Component { NightLightPage {} }
-        }
-
-        Loader {
-            Layout.fillWidth: true
-            active: Ui.controlPage === "cast"
-            visible: active
-            sourceComponent: Component { CastPage { active: root.open } }
-        }
-
-        Loader {
-            Layout.fillWidth: true
-            active: Ui.controlPage === "settings"
-            visible: active
-            sourceComponent: Component { SettingsPage {} }
-        }
-
-        Loader {
-            Layout.fillWidth: true
-            active: Ui.controlPage === "look"
-            visible: active
-            sourceComponent: Component { LookPage {} }
-        }
-
-        Loader {
-            Layout.fillWidth: true
-            active: Ui.controlPage === "displays"
-            visible: active
-            sourceComponent: Component { DisplaysPage {} }
-        }
-
-        Loader {
-            Layout.fillWidth: true
-            active: Ui.controlPage === "keyboard"
-            visible: active
-            sourceComponent: Component { KeyboardPage {} }
-        }
-
-        Loader {
-            Layout.fillWidth: true
-            active: Ui.controlPage === "idle"
-            visible: active
-            sourceComponent: Component { IdlePage {} }
-        }
-
-        Loader {
-            Layout.fillWidth: true
-            active: Ui.controlPage === "notifications"
-            visible: active
-            sourceComponent: Component { NotificationsPage {} }
-        }
-
-        Loader {
-            Layout.fillWidth: true
-            active: Ui.controlPage === "apps"
-            visible: active
-            sourceComponent: Component { AppsPage {} }
+            target: root
+            function onOpenChanged() { scroller.contentY = 0; }
         }
 
         ColumnLayout {
-            Layout.fillWidth: true
-            visible: Ui.controlPage === "main"
-            spacing: 14
+            id: pages
+            width: scroller.width
+            spacing: 0
 
-            // Header: who, how long, and session shortcuts.
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 12
-                Avatar { size: 42 }
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 1
-                    Label { text: Quickshell.env("USER"); font.pixelSize: Theme.textLarge; font.weight: Font.DemiBold }
-                    Label { text: root.uptime; font.pixelSize: Theme.textSmall; color: Theme.muted }
-                }
-                Repeater {
-                    model: [
-                        { glyph: "󰒓", tip: "Settings", run: () => Ui.controlPage = "settings" },
-                        { glyph: "󰸉", tip: "Wallpaper", run: () => Ui.toggle("wallpapers") },
-                        { glyph: "󰌾", tip: "Lock", run: () => { Ui.close(); Ui.run("loginctl lock-session"); } },
-                        { glyph: "󰐥", tip: "Session", run: () => Ui.openSession() }
-                    ]
-                    delegate: Rectangle {
-                        required property var modelData
-                        implicitWidth: 36
-                        implicitHeight: 36
-                        radius: Theme.corner(18)
-                        color: headerArea.containsMouse ? Theme.hover : Theme.raised
-                        border.color: Theme.line
-                        Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 15; color: Theme.accentBright }
-                        MouseArea {
-                            id: headerArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: modelData.run()
-                        }
-                    }
-                }
+            Connections {
+                target: Ui
+                function onControlPageChanged() { scroller.contentY = 0; pageIn.restart(); }
+            }
+            ParallelAnimation {
+                id: pageIn
+                NumberAnimation { target: pages; property: "opacity"; from: 0; to: 1; duration: Theme.normal; easing.type: Easing.OutCubic }
+                NumberAnimation { target: pages; property: "x"; from: Ui.controlPage === "main" ? -24 : 24; to: 0; duration: Theme.slow; easing.type: Easing.OutExpo }
             }
 
-            GridLayout {
+            // Pages are built when first shown and dropped when left: most of the time the control
+            // center is closed, and what must outlive a page lives in the singletons.
+            Loader {
                 Layout.fillWidth: true
-                columns: 2
-                rowSpacing: 8
-                columnSpacing: 8
-                Tile {
-                    Layout.fillWidth: true
-                    glyph: Devices.networkGlyph
-                    title: Devices.wifiDevice ? "Wi-Fi" : "Network"
-                    subtitle: Devices.networkName
-                    on: Devices.wifiDevice ? Networking.wifiEnabled : Devices.wired
-                    hasMore: true
-                    onToggled: Devices.wifiDevice ? Networking.wifiEnabled = !Networking.wifiEnabled : Ui.controlPage = "wifi"
-                    onMore: Ui.controlPage = "wifi"
-                }
-                Tile {
-                    Layout.fillWidth: true
-                    glyph: Devices.bluetoothGlyph
-                    title: "Bluetooth"
-                    subtitle: Devices.bluetoothName
-                    on: Devices.bluetoothOn
-                    available: !!Devices.adapter
-                    hasMore: true
-                    onToggled: Devices.adapter.enabled = !Devices.adapter.enabled
-                    onMore: Ui.controlPage = "bluetooth"
-                }
-                Tile {
-                    Layout.fillWidth: true
-                    glyph: Notifs.dnd ? "󰂛" : "󰂚"
-                    title: "Do not disturb"
-                    subtitle: Notifs.dndStatus
-                    on: Notifs.dnd
-                    hasMore: true
-                    onToggled: Notifs.toggleDnd()
-                    onMore: Ui.controlPage = "notifications"
-                }
-                Tile {
-                    Layout.fillWidth: true
-                    glyph: Ui.caffeine ? "󰅶" : "󰛊"
-                    title: "Stay awake"
-                    subtitle: Ui.caffeine ? "Idle lock paused" : "Off"
-                    on: Ui.caffeine
-                    onToggled: Ui.caffeine = !Ui.caffeine
-                }
-                Tile {
-                    Layout.fillWidth: true
-                    glyph: "󱩌"
-                    title: "Night light"
-                    subtitle: NightLight.status
-                    on: NightLight.on
-                    available: NightLight.available
-                    hasMore: true
-                    onToggled: NightLight.toggle()
-                    onMore: Ui.controlPage = "night"
-                }
-                Tile {
-                    Layout.fillWidth: true
-                    glyph: "󰹑"
-                    title: "Screenshot"
-                    subtitle: "Picture or video"
-                    onToggled: Ui.openShot()
-                }
-                // The odd one out spans the row.
-                Tile {
-                    Layout.fillWidth: true
-                    Layout.columnSpan: 2
-                    glyph: Cast.casting ? "󰄙" : "󰄘"
-                    title: "Cast screen"
-                    subtitle: Cast.connecting ? `Connecting to ${Cast.tvName}…` : Cast.casting ? `Casting to ${Cast.tvName}` : "Show this screen on a TV"
-                    on: Cast.casting
-                    hasMore: true
-                    onToggled: Cast.casting ? Cast.stop() : Ui.controlPage = "cast"
-                    onMore: Ui.controlPage = "cast"
-                }
+                active: Ui.controlPage === "wifi"
+                visible: active
+                sourceComponent: Component { WifiPage { active: root.open } }
             }
 
-            // Power profile, through power-profiles-daemon.
-            ColumnLayout {
+            Loader {
                 Layout.fillWidth: true
-                visible: Ui.hasPowerProfiles
-                spacing: 6
-                Segmented {
-                    Layout.fillWidth: true
-                    current: PowerProfiles.profile
-                    options: [
-                        { value: PowerProfile.PowerSaver, glyph: "󰌪", title: "Power saver" },
-                        { value: PowerProfile.Balanced, glyph: "󰗑", title: "Balanced" },
-                        { value: PowerProfile.Performance, glyph: "󰓅", title: "Performance", available: PowerProfiles.hasPerformanceProfile }
-                    ]
-                    onChosen: value => PowerProfiles.profile = value
-                }
-                // Performance can be held back by the hardware; say why.
-                Label {
-                    Layout.fillWidth: true
-                    Layout.leftMargin: 4
-                    visible: PowerProfiles.profile === PowerProfile.Performance && PowerProfiles.degradationReason !== PerformanceDegradationReason.None
-                    text: PowerProfiles.degradationReason === PerformanceDegradationReason.LapDetected
-                        ? "Performance is limited while the laptop is on your lap"
-                        : "Performance is limited while the computer is hot"
-                    font.pixelSize: Theme.textSmall
-                    color: Theme.amber
-                }
+                active: Ui.controlPage === "bluetooth"
+                visible: active
+                sourceComponent: Component { BluetoothPage { active: root.open } }
+            }
+
+            Loader {
+                Layout.fillWidth: true
+                active: Ui.controlPage === "mixer"
+                visible: active
+                sourceComponent: Component { MixerPage { active: root.open } }
+            }
+
+            Loader {
+                Layout.fillWidth: true
+                active: Ui.controlPage === "night"
+                visible: active
+                sourceComponent: Component { NightLightPage {} }
+            }
+
+            Loader {
+                Layout.fillWidth: true
+                active: Ui.controlPage === "cast"
+                visible: active
+                sourceComponent: Component { CastPage { active: root.open } }
+            }
+
+            Loader {
+                Layout.fillWidth: true
+                active: Ui.controlPage === "settings"
+                visible: active
+                sourceComponent: Component { SettingsPage {} }
+            }
+
+            Loader {
+                Layout.fillWidth: true
+                active: Ui.controlPage === "look"
+                visible: active
+                sourceComponent: Component { LookPage {} }
+            }
+
+            Loader {
+                Layout.fillWidth: true
+                active: Ui.controlPage === "displays"
+                visible: active
+                sourceComponent: Component { DisplaysPage {} }
+            }
+
+            Loader {
+                Layout.fillWidth: true
+                active: Ui.controlPage === "keyboard"
+                visible: active
+                sourceComponent: Component { KeyboardPage {} }
+            }
+
+            Loader {
+                Layout.fillWidth: true
+                active: Ui.controlPage === "idle"
+                visible: active
+                sourceComponent: Component { IdlePage {} }
+            }
+
+            Loader {
+                Layout.fillWidth: true
+                active: Ui.controlPage === "notifications"
+                visible: active
+                sourceComponent: Component { NotificationsPage {} }
+            }
+
+            Loader {
+                Layout.fillWidth: true
+                active: Ui.controlPage === "apps"
+                visible: active
+                sourceComponent: Component { AppsPage {} }
             }
 
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: 4
+                visible: Ui.controlPage === "main"
+                spacing: 14
+
+                // Header: who, how long, and session shortcuts.
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 2
-                    SliderRow {
+                    spacing: 12
+                    Avatar { size: 42 }
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        glyph: Devices.volumeGlyph
-                        value: Devices.volume
-                        muted: Devices.muted
-                        onMoved: v => Devices.setVolume(v)
-                        onGlyphClicked: if (Devices.sink) Devices.sink.muted = !Devices.sink.muted
+                        spacing: 1
+                        Label { text: Quickshell.env("USER"); font.pixelSize: Theme.textLarge; font.weight: Font.DemiBold }
+                        Label { text: root.uptime; font.pixelSize: Theme.textSmall; color: Theme.muted }
                     }
-                    // Devices and per-app volume.
-                    Rectangle {
-                        implicitWidth: 26
-                        implicitHeight: 36
-                        radius: Theme.radiusSmall
-                        color: mixerArea.containsMouse ? Theme.hover : "transparent"
-                        Glyph { anchors.centerIn: parent; text: "󰅂"; color: Theme.muted }
-                        MouseArea {
-                            id: mixerArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: Ui.controlPage = "mixer"
-                        }
-                    }
-                }
-                SliderRow {
-                    Layout.fillWidth: true
-                    Layout.rightMargin: 28
-                    visible: !!Devices.source
-                    glyph: Devices.micMuted ? "󰍭" : "󰍬"
-                    value: Devices.source ? Math.round(Devices.source.volume * 100) : 0
-                    muted: Devices.micMuted
-                    onMoved: v => { Devices.source.muted = false; Devices.source.volume = v / 100; }
-                    onGlyphClicked: Devices.source.muted = !Devices.source.muted
-                }
-                SliderRow {
-                    Layout.fillWidth: true
-                    Layout.rightMargin: 28
-                    visible: Sys.brightness >= 0
-                    glyph: "󰃟"
-                    value: Sys.brightness
-                    onMoved: v => Sys.setBrightness(v)
-                }
-            }
-
-            // Media: blurred cover art behind the track, controls and a seek bar.
-            ClippingRectangle {
-                id: media
-                Layout.fillWidth: true
-                visible: !!root.player
-                implicitHeight: mediaColumn.implicitHeight + 20
-                radius: Theme.radius
-                color: Theme.raised
-                border.color: Theme.line
-
-                Image {
-                    id: artwork
-                    anchors.fill: parent
-                    source: root.player?.trackArtUrl ?? ""
-                    sourceSize.width: 200
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: true
-                    visible: false
-                }
-                MultiEffect {
-                    anchors.fill: parent
-                    source: artwork
-                    visible: artwork.status === Image.Ready
-                    blurEnabled: true
-                    blur: 1
-                    blurMax: 48
-                    saturation: 0.2
-                    opacity: 0.45
-                }
-                Rectangle {
-                    anchors.fill: parent
-                    gradient: Gradient {
-                        orientation: Gradient.Horizontal
-                        GradientStop { position: 0; color: Theme.alpha(Theme.surface, 0.55) }
-                        GradientStop { position: 1; color: Theme.alpha(Theme.surface, 0.15) }
-                    }
-                }
-
-                // MPRIS doesn't announce position changes; ask while it's on screen.
-                Timer {
-                    interval: 1000
-                    repeat: true
-                    running: root.open && !!root.player?.isPlaying
-                    onTriggered: root.player.positionChanged()
-                }
-                ColumnLayout {
-                    id: mediaColumn
-                    anchors { left: parent.left; right: parent.right; top: parent.top; margins: 10 }
-                    spacing: 8
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 12
-                        ClippingRectangle {
-                            implicitWidth: 56
-                            implicitHeight: 56
-                            radius: Theme.corner(12)
-                            color: Theme.hover
-                            Image {
-                                anchors.fill: parent
-                                source: root.player?.trackArtUrl ?? ""
-                                sourceSize: Qt.size(112, 112)
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
-                            }
-                            Glyph {
-                                anchors.centerIn: parent
-                                visible: !root.player?.trackArtUrl
-                                text: "󰎆"
-                                size: 22
-                                color: Theme.accentBright
-                            }
-                        }
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 2
-                            Label { Layout.fillWidth: true; text: root.player?.trackTitle || Media.appName(root.player); font.weight: Font.DemiBold }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 6
-                                // A live stream has nothing to seek through; say so instead.
-                                Rectangle {
-                                    visible: Media.isLive(root.player)
-                                    implicitWidth: liveLabel.implicitWidth + 12
-                                    implicitHeight: 16
-                                    radius: Theme.corner(8)
-                                    color: Theme.alpha(Theme.rose, 0.18)
-                                    border.color: Theme.alpha(Theme.rose, 0.5)
-                                    Label {
-                                        id: liveLabel
-                                        anchors.centerIn: parent
-                                        text: "LIVE"
-                                        font.pixelSize: Theme.textTiny
-                                        font.weight: Font.Bold
-                                        font.letterSpacing: 0.8
-                                        color: Theme.rose
-                                    }
-                                }
-                                Label { Layout.fillWidth: true; text: root.player?.trackArtist || Media.appName(root.player); font.pixelSize: Theme.textSmall; color: Theme.textSoft }
-                            }
-                        }
-                        Repeater {
-                            model: [
-                                { glyph: "󰒮", run: () => root.player.previous(), ok: root.player?.canGoPrevious },
-                                { glyph: root.player?.isPlaying ? "󰏤" : "󰐊", run: () => root.player.togglePlaying(), ok: root.player?.canTogglePlaying, main: true },
-                                { glyph: "󰒭", run: () => root.player.next(), ok: root.player?.canGoNext }
-                            ]
-                            delegate: Rectangle {
-                                required property var modelData
-                                implicitWidth: modelData.main ? 38 : 30
-                                implicitHeight: implicitWidth
-                                radius: Theme.corner(implicitWidth / 2)
-                                opacity: modelData.ok ? 1 : 0.4
-                                color: modelData.main ? Theme.accent : mediaArea.containsMouse ? Theme.hover : "transparent"
-                                Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 16; color: modelData.main ? Theme.onAccent : Theme.text }
-                                MouseArea {
-                                    id: mediaArea
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    enabled: !!modelData.ok
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: modelData.run()
-                                }
-                            }
-                        }
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        visible: Media.hasLength(root.player)
-                        spacing: 10
-                        Label {
-                            text: Media.time(seekArea.pressed ? seekArea.target * (root.player?.length ?? 0) : root.player?.position ?? 0)
-                            font.pixelSize: Theme.textTiny
-                            color: Theme.textSoft
-                        }
-                        Item {
-                            Layout.fillWidth: true
-                            implicitHeight: 14
-                            // While dragging, the bar follows the pointer; the player seeks once, on release.
-                            readonly property real progress: seekArea.pressed ? seekArea.target
-                                : root.player?.length > 0 ? Math.min(1, root.player.position / root.player.length) : 0
-                            Rectangle {
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: parent.width
-                                height: seekArea.containsMouse ? 6 : 4
-                                radius: Theme.corner(height / 2)
-                                color: Theme.overlayStrong
-                                Behavior on height { NumberAnimation { duration: Theme.fast } }
-                                Rectangle {
-                                    width: parent.width * parent.parent.progress
-                                    height: parent.height
-                                    radius: Theme.corner(height / 2)
-                                    color: Theme.accent
-                                }
-                            }
+                    Repeater {
+                        model: [
+                            { glyph: "󰒓", tip: "Settings", run: () => Ui.controlPage = "settings" },
+                            { glyph: "󰸉", tip: "Wallpaper", run: () => Ui.toggle("wallpapers") },
+                            { glyph: "󰌾", tip: "Lock", run: () => { Ui.close(); Ui.run("loginctl lock-session"); } },
+                            { glyph: "󰐥", tip: "Session", run: () => Ui.openSession() }
+                        ]
+                        delegate: Rectangle {
+                            required property var modelData
+                            implicitWidth: 36
+                            implicitHeight: 36
+                            radius: Theme.corner(18)
+                            color: headerArea.containsMouse ? Theme.hover : Theme.raised
+                            border.color: Theme.line
+                            Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 15; color: Theme.accentBright }
                             MouseArea {
-                                id: seekArea
+                                id: headerArea
                                 anchors.fill: parent
                                 hoverEnabled: true
-                                enabled: root.player?.canSeek ?? false
                                 cursorShape: Qt.PointingHandCursor
-                                property real target: 0
-                                onPressed: m => target = Math.max(0, Math.min(1, m.x / width))
-                                onPositionChanged: m => { if (pressed) target = Math.max(0, Math.min(1, m.x / width)); }
-                                onReleased: if (root.player) root.player.position = target * root.player.length
+                                onClicked: modelData.run()
                             }
                         }
-                        Label {
-                            text: Media.time(root.player?.length ?? 0)
-                            font.pixelSize: Theme.textTiny
-                            color: Theme.textSoft
-                        }
                     }
                 }
-            }
 
-            // Notifications
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.topMargin: 2
-                Overline {
+                GridLayout {
                     Layout.fillWidth: true
-                    text: Notifs.count ? `Notifications · ${Notifs.count}` : "Notifications"
-                }
-                Label {
-                    visible: Notifs.count > 0
-                    text: "Clear all"
-                    font.pixelSize: Theme.textSmall
-                    color: clearArea.containsMouse ? Theme.accentBright : Theme.accent
-                    MouseArea {
-                        id: clearArea
-                        anchors.fill: parent
-                        anchors.margins: -6
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: Notifs.clear()
+                    columns: 2
+                    rowSpacing: 8
+                    columnSpacing: 8
+                    Tile {
+                        Layout.fillWidth: true
+                        glyph: Devices.networkGlyph
+                        title: Devices.wifiDevice ? "Wi-Fi" : "Network"
+                        subtitle: Devices.networkName
+                        on: Devices.wifiDevice ? Networking.wifiEnabled : Devices.wired
+                        hasMore: true
+                        onToggled: Devices.wifiDevice ? Networking.wifiEnabled = !Networking.wifiEnabled : Ui.controlPage = "wifi"
+                        onMore: Ui.controlPage = "wifi"
+                    }
+                    Tile {
+                        Layout.fillWidth: true
+                        glyph: Devices.bluetoothGlyph
+                        title: "Bluetooth"
+                        subtitle: Devices.bluetoothName
+                        on: Devices.bluetoothOn
+                        available: !!Devices.adapter
+                        hasMore: true
+                        onToggled: Devices.adapter.enabled = !Devices.adapter.enabled
+                        onMore: Ui.controlPage = "bluetooth"
+                    }
+                    Tile {
+                        Layout.fillWidth: true
+                        glyph: Notifs.dnd ? "󰂛" : "󰂚"
+                        title: "Do not disturb"
+                        subtitle: Notifs.dndStatus
+                        on: Notifs.dnd
+                        hasMore: true
+                        onToggled: Notifs.toggleDnd()
+                        onMore: Ui.controlPage = "notifications"
+                    }
+                    Tile {
+                        Layout.fillWidth: true
+                        glyph: Ui.caffeine ? "󰅶" : "󰛊"
+                        title: "Stay awake"
+                        subtitle: Ui.caffeine ? "Idle lock paused" : "Off"
+                        on: Ui.caffeine
+                        onToggled: Ui.caffeine = !Ui.caffeine
+                    }
+                    Tile {
+                        Layout.fillWidth: true
+                        glyph: "󱩌"
+                        title: "Night light"
+                        subtitle: NightLight.status
+                        on: NightLight.on
+                        available: NightLight.available
+                        hasMore: true
+                        onToggled: NightLight.toggle()
+                        onMore: Ui.controlPage = "night"
+                    }
+                    Tile {
+                        Layout.fillWidth: true
+                        glyph: "󰹑"
+                        title: "Screenshot"
+                        subtitle: "Picture or video"
+                        onToggled: Ui.openShot()
+                    }
+                    // The odd one out spans the row.
+                    Tile {
+                        Layout.fillWidth: true
+                        Layout.columnSpan: 2
+                        glyph: Cast.casting ? "󰄙" : "󰄘"
+                        title: "Cast screen"
+                        subtitle: Cast.connecting ? `Connecting to ${Cast.tvName}…` : Cast.casting ? `Casting to ${Cast.tvName}` : "Show this screen on a TV"
+                        on: Cast.casting
+                        hasMore: true
+                        onToggled: Cast.casting ? Cast.stop() : Ui.controlPage = "cast"
+                        onMore: Ui.controlPage = "cast"
                     }
                 }
-            }
 
-            // Grouped by app; each group shows its newest notification until expanded.
-            ListView {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Notifs.count ? Math.min(contentHeight, 360) : 0
-                visible: Notifs.count > 0
-                clip: true
-                spacing: 12
-                // Keyed by app name: the group objects are rebuilt on every notification,
-                // but the names stay, so existing delegates are kept and `displaced` runs.
-                model: ScriptModel { values: Notifs.groups.map(g => g.app) }
-                boundsBehavior: Flickable.StopAtBounds
-                delegate: ColumnLayout {
-                    id: group
-                    required property string modelData
-                    readonly property string app: modelData
-                    readonly property var items: Notifs.groups.find(g => g.app === app)?.items ?? []
-                    readonly property bool expanded: root.expandedApps.includes(app)
-                    width: ListView.view.width
+                // Power profile, through power-profiles-daemon.
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: Ui.hasPowerProfiles
                     spacing: 6
-
-                    RowLayout {
+                    Segmented {
+                        Layout.fillWidth: true
+                        current: PowerProfiles.profile
+                        options: [
+                            { value: PowerProfile.PowerSaver, glyph: "󰌪", title: "Power saver" },
+                            { value: PowerProfile.Balanced, glyph: "󰗑", title: "Balanced" },
+                            { value: PowerProfile.Performance, glyph: "󰓅", title: "Performance", available: PowerProfiles.hasPerformanceProfile }
+                        ]
+                        onChosen: value => PowerProfiles.profile = value
+                    }
+                    // Performance can be held back by the hardware; say why.
+                    Label {
                         Layout.fillWidth: true
                         Layout.leftMargin: 4
-                        Layout.rightMargin: 4
-                        Label {
+                        visible: PowerProfiles.profile === PowerProfile.Performance && PowerProfiles.degradationReason !== PerformanceDegradationReason.None
+                        text: PowerProfiles.degradationReason === PerformanceDegradationReason.LapDetected
+                            ? "Performance is limited while the laptop is on your lap"
+                            : "Performance is limited while the computer is hot"
+                        font.pixelSize: Theme.textSmall
+                        color: Theme.amber
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        SliderRow {
                             Layout.fillWidth: true
-                            // While the pointer is on the rule button, what it does instead of the count.
-                            text: group.app + (ruleArea.containsMouse
-                                ? " · " + ({ "": "click: no popups", "silent": "no popups · click: mute",
-                                             "mute": "muted · click: always keep", "keep": "always kept · click: normal" })[Notifs.rule(group.app)]
-                                : group.items.length > 1 ? ` · ${group.items.length}` : "")
-                            font.pixelSize: Theme.textSmall
-                            font.weight: Font.DemiBold
-                            color: Theme.textSoft
+                            glyph: Devices.volumeGlyph
+                            value: Devices.volume
+                            muted: Devices.muted
+                            onMoved: v => Devices.setVolume(v)
+                            onGlyphClicked: if (Devices.sink) Devices.sink.muted = !Devices.sink.muted
                         }
-                        Label {
-                            visible: group.items.length > 1
-                            text: group.expanded ? "Show less" : "Show all"
-                            font.pixelSize: Theme.textSmall
-                            color: expandArea.containsMouse ? Theme.accentBright : Theme.accent
+                        // Devices and per-app volume.
+                        Rectangle {
+                            implicitWidth: 26
+                            implicitHeight: 36
+                            radius: Theme.radiusSmall
+                            color: mixerArea.containsMouse ? Theme.hover : "transparent"
+                            Glyph { anchors.centerIn: parent; text: "󰅂"; color: Theme.muted }
                             MouseArea {
-                                id: expandArea
+                                id: mixerArea
                                 anchors.fill: parent
-                                anchors.margins: -6
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: root.expandedApps = group.expanded
-                                    ? root.expandedApps.filter(a => a !== group.app)
-                                    : [...root.expandedApps, group.app]
-                            }
-                        }
-                        // The app's rule: normal, no popups, muted, or kept; each click moves to the next.
-                        Glyph {
-                            Layout.leftMargin: 8
-                            readonly property string rule: Notifs.rule(group.app)
-                            readonly property var next: ({ "": "silent", "silent": "mute", "mute": "keep", "keep": "" })
-                            text: ({ "": "󰂚", "silent": "󰂠", "mute": "󰂛", "keep": "󰐃" })[rule] ?? "󰂚"
-                            size: 13
-                            color: ruleArea.containsMouse ? Theme.text : rule ? Theme.accent : Theme.dim
-                            MouseArea {
-                                id: ruleArea
-                                anchors.fill: parent
-                                anchors.margins: -6
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: Settings.setRule(group.app, parent.next[parent.rule] ?? "")
-                            }
-                        }
-                        Glyph {
-                            Layout.leftMargin: 8
-                            text: "󰎟"
-                            size: 13
-                            color: clearGroup.containsMouse ? Theme.text : Theme.dim
-                            MouseArea {
-                                id: clearGroup
-                                anchors.fill: parent
-                                anchors.margins: -6
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: Notifs.clearApp(group.app)
+                                onClicked: Ui.controlPage = "mixer"
                             }
                         }
                     }
+                    SliderRow {
+                        Layout.fillWidth: true
+                        Layout.rightMargin: 28
+                        visible: !!Devices.source
+                        glyph: Devices.micMuted ? "󰍭" : "󰍬"
+                        value: Devices.source ? Math.round(Devices.source.volume * 100) : 0
+                        muted: Devices.micMuted
+                        onMoved: v => { Devices.source.muted = false; Devices.source.volume = v / 100; }
+                        onGlyphClicked: Devices.source.muted = !Devices.source.muted
+                    }
+                    SliderRow {
+                        Layout.fillWidth: true
+                        Layout.rightMargin: 28
+                        visible: Sys.brightness >= 0
+                        glyph: "󰃟"
+                        value: Sys.brightness
+                        onMoved: v => Sys.setBrightness(v)
+                    }
+                }
 
-                    Repeater {
-                        model: ScriptModel { values: group.expanded ? group.items : group.items.slice(0, 1) }
-                        delegate: NotificationCard {
-                            required property var modelData
+                // Media: blurred cover art behind the track, controls and a seek bar.
+                ClippingRectangle {
+                    id: media
+                    Layout.fillWidth: true
+                    visible: !!root.player
+                    implicitHeight: mediaColumn.implicitHeight + 20
+                    radius: Theme.radius
+                    color: Theme.raised
+                    border.color: Theme.line
+
+                    Image {
+                        id: artwork
+                        anchors.fill: parent
+                        source: root.player?.trackArtUrl ?? ""
+                        sourceSize.width: 200
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        visible: false
+                    }
+                    MultiEffect {
+                        anchors.fill: parent
+                        source: artwork
+                        visible: artwork.status === Image.Ready
+                        blurEnabled: true
+                        blur: 1
+                        blurMax: 48
+                        saturation: 0.2
+                        opacity: 0.45
+                    }
+                    Rectangle {
+                        anchors.fill: parent
+                        gradient: Gradient {
+                            orientation: Gradient.Horizontal
+                            GradientStop { position: 0; color: Theme.alpha(Theme.surface, 0.55) }
+                            GradientStop { position: 1; color: Theme.alpha(Theme.surface, 0.15) }
+                        }
+                    }
+
+                    // MPRIS doesn't announce position changes; ask while it's on screen.
+                    Timer {
+                        interval: 1000
+                        repeat: true
+                        running: root.open && !!root.player?.isPlaying
+                        onTriggered: root.player.positionChanged()
+                    }
+                    ColumnLayout {
+                        id: mediaColumn
+                        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 10 }
+                        spacing: 8
+                        RowLayout {
                             Layout.fillWidth: true
-                            notification: modelData
-                            compact: true
+                            spacing: 12
+                            ClippingRectangle {
+                                implicitWidth: 56
+                                implicitHeight: 56
+                                radius: Theme.corner(12)
+                                color: Theme.hover
+                                Image {
+                                    anchors.fill: parent
+                                    source: root.player?.trackArtUrl ?? ""
+                                    sourceSize: Qt.size(112, 112)
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                }
+                                Glyph {
+                                    anchors.centerIn: parent
+                                    visible: !root.player?.trackArtUrl
+                                    text: "󰎆"
+                                    size: 22
+                                    color: Theme.accentBright
+                                }
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Label { Layout.fillWidth: true; text: root.player?.trackTitle || Media.appName(root.player); font.weight: Font.DemiBold }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+                                    // A live stream has nothing to seek through; say so instead.
+                                    Rectangle {
+                                        visible: Media.isLive(root.player)
+                                        implicitWidth: liveLabel.implicitWidth + 12
+                                        implicitHeight: 16
+                                        radius: Theme.corner(8)
+                                        color: Theme.alpha(Theme.rose, 0.18)
+                                        border.color: Theme.alpha(Theme.rose, 0.5)
+                                        Label {
+                                            id: liveLabel
+                                            anchors.centerIn: parent
+                                            text: "LIVE"
+                                            font.pixelSize: Theme.textTiny
+                                            font.weight: Font.Bold
+                                            font.letterSpacing: 0.8
+                                            color: Theme.rose
+                                        }
+                                    }
+                                    Label { Layout.fillWidth: true; text: root.player?.trackArtist || Media.appName(root.player); font.pixelSize: Theme.textSmall; color: Theme.textSoft }
+                                }
+                            }
+                            Repeater {
+                                model: [
+                                    { glyph: "󰒮", run: () => root.player.previous(), ok: root.player?.canGoPrevious },
+                                    { glyph: root.player?.isPlaying ? "󰏤" : "󰐊", run: () => root.player.togglePlaying(), ok: root.player?.canTogglePlaying, main: true },
+                                    { glyph: "󰒭", run: () => root.player.next(), ok: root.player?.canGoNext }
+                                ]
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    implicitWidth: modelData.main ? 38 : 30
+                                    implicitHeight: implicitWidth
+                                    radius: Theme.corner(implicitWidth / 2)
+                                    opacity: modelData.ok ? 1 : 0.4
+                                    color: modelData.main ? Theme.accent : mediaArea.containsMouse ? Theme.hover : "transparent"
+                                    Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 16; color: modelData.main ? Theme.onAccent : Theme.text }
+                                    MouseArea {
+                                        id: mediaArea
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        enabled: !!modelData.ok
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: modelData.run()
+                                    }
+                                }
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: Media.hasLength(root.player)
+                            spacing: 10
+                            Label {
+                                text: Media.time(seekArea.pressed ? seekArea.target * (root.player?.length ?? 0) : root.player?.position ?? 0)
+                                font.pixelSize: Theme.textTiny
+                                color: Theme.textSoft
+                            }
+                            Item {
+                                Layout.fillWidth: true
+                                implicitHeight: 14
+                                // While dragging, the bar follows the pointer; the player seeks once, on release.
+                                readonly property real progress: seekArea.pressed ? seekArea.target
+                                    : root.player?.length > 0 ? Math.min(1, root.player.position / root.player.length) : 0
+                                Rectangle {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: parent.width
+                                    height: seekArea.containsMouse ? 6 : 4
+                                    radius: Theme.corner(height / 2)
+                                    color: Theme.overlayStrong
+                                    Behavior on height { NumberAnimation { duration: Theme.fast } }
+                                    Rectangle {
+                                        width: parent.width * parent.parent.progress
+                                        height: parent.height
+                                        radius: Theme.corner(height / 2)
+                                        color: Theme.accent
+                                    }
+                                }
+                                MouseArea {
+                                    id: seekArea
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    enabled: root.player?.canSeek ?? false
+                                    cursorShape: Qt.PointingHandCursor
+                                    property real target: 0
+                                    onPressed: m => target = Math.max(0, Math.min(1, m.x / width))
+                                    onPositionChanged: m => { if (pressed) target = Math.max(0, Math.min(1, m.x / width)); }
+                                    onReleased: if (root.player) root.player.position = target * root.player.length
+                                }
+                            }
+                            Label {
+                                text: Media.time(root.player?.length ?? 0)
+                                font.pixelSize: Theme.textTiny
+                                color: Theme.textSoft
+                            }
                         }
                     }
                 }
-                displaced: Transition { NumberAnimation { property: "y"; duration: Theme.normal; easing.type: Easing.OutCubic } }
-            }
 
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.bottomMargin: 6
-                visible: Notifs.count === 0
-                spacing: 4
-                Glyph { Layout.fillWidth: true; text: "󰂜"; size: 26; color: Theme.dim }
-                Label { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: "All caught up"; color: Theme.muted }
+                // Notifications
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 2
+                    Overline {
+                        Layout.fillWidth: true
+                        text: Notifs.count ? `Notifications · ${Notifs.count}` : "Notifications"
+                    }
+                    Label {
+                        visible: Notifs.count > 0
+                        text: "Clear all"
+                        font.pixelSize: Theme.textSmall
+                        color: clearArea.containsMouse ? Theme.accentBright : Theme.accent
+                        MouseArea {
+                            id: clearArea
+                            anchors.fill: parent
+                            anchors.margins: -6
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Notifs.clear()
+                        }
+                    }
+                }
+
+                // Grouped by app; each group shows its newest notification until expanded.
+                ListView {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Notifs.count ? Math.min(contentHeight, 360) : 0
+                    visible: Notifs.count > 0
+                    clip: true
+                    spacing: 12
+                    // Keyed by app name: the group objects are rebuilt on every notification,
+                    // but the names stay, so existing delegates are kept and `displaced` runs.
+                    model: ScriptModel { values: Notifs.groups.map(g => g.app) }
+                    boundsBehavior: Flickable.StopAtBounds
+                    delegate: ColumnLayout {
+                        id: group
+                        required property string modelData
+                        readonly property string app: modelData
+                        readonly property var items: Notifs.groups.find(g => g.app === app)?.items ?? []
+                        readonly property bool expanded: root.expandedApps.includes(app)
+                        width: ListView.view.width
+                        spacing: 6
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 4
+                            Layout.rightMargin: 4
+                            Label {
+                                Layout.fillWidth: true
+                                // While the pointer is on the rule button, what it does instead of the count.
+                                text: group.app + (ruleArea.containsMouse
+                                    ? " · " + ({ "": "click: no popups", "silent": "no popups · click: mute",
+                                                 "mute": "muted · click: always keep", "keep": "always kept · click: normal" })[Notifs.rule(group.app)]
+                                    : group.items.length > 1 ? ` · ${group.items.length}` : "")
+                                font.pixelSize: Theme.textSmall
+                                font.weight: Font.DemiBold
+                                color: Theme.textSoft
+                            }
+                            Label {
+                                visible: group.items.length > 1
+                                text: group.expanded ? "Show less" : "Show all"
+                                font.pixelSize: Theme.textSmall
+                                color: expandArea.containsMouse ? Theme.accentBright : Theme.accent
+                                MouseArea {
+                                    id: expandArea
+                                    anchors.fill: parent
+                                    anchors.margins: -6
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.expandedApps = group.expanded
+                                        ? root.expandedApps.filter(a => a !== group.app)
+                                        : [...root.expandedApps, group.app]
+                                }
+                            }
+                            // The app's rule: normal, no popups, muted, or kept; each click moves to the next.
+                            Glyph {
+                                Layout.leftMargin: 8
+                                readonly property string rule: Notifs.rule(group.app)
+                                readonly property var next: ({ "": "silent", "silent": "mute", "mute": "keep", "keep": "" })
+                                text: ({ "": "󰂚", "silent": "󰂠", "mute": "󰂛", "keep": "󰐃" })[rule] ?? "󰂚"
+                                size: 13
+                                color: ruleArea.containsMouse ? Theme.text : rule ? Theme.accent : Theme.dim
+                                MouseArea {
+                                    id: ruleArea
+                                    anchors.fill: parent
+                                    anchors.margins: -6
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: Settings.setRule(group.app, parent.next[parent.rule] ?? "")
+                                }
+                            }
+                            Glyph {
+                                Layout.leftMargin: 8
+                                text: "󰎟"
+                                size: 13
+                                color: clearGroup.containsMouse ? Theme.text : Theme.dim
+                                MouseArea {
+                                    id: clearGroup
+                                    anchors.fill: parent
+                                    anchors.margins: -6
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: Notifs.clearApp(group.app)
+                                }
+                            }
+                        }
+
+                        Repeater {
+                            model: ScriptModel { values: group.expanded ? group.items : group.items.slice(0, 1) }
+                            delegate: NotificationCard {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                notification: modelData
+                                compact: true
+                            }
+                        }
+                    }
+                    displaced: Transition { NumberAnimation { property: "y"; duration: Theme.normal; easing.type: Easing.OutCubic } }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.bottomMargin: 6
+                    visible: Notifs.count === 0
+                    spacing: 4
+                    Glyph { Layout.fillWidth: true; text: "󰂜"; size: 26; color: Theme.dim }
+                    Label { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: "All caught up"; color: Theme.muted }
+                }
             }
         }
     }
@@ -10935,8 +10998,7 @@ TextField {
 ```qml
 import QtQuick
 
-// The lit top edge of a glass surface: a hairline bright at the top that fades out halfway down,
-// over the surface's own border. It is what makes frosted glass read as glass. Fill the surface.
+// A diagonal specular hairline and faint accent reflection over the surface's own border.
 // One shader pass (shaders/glass-edge.frag): every bar capsule has one, so no layer or mask.
 ShaderEffect {
     id: root
@@ -10951,6 +11013,7 @@ ShaderEffect {
     readonly property real edge: Math.min(1, strength * Theme.highlightGain)
     // Passed opaque, with the alpha apart, since the shader gets colours premultiplied.
     readonly property color tint: Qt.rgba(Theme.highlight.r, Theme.highlight.g, Theme.highlight.b, 1)
+    readonly property color reflection: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 1)
     fragmentShader: "shaders/glass-edge.frag.qsb"
 }
 ```
@@ -13726,6 +13789,72 @@ Singleton {
             onRead: data => root.bars = data.split(";").filter(v => v !== "").map(v => Math.min(1, parseInt(v) / 100))
         }
         onRunningChanged: if (!running) root.bars = new Array(root.count).fill(0)
+    }
+}
+```
+
+## `config/quickshell/penumbra/MediaCapsule.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell.Widgets
+
+Capsule {
+    id: root
+    property real titleWidth: 140
+    shown: !!Media.playing
+    padding: 12
+    spacing: 10
+    tip: Media.player ? [Media.player.trackTitle, Media.player.trackArtist].filter(t => t).join(" · ") + "\nMiddle-click to pause · scroll to skip" : ""
+    // The player can disappear during the exit animation.
+    onClicked: m => m.button === Qt.MiddleButton ? Media.player?.togglePlaying() : Ui.toggle("control")
+    onScrolled: step => step > 0 ? Media.player?.previous() : Media.player?.next()
+
+    ClippingRectangle {
+        implicitWidth: 24
+        implicitHeight: 24
+        radius: Theme.corner(6)
+        color: Theme.raised
+        Image {
+            id: cover
+            anchors.fill: parent
+            source: Media.player?.trackArtUrl ?? ""
+            sourceSize: Qt.size(48, 48)
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+        }
+        Glyph {
+            anchors.centerIn: parent
+            visible: cover.status !== Image.Ready
+            text: "󰎆"
+            size: 15
+            color: Theme.accentBright
+        }
+    }
+    Label {
+        visible: root.titleWidth >= 40
+        Layout.maximumWidth: root.titleWidth
+        text: Media.player?.trackTitle || Media.appName(Media.player)
+        font.weight: Font.DemiBold
+        color: Theme.textSoft
+    }
+    Row {
+        visible: Ui.hasVisualizer
+        spacing: 2
+        Layout.preferredHeight: 18
+        Repeater {
+            model: Media.count
+            delegate: Rectangle {
+                required property int index
+                anchors.verticalCenter: parent?.verticalCenter
+                width: 3
+                height: 5 + (Media.bars[index] ?? 0) * 13
+                radius: Theme.corner(1.5)
+                color: Theme.accentBright
+                Behavior on height { NumberAnimation { duration: 60 * Theme.motion } }
+            }
+        }
     }
 }
 ```
@@ -18334,7 +18463,7 @@ Singleton {
     // The levels the derived colours are made with, per mode: dark glass wants faint lines and white
     // light, light glass denser fills and dark overlays.
     readonly property var levels: ({
-        dark: { glass: 0.72, glassStrong: 0.88, raised: 0.55, line: 0.16, lineStrong: 0.34,
+        dark: { glass: 0.58, glassStrong: 0.72, raised: 0.55, line: 0.16, lineStrong: 0.34,
                 highlightGain: 1, shadowAlpha: 0.55, overlayAlpha: 0.08, overlayStrongAlpha: 0.12 },
         light: { glass: 0.78, glassStrong: 0.9, raised: 0.7, line: 0.22, lineStrong: 0.42,
                  highlightGain: 2.7, shadowAlpha: 0.18, overlayAlpha: 0.06, overlayStrongAlpha: 0.1 }
@@ -19996,6 +20125,139 @@ ColumnLayout {
 }
 ```
 
+## `config/quickshell/penumbra/WorkspaceStrip.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Widgets
+
+// One shared glass surface; the two edges of its active pill travel at different speeds.
+Rectangle {
+    id: root
+    required property var workspaces
+    // Compact to numbers when the rest of the bar needs the space.
+    property bool showIcons: true
+    readonly property int activeIndex: workspaces.findIndex(w => w.active)
+    readonly property Item activeItem: spaces.count > activeIndex && activeIndex >= 0 ? spaces.itemAt(activeIndex) : null
+    readonly property real targetLeft: activeItem ? activeItem.x + row.x : 4
+    readonly property real targetRight: activeItem ? targetLeft + activeItem.width : 4
+    property real previousLeft: 4
+    property bool movingRight: true
+    property bool ready: false
+    onTargetLeftChanged: {
+        movingRight = targetLeft >= previousLeft;
+        previousLeft = targetLeft;
+    }
+    Component.onCompleted: Qt.callLater(() => root.ready = true)
+
+    implicitWidth: row.implicitWidth + 8
+    implicitHeight: Theme.barHeight
+    radius: Theme.corner(height / 2)
+    color: Theme.glass
+    border.color: Theme.line
+    clip: true
+
+    Rectangle {
+        id: indicator
+        property real leftEdge: root.targetLeft
+        property real rightEdge: root.targetRight
+        x: Math.min(leftEdge, rightEdge)
+        y: 4
+        width: Math.max(0, Math.abs(rightEdge - leftEdge))
+        height: parent.height - 8
+        radius: Theme.corner(height / 2)
+        visible: !!root.activeItem
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0; color: Theme.accentBright }
+            GradientStop { position: 1; color: Theme.accent }
+        }
+        Behavior on leftEdge {
+            enabled: root.ready
+            NumberAnimation { duration: (root.movingRight ? 340 : 220) * Theme.motion; easing.type: Easing.OutCubic }
+        }
+        Behavior on rightEdge {
+            enabled: root.ready
+            NumberAnimation { duration: (root.movingRight ? 220 : 340) * Theme.motion; easing.type: Easing.OutCubic }
+        }
+        GlassEdge { radius: indicator.radius; strength: 0.55 }
+    }
+
+    GlassEdge { radius: root.radius; strength: 0.2 }
+    Row {
+        id: row
+        x: 4
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: 2
+        Repeater {
+            id: spaces
+            model: ScriptModel { values: root.workspaces }
+            delegate: Rectangle {
+                id: workspace
+                required property var modelData
+                readonly property bool current: modelData.active
+                readonly property var windows: modelData.toplevels.values
+                readonly property string tip: "Workspace " + modelData.name + (windows.length ? " · " + windows.length + " windows" : "")
+                width: Math.max(36, contents.implicitWidth + 20)
+                height: root.height - 8
+                radius: Theme.corner(height / 2)
+                color: current ? "transparent" : modelData.urgent ? Theme.alpha(Theme.rose, 0.3) : mouse.containsMouse ? Theme.hover : "transparent"
+                Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
+                RowLayout {
+                    id: contents
+                    anchors.centerIn: parent
+                    spacing: 5
+                    Label {
+                        text: workspace.modelData.name
+                        color: workspace.current ? Theme.onAccent : workspace.modelData.urgent ? Theme.rose : Theme.textSoft
+                        font.weight: workspace.current ? Font.Bold : Font.DemiBold
+                    }
+                    Repeater {
+                        model: root.showIcons ? workspace.windows.slice(0, 2) : []
+                        delegate: Item {
+                            id: app
+                            required property var modelData
+                            readonly property string appId: modelData.wayland?.appId || modelData.lastIpcObject?.class || ""
+                            readonly property var entry: appId ? DesktopEntries.heuristicLookup(appId) : null
+                            implicitWidth: 15
+                            implicitHeight: 15
+                            IconImage {
+                                id: icon
+                                anchors.fill: parent
+                                source: app.entry?.icon ? Quickshell.iconPath(app.entry.icon, true) : ""
+                                asynchronous: true
+                            }
+                            Glyph {
+                                anchors.centerIn: parent
+                                visible: icon.status !== Image.Ready
+                                text: "󰣆"
+                                size: 13
+                                color: workspace.current ? Theme.onAccent : Theme.subtle
+                            }
+                        }
+                    }
+                    Label {
+                        visible: root.showIcons && workspace.windows.length > 2
+                        text: "+" + (workspace.windows.length - 2)
+                        font.pixelSize: Theme.textTiny
+                        color: workspace.current ? Theme.onAccent : Theme.subtle
+                    }
+                }
+                MouseArea {
+                    id: mouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: workspace.modelData.activate()
+                }
+            }
+        }
+    }
+}
+```
+
 ## `config/quickshell/penumbra/eclipse/aurora.frag`
 
 ```glsl
@@ -20506,8 +20768,8 @@ function currency(text) {
 
 ```glsl
 #version 440
-// GlassEdge: a 1 px ring just inside a rounded rectangle, full strength at the top and fading out
-// halfway down. Drawn in one pass, with no offscreen layer or mask.
+// GlassEdge: a 1 px ring with top-left light and a faint bottom-right accent reflection.
+// Drawn in one pass, with no offscreen layer or mask.
 // Compiled to glass-edge.frag.qsb by tools/build-shaders.py.
 layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
@@ -20516,8 +20778,9 @@ layout(std140, binding = 0) uniform buf {
     float qt_Opacity;
     vec2 size;      // item size, pixels
     float radius;   // corner radius, pixels
-    float edge;     // alpha at the top edge
+    float edge;     // peak alpha
     vec4 tint;      // the light's colour, opaque
+    vec4 reflection; // the accent reflection, opaque
 };
 
 // Signed distance to a rounded rectangle of half size b centred on the origin.
@@ -20532,9 +20795,15 @@ void main() {
     float d = box(p - 0.5 * size, 0.5 * size, r);
     // Coverage of the band between the outer edge and 1 px inside it, antialiased.
     float ring = clamp(0.5 - d, 0.0, 1.0) - clamp(-0.5 - d, 0.0, 1.0);
-    float fade = clamp(1.0 - p.y / (0.5 * size.y), 0.0, 1.0);
-    float alpha = ring * fade * edge * qt_Opacity;
-    fragColor = vec4(tint.rgb * alpha, alpha);
+    // Normalise in surface coordinates so even a very wide capsule catches light along its top.
+    vec2 direction = qt_TexCoord0 - 0.5;
+    direction /= max(length(direction), 0.0001);
+    float light = dot(direction, vec2(-0.6, -0.8));
+    float specular = pow(max(light, 0.0), 1.5);
+    float bounce = 0.18 * pow(max(-light, 0.0), 1.5);
+    float coverage = ring * edge * qt_Opacity;
+    fragColor = vec4((tint.rgb * specular + reflection.rgb * bounce) * coverage,
+                     (specular + bounce) * coverage);
 }
 ```
 
@@ -21638,6 +21907,20 @@ theme[process_mid]="#d5a4dc"
 theme[process_end]="#ef8fa4"
 ```
 
+## `apps/cava/config/cava/themes/penumbra`
+
+```text
+# Penumbra spectrum. Generated by tools/build-palette.py; penumbra-theme updates this palette.
+# Keep the terminal's background, including its transparency.
+[color]
+gradient = 1
+gradient_count = 4
+gradient_color_1 = '#6d28d9'
+gradient_color_2 = '#b69af7'
+gradient_color_3 = '#c4a5ff'
+gradient_color_4 = '#d5a4dc'
+```
+
 ## `apps/delta/config/git/penumbra-delta.gitconfig`
 
 ```ini
@@ -21873,10 +22156,10 @@ script-opts-append=uosc-color=foreground=b69af7,foreground_text=100b1b,backgroun
 
 /* Discord's dark themes, before and after its 2025 visual refresh. */
 .theme-dark, .theme-darker, .theme-midnight, .visual-refresh.theme-dark, .visual-refresh .theme-dark {
-    --background-primary: #0d0a12;
-    --background-secondary: #100d18;
-    --background-secondary-alt: #16111f;
-    --background-tertiary: #100d18;
+    --background-primary: rgba(13,10,18, 0.78);
+    --background-secondary: rgba(16,13,24, 0.72);
+    --background-secondary-alt: rgba(22,17,31, 0.76);
+    --background-tertiary: rgba(16,13,24, 0.72);
     --background-accent: #1c1528;
     --background-floating: #16111f;
     --background-nested-floating: #16111f;
@@ -21895,14 +22178,15 @@ script-opts-append=uosc-color=foreground=b69af7,foreground_text=100b1b,backgroun
     --scrollbar-auto-thumb: #59446a;
     --scrollbar-auto-track: #100d18;
 
-    --background-base-lowest: #07070b;
-    --background-base-lower: #0d0a12;
-    --background-base-low: #100d18;
+    --background-base-lowest: transparent;
+    --bg-overlay-chat: rgba(13,10,18, 0.75);
+    --background-base-lower: rgba(13,10,18, 0.78);
+    --background-base-low: rgba(16,13,24, 0.72);
     --background-surface-high: #16111f;
     --background-surface-higher: #1c1528;
     --background-surface-highest: #1f182b;
-    --chat-background-default: #0d0a12;
-    --panel-bg: #100d18;
+    --chat-background-default: rgba(13,10,18, 0.75);
+    --panel-bg: rgba(16,13,24, 0.72);
     --border-subtle: #33263f;
     --border-normal: #33263f;
     --border-strong: #42344f;
@@ -21942,6 +22226,13 @@ script-opts-append=uosc-color=foreground=b69af7,foreground_text=100b1b,backgroun
     --status-positive: #a5ccb3;
     --status-warning: #e5c89a;
     --status-danger: #ef8fa4;
+}
+
+/* Remove the full-window underpaint so the translucent surfaces reach the compositor.
+   install.sh enables Vencord's transparent window option; restart Vesktop after installing. */
+html, body, #app-mount,
+#app-mount > [class^="app_"], #app-mount [class^="bg_"] {
+    background: transparent !important;
 }
 
 ::selection {

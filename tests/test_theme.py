@@ -151,7 +151,7 @@ class Command(unittest.TestCase):
         for name in ('penumbra-theme', 'penumbra-corners'):
             (self.home / '.local/bin').mkdir(parents=True, exist_ok=True)
             shutil.copy(ROOT / 'bin' / name, self.home / '.local/bin')
-        # The generated files where install.sh puts them, and one app's: bat's.
+        # The generated files where install.sh puts them, plus optional app themes.
         for template in TEMPLATES.rglob('*'):
             rel = template.relative_to(TEMPLATES)
             if template.is_file() and rel.parts[0] in ('config', 'share'):
@@ -160,6 +160,7 @@ class Command(unittest.TestCase):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(ROOT / rel, target)
         shutil.copytree(ROOT / 'apps/bat/config', self.home / '.config', dirs_exist_ok=True)
+        shutil.copytree(ROOT / 'apps/cava/config', self.home / '.config', dirs_exist_ok=True)
         shutil.copytree(ROOT / 'apps/lia-files/config', self.home / '.config', dirs_exist_ok=True)
         for version in ('gtk-3.0', 'gtk-4.0'):
             shutil.copy(ROOT / 'config' / version / 'settings.ini', self.home / '.config' / version)
@@ -222,6 +223,8 @@ class Command(unittest.TestCase):
         self.assertIn("mode = 'light'", (config / 'nvim/lua/penumbra/palette.lua').read_text())
         self.assertIn('mode = "light"', (config / 'hypr/colors.lua').read_text())
         self.assertIn(light['base'], (config / 'bat/themes/Penumbra.tmTheme').read_text())
+        self.assertIn(f"gradient_color_1 = '{light['accentDeep']}'", (config / 'cava/themes/penumbra').read_text())
+        self.assertIn(f"gradient_color_4 = '{light['pink']}'", (config / 'cava/themes/penumbra').read_text())
         for version in ('gtk-3.0', 'gtk-4.0'):
             text = (config / version / 'settings.ini').read_text()
             self.assertIn('gtk-theme-name=Breeze\n', text)
@@ -230,6 +233,7 @@ class Command(unittest.TestCase):
         self.assertEqual((config / 'quickshell/penumbra/palette.js').read_bytes(),
                          (ROOT / 'config/quickshell/penumbra/palette.js').read_bytes())
         calls = self.calls()
+        self.assertIn(f'pkill -USR2 -u {os.getuid()} -x cava', calls)
         for call in ('gsettings set org.gnome.desktop.interface color-scheme prefer-light',
                      'gsettings set org.gnome.desktop.interface gtk-theme Breeze',
                      'hyprctl eval hl.config(', 'dbus-send --session --type=signal /KGlobalSettings',

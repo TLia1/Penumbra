@@ -65,7 +65,7 @@ Singleton {
     // The levels the derived colours are made with, per mode: dark glass wants faint lines and white
     // light, light glass denser fills and dark overlays.
     readonly property var levels: ({
-        dark: { glass: 0.72, glassStrong: 0.88, raised: 0.55, line: 0.16, lineStrong: 0.34,
+        dark: { glass: 0.58, glassStrong: 0.72, raised: 0.55, line: 0.16, lineStrong: 0.34,
                 highlightGain: 1, shadowAlpha: 0.55, overlayAlpha: 0.08, overlayStrongAlpha: 0.12 },
         light: { glass: 0.78, glassStrong: 0.9, raised: 0.7, line: 0.22, lineStrong: 0.42,
                  highlightGain: 2.7, shadowAlpha: 0.18, overlayAlpha: 0.06, overlayStrongAlpha: 0.1 }

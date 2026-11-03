@@ -5,14 +5,16 @@ if vim.g.syntax_on then vim.cmd('syntax reset') end
 -- penumbra-theme rewrites the palette for the theme you choose and runs :colorscheme penumbra again.
 package.loaded['penumbra.palette'] = nil
 local c = require('penumbra.palette')
+-- Let the terminal's glass show through; set vim.g.penumbra_transparent = false for a solid editor.
+local background = vim.g.penumbra_transparent == false and c.bg or 'NONE'
 vim.o.background = c.mode or 'dark'
 vim.g.colors_name = 'penumbra'
 local groups = {
-  Normal = { fg = c.fg, bg = c.bg }, NormalNC = { fg = c.fg, bg = c.bg },
+  Normal = { fg = c.fg, bg = background }, NormalNC = { fg = c.fg, bg = background },
   NormalFloat = { fg = c.fg, bg = c.panel }, FloatBorder = { fg = c.accent, bg = c.panel },
   FloatTitle = { fg = c.accent, bg = c.panel, bold = true },
   CursorLine = { bg = c.raised }, CursorLineNr = { fg = c.accent, bold = true },
-  LineNr = { fg = c.muted }, SignColumn = { bg = c.bg }, EndOfBuffer = { fg = c.border },
+  LineNr = { fg = c.muted }, SignColumn = { bg = background }, EndOfBuffer = { fg = c.border },
   WinSeparator = { fg = c.border }, Visual = { bg = c.selection },
   Search = { fg = c.bg, bg = c.gold }, IncSearch = { fg = c.bg, bg = c.accent }, CurSearch = { fg = c.bg, bg = c.accent },
   Pmenu = { fg = c.fg, bg = c.panel }, PmenuSel = { fg = c.bg, bg = c.accent },

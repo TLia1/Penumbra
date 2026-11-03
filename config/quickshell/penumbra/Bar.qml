@@ -41,6 +41,7 @@ PanelWindow {
         spacing: Theme.gap
 
         Capsule {
+            id: launcherCapsule
             padding: 14
             tip: "Applications · right-click for the clipboard"
             active: Ui.launcherOpen
@@ -62,62 +63,19 @@ PanelWindow {
             }
         }
 
-        // Workspaces sit right of the clock.
-        RowLayout {
-            spacing: Theme.gap
-            Repeater {
-                model: ScriptModel {
-                    values: Hyprland.workspaces.values
-                        .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
-                        .sort((a, b) => a.id - b.id)
-                }
-                delegate: Capsule {
-                    id: workspace
-                    required property var modelData
-                    readonly property bool current: modelData.active && modelData.monitor?.name === bar.screen.name
-                    implicitWidth: Math.max(current ? 52 : Theme.barHeight, workspaceLabel.implicitWidth + 26)
-                    padding: 0
-                    active: current
-                    color: current ? Theme.accent : modelData.urgent ? Theme.rose : (hovered ? Theme.hover : Theme.glass)
-                    onClicked: modelData.activate()
-                    Label {
-                        id: workspaceLabel
-                        text: workspace.modelData.name
-                        color: workspace.current || workspace.modelData.urgent ? Theme.onAccent : workspace.hovered ? Theme.text : Theme.subtle
-                        font.weight: workspace.current ? Font.Bold : Font.DemiBold
-                    }
-                }
-            }
+        WorkspaceStrip {
+            id: workspaceStrip
+            workspaces: Hyprland.workspaces.values
+                .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
+                .sort((a, b) => a.id - b.id)
+            showIcons: content.width - rightSide.width > 850
         }
 
-        // Cava's spectrum while something plays (a note when cava is missing); hidden while paused.
-        Capsule {
-            shown: !!Media.playing
-            padding: 14
-            spacing: 10
-            tip: Media.player ? [Media.player.trackTitle, Media.player.trackArtist].filter(t => t).join(" · ") + "\nMiddle-click to pause · scroll to skip" : ""
-            // Media.player can already be null while the capsule fades out.
-            onClicked: m => m.button === Qt.MiddleButton ? Media.player?.togglePlaying() : Ui.toggle("control")
-            onScrolled: step => step > 0 ? Media.player?.previous() : Media.player?.next()
-            Row {
-                visible: Ui.hasVisualizer
-                spacing: 2
-                Layout.preferredHeight: 18
-                // Centred pills that stretch both ways, so a quiet passage is a row of short dashes.
-                Repeater {
-                    model: Media.count
-                    delegate: Rectangle {
-                        required property int index
-                        anchors.verticalCenter: parent?.verticalCenter
-                        width: 3
-                        height: 5 + (Media.bars[index] ?? 0) * 13
-                        radius: Theme.corner(1.5)
-                        color: Theme.accentBright
-                        Behavior on height { NumberAnimation { duration: 60 * Theme.motion } }
-                    }
-                }
-            }
-            Glyph { visible: !Ui.hasVisualizer; text: "󰎆"; color: Theme.accentBright }
+        MediaCapsule {
+            // Reserve the status area first; long titles elide and small screens keep just art + spectrum.
+            titleWidth: Math.max(0, Math.min(140, content.width - rightSide.width
+                - workspaceStrip.implicitWidth - clockCapsule.implicitWidth - launcherCapsule.implicitWidth
+                - 5 * Theme.gap - 108))
         }
     }
 
@@ -138,7 +96,9 @@ PanelWindow {
                 const names = [entry?.name, client?.appId].filter(n => n).map(n => n.toLowerCase());
                 return m && names.some(n => m[2].toLowerCase().includes(n)) ? m[1] : t;
             }
-            shown: !!client && client.activated && text !== "" && client.screens.some(s => s.name === bar.screen.name)
+            readonly property real availableWidth: 2 * Math.min(content.width / 2 - leftSide.x - leftSide.width,
+                rightSide.x - content.width / 2) - 2 * Theme.gap
+            shown: availableWidth >= 80 && !!client && client.activated && text !== "" && client.screens.some(s => s.name === bar.screen.name)
             interactive: false
             padding: 15
             spacing: 8
@@ -152,7 +112,7 @@ PanelWindow {
             Label {
                 text: title.text
                 // As wide as the room between the side capsules allows, up to a point.
-                Layout.maximumWidth: Math.max(60, Math.min(300, 2 * Math.min(content.width / 2 - leftSide.x - leftSide.width, rightSide.x - content.width / 2) - 2 * Theme.gap - 60))
+                Layout.maximumWidth: Math.max(0, Math.min(300, title.availableWidth - 60))
                 color: Theme.textSoft
             }
         }

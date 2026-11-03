@@ -363,6 +363,8 @@ def reload_apps(colors, mode, changed, icons):
                'org.kde.KGlobalSettings.notifyChange', 'int32:0', 'int32:0'])
     if 'config/kitty/penumbra-colors.conf' in changed and has('pkill'):
         quiet(['pkill', '-USR1', '-u', str(os.getuid()), '-x', 'kitty'])
+    if 'apps/cava/config/cava/themes/penumbra' in changed and has('pkill'):
+        quiet(['pkill', '-USR2', '-u', str(os.getuid()), '-x', 'cava'])
     # Every running fish sources its colours again when this universal variable changes.
     if 'config/fish/conf.d/penumbra-colors.fish' in changed and has('fish'):
         quiet(['fish', '-c', f'set -U penumbra_theme {time.time_ns()}'])

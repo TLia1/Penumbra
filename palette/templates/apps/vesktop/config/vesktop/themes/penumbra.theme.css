@@ -8,10 +8,10 @@
 
 /* Discord's dark themes, before and after its 2025 visual refresh. */
 .theme-dark, .theme-darker, .theme-midnight, .visual-refresh.theme-dark, .visual-refresh .theme-dark {
-    --background-primary: {{base}};
-    --background-secondary: {{surface}};
-    --background-secondary-alt: {{surfaceAlt}};
-    --background-tertiary: {{surface}};
+    --background-primary: rgba({{base:rgb}}, 0.78);
+    --background-secondary: rgba({{surface:rgb}}, 0.72);
+    --background-secondary-alt: rgba({{surfaceAlt:rgb}}, 0.76);
+    --background-tertiary: rgba({{surface:rgb}}, 0.72);
     --background-accent: {{raised}};
     --background-floating: {{surfaceAlt}};
     --background-nested-floating: {{surfaceAlt}};
@@ -30,14 +30,15 @@
     --scrollbar-auto-thumb: {{mid}};
     --scrollbar-auto-track: {{surface}};
 
-    --background-base-lowest: {{shade}};
-    --background-base-lower: {{base}};
-    --background-base-low: {{surface}};
+    --background-base-lowest: transparent;
+    --bg-overlay-chat: rgba({{base:rgb}}, 0.75);
+    --background-base-lower: rgba({{base:rgb}}, 0.78);
+    --background-base-low: rgba({{surface:rgb}}, 0.72);
     --background-surface-high: {{surfaceAlt}};
     --background-surface-higher: {{raised}};
     --background-surface-highest: {{button}};
-    --chat-background-default: {{base}};
-    --panel-bg: {{surface}};
+    --chat-background-default: rgba({{base:rgb}}, 0.75);
+    --panel-bg: rgba({{surface:rgb}}, 0.72);
     --border-subtle: {{border}};
     --border-normal: {{border}};
     --border-strong: {{light}};
@@ -77,6 +78,13 @@
     --status-positive: {{green}};
     --status-warning: {{amber}};
     --status-danger: {{rose}};
+}
+
+/* Remove the full-window underpaint so the translucent surfaces reach the compositor.
+   install.sh enables Vencord's transparent window option; restart Vesktop after installing. */
+html, body, #app-mount,
+#app-mount > [class^="app_"], #app-mount [class^="bg_"] {
+    background: transparent !important;
 }
 
 ::selection {

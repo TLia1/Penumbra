@@ -10,18 +10,18 @@
 @define-color success_color {{green}};
 @define-color warning_color {{amber}};
 @define-color error_color {{rose}};
-@define-color window_bg_color {{surface}};
+@define-color window_bg_color alpha({{surface}}, 0.84);
 @define-color window_fg_color {{text}};
-@define-color view_bg_color {{base}};
+@define-color view_bg_color alpha({{base}}, 0.18);
 @define-color view_fg_color {{text}};
-@define-color headerbar_bg_color {{surfaceAlt}};
+@define-color headerbar_bg_color alpha({{surfaceAlt}}, 0.76);
 @define-color headerbar_fg_color {{text}};
 @define-color headerbar_border_color {{border}};
-@define-color headerbar_backdrop_color {{surface}};
-@define-color sidebar_bg_color {{surfaceAlt}};
+@define-color headerbar_backdrop_color alpha({{surface}}, 0.76);
+@define-color sidebar_bg_color alpha({{surfaceAlt}}, 0.76);
 @define-color sidebar_fg_color {{text}};
-@define-color sidebar_backdrop_color {{surface}};
-@define-color secondary_sidebar_bg_color {{surface}};
+@define-color sidebar_backdrop_color alpha({{surface}}, 0.76);
+@define-color secondary_sidebar_bg_color alpha({{surface}}, 0.76);
 @define-color secondary_sidebar_fg_color {{text}};
 @define-color card_bg_color {{raised}};
 @define-color card_fg_color {{text}};
@@ -33,16 +33,25 @@
 @define-color thumbnail_fg_color {{text}};
 @define-color theme_selected_bg_color {{selection}};
 @define-color theme_selected_fg_color {{selectionText}};
-@define-color theme_bg_color {{surface}};
+@define-color theme_bg_color alpha({{surface}}, 0.84);
 @define-color theme_fg_color {{text}};
-@define-color theme_base_color {{base}};
+@define-color theme_base_color alpha({{base}}, 0.18);
 @define-color theme_text_color {{text}};
-window, dialog { background-color: var(--window-bg-color, {{surface}}); color: var(--window-fg-color, {{text}}); }
-headerbar { background: var(--headerbar-bg-color, {{surfaceAlt}}); color: var(--headerbar-fg-color, {{text}}); }
+window, dialog { background-color: var(--window-bg-color, @window_bg_color); color: var(--window-fg-color, {{text}}); }
+headerbar { background: var(--headerbar-bg-color, @headerbar_bg_color); color: var(--headerbar-fg-color, {{text}}); }
 selection { background-color: var(--accent-bg-color, {{selection}}); color: var(--accent-fg-color, {{selectionText}}); }
 
 /* libadwaita otherwise derives these foregrounds from the background colours. */
+/* Modern libadwaita uses CSS variables; older releases use the named colours above.
+   Views tint the window lightly rather than stacking another nearly opaque background. */
 :root {
+  --window-bg-color: alpha({{surface}}, 0.84);
+  --view-bg-color: alpha({{base}}, 0.18);
+  --headerbar-bg-color: alpha({{surfaceAlt}}, 0.76);
+  --headerbar-backdrop-color: alpha({{surface}}, 0.76);
+  --sidebar-bg-color: alpha({{surfaceAlt}}, 0.76);
+  --sidebar-backdrop-color: alpha({{surface}}, 0.76);
+  --secondary-sidebar-bg-color: alpha({{surface}}, 0.76);
   --accent-color: {{accent}};
   --error-color: {{rose}};
   --destructive-color: {{rose}};

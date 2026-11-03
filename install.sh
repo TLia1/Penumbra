@@ -792,19 +792,45 @@ color_vscode() {
     echo '"window.autoDetectColorScheme" with Penumbra and Penumbra Light as the preferred dark and light themes.'
 }
 
-# Vesktop: turn the theme on in its settings, which it writes on first start. A running Vesktop
-# keeps its own copy, so this shows after a restart.
+# Cava: choose our gradient without replacing audio, smoothing or output settings, or a named theme.
+color_cava() {
+    local conf=$HOME/.config/cava/config
+    if [[ -f $conf ]] && grep -qE '^[[:space:]]*theme[[:space:]]*=' "$conf"; then return 0; fi
+    backup_file "$conf" .config/cava/config
+    mkdir -p "${conf%/*}"
+    python3 - "$conf" <<'EOF'
+from pathlib import Path
+import re, sys
+path = Path(sys.argv[1])
+text = path.read_text() if path.exists() else '[general]\nframerate = 60\nsleep_timer = 2\n'
+section = re.search(r'^[ \t]*\[color\][ \t]*$', text, re.M)
+if section:
+    text = text[:section.end()] + "\ntheme = 'penumbra'" + text[section.end():]
+else:
+    text = text.rstrip() + "\n\n[color]\ntheme = 'penumbra'\n"
+path.write_text(text)
+EOF
+}
+
+# Vesktop: enable the theme and a transparent native window. A running Vesktop keeps its own
+# copy, so this shows after a restart. Other settings and enabled themes are preserved.
 color_vesktop() {
     local settings=$HOME/.config/vesktop/settings/settings.json
-    [[ -f $settings ]] || return 0
-    python3 -c 'import json, sys; sys.exit("penumbra.theme.css" in json.load(open(sys.argv[1])).get("enabledThemes", []))' \
-        "$settings" || return 0
+    if [[ -f $settings ]]; then
+        python3 -c 'import json, sys; s = json.load(open(sys.argv[1])); sys.exit("penumbra.theme.css" in s.get("enabledThemes", []) and s.get("transparent") is True)' \
+            "$settings" || return 0
+    fi
     backup_file "$settings" .config/vesktop/settings/settings.json
+    mkdir -p "${settings%/*}"
     python3 - "$settings" <<'EOF'
 import json, sys
-with open(sys.argv[1]) as file:
-    settings = json.load(file)
-settings.setdefault('enabledThemes', []).append('penumbra.theme.css')
+from pathlib import Path
+path = Path(sys.argv[1])
+settings = json.loads(path.read_text()) if path.exists() else {}
+themes = settings.setdefault('enabledThemes', [])
+if 'penumbra.theme.css' not in themes:
+    themes.append('penumbra.theme.css')
+settings['transparent'] = True
 with open(sys.argv[1], 'w') as file:
     json.dump(settings, file, indent=4)
 EOF
