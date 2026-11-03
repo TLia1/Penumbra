@@ -516,6 +516,29 @@ ColumnLayout {
         font.pixelSize: Theme.textSmall
         color: Theme.dim
     }
+    Section { text: "Calendar weather" }
+    SwitchRow {
+        title: "Show weather"
+        subtitle: "Open-Meteo · Uses the location set in Night Light"
+        glyph: "󰖐"
+        checked: Settings.weatherEnabled
+        onToggled: Settings.weatherEnabled = !Settings.weatherEnabled
+    }
+    PillButton { text: "Choose location"; onClicked: Ui.controlPage = "night" }
+    Section { text: "Floating dock" }
+    Segmented {
+        Layout.fillWidth: true
+        current: Settings.dockMode
+        options: [{ value: "off", title: "Off" }, { value: "auto", title: "Auto-hide" }, { value: "empty", title: "Empty workspace" }]
+        onChosen: value => Settings.dockMode = value
+    }
+    Label {
+        Layout.fillWidth: true
+        text: "Hover the bottom edge to reveal. Right-click an app to pin or unpin; middle-click to open another window."
+        wrapMode: Text.Wrap
+        color: Theme.dim
+        font.pixelSize: Theme.textSmall
+    }
     Section { text: "Screen frame" }
     SwitchRow {
         title: "Join the bar to a screen frame"

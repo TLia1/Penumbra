@@ -54,3 +54,25 @@ function coordinates(text) {
     const part = (d, mm, ss) => (d.startsWith("-") ? -1 : 1) * (Math.abs(Number(d)) + Number(mm) / 60 + Number(ss ?? 0) / 3600);
     return { latitude: part(m[1], m[2], m[3]), longitude: part(m[4], m[5], m[6]) };
 }
+
+// Low-order lunar/solar longitude model (degrees), including the Moon's principal
+// perturbations. An approximate geocentric phase, not a rise/set or eclipse ephemeris.
+function moon(date) {
+    const d = (date.getTime() - Date.UTC(2000, 0, 1, 12)) / 86400000;
+    const rad = Math.PI / 180;
+    const sin = a => Math.sin(a * rad);
+    const wrap = a => (a % 360 + 360) % 360;
+    const solarMean = wrap(357.529 + 0.98560028 * d);
+    const solar = wrap(280.459 + 0.98564736 * d + 1.915 * sin(solarMean) + 0.020 * sin(2 * solarMean));
+    const anomaly = wrap(134.963 + 13.064993 * d);
+    const elongation = wrap(297.850 + 12.190749 * d);
+    const latitude = wrap(93.272 + 13.229350 * d);
+    const lunar = 218.316 + 13.176396 * d + 6.289 * sin(anomaly)
+        + 1.274 * sin(2 * elongation - anomaly) + 0.658 * sin(2 * elongation)
+        + 0.214 * sin(2 * anomaly) - 0.186 * sin(solarMean) - 0.114 * sin(2 * latitude);
+    const phase = wrap(lunar - solar) / 360;
+    const names = ["New moon", "Waxing crescent", "First quarter", "Waxing gibbous", "Full moon", "Waning gibbous", "Last quarter", "Waning crescent"];
+    const glyphs = ["🌑", "🌒", "🌓", "🌔", "🌕", "🌖", "🌗", "🌘"];
+    const index = Math.round(phase * 8) % 8;
+    return { phase, illumination: (1 - Math.cos(phase * 2 * Math.PI)) / 2, name: names[index], glyph: glyphs[index] };
+}

@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Bounded, cached JSON requests for the shell. No keys or third-party Python packages.
+
+penumbra-online lyrics TITLE ARTIST ALBUM SECONDS | weather LATITUDE LONGITUDE
+Only called for an expanded lyrics card or explicitly enabled weather.
+"""
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import sys
+import tempfile
+import time
+from email.utils import parsedate_to_datetime
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+CACHE = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache')) / 'penumbra'
+AGENT = 'Penumbra/1.0 (https://github.com/TLia1/Panumbra)'
+
+
+def read(path):
+    try:
+        value = json.loads(path.read_text())
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write(path, value):
+    """Cache failure must never prevent displaying a successful response."""
+    temp = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, delete=False) as stream:
+            temp = Path(stream.name)
+            json.dump(value, stream)
+        temp.replace(path)
+    except OSError:
+        pass
+    finally:
+        if temp:
+            try:
+                temp.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def retry_after(value, now):
+    try:
+        return max(60, float(value))
+    except (TypeError, ValueError):
+        try:
+            return max(60, parsedate_to_datetime(value).timestamp() - now)
+        except (TypeError, ValueError, OverflowError):
+            return 300
+
+
+def fetch(kind, params):
+    base = 'https://lrclib.net/api/get' if kind == 'lyrics' else 'https://api.open-meteo.com/v1/forecast'
+    url = base + '?' + urlencode(params)
+    folder = CACHE / kind
+    path = folder / (hashlib.sha256(url.encode()).hexdigest() + '.json')
+    cached, now = read(path), time.time()
+    if isinstance(cached.get('until'), (float, int)) and cached['until'] > now and isinstance(cached.get('data'), dict):
+        return cached['data']
+    gate = read(folder / 'retry.json').get('until', 0)
+    if isinstance(gate, (float, int)) and gate > now:
+        return fallback(kind, cached, now)
+    try:
+        with urlopen(Request(url, headers={'User-Agent': AGENT, 'Accept': 'application/json'}), timeout=8) as response:
+            raw = response.read(1024 * 1024 + 1)
+        if len(raw) > 1024 * 1024:
+            raise ValueError('Response too large')
+        value = json.loads(raw)
+        if not isinstance(value, dict):
+            raise ValueError('Expected object')
+        if kind == 'lyrics':
+            data = {'status': 'ok', 'synced': str(value.get('syncedLyrics') or ''),
+                    'plain': str(value.get('plainLyrics') or ''), 'instrumental': value.get('instrumental') is True}
+        else:
+            current = value['current']
+            keys = ('temperature_2m', 'apparent_temperature', 'weather_code', 'wind_speed_10m', 'is_day')
+            if not all(isinstance(current.get(k), (int, float)) and math.isfinite(current[k]) for k in keys):
+                raise ValueError('Incomplete weather')
+            data = {'status': 'ok', 'current': {k: current[k] for k in keys}, 'at': now}
+        write(path, {'until': now + (30 * 86400 if kind == 'lyrics' else 1800), 'data': data})
+        return data
+    except HTTPError as error:
+        if error.code == 404 and kind == 'lyrics':
+            data = {'status': 'missing'}
+            write(path, {'until': now + 86400, 'data': data})
+            return data
+        write(folder / 'retry.json', {'until': now + retry_after(error.headers.get('Retry-After'), now)})
+    except (OSError, URLError, ValueError, KeyError, TypeError):
+        write(folder / 'retry.json', {'until': now + 60})
+    return fallback(kind, cached, now)
+
+
+def fallback(kind, cached, now):
+    data = cached.get('data', {})
+    if isinstance(data, dict) and data.get('status') == 'ok':
+        if kind == 'lyrics' or (isinstance(data.get('at'), (float, int)) and now - data['at'] < 86400):
+            return {**data, 'stale': True}
+    return {'status': 'offline'}
+
+
+def main(args):
+    if len(args) == 5 and args[0] == 'lyrics':
+        _, title, artist, album, seconds = args
+        if not title.strip() or not artist.strip():
+            return {'status': 'missing'}
+        params = {'track_name': title[:500], 'artist_name': artist[:500]}
+        if album:
+            params['album_name'] = album[:500]
+        duration = float(seconds)
+        if math.isfinite(duration) and 1 <= duration <= 3600:
+            params['duration'] = round(duration)
+        return fetch('lyrics', params)
+    if len(args) == 3 and args[0] == 'weather':
+        lat, lon = map(float, args[1:])
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            raise ValueError('Invalid coordinates')
+        return fetch('weather', {'latitude': lat, 'longitude': lon,
+                     'current': 'temperature_2m,apparent_temperature,weather_code,wind_speed_10m,is_day',
+                     'timezone': 'auto', 'forecast_days': 1})
+    raise ValueError('Usage: penumbra-online lyrics TITLE ARTIST ALBUM SECONDS | weather LAT LON')
+
+
+if __name__ == '__main__':
+    try:
+        result = main(sys.argv[1:])
+    except (ValueError, OverflowError):
+        result = {'status': 'invalid'}
+    print(json.dumps(result, ensure_ascii=False))

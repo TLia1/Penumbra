@@ -357,6 +357,7 @@ Panel {
                 ClippingRectangle {
                     StaggerReveal { shown: root.open && mainPage.visible; order: 4 }
                     id: media
+                    property bool lyricsOpen: false
                     Layout.fillWidth: true
                     visible: !!root.player
                     implicitHeight: mediaColumn.implicitHeight + 20
@@ -394,7 +395,7 @@ Panel {
 
                     // MPRIS doesn't announce position changes; ask while it's on screen.
                     Timer {
-                        interval: 1000
+                        interval: media.lyricsOpen ? 250 : 1000
                         repeat: true
                         running: root.open && !!root.player?.isPlaying
                         onTriggered: root.player.positionChanged()
@@ -524,6 +525,40 @@ Panel {
                                 text: Media.time(root.player?.length ?? 0)
                                 font.pixelSize: Theme.textTiny
                                 color: Theme.textSoft
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            PillButton {
+                                text: media.lyricsOpen ? "Hide lyrics" : "󰨸 Lyrics"
+                                primary: media.lyricsOpen
+                                onClicked: media.lyricsOpen = !media.lyricsOpen
+                            }
+                            Item { Layout.fillWidth: true }
+                        }
+                        LyricsView {
+                            Layout.fillWidth: true
+                            visible: media.lyricsOpen
+                            active: media.lyricsOpen && root.open && mainPage.visible
+                            player: root.player
+                        }
+                        // A mirrored Cava waveform over the blurred album cover.
+                        Row {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 24
+                            visible: media.lyricsOpen && Ui.hasVisualizer
+                            spacing: 3
+                            Repeater {
+                                model: 32
+                                delegate: Rectangle {
+                                    required property int index
+                                    width: (parent.width - 31 * 3) / 32
+                                    height: 2 + 22 * (Media.bars[Math.floor(index / 4)] ?? 0)
+                                    y: (24 - height) / 2
+                                    radius: Theme.corner(width / 2)
+                                    color: Theme.alpha(Theme.accentBright, 0.65)
+                                    Behavior on height { NumberAnimation { duration: Theme.reducedMotion ? 0 : 80 } }
+                                }
                             }
                         }
                     }

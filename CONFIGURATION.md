@@ -859,6 +859,8 @@ color_firefox() {
             [[ -d $profile ]] || continue
             install_file "$1/chrome/penumbra.css" "$profile/chrome/penumbra.css"
             add_line "$profile/chrome/userChrome.css" '@import "penumbra.css";' top
+            install_file "$1/chrome/penumbra-content.css" "$profile/chrome/penumbra-content.css"
+            add_line "$profile/chrome/userContent.css" '@import "penumbra-content.css";' top
             add_line "$profile/user.js" 'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);'
             add_line "$profile/user.js" 'user_pref("widget.use-xdg-desktop-portal.file-picker", 1);'
         done < <(sed -n 's/^Path=//p' "$root/profiles.ini")
@@ -2847,6 +2849,189 @@ nvim --headless '+Lazy! restore' +qa
 printf 'Open a project with: nvim /path/to/project\n'
 ```
 
+## `tools/preview-widgets.py`
+
+```python
+#!/usr/bin/env python3
+"""Render actual Phase 3 QML components with deterministic, offline sample data.
+
+No running shell, media, location or user settings are read or changed. Requires Quickshell
+and Qt's offscreen software renderer. Output defaults to previews/widgets.png.
+"""
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+sys.dont_write_bytecode = True
+
+ROOT = Path(__file__).resolve().parent.parent
+SHELL = ROOT / 'config/quickshell/penumbra'
+
+STUBS = {
+    'Settings': 'property real textScale: 1; property bool reducedMotion: true; property bool weatherEnabled: true',
+    'Ui': 'property string bin: "/nonexistent/"',
+    'Media': 'function isLive(p) { return false; }',
+    'Clock': 'property date date: new Date("2026-11-03T17:30:00Z")',
+    'Weather': '''property var place: ({name: "Paris"})
+        property var current: ({temperature_2m: 14, apparent_temperature: 12, wind_speed_10m: 9})
+        property string description: "Cloudy"
+        property var result: ({status: "ok", at: 1793727000})
+        property bool stale: false
+        property double lastAttempt: 0
+        function refresh() {}''',
+}
+
+QML = '''import QtQuick
+import QtQuick.Layouts
+import Quickshell
+ShellRoot {
+    FloatingWindow {
+        id: window
+        visible: true
+        implicitWidth: 1040
+        implicitHeight: 640
+        color: "#0d0a12"
+        Rectangle {
+            id: scene
+            anchors.fill: parent
+            color: Theme.base
+            Rectangle {
+                x: 420; y: -300; width: 800; height: 800; radius: 400
+                gradient: Gradient {
+                    GradientStop { position: 0; color: Theme.alpha(Theme.accentDeep, 0.28) }
+                    GradientStop { position: 1; color: Theme.base }
+                }
+                border.color: Theme.line
+            }
+            Column {
+                x: 56; y: 42; spacing: 8
+                Label { text: "P E N U M B R A"; color: Theme.accent; font.pixelSize: 13; font.letterSpacing: 2 }
+                Label { text: "A little closer to your day."; font.family: Theme.display; font.pixelSize: 32; font.weight: Font.DemiBold }
+                Label { text: "Lyrics, sky and a place for your favourite apps."; color: Theme.textSoft; font.pixelSize: 16 }
+            }
+            Rectangle {
+                x: 56; y: 172; width: 568; height: 300; radius: Theme.radiusLarge
+                color: Theme.glassStrong; border.color: Theme.line
+                ColumnLayout {
+                    anchors { fill: parent; margins: 22 }
+                    spacing: 12
+                    Label { text: "NOW PLAYING"; color: Theme.accent; font.pixelSize: 11; font.letterSpacing: 2 }
+                    Label { text: "Between the stars"; font.pixelSize: 24; font.weight: Font.DemiBold }
+                    Label { text: "Penumbra · Preview session"; color: Theme.textSoft }
+                    LyricsView {
+                        id: lyrics
+                        Layout.fillWidth: true
+                        player: QtObject {
+                            property string trackTitle: "Between the stars"
+                            property string trackArtist: "Penumbra"
+                            property string trackAlbum: "Preview session"
+                            property real length: 180
+                            property real position: 12
+                        }
+                        Component.onCompleted: result = { status: "ok", synced: "[00:00]The evening folds around us\\n[00:10]We leave a little light between the stars\\n[00:20]And carry it into tomorrow" }
+                    }
+                    Item { Layout.fillHeight: true }
+                    Row {
+                        Layout.fillWidth: true
+                        spacing: 4
+                        Repeater {
+                            model: 52
+                            Rectangle {
+                                required property int index
+                                width: 6; height: 3 + 18 * Math.abs(Math.sin(index * 0.41)); y: (24-height)/2
+                                radius: 3; color: Theme.alpha(Theme.accentBright, 0.65)
+                            }
+                        }
+                    }
+                }
+            }
+            ColumnLayout {
+                x: 650; y: 172; width: 334; spacing: 12
+                Label { text: "TUESDAY · 3 NOVEMBER"; color: Theme.accent; font.pixelSize: 11; font.letterSpacing: 1.4 }
+                WeatherCard { Layout.fillWidth: true }
+                Label { Layout.fillWidth: true; text: "A local lunar phase. A glance at the weather."; wrapMode: Text.Wrap; color: Theme.textSoft; font.pixelSize: 13 }
+            }
+            DockSurface {
+                id: dock
+                x: 250; y: 310; width: 540; height: 246; shown: true
+                apps: [
+                    {key: "firefox", pin: "firefox", entry: {icon: "firefox"}, windows: [{activated: true}]},
+                    {key: "kitty", pin: "kitty", entry: {icon: "kitty"}, windows: [{activated: false}, {activated: false}]},
+                    {key: "files", pin: "files", entry: {icon: "system-file-manager"}, windows: []},
+                    {key: "code", pin: "", entry: {icon: "text-editor"}, windows: [{activated: false}]},
+                    {key: "music", pin: "", entry: {icon: "multimedia-player"}, windows: [{activated: false}]}
+                ]
+            }
+            Label { x: 56; y: 594; text: "PHASE 03  /  OFFLINE COMPONENT PREVIEW · SAMPLE DATA"; color: Theme.dim; font.pixelSize: 10; font.letterSpacing: 1.4 }
+        }
+        Timer {
+            interval: 900; running: true
+            onTriggered: {
+                if (lyrics.current !== 1 || lyrics.lines.length !== 3 || !dock.shown || dock.apps.length !== 5) {
+                    console.error("Widget fixture assertion failed"); Qt.exit(1); return;
+                }
+                scene.grabToImage(result => {
+                    if (!result.saveToFile(Quickshell.env("PENUMBRA_PREVIEW"))) Qt.exit(1);
+                    else Qt.quit();
+                });
+            }
+        }
+    }
+}
+'''
+
+
+def stage(folder):
+    for name in ['Theme.qml', 'palette.js', 'Label.qml', 'Glyph.qml', 'GlassEdge.qml', 'PillButton.qml',
+                 'LyricsView.qml', 'lyrics.js', 'WeatherCard.qml', 'sun.js', 'DockSurface.qml']:
+        shutil.copy2(SHELL / name, folder / name)
+    shutil.copytree(SHELL / 'shaders', folder / 'shaders')
+    for name, body in STUBS.items():
+        (folder / f'{name}.qml').write_text('pragma Singleton\nimport QtQuick\nimport Quickshell\nSingleton {\n' + body + '\n}\n')
+    (folder / 'shell.qml').write_text(QML)
+
+
+def main():
+    args = [arg for arg in sys.argv[1:] if arg != '--light']
+    output = Path(args[0] if args else ROOT / 'previews/widgets.png').resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='penumbra-preview-') as temp:
+        folder = Path(temp)
+        stage(folder)
+        if '--light' in sys.argv:
+            import json
+            sys.path.insert(0, str(ROOT / 'share/penumbra'))
+            import palette
+            state = folder / '.local/state/penumbra'
+            state.mkdir(parents=True)
+            (state / 'palette.json').write_text(json.dumps({'mode': 'light', 'duration': 0,
+                'colors': palette.load(ROOT / 'palette/palette.toml')['light']}))
+        runtime = folder / 'runtime'
+        runtime.mkdir(mode=0o700)
+        env = {**os.environ, 'HOME': temp, 'XDG_CONFIG_HOME': str(folder / 'config'),
+               'XDG_CACHE_HOME': str(folder / 'cache'), 'XDG_RUNTIME_DIR': str(runtime),
+               'QT_QPA_PLATFORM': 'offscreen', 'QT_QUICK_BACKEND': 'software',
+               'PENUMBRA_PREVIEW': str(output), 'TZ': 'Europe/Paris'}
+        env.pop('WAYLAND_DISPLAY', None)
+        env.pop('HYPRLAND_INSTANCE_SIGNATURE', None)
+        result = subprocess.run(['quickshell', '-p', temp, '--no-color'], env=env, capture_output=True, text=True, timeout=20)
+        log = result.stdout + result.stderr
+        # Sandboxed runners can refuse local IPC sockets; rendering does not use them.
+        errors = [line for line in log.splitlines() if 'ERROR' in line and 'quickshell.ipc:' not in line]
+        if result.returncode or errors or 'ReferenceError' in log or 'TypeError' in log or not output.exists():
+            print(log, file=sys.stderr)
+            return 1
+        print(output)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
+```
+
 ## `tests/test_boot.py`
 
 ```python
@@ -3376,6 +3561,7 @@ runs=$HOME/.local/state/penumbra/backups; PATH=$1:$PATH
 mkdir -p ~/.config/mozilla/firefox/abc.default/chrome ~/.config/mpv ~/.config/vesktop/settings ~/.config/btop ~/.config/cava
 printf '[Profile0]\\nName=default\\nIsRelative=1\\nPath=abc.default\\n' > ~/.config/mozilla/firefox/profiles.ini
 printf '#nav-bar { padding: 0 }\\n' > ~/.config/mozilla/firefox/abc.default/chrome/userChrome.css
+printf '/* My content styles */\\n' > ~/.config/mozilla/firefox/abc.default/chrome/userContent.css
 printf '[quiet]\\nvolume=50' > ~/.config/mpv/mpv.conf
 printf 'color_theme = "Default"\\nupdate_ms = 1000\\n' > ~/.config/btop/btop.conf
 echo '{"enabledThemes": ["mine.css"]}' > ~/.config/vesktop/settings/settings.json
@@ -3419,6 +3605,19 @@ class AppColors(unittest.TestCase):
             '[input]', 'method = fifo', '[color]', 'foreground = cyan',
             '{"enabledThemes": ["mine.css"]}',
         ])
+
+    def test_firefox_content_and_spicetify_install_and_rollback(self):
+        out = self.run_install('''
+            cat ~/.config/mozilla/firefox/abc.default/chrome/userContent.css
+            test -s ~/.config/mozilla/firefox/abc.default/chrome/penumbra-content.css
+            test -s ~/.config/spicetify/Themes/Penumbra/color.ini
+            test -s ~/.config/spicetify/Themes/Penumbra/user.css
+            STAMP=later uninstall_user >/dev/null
+            cat ~/.config/mozilla/firefox/abc.default/chrome/userContent.css
+            test ! -e ~/.config/spicetify/Themes/Penumbra/color.ini
+        ''')
+        self.assertEqual(out.splitlines(), ['@import "penumbra-content.css";',
+                                          '/* My content styles */', '/* My content styles */'])
 
     def test_cava_keeps_named_theme_and_handles_fresh_config(self):
         out = self.run_install('''
@@ -3605,6 +3804,98 @@ class Motion(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+```
+
+## `tests/test_online.py`
+
+```python
+"""Network helpers are exercised with fixtures; tests never contact lyrics/weather services."""
+import importlib.machinery
+import importlib.util
+import io
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, urlsplit
+
+ROOT = Path(__file__).resolve().parent.parent
+loader = importlib.machinery.SourceFileLoader('online', str(ROOT / 'bin/penumbra-online'))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+online = importlib.util.module_from_spec(spec)
+loader.exec_module(online)
+
+
+class Online(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.cache = patch.object(online, 'CACHE', Path(self.temp.name))
+        self.cache.start()
+        self.addCleanup(self.cache.stop)
+
+    def response(self, value):
+        return io.BytesIO(json.dumps(value).encode())
+
+    def test_lyrics_encoded_and_cached(self):
+        with patch.object(online, 'urlopen', return_value=self.response({'syncedLyrics': '[00:01.25]a', 'plainLyrics': 'a'})) as request:
+            first = online.main(['lyrics', 'A & B', 'Étoile', 'An album', '123'])
+            self.assertEqual(first['synced'], '[00:01.25]a')
+            self.assertEqual(online.main(['lyrics', 'A & B', 'Étoile', 'An album', '123']), first)
+            request.assert_called_once()
+            query = parse_qs(urlsplit(request.call_args.args[0].full_url).query)
+            self.assertEqual(query['track_name'], ['A & B'])
+            self.assertEqual(query['artist_name'], ['Étoile'])
+            self.assertEqual(query['duration'], ['123'])
+            self.assertEqual(request.call_args.kwargs['timeout'], 8)
+
+    def test_missing_lyrics_and_instrumental(self):
+        error = HTTPError('https://lrclib.net', 404, 'Not found', {}, None)
+        with patch.object(online, 'urlopen', side_effect=error) as request:
+            self.assertEqual(online.main(['lyrics', 'missing', 'artist', '', '0'])['status'], 'missing')
+            online.main(['lyrics', 'missing', 'artist', '', '0'])
+            request.assert_called_once()
+        with patch.object(online, 'urlopen', return_value=self.response({'instrumental': True})):
+            self.assertTrue(online.main(['lyrics', 'instrumental', 'artist', '', '0'])['instrumental'])
+
+    def test_rate_limit_applies_across_tracks(self):
+        error = HTTPError('https://lrclib.net', 429, 'Slow down', {'Retry-After': '3600'}, None)
+        with patch.object(online.time, 'time', return_value=1000), patch.object(online, 'urlopen', side_effect=error) as request:
+            online.main(['lyrics', 'one', 'artist', '', '0'])
+            online.main(['lyrics', 'two', 'artist', '', '0'])
+            request.assert_called_once()
+            self.assertGreaterEqual(online.read(online.CACHE / 'lyrics/retry.json')['until'], 4600)
+
+    def test_weather_expiry_and_stale_offline(self):
+        value = {'current': {'temperature_2m': 15.2, 'apparent_temperature': 14, 'weather_code': 3, 'wind_speed_10m': 8, 'is_day': 1}}
+        args = ['weather', '48.86', '2.33']
+        with patch.object(online.time, 'time', return_value=10000), patch.object(online, 'urlopen', return_value=self.response(value)):
+            self.assertEqual(online.main(args)['current']['temperature_2m'], 15.2)
+        with patch.object(online.time, 'time', return_value=11000), patch.object(online, 'urlopen') as request:
+            online.main(args)
+            request.assert_not_called()
+        with patch.object(online.time, 'time', return_value=12000), patch.object(online, 'urlopen', side_effect=URLError('offline')):
+            self.assertTrue(online.main(args)['stale'])
+        with patch.object(online.time, 'time', return_value=100000), patch.object(online, 'urlopen', side_effect=URLError('offline')):
+            self.assertEqual(online.main(args)['status'], 'offline')
+
+    def test_invalid_coordinates_never_request(self):
+        with patch.object(online, 'urlopen') as request:
+            for coords in [('91', '0'), ('0', '181'), ('nan', '0')]:
+                with self.assertRaises(ValueError):
+                    online.main(['weather', *coords])
+            request.assert_not_called()
+
+    def test_bad_payload_and_corrupt_cache(self):
+        with patch.object(online, 'urlopen', return_value=self.response({'current': {'temperature_2m': None}})):
+            self.assertEqual(online.main(['weather', '0', '0'])['status'], 'offline')
+        p = online.CACHE / 'broken.json'
+        for text in ['{', '[]', 'null']:
+            p.write_text(text)
+            self.assertEqual(online.read(p), {})
+        self.assertEqual(online.retry_after('Tue, 03 Nov 2026 12:00:00 GMT', 0), 1793707200)
 ```
 
 ## `tests/test_shell.py`
@@ -4077,6 +4368,123 @@ class Command(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+```
+
+## `tests/test_widgets.py`
+
+```python
+"""Quickshell runtime checks with fake services and a temporary HOME, never the live desktop."""
+import importlib.util
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parent.parent
+spec = importlib.util.spec_from_file_location('preview', ROOT / 'tools/preview-widgets.py')
+preview = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(preview)
+
+
+@unittest.skipUnless(shutil.which('quickshell'), 'needs Quickshell')
+class Widgets(unittest.TestCase):
+    def test_component_render(self):
+        with tempfile.TemporaryDirectory() as temp:
+            result = subprocess.run(['python', str(ROOT / 'tools/preview-widgets.py'), temp + '/widgets.png'],
+                                    capture_output=True, text=True, timeout=25)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertGreater(Path(temp + '/widgets.png').stat().st_size, 10000)
+
+    def test_track_and_location_races(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            preview.stage(folder)
+            shutil.copy2(preview.SHELL / 'Weather.qml', folder / 'Weather.qml')
+            (folder / 'NightLight.qml').write_text('''pragma Singleton
+import QtQuick
+import Quickshell
+Singleton {
+    property bool citiesWanted: false
+    property var place: ({name: "First", latitude: 1, longitude: 0})
+}
+''')
+            (folder / 'Ui.qml').write_text('''pragma Singleton
+import QtQuick
+import Quickshell
+Singleton { property bool calendarOpen: false; property string bin: Quickshell.env("HOME") + "/" }
+''')
+            script = folder / 'penumbra-online'
+            script.write_text('''#!/usr/bin/env python3
+import json, sys, time
+from pathlib import Path
+time.sleep(0.4)
+with (Path(__file__).parent / 'calls').open('a') as out: out.write(sys.argv[1] + '\\n')
+print(json.dumps({'status': 'ok', 'synced': '[00:00]intro\\n[00:10]' + sys.argv[2]} if sys.argv[1] == 'lyrics' else {'status': 'ok', 'current': {'temperature_2m': float(sys.argv[2])}}))
+''')
+            script.chmod(0o755)
+            (folder / 'shell.qml').write_text('''import QtQuick
+import Quickshell
+ShellRoot {
+    FloatingWindow {
+        visible: true
+        QtObject {
+            id: testPlayer
+            property string trackTitle: "first"
+            property string trackArtist: "artist"
+            property string trackAlbum: "album"
+            property real length: 120
+            property real position: 12
+        }
+        LyricsView { id: lyrics; width: 400; active: true; player: testPlayer }
+        Component.onCompleted: console.log("weather enabled", Weather.place.name)
+        Timer {
+            interval: 600; running: true
+            onTriggered: {
+                testPlayer.trackTitle = "second";
+                NightLight.place = {name: "Second", latitude: 2, longitude: 0};
+            }
+        }
+        Timer {
+            interval: 2200; running: true
+            onTriggered: {
+                if (Weather.current?.temperature_2m !== 2 || lyrics.result.synced !== "[00:00]intro\\n[00:10]second" || lyrics.current !== 1) {
+                    console.error("stale response or synchronization failure", JSON.stringify(Weather.result), JSON.stringify(lyrics.result)); Qt.exit(1); return;
+                }
+                testPlayer.position = 2;
+                if (lyrics.current !== 0) { console.error("seek failure"); Qt.exit(1); return; }
+                Settings.weatherEnabled = false;
+                NightLight.place = {name: "Third", latitude: 3, longitude: 0};
+                lyrics.active = false;
+                testPlayer.trackTitle = "third";
+            }
+        }
+        Timer {
+            interval: 3200; running: true
+            onTriggered: {
+                if (Weather.current !== null || lyrics.result.status) { console.error("disabled services retained data"); Qt.exit(1); return; }
+                console.log("race checks passed"); Qt.quit();
+            }
+        }
+    }
+}
+''')
+            runtime = folder / 'runtime'
+            runtime.mkdir(mode=0o700)
+            env = {**os.environ, 'HOME': temp, 'XDG_CONFIG_HOME': temp + '/config',
+                   'XDG_RUNTIME_DIR': str(runtime), 'QT_QPA_PLATFORM': 'offscreen', 'QT_QUICK_BACKEND': 'software'}
+            env.pop('WAYLAND_DISPLAY', None)
+            env.pop('HYPRLAND_INSTANCE_SIGNATURE', None)
+            result = subprocess.run(['quickshell', '-p', temp, '--no-color'], env=env,
+                                    capture_output=True, text=True, timeout=12)
+            log = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, log)
+            self.assertIn('race checks passed', log)
+            self.assertNotIn('ReferenceError', log)
+            self.assertNotIn('TypeError', log)
+            self.assertEqual((folder / 'calls').read_text().splitlines().count('weather'), 2)
+            self.assertEqual((folder / 'calls').read_text().splitlines().count('lyrics'), 2)
 ```
 
 ## `bin/penumbra-calendar`
@@ -5079,6 +5487,148 @@ esac
 # The Penumbra shell draws the launcher; this rofi menu is the fallback without it.
 "${0%/*}/penumbra-ipc" launcher apps >/dev/null 2>&1 && exit
 exec rofi -show drun
+```
+
+## `bin/penumbra-online`
+
+```python
+#!/usr/bin/env python3
+"""Bounded, cached JSON requests for the shell. No keys or third-party Python packages.
+
+penumbra-online lyrics TITLE ARTIST ALBUM SECONDS | weather LATITUDE LONGITUDE
+Only called for an expanded lyrics card or explicitly enabled weather.
+"""
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import sys
+import tempfile
+import time
+from email.utils import parsedate_to_datetime
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+CACHE = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache')) / 'penumbra'
+AGENT = 'Penumbra/1.0 (https://github.com/TLia1/Panumbra)'
+
+
+def read(path):
+    try:
+        value = json.loads(path.read_text())
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write(path, value):
+    """Cache failure must never prevent displaying a successful response."""
+    temp = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, delete=False) as stream:
+            temp = Path(stream.name)
+            json.dump(value, stream)
+        temp.replace(path)
+    except OSError:
+        pass
+    finally:
+        if temp:
+            try:
+                temp.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def retry_after(value, now):
+    try:
+        return max(60, float(value))
+    except (TypeError, ValueError):
+        try:
+            return max(60, parsedate_to_datetime(value).timestamp() - now)
+        except (TypeError, ValueError, OverflowError):
+            return 300
+
+
+def fetch(kind, params):
+    base = 'https://lrclib.net/api/get' if kind == 'lyrics' else 'https://api.open-meteo.com/v1/forecast'
+    url = base + '?' + urlencode(params)
+    folder = CACHE / kind
+    path = folder / (hashlib.sha256(url.encode()).hexdigest() + '.json')
+    cached, now = read(path), time.time()
+    if isinstance(cached.get('until'), (float, int)) and cached['until'] > now and isinstance(cached.get('data'), dict):
+        return cached['data']
+    gate = read(folder / 'retry.json').get('until', 0)
+    if isinstance(gate, (float, int)) and gate > now:
+        return fallback(kind, cached, now)
+    try:
+        with urlopen(Request(url, headers={'User-Agent': AGENT, 'Accept': 'application/json'}), timeout=8) as response:
+            raw = response.read(1024 * 1024 + 1)
+        if len(raw) > 1024 * 1024:
+            raise ValueError('Response too large')
+        value = json.loads(raw)
+        if not isinstance(value, dict):
+            raise ValueError('Expected object')
+        if kind == 'lyrics':
+            data = {'status': 'ok', 'synced': str(value.get('syncedLyrics') or ''),
+                    'plain': str(value.get('plainLyrics') or ''), 'instrumental': value.get('instrumental') is True}
+        else:
+            current = value['current']
+            keys = ('temperature_2m', 'apparent_temperature', 'weather_code', 'wind_speed_10m', 'is_day')
+            if not all(isinstance(current.get(k), (int, float)) and math.isfinite(current[k]) for k in keys):
+                raise ValueError('Incomplete weather')
+            data = {'status': 'ok', 'current': {k: current[k] for k in keys}, 'at': now}
+        write(path, {'until': now + (30 * 86400 if kind == 'lyrics' else 1800), 'data': data})
+        return data
+    except HTTPError as error:
+        if error.code == 404 and kind == 'lyrics':
+            data = {'status': 'missing'}
+            write(path, {'until': now + 86400, 'data': data})
+            return data
+        write(folder / 'retry.json', {'until': now + retry_after(error.headers.get('Retry-After'), now)})
+    except (OSError, URLError, ValueError, KeyError, TypeError):
+        write(folder / 'retry.json', {'until': now + 60})
+    return fallback(kind, cached, now)
+
+
+def fallback(kind, cached, now):
+    data = cached.get('data', {})
+    if isinstance(data, dict) and data.get('status') == 'ok':
+        if kind == 'lyrics' or (isinstance(data.get('at'), (float, int)) and now - data['at'] < 86400):
+            return {**data, 'stale': True}
+    return {'status': 'offline'}
+
+
+def main(args):
+    if len(args) == 5 and args[0] == 'lyrics':
+        _, title, artist, album, seconds = args
+        if not title.strip() or not artist.strip():
+            return {'status': 'missing'}
+        params = {'track_name': title[:500], 'artist_name': artist[:500]}
+        if album:
+            params['album_name'] = album[:500]
+        duration = float(seconds)
+        if math.isfinite(duration) and 1 <= duration <= 3600:
+            params['duration'] = round(duration)
+        return fetch('lyrics', params)
+    if len(args) == 3 and args[0] == 'weather':
+        lat, lon = map(float, args[1:])
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            raise ValueError('Invalid coordinates')
+        return fetch('weather', {'latitude': lat, 'longitude': lon,
+                     'current': 'temperature_2m,apparent_temperature,weather_code,wind_speed_10m,is_day',
+                     'timezone': 'auto', 'forecast_days': 1})
+    raise ValueError('Usage: penumbra-online lyrics TITLE ARTIST ALBUM SECONDS | weather LAT LON')
+
+
+if __name__ == '__main__':
+    try:
+        result = main(sys.argv[1:])
+    except (ValueError, OverflowError):
+        result = {'status': 'invalid'}
+    print(json.dumps(result, ensure_ascii=False))
 ```
 
 ## `bin/penumbra-osd`
@@ -7590,12 +8140,16 @@ require('lazy').setup('penumbra.plugins', {
 })
 require('penumbra.keys')
 vim.diagnostic.config({ virtual_text = false, float = { border = 'rounded' }, severity_sort = true })
+local reading_stdin = false
+vim.api.nvim_create_autocmd('StdinReadPre', { callback = function() reading_stdin = true end })
 vim.api.nvim_create_autocmd('VimEnter', {
   callback = function()
-    if #vim.api.nvim_list_uis() == 0 or vim.fn.argc() > 1 then return end
+    if #vim.api.nvim_list_uis() == 0 or reading_stdin or vim.fn.argc() > 1 then return end
     local arg = vim.fn.argv(0)
-    if vim.fn.argc() == 0 or vim.fn.isdirectory(arg) == 1 then
-      if vim.fn.isdirectory(arg) == 1 then vim.cmd.cd(vim.fn.fnameescape(arg)) end
+    if vim.fn.argc() == 0 then
+      require('penumbra.dashboard').open()
+    elseif vim.fn.isdirectory(arg) == 1 then
+      vim.cmd.cd(vim.fn.fnameescape(arg))
       require('nvim-tree.api').tree.open()
     end
   end,
@@ -7623,6 +8177,68 @@ if vim.uv.fs_stat(user) then dofile(user) end
   "telescope.nvim": { "branch": "master", "commit": "40aedd8a68c78a656a10a8d62d80c54af59420fb" },
   "which-key.nvim": { "branch": "main", "commit": "3aab2147e74890957785941f0c1ad87d0a44c15a" }
 }
+```
+
+## `config/nvim/lua/penumbra/dashboard.lua`
+
+```lua
+-- A native start buffer: no new plugin, downloads or background work.
+local M = {}
+function M.open()
+  if vim.bo.modified or vim.api.nvim_buf_get_name(0) ~= '' or vim.bo.buftype ~= '' then return end
+  if vim.api.nvim_buf_line_count(0) ~= 1 or vim.api.nvim_get_current_line() ~= '' then return end
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_set_current_buf(buf)
+  vim.bo[buf].buftype = 'nofile'
+  vim.bo[buf].bufhidden = 'wipe'
+  vim.bo[buf].swapfile = false
+  vim.bo[buf].filetype = 'penumbra'
+  vim.bo[buf].modifiable = false
+  local win = vim.api.nvim_get_current_win()
+  local saved = { number = vim.wo.number, relativenumber = vim.wo.relativenumber,
+    cursorline = vim.wo.cursorline, signcolumn = vim.wo.signcolumn }
+  vim.wo.number, vim.wo.relativenumber, vim.wo.cursorline, vim.wo.signcolumn = false, false, false, 'no'
+  local ns = vim.api.nvim_create_namespace('penumbra-dashboard')
+  local function draw()
+    if not vim.api.nvim_buf_is_valid(buf) or not vim.api.nvim_win_is_valid(win) then return end
+    local width = vim.api.nvim_win_get_width(win)
+    local lines = { '', '◯  ──────  ◌', '', 'P E N U M B R A', 'A quiet place to make things.', '',
+      '[f]  Find file', '[r]  Recent files', '[n]  New file', '[c]  Configuration', '[q]  Quit', '',
+      vim.fn.fnamemodify(vim.fn.getcwd(), ':~') }
+    for i, line in ipairs(lines) do
+      lines[i] = string.rep(' ', math.max(0, math.floor((width - vim.fn.strdisplaywidth(line)) / 2))) .. line
+    end
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].modifiable = false
+    vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+    for _, row in ipairs({ 1, 3 }) do
+      vim.api.nvim_buf_set_extmark(buf, ns, row, 0, { end_row = row + 1, hl_group = 'Title' })
+    end
+    for _, row in ipairs({ 4, 12 }) do
+      vim.api.nvim_buf_set_extmark(buf, ns, row, 0, { end_row = row + 1, hl_group = 'Comment' })
+    end
+  end
+  local actions = {
+    f = function() require('telescope.builtin').find_files() end,
+    r = function() require('telescope.builtin').oldfiles() end,
+    n = function() vim.cmd.enew(); vim.cmd.startinsert() end,
+    c = function() vim.cmd.edit(vim.fn.fnameescape(vim.fn.stdpath('config') .. '/init.lua')) end,
+    q = function() vim.cmd.quit() end,
+  }
+  for key, action in pairs(actions) do vim.keymap.set('n', key, action, { buffer = buf, silent = true }) end
+  local resize = vim.api.nvim_create_autocmd('VimResized', { callback = draw })
+  vim.api.nvim_create_autocmd('BufWinLeave', { buffer = buf, once = true, callback = function()
+    if vim.api.nvim_win_is_valid(win) then
+      for name, value in pairs(saved) do vim.wo[win][name] = value end
+    end
+  end })
+  vim.api.nvim_create_autocmd('BufWipeout', { buffer = buf, once = true, callback = function()
+    pcall(vim.api.nvim_del_autocmd, resize)
+  end })
+  draw()
+end
+return M
 ```
 
 ## `config/nvim/lua/penumbra/keys.lua`
@@ -7726,7 +8342,8 @@ return {
       visual = { a = { fg = c.bg, bg = c.pink } },
       replace = { a = { fg = c.bg, bg = c.rose } },
       inactive = { a = { fg = c.muted, bg = c.panel }, b = { fg = c.muted, bg = c.panel }, c = { fg = c.muted, bg = c.panel } },
-    }, globalstatus = true } }
+    }, globalstatus = true, section_separators = { left = '', right = '' },
+      component_separators = { left = '│', right = '│' }, disabled_filetypes = { statusline = { 'penumbra' } } } }
   end },
   -- Treesitter parsers, so code is coloured by its structure. Building them needs tree-sitter-cli
   -- and a C compiler (both installed by ./install.sh); `:TSInstall LANGUAGE` adds more.
@@ -8663,165 +9280,177 @@ Panel {
     }
     readonly property var dayEvents: events[iso(selected)] ?? []
 
-    ColumnLayout {
+    Flickable {
         x: 18
         y: 18
         width: root.sheetWidth - 36
-        spacing: 10
+        height: Math.min(calendarContent.implicitHeight, root.implicitHeight - 2 * root.shadowRoom - 36)
+        contentHeight: calendarContent.implicitHeight
+        contentWidth: width
+        flickableDirection: Flickable.VerticalFlick
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        ColumnLayout {
+            id: calendarContent
+            width: parent.width
+            spacing: 10
 
-        Overline {
-            text: Qt.formatDate(root.today, "dddd")
-            color: Theme.accent
-        }
-        Label {
-            text: Qt.formatDate(root.today, "d MMMM yyyy")
-            font.family: Theme.display
-            font.pixelSize: Theme.textHeading
-            font.weight: Font.DemiBold
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.topMargin: 4
+            Overline {
+                text: Qt.formatDate(root.today, "dddd")
+                color: Theme.accent
+            }
             Label {
-                Layout.fillWidth: true
-                text: Qt.formatDate(new Date(root.year, root.month, 1), "MMMM yyyy")
+                text: Qt.formatDate(root.today, "d MMMM yyyy")
+                font.family: Theme.display
+                font.pixelSize: Theme.textHeading
                 font.weight: Font.DemiBold
-                color: Theme.textSoft
             }
-            // Week numbers on or off.
-            Rectangle {
-                implicitWidth: 32
-                implicitHeight: 28
-                radius: Theme.corner(14)
-                color: Settings.calendarWeekNumbers ? Theme.alpha(Theme.accent, 0.2) : weekArea.containsMouse ? Theme.hover : "transparent"
-                Label { anchors.centerIn: parent; text: "Wk"; font.pixelSize: Theme.textTiny; font.weight: Font.DemiBold; color: Settings.calendarWeekNumbers ? Theme.accent : Theme.dim }
-                MouseArea {
-                    id: weekArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: Settings.calendarWeekNumbers = !Settings.calendarWeekNumbers
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 4
+                Label {
+                    Layout.fillWidth: true
+                    text: Qt.formatDate(new Date(root.year, root.month, 1), "MMMM yyyy")
+                    font.weight: Font.DemiBold
+                    color: Theme.textSoft
                 }
-            }
-            Repeater {
-                model: [{ glyph: "󰅁", delta: -1 }, { glyph: "󰅂", delta: 1 }]
-                delegate: Rectangle {
-                    required property var modelData
-                    implicitWidth: 28
+                // Week numbers on or off.
+                Rectangle {
+                    implicitWidth: 32
                     implicitHeight: 28
                     radius: Theme.corner(14)
-                    color: navArea.containsMouse ? Theme.hover : "transparent"
-                    Glyph { anchors.centerIn: parent; text: modelData.glyph; color: Theme.textSoft }
+                    color: Settings.calendarWeekNumbers ? Theme.alpha(Theme.accent, 0.2) : weekArea.containsMouse ? Theme.hover : "transparent"
+                    Label { anchors.centerIn: parent; text: "Wk"; font.pixelSize: Theme.textTiny; font.weight: Font.DemiBold; color: Settings.calendarWeekNumbers ? Theme.accent : Theme.dim }
                     MouseArea {
-                        id: navArea
+                        id: weekArea
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.shift(modelData.delta)
+                        onClicked: Settings.calendarWeekNumbers = !Settings.calendarWeekNumbers
+                    }
+                }
+                Repeater {
+                    model: [{ glyph: "󰅁", delta: -1 }, { glyph: "󰅂", delta: 1 }]
+                    delegate: Rectangle {
+                        required property var modelData
+                        implicitWidth: 28
+                        implicitHeight: 28
+                        radius: Theme.corner(14)
+                        color: navArea.containsMouse ? Theme.hover : "transparent"
+                        Glyph { anchors.centerIn: parent; text: modelData.glyph; color: Theme.textSoft }
+                        MouseArea {
+                            id: navArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.shift(modelData.delta)
+                        }
                     }
                 }
             }
-        }
 
-        DayOfWeekRow {
-            Layout.fillWidth: true
-            Layout.leftMargin: Settings.calendarWeekNumbers ? weeks.width + 4 : 0
-            locale: grid.locale
-            delegate: Label {
-                required property string shortName
-                text: shortName.slice(0, 2)
-                horizontalAlignment: Text.AlignHCenter
-                font.pixelSize: Theme.textTiny
-                color: Theme.dim
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 4
-            WeekNumberColumn {
-                id: weeks
-                visible: Settings.calendarWeekNumbers
-                Layout.preferredHeight: grid.Layout.preferredHeight
-                implicitWidth: 22
-                month: root.month
-                year: root.year
+            DayOfWeekRow {
+                Layout.fillWidth: true
+                Layout.leftMargin: Settings.calendarWeekNumbers ? weeks.width + 4 : 0
                 locale: grid.locale
-                spacing: 2
                 delegate: Label {
-                    required property int weekNumber
-                    text: weekNumber
+                    required property string shortName
+                    text: shortName.slice(0, 2)
                     horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
                     font.pixelSize: Theme.textTiny
                     color: Theme.dim
                 }
             }
-            MonthGrid {
-                id: grid
+
+            RowLayout {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 6 * 34 + 5 * 2
-                month: root.month
-                year: root.year
-                locale: Qt.locale()
-                spacing: 2
-                onClicked: d => root.selected = d
-                delegate: Rectangle {
-                    required property var model
-                    readonly property bool isToday: model.today
-                    readonly property bool isSelected: root.iso(model.date) === root.iso(root.selected) && !isToday
-                    readonly property bool busy: (root.events[root.iso(model.date)] ?? []).length > 0
-                    implicitWidth: 34
-                    implicitHeight: 34
-                    radius: Theme.corner(17)
-                    color: isToday ? Theme.accent : isSelected ? Theme.raised : "transparent"
-                    border.color: isSelected ? Theme.lineStrong : "transparent"
-                    Label {
-                        anchors.centerIn: parent
-                        text: model.day
-                        font.weight: parent.isToday ? Font.Bold : Font.Normal
-                        color: parent.isToday ? Theme.onAccent : model.month === root.month ? Theme.text : Theme.dim
+                spacing: 4
+                WeekNumberColumn {
+                    id: weeks
+                    visible: Settings.calendarWeekNumbers
+                    Layout.preferredHeight: grid.Layout.preferredHeight
+                    implicitWidth: 22
+                    month: root.month
+                    year: root.year
+                    locale: grid.locale
+                    spacing: 2
+                    delegate: Label {
+                        required property int weekNumber
+                        text: weekNumber
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font.pixelSize: Theme.textTiny
+                        color: Theme.dim
                     }
-                    Rectangle {
-                        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 4 }
-                        visible: parent.busy
-                        width: 4
-                        height: 4
-                        radius: 2
-                        color: parent.isToday ? Theme.onAccent : Theme.accentBright
+                }
+                MonthGrid {
+                    id: grid
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 6 * 34 + 5 * 2
+                    month: root.month
+                    year: root.year
+                    locale: Qt.locale()
+                    spacing: 2
+                    onClicked: d => root.selected = d
+                    delegate: Rectangle {
+                        required property var model
+                        readonly property bool isToday: model.today
+                        readonly property bool isSelected: root.iso(model.date) === root.iso(root.selected) && !isToday
+                        readonly property bool busy: (root.events[root.iso(model.date)] ?? []).length > 0
+                        implicitWidth: 34
+                        implicitHeight: 34
+                        radius: Theme.corner(17)
+                        color: isToday ? Theme.accent : isSelected ? Theme.raised : "transparent"
+                        border.color: isSelected ? Theme.lineStrong : "transparent"
+                        Label {
+                            anchors.centerIn: parent
+                            text: model.day
+                            font.weight: parent.isToday ? Font.Bold : Font.Normal
+                            color: parent.isToday ? Theme.onAccent : model.month === root.month ? Theme.text : Theme.dim
+                        }
+                        Rectangle {
+                            anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 4 }
+                            visible: parent.busy
+                            width: 4
+                            height: 4
+                            radius: 2
+                            color: parent.isToday ? Theme.onAccent : Theme.accentBright
+                        }
                     }
                 }
             }
-        }
 
-        // The chosen day's events.
-        ColumnLayout {
-            Layout.fillWidth: true
-            Layout.topMargin: 2
-            visible: root.dayEvents.length > 0
-            spacing: 4
-            Overline {
+            WeatherCard { Layout.fillWidth: true }
+
+            // The chosen day's events.
+            ColumnLayout {
                 Layout.fillWidth: true
-                text: root.iso(root.selected) === root.iso(root.today) ? "Today" : Qt.formatDate(root.selected, "dddd d MMMM")
-            }
-            Repeater {
-                model: root.dayEvents
-                delegate: RowLayout {
-                    required property var modelData
+                Layout.topMargin: 2
+                visible: root.dayEvents.length > 0
+                spacing: 4
+                Overline {
                     Layout.fillWidth: true
-                    spacing: 10
-                    Label {
-                        Layout.preferredWidth: 46
-                        text: modelData.time || "All day"
-                        font.family: Theme.mono
-                        font.pixelSize: Theme.textTiny
-                        color: Theme.accent
-                    }
-                    Label {
+                    text: root.iso(root.selected) === root.iso(root.today) ? "Today" : Qt.formatDate(root.selected, "dddd d MMMM")
+                }
+                Repeater {
+                    model: root.dayEvents
+                    delegate: RowLayout {
+                        required property var modelData
                         Layout.fillWidth: true
-                        text: modelData.title
-                        elide: Text.ElideRight
+                        spacing: 10
+                        Label {
+                            Layout.preferredWidth: 46
+                            text: modelData.time || "All day"
+                            font.family: Theme.mono
+                            font.pixelSize: Theme.textTiny
+                            color: Theme.accent
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: modelData.title
+                            elide: Text.ElideRight
+                        }
                     }
                 }
             }
@@ -9784,6 +10413,7 @@ Panel {
                 ClippingRectangle {
                     StaggerReveal { shown: root.open && mainPage.visible; order: 4 }
                     id: media
+                    property bool lyricsOpen: false
                     Layout.fillWidth: true
                     visible: !!root.player
                     implicitHeight: mediaColumn.implicitHeight + 20
@@ -9821,7 +10451,7 @@ Panel {
 
                     // MPRIS doesn't announce position changes; ask while it's on screen.
                     Timer {
-                        interval: 1000
+                        interval: media.lyricsOpen ? 250 : 1000
                         repeat: true
                         running: root.open && !!root.player?.isPlaying
                         onTriggered: root.player.positionChanged()
@@ -9951,6 +10581,40 @@ Panel {
                                 text: Media.time(root.player?.length ?? 0)
                                 font.pixelSize: Theme.textTiny
                                 color: Theme.textSoft
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            PillButton {
+                                text: media.lyricsOpen ? "Hide lyrics" : "󰨸 Lyrics"
+                                primary: media.lyricsOpen
+                                onClicked: media.lyricsOpen = !media.lyricsOpen
+                            }
+                            Item { Layout.fillWidth: true }
+                        }
+                        LyricsView {
+                            Layout.fillWidth: true
+                            visible: media.lyricsOpen
+                            active: media.lyricsOpen && root.open && mainPage.visible
+                            player: root.player
+                        }
+                        // A mirrored Cava waveform over the blurred album cover.
+                        Row {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 24
+                            visible: media.lyricsOpen && Ui.hasVisualizer
+                            spacing: 3
+                            Repeater {
+                                model: 32
+                                delegate: Rectangle {
+                                    required property int index
+                                    width: (parent.width - 31 * 3) / 32
+                                    height: 2 + 22 * (Media.bars[Math.floor(index / 4)] ?? 0)
+                                    y: (24 - height) / 2
+                                    radius: Theme.corner(width / 2)
+                                    color: Theme.alpha(Theme.accentBright, 0.65)
+                                    Behavior on height { NumberAnimation { duration: Theme.reducedMotion ? 0 : 80 } }
+                                }
                             }
                         }
                     }
@@ -10958,6 +11622,252 @@ ColumnLayout {
         }
         PillButton { text: "Reset"; onClicked: Displays.reset() }
         PillButton { text: "Apply"; primary: true; onClicked: Displays.apply() }
+    }
+}
+```
+
+## `config/quickshell/penumbra/Dock.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Hyprland
+import Quickshell.Wayland
+import Quickshell.Widgets
+
+// One dock per output. A four-pixel edge reveals it; only its visible bounds take input.
+PanelWindow {
+    id: root
+    required property var modelData
+    property bool locked: false
+    screen: modelData
+    anchors { bottom: true }
+    exclusionMode: ExclusionMode.Ignore
+    color: "transparent"
+    WlrLayershell.layer: WlrLayer.Top
+    WlrLayershell.namespace: "penumbra-dock"
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    readonly property var monitor: Hyprland.monitorFor(screen)
+    readonly property var workspace: monitor?.activeWorkspace ?? null
+    visible: Settings.dockMode !== "off" && !locked && !(workspace?.hasFullscreen ?? false)
+        && !Ui.overviewOpen && !Ui.launcherOpen && !Ui.sessionOpen && !Ui.shotOpen
+    property bool held: false
+    readonly property bool shown: held || (Settings.dockMode === "empty" && (workspace?.toplevels.values.length ?? 0) === 0)
+    readonly property var windows: Hyprland.workspaces.values
+        .filter(w => w.monitor?.name === monitor?.name)
+        .reduce((all, w) => all.concat(w.toplevels.values), []).filter(w => !w.lastIpcObject?.hidden)
+    readonly property var apps: {
+        const groups = [];
+        for (const id of Settings.dockPins) {
+            const entry = DesktopEntries.heuristicLookup(id);
+            if (entry && !groups.some(g => g.key === entry.id))
+                groups.push({ key: entry.id, entry, windows: [], pin: id });
+        }
+        for (const win of windows) {
+            const id = win.wayland?.appId || win.lastIpcObject?.class || "";
+            const entry = id ? DesktopEntries.heuristicLookup(id) : null;
+            const key = entry?.id || id || win.address;
+            let group = groups.find(g => g.key === key);
+            if (!group) {
+                group = { key, entry, windows: [], pin: "" };
+                groups.push(group);
+            }
+            group.windows.push(win);
+        }
+        return groups;
+    }
+    readonly property bool previewing: surface.previewing
+    implicitWidth: Math.min(screen?.width ?? 800, Math.max(300, apps.length * 56 + 76))
+    implicitHeight: 246
+    mask: Region { item: inputBounds }
+    Item {
+        id: inputBounds
+        z: 10
+        anchors { bottom: parent.bottom; horizontalCenter: parent.horizontalCenter }
+        width: root.previewing ? root.width : surface.trayWidth
+        height: root.previewing ? 246 : root.shown ? 78 : 4
+        HoverHandler {
+            onHoveredChanged: {
+                if (hovered) { hide.stop(); root.held = true; }
+                else hide.restart();
+            }
+        }
+    }
+    Timer { id: hide; interval: 450; onTriggered: { root.held = false; surface.hoveredKey = ""; } }
+    onVisibleChanged: if (!visible) { held = false; surface.hoveredKey = ""; }
+    DockSurface {
+        id: surface
+        anchors.fill: parent
+        apps: root.apps
+        shown: root.shown
+        onTogglePin: app => Settings.dockPins = app.pin ? Settings.dockPins.filter(id => id !== app.pin) : Settings.dockPins.concat([app.entry.id])
+        onLaunchApp: entry => root.launch(entry)
+        onActivateWindow: window => root.focusWindow(window)
+        onOpenLauncher: Ui.toggleLauncher("apps")
+    }
+    function focusWindow(win) {
+        const address = win.lastIpcObject?.address ?? "0x" + win.address;
+        if (/^0x[0-9a-f]+$/i.test(address)) Hyprland.dispatch(`hl.dsp.focus({window = "address:${address}"})`);
+    }
+    function launch(entry) {
+        if (!entry) return;
+        const command = entry.command.filter(arg => !/^%[a-zA-Z]$/.test(arg));
+        Ui.spawn({ command: entry.runInTerminal ? Ui.terminal(command) : command, workingDirectory: entry.workingDirectory || Quickshell.env("HOME") });
+    }
+}
+```
+
+## `config/quickshell/penumbra/DockSurface.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Wayland
+import Quickshell.Widgets
+
+// Visual dock shared by the live layer-shell window and the offscreen preview harness.
+Item {
+    id: root
+    property var apps: []
+    property bool shown: false
+    property string hoveredKey: ""
+    readonly property var hoveredApp: apps.find(a => a.key === hoveredKey) ?? null
+    readonly property bool previewing: shown && (hoveredApp?.windows.length ?? 0) > 0
+    readonly property real trayWidth: tray.width
+    signal togglePin(var app)
+    signal launchApp(var entry)
+    signal activateWindow(var window)
+    signal openLauncher()
+    Rectangle {
+        id: tray
+        anchors { bottom: parent.bottom; bottomMargin: 10; horizontalCenter: parent.horizontalCenter }
+        width: Math.min(root.width - 20, root.apps.length * 56 + 64)
+        height: 64
+        radius: Theme.radiusLarge
+        color: Theme.glassStrong
+        border.color: Theme.line
+        opacity: root.shown ? 1 : 0
+        transform: Translate { y: root.shown ? 0 : 80; Behavior on y { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } } }
+        Behavior on opacity { NumberAnimation { duration: Theme.fast } }
+        GlassEdge { radius: parent.radius }
+        Flickable {
+            anchors { fill: parent; margins: 6 }
+            contentWidth: row.width
+            contentHeight: height
+            flickableDirection: Flickable.HorizontalFlick
+            clip: true
+            Row {
+                id: row
+                spacing: 4
+                Repeater {
+                    model: root.apps
+                    delegate: Rectangle {
+                        id: app
+                        required property var modelData
+                        readonly property bool focused: modelData.windows.some(w => w.activated)
+                        width: 52
+                        height: 52
+                        radius: Theme.corner(14)
+                        color: pointer.containsMouse ? Theme.hover : "transparent"
+                        scale: pointer.pressed ? 0.94 : pointer.containsMouse ? 1.04 : 1
+                        Behavior on scale { NumberAnimation { duration: Theme.fast } }
+                        IconImage {
+                            id: appIcon
+                            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 5 }
+                            implicitSize: 32
+                            source: app.modelData.entry?.icon ? Quickshell.iconPath(app.modelData.entry.icon, true) : ""
+                            asynchronous: true
+                            Glyph { anchors.centerIn: parent; visible: appIcon.status !== Image.Ready; text: "󰣆"; size: 28 }
+                        }
+                        Row {
+                            anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 4 }
+                            spacing: 3
+                            Repeater {
+                                model: Math.min(3, app.modelData.windows.length)
+                                delegate: Rectangle { width: app.focused ? 10 : 4; height: 3; radius: Theme.corner(2); color: app.focused ? Theme.accentBright : Theme.muted }
+                            }
+                        }
+                        Rectangle {
+                            visible: !!app.modelData.pin
+                            x: 3; y: 3; width: 3; height: 3; radius: 2; color: Theme.accent
+                        }
+                        MouseArea {
+                            id: pointer
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+                            cursorShape: Qt.PointingHandCursor
+                            onEntered: root.hoveredKey = app.modelData.key
+                            onClicked: event => {
+                                const a = app.modelData;
+                                if (event.button === Qt.RightButton && a.entry) {
+                                    root.togglePin(a);
+                                } else if (event.button === Qt.MiddleButton || !a.windows.length) {
+                                    root.launchApp(a.entry);
+                                } else {
+                                    const index = a.windows.findIndex(w => w.activated);
+                                    root.activateWindow(a.windows[(index + 1) % a.windows.length]);
+                                }
+                            }
+                        }
+                    }
+                }
+                Rectangle {
+                    width: 48; height: 52; radius: Theme.corner(14)
+                    color: launcher.containsMouse ? Theme.hover : "transparent"
+                    Glyph { anchors.centerIn: parent; text: "󰀻"; size: 26; color: Theme.accentBright }
+                    MouseArea {
+                        id: launcher
+                        anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                        onEntered: root.hoveredKey = ""
+                        onClicked: root.openLauncher()
+                    }
+                }
+            }
+        }
+    }
+    Rectangle {
+        id: preview
+        visible: root.previewing
+        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 10 }
+        height: 156
+        radius: Theme.radius
+        color: Theme.glassStrong
+        border.color: Theme.line
+        GlassEdge { radius: parent.radius }
+        Flickable {
+            anchors { fill: parent; margins: 8 }
+            contentWidth: previews.width
+            contentHeight: height
+            clip: true
+            flickableDirection: Flickable.HorizontalFlick
+            Row {
+                id: previews
+                spacing: 8
+                Repeater {
+                    model: root.previewing ? root.hoveredApp.windows : []
+                    delegate: Column {
+                        id: thumb
+                        required property var modelData
+                        width: 200
+                        spacing: 5
+                        ClippingRectangle {
+                            width: 200; height: 110; radius: Theme.corner(8); color: Theme.raised
+                            ScreencopyView {
+                                anchors.fill: parent
+                                captureSource: root.visible && root.previewing ? thumb.modelData.wayland : null
+                                live: root.visible && root.previewing
+                                constraintSize: Qt.size(width, height)
+                            }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.activateWindow(thumb.modelData) }
+                        }
+                        Label { width: parent.width; text: thumb.modelData.title; textFormat: Text.PlainText; font.pixelSize: Theme.textSmall }
+                    }
+                }
+            }
+        }
     }
 }
 ```
@@ -13960,6 +14870,29 @@ ColumnLayout {
         font.pixelSize: Theme.textSmall
         color: Theme.dim
     }
+    Section { text: "Calendar weather" }
+    SwitchRow {
+        title: "Show weather"
+        subtitle: "Open-Meteo · Uses the location set in Night Light"
+        glyph: "󰖐"
+        checked: Settings.weatherEnabled
+        onToggled: Settings.weatherEnabled = !Settings.weatherEnabled
+    }
+    PillButton { text: "Choose location"; onClicked: Ui.controlPage = "night" }
+    Section { text: "Floating dock" }
+    Segmented {
+        Layout.fillWidth: true
+        current: Settings.dockMode
+        options: [{ value: "off", title: "Off" }, { value: "auto", title: "Auto-hide" }, { value: "empty", title: "Empty workspace" }]
+        onChosen: value => Settings.dockMode = value
+    }
+    Label {
+        Layout.fillWidth: true
+        text: "Hover the bottom edge to reveal. Right-click an app to pin or unpin; middle-click to open another window."
+        wrapMode: Text.Wrap
+        color: Theme.dim
+        font.pixelSize: Theme.textSmall
+    }
     Section { text: "Screen frame" }
     SwitchRow {
         title: "Join the bar to a screen frame"
@@ -14016,6 +14949,114 @@ ColumnLayout {
         wrapMode: Text.Wrap
         font.pixelSize: Theme.textSmall
         color: Theme.dim
+    }
+}
+```
+
+## `config/quickshell/penumbra/LyricsView.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell.Io
+import "lyrics.js" as Lrc
+
+ColumnLayout {
+    id: root
+    property var player: null
+    property bool active: false
+    property var result: ({})
+    readonly property string signature: JSON.stringify([player?.trackTitle ?? "", player?.trackArtist ?? "", player?.trackAlbum ?? "", Math.round(player?.length ?? 0)])
+    readonly property var lines: Lrc.parse(result.synced ?? "")
+    readonly property int current: Lrc.current(lines, player?.position ?? 0)
+    property string loaded: ""
+    spacing: 5
+    onSignatureChanged: { result = {}; loaded = ""; settle.restart(); }
+    onActiveChanged: if (active) settle.restart()
+    function fetch() {
+        if (!active || !player || request.running || loaded === signature) return;
+        if (!player.trackTitle || !player.trackArtist || Media.isLive(player)) {
+            result = { status: "missing" }; return;
+        }
+        request.signature = signature;
+        request.command = [Ui.bin + "penumbra-online", "lyrics"].concat(JSON.parse(signature).map(String));
+        result = { status: "loading" };
+        request.running = true;
+    }
+    Timer { id: settle; interval: 400; onTriggered: root.fetch() }
+    Process {
+        id: request
+        property string signature
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (request.signature !== root.signature) return;
+                try { root.result = JSON.parse(text); } catch (e) { root.result = { status: "offline" }; }
+                root.loaded = request.signature;
+            }
+        }
+        onExited: {
+            if (request.signature !== root.signature) settle.restart();
+            else if (root.result.status === "loading") root.result = { status: "offline" };
+        }
+    }
+    RowLayout {
+        Layout.fillWidth: true
+        Label { Layout.fillWidth: true; text: "Lyrics · LRCLIB"; color: Theme.textSoft; font.pixelSize: Theme.textTiny }
+        PillButton {
+            visible: root.result.status === "offline"
+            text: "Retry"
+            onClicked: { root.loaded = ""; settle.restart(); }
+        }
+    }
+    Item {
+        Layout.fillWidth: true
+        implicitHeight: 90
+        visible: root.lines.length > 0
+        clip: true
+        Column {
+            width: parent.width
+            y: 30 - Math.max(-1, root.current) * 30
+            Behavior on y { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+            Repeater {
+                model: root.lines
+                delegate: Label {
+                    required property var modelData
+                    required property int index
+                    width: parent.width
+                    height: 30
+                    text: modelData.text || "♪"
+                    textFormat: Text.PlainText
+                    horizontalAlignment: Text.AlignHCenter
+                    font.weight: index === root.current ? Font.DemiBold : Font.Normal
+                    color: index === root.current ? Theme.white : Theme.textSoft
+                    opacity: index === root.current ? 1 : 0.5
+                }
+            }
+        }
+    }
+    Flickable {
+        Layout.fillWidth: true
+        implicitHeight: 100
+        visible: !root.lines.length && !!root.result.plain
+        contentHeight: plain.implicitHeight
+        contentWidth: width
+        flickableDirection: Flickable.VerticalFlick
+        clip: true
+        Label {
+            id: plain
+            width: parent.width
+            text: "Unsynced lyrics\n\n" + (root.result.plain ?? "")
+            textFormat: Text.PlainText
+            wrapMode: Text.Wrap
+            color: Theme.textSoft
+        }
+    }
+    Label {
+        Layout.fillWidth: true
+        visible: !root.lines.length && !root.result.plain
+        text: root.result.status === "loading" ? "Finding lyrics…" : root.result.status === "offline" ? "Lyrics unavailable offline" : root.result.instrumental ? "Instrumental" : "No lyrics for this track"
+        horizontalAlignment: Text.AlignHCenter
+        color: Theme.textSoft
     }
 }
 ```
@@ -17782,6 +18823,9 @@ Singleton {
     property alias desktopClock: adapter.desktopClock
     property alias desktopAura: adapter.desktopAura
     property alias screenFrame: adapter.screenFrame
+    property alias weatherEnabled: adapter.weatherEnabled
+    property alias dockMode: adapter.dockMode
+    property alias dockPins: adapter.dockPins
     property alias hotCorner: adapter.hotCorner
     // Night light: its warmth in kelvin, and when it comes on (see NightLight).
     property alias nightTemperature: adapter.nightTemperature
@@ -17852,6 +18896,9 @@ Singleton {
             property bool desktopClock: false
             property bool desktopAura: false
             property bool screenFrame: false
+            property bool weatherEnabled: false
+            property string dockMode: "off" // off, auto, empty
+            property var dockPins: ["firefox", "kitty", "org.kde.dolphin"]
             property bool hotCorner: true
             property int nightTemperature: 4500
             property string nightSchedule: "manual"
@@ -20306,6 +21353,145 @@ Item {
 }
 ```
 
+## `config/quickshell/penumbra/Weather.qml`
+
+```qml
+pragma Singleton
+import QtQuick
+import Quickshell
+import Quickshell.Io
+
+Singleton {
+    id: root
+    readonly property var place: NightLight.place
+    readonly property string locationKey: place ? `${place.latitude},${place.longitude}` : ""
+    property var result: ({})
+    property string loaded: ""
+    property double lastAttempt: 0
+    readonly property var current: result.current ?? null
+    readonly property bool stale: result.stale === true || (!!result.at && Clock.date.getTime() / 1000 - result.at > 3600)
+    readonly property string description: {
+        const code = current?.weather_code;
+        if (code === 0) return "Clear sky";
+        if (code <= 3) return "Cloudy";
+        if (code === 45 || code === 48) return "Fog";
+        if (code >= 51 && code <= 57) return "Drizzle";
+        if (code >= 61 && code <= 67) return "Rain";
+        if ((code >= 71 && code <= 77) || code === 85 || code === 86) return "Snow";
+        if (code >= 80 && code <= 82) return "Showers";
+        if (code >= 95) return "Thunderstorms";
+        return "Weather";
+    }
+    function refresh() {
+        if (!Settings.weatherEnabled || !place || request.running) return;
+        if (loaded === locationKey && Date.now() - lastAttempt < 1800000) return;
+        request.locationKey = locationKey;
+        request.command = [Ui.bin + "penumbra-online", "weather", String(place.latitude), String(place.longitude)];
+        loaded = locationKey;
+        lastAttempt = Date.now();
+        request.running = true;
+    }
+    onLocationKeyChanged: { result = {}; loaded = ""; settle.restart(); }
+    Component.onCompleted: if (Settings.weatherEnabled) { NightLight.citiesWanted = true; settle.restart(); }
+    Connections {
+        target: Settings
+        function onWeatherEnabledChanged() {
+            root.result = {}; root.loaded = "";
+            if (Settings.weatherEnabled) { NightLight.citiesWanted = true; settle.restart(); }
+        }
+    }
+    Connections { target: Ui; function onCalendarOpenChanged() { if (Ui.calendarOpen) root.refresh(); } }
+    Timer { id: settle; interval: 500; onTriggered: root.refresh() }
+    Timer { interval: 1800000; repeat: true; running: Settings.weatherEnabled; onTriggered: root.refresh() }
+    Process {
+        id: request
+        property string locationKey
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (!Settings.weatherEnabled || request.locationKey !== root.locationKey) return;
+                try { root.result = JSON.parse(text); } catch (e) { root.result = { status: "offline" }; }
+            }
+        }
+        onExited: {
+            if (request.locationKey !== root.locationKey) settle.restart();
+            else if (!root.result.status) root.result = { status: "offline" };
+        }
+    }
+}
+```
+
+## `config/quickshell/penumbra/WeatherCard.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import "sun.js" as Sun
+
+Rectangle {
+    id: root
+    property date date: Clock.date
+    readonly property var moon: Sun.moon(date)
+    implicitHeight: content.implicitHeight + 24
+    radius: Theme.radius
+    color: Theme.raised
+    border.color: Theme.line
+    GlassEdge { anchors.fill: parent; radius: parent.radius; strength: 0.14 }
+    ColumnLayout {
+        id: content
+        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 12 }
+        spacing: 6
+        RowLayout {
+            Layout.fillWidth: true
+            Label { text: root.moon.glyph; font.pixelSize: 28 }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 2
+                Label { Layout.fillWidth: true; text: root.moon.name; color: Theme.accentBright; font.weight: Font.DemiBold }
+                Label { text: `${Math.round(root.moon.illumination * 100)}% illuminated`; color: Theme.textSoft; font.pixelSize: Theme.textSmall }
+            }
+        }
+        ColumnLayout {
+            Layout.fillWidth: true
+            visible: Settings.weatherEnabled
+            spacing: 4
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
+            Label {
+                Layout.fillWidth: true
+                text: Weather.place?.name ?? "Choose a location in Night Light"
+                textFormat: Text.PlainText
+                font.pixelSize: Theme.textSmall
+                color: Theme.textSoft
+            }
+            Label {
+                Layout.fillWidth: true
+                text: Weather.current ? `${Math.round(Weather.current.temperature_2m)}°C · ${Weather.description}` : Weather.result.status === "offline" ? "Weather unavailable offline" : Weather.place ? "Loading weather…" : ""
+                font.pixelSize: Theme.textHeading
+                wrapMode: Text.Wrap
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: !!Weather.current
+                text: Weather.current ? `Feels ${Math.round(Weather.current.apparent_temperature)}° · Wind ${Math.round(Weather.current.wind_speed_10m)} km/h` : ""
+                font.pixelSize: Theme.textSmall
+                color: Theme.textSoft
+                wrapMode: Text.Wrap
+            }
+            Label {
+                Layout.fillWidth: true
+                text: "Open-Meteo · " + (Weather.stale ? "Cached · " : "") + (Weather.result.at ? Qt.formatTime(new Date(Weather.result.at * 1000), "HH:mm") : "30 min updates")
+                color: Theme.dim
+                font.pixelSize: Theme.textTiny
+            }
+            PillButton {
+                visible: Weather.result.status === "offline"
+                text: "Retry"
+                onClicked: { Weather.lastAttempt = 0; Weather.refresh(); }
+            }
+        }
+    }
+}
+```
+
 ## `config/quickshell/penumbra/WifiPage.qml`
 
 ```qml
@@ -20731,6 +21917,38 @@ void main() {
     alpha = min(0.9, alpha * (1.0 + 0.9 * energy));
     vec3 color = mix(vec3(0.77, 0.65, 1.0), vec3(0.89, 0.54, 0.75), smoothstep(30.0, 260.0, h));
     fragColor = vec4(color * alpha, alpha) * qt_Opacity;
+}
+```
+
+## `config/quickshell/penumbra/lyrics.js`
+
+```javascript
+.pragma library
+
+// Multiple timestamps per line, fractional seconds and global LRC offsets are common.
+function parse(text) {
+    const offset = Number(/\[offset:\s*([+-]?\d+)\]/i.exec(text)?.[1] ?? 0) / 1000;
+    const lines = [];
+    for (const row of text.split(/\r?\n/)) {
+        const stamps = [], pattern = /\[(\d+):([0-5]\d)(?:\.(\d{1,3}))?\]/g;
+        let match;
+        while ((match = pattern.exec(row)) !== null) stamps.push(match);
+        const words = row.replace(/\[[^\]]*\]/g, "").trim();
+        for (const stamp of stamps)
+            lines.push({ time: Math.max(0, Number(stamp[1]) * 60 + Number(stamp[2]) + Number("0." + (stamp[3] || "0")) + offset), text: words });
+    }
+    return lines.sort((a, b) => a.time - b.time);
+}
+
+// A binary search also handles seeking backwards and tracks with long introductions.
+function current(lines, seconds) {
+    let low = 0, high = lines.length;
+    while (low < high) {
+        const mid = (low + high) >> 1;
+        if (lines[mid].time <= seconds) low = mid + 1;
+        else high = mid;
+    }
+    return low - 1;
 }
 ```
 
@@ -21263,6 +22481,7 @@ ShellRoot {
             required property var modelData
             Bar { modelData: output.modelData }
             ScreenFrame { modelData: output.modelData }
+            Dock { modelData: output.modelData; locked: lockScreen.locked }
         }
     }
 
@@ -21441,6 +22660,28 @@ function coordinates(text) {
         return null;
     const part = (d, mm, ss) => (d.startsWith("-") ? -1 : 1) * (Math.abs(Number(d)) + Number(mm) / 60 + Number(ss ?? 0) / 3600);
     return { latitude: part(m[1], m[2], m[3]), longitude: part(m[4], m[5], m[6]) };
+}
+
+// Low-order lunar/solar longitude model (degrees), including the Moon's principal
+// perturbations. An approximate geocentric phase, not a rise/set or eclipse ephemeris.
+function moon(date) {
+    const d = (date.getTime() - Date.UTC(2000, 0, 1, 12)) / 86400000;
+    const rad = Math.PI / 180;
+    const sin = a => Math.sin(a * rad);
+    const wrap = a => (a % 360 + 360) % 360;
+    const solarMean = wrap(357.529 + 0.98560028 * d);
+    const solar = wrap(280.459 + 0.98564736 * d + 1.915 * sin(solarMean) + 0.020 * sin(2 * solarMean));
+    const anomaly = wrap(134.963 + 13.064993 * d);
+    const elongation = wrap(297.850 + 12.190749 * d);
+    const latitude = wrap(93.272 + 13.229350 * d);
+    const lunar = 218.316 + 13.176396 * d + 6.289 * sin(anomaly)
+        + 1.274 * sin(2 * elongation - anomaly) + 0.658 * sin(2 * elongation)
+        + 0.214 * sin(2 * anomaly) - 0.186 * sin(solarMean) - 0.114 * sin(2 * latitude);
+    const phase = wrap(lunar - solar) / 360;
+    const names = ["New moon", "Waxing crescent", "First quarter", "Waxing gibbous", "Full moon", "Waning gibbous", "Last quarter", "Waning crescent"];
+    const glyphs = ["🌑", "🌒", "🌓", "🌔", "🌕", "🌖", "🌗", "🌘"];
+    const index = Math.round(phase * 8) % 8;
+    return { phase, illumination: (1 - Math.cos(phase * 2 * Math.PI)) / 2, name: names[index], glyph: glyphs[index] };
 }
 ```
 
@@ -21659,23 +22900,26 @@ palette = [
 # PENUMBRA prompt. Generated by tools/build-palette.py from palette/templates/config/starship.toml
 # and palette/palette.toml; edit those.
 add_newline = true
-format = "[󰣇 ](bold #b69af7)$directory$git_branch$git_status$cmd_duration$character"
+format = "[](#1c1528)[󰣇 ](bold bg:#1c1528 fg:#b69af7)$directory[](#1c1528) $git_branch$git_status$cmd_duration$character"
 right_format = "$time"
 [directory]
-style = "bold #b69af7"
+style = "bold bg:#1c1528 fg:#e9e1f5"
+format = "[$path]($style)[$read_only]($read_only_style)"
+read_only_style = "bg:#1c1528 fg:#ef8fa4"
 truncation_length = 3
 truncation_symbol = "…/"
 [character]
 success_symbol = "[❯](bold #b69af7)"
 error_symbol = "[❯](bold #ef8fa4)"
 [git_branch]
-symbol = " "
-style = "#9ccbd2"
+symbol = " "
+style = "bg:#1c1528 fg:#9ccbd2"
+format = "[](#1c1528)[$symbol$branch]($style)[](#1c1528) "
 [git_status]
 style = "#e5c89a"
 [cmd_duration]
 min_time = 2000
-format = "[ · $duration](#8f809f)"
+format = "[ · $duration ](#8f809f)"
 [time]
 disabled = false
 time_format = "%H:%M"
@@ -22394,6 +23638,44 @@ gradient_color_4 = '#d5a4dc'
     whitespace-error-style = "#ef8fa4" reverse
 ```
 
+## `apps/firefox/chrome/penumbra-content.css`
+
+```css
+/* Generated Penumbra new-tab theme; imported by userContent.css, scoped to Firefox pages. */
+@-moz-document url("about:home"), url("about:newtab") {
+    :root {
+        --newtab-background-color: #0d0a12 !important;
+        --newtab-text-primary-color: #e9e1f5 !important;
+        --newtab-text-secondary-color: #c8bbde !important;
+        --newtab-background-color-secondary: #1c1528 !important;
+        --newtab-primary-action-background: #b69af7 !important;
+        --newtab-element-hover-color: #38264f !important;
+    }
+    body {
+        background: radial-gradient(ellipse at 50% 15%, rgba(109,40,217, 0.24), transparent 65%), #0d0a12 !important;
+        color: #e9e1f5 !important;
+    }
+    .search-wrapper .search-handoff-button, .search-wrapper input {
+        border-radius: 28px !important;
+        background-color: rgba(28,21,40, 0.85) !important;
+        border: 1px solid #33263f !important;
+        color: #e9e1f5 !important;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.16) !important;
+    }
+    .search-wrapper .search-handoff-button:focus-within {
+        outline: 2px solid #b69af7 !important;
+    }
+    .top-site-outer .tile {
+        border-radius: 18px !important;
+        background: linear-gradient(rgba(28,21,40, 0.8), rgba(16,13,24, 0.65)) !important;
+        border: 1px solid #33263f !important;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12) !important;
+    }
+    .top-site-outer:hover { background-color: #38264f !important; border-radius: 18px !important; }
+    .top-site-outer .title { color: #c8bbde !important; }
+}
+```
+
 ## `apps/firefox/chrome/penumbra.css`
 
 ```css
@@ -22444,6 +23726,32 @@ gradient_color_4 = '#d5a4dc'
 ::selection {
     background-color: #563b7e !important;
     color: #ffffff !important;
+}
+
+/* Floating tabs preserve Firefox's pinned-tab and vertical-tab sizing. */
+.tab-background {
+    border-radius: 10px !important;
+    margin: 4px 2px !important;
+    border: 1px solid transparent !important;
+    transition: background-color 160ms ease, border-color 160ms ease !important;
+}
+.tab-background[selected] {
+    background: linear-gradient(#1c1528, #0d0a12) !important;
+    border-color: #33263f !important;
+    border-top-color: #6d28d9 !important;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.16) !important;
+}
+#urlbar-background, #searchbar {
+    border-radius: 14px !important;
+    transition: border-color 160ms ease, box-shadow 160ms ease !important;
+}
+#urlbar[focused] > #urlbar-background {
+    border-color: #b69af7 !important;
+    box-shadow: 0 0 0 2px rgba(182,154,247, 0.18), 0 5px 20px rgba(0, 0, 0, 0.15) !important;
+}
+.urlbar-input-container { padding-inline: 8px !important; }
+@media (prefers-reduced-motion: reduce) {
+    .tab-background, #urlbar-background, #searchbar { transition: none !important; }
 }
 ```
 
@@ -22577,6 +23885,51 @@ script-opts-append=osc-window_controls_color=#c8bbde
 script-opts-append=osc-window_controls_close_hover=#ef8fa4
 # uosc, if installed.
 script-opts-append=uosc-color=foreground=b69af7,foreground_text=100b1b,background=0d0a12,background_text=e9e1f5,curtain=07070b,success=a5ccb3,error=ef8fa4
+```
+
+## `apps/spicetify/config/spicetify/Themes/Penumbra/color.ini`
+
+```ini
+; Generated by tools/build-palette.py. Select with spicetify config current_theme Penumbra color_scheme Base
+[Base]
+text = e9e1f5
+subtext = c8bbde
+main = 0d0a12
+sidebar = 100d18
+player = 16111f
+card = 1c1528
+shadow = 0d0a12
+selected-row = c8bbde
+button = b69af7
+button-active = c4a5ff
+button-disabled = 71637f
+tab-active = 38264f
+notification = 6d28d9
+notification-error = ef8fa4
+misc = 8f809f
+```
+
+## `apps/spicetify/config/spicetify/Themes/Penumbra/user.css`
+
+```css
+/* Generated Penumbra surfaces. Palette variables also follow Spicetify's colour replacement. */
+.Root__nav-bar, .Root__main-view, .Root__right-sidebar {
+    border: 1px solid #33263f;
+    border-radius: 18px;
+    overflow: hidden;
+}
+.Root__now-playing-bar {
+    margin: 0 8px 8px;
+    border: 1px solid #33263f;
+    border-radius: 20px;
+    background: linear-gradient(#1c1528, #100d18);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.main-card-card { border-radius: 16px; }
+.main-trackList-trackListRow { border-radius: 10px; }
+.main-playButton-PlayButton { box-shadow: 0 0 20px rgba(182,154,247, 0.2); }
+.x-progressBar-fillColor { background-color: #b69af7; }
+button:focus-visible, a:focus-visible { outline-color: #c4a5ff; }
 ```
 
 ## `apps/vesktop/config/vesktop/themes/penumbra.theme.css`

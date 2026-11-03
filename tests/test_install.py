@@ -107,6 +107,7 @@ runs=$HOME/.local/state/penumbra/backups; PATH=$1:$PATH
 mkdir -p ~/.config/mozilla/firefox/abc.default/chrome ~/.config/mpv ~/.config/vesktop/settings ~/.config/btop ~/.config/cava
 printf '[Profile0]\\nName=default\\nIsRelative=1\\nPath=abc.default\\n' > ~/.config/mozilla/firefox/profiles.ini
 printf '#nav-bar { padding: 0 }\\n' > ~/.config/mozilla/firefox/abc.default/chrome/userChrome.css
+printf '/* My content styles */\\n' > ~/.config/mozilla/firefox/abc.default/chrome/userContent.css
 printf '[quiet]\\nvolume=50' > ~/.config/mpv/mpv.conf
 printf 'color_theme = "Default"\\nupdate_ms = 1000\\n' > ~/.config/btop/btop.conf
 echo '{"enabledThemes": ["mine.css"]}' > ~/.config/vesktop/settings/settings.json
@@ -150,6 +151,19 @@ class AppColors(unittest.TestCase):
             '[input]', 'method = fifo', '[color]', 'foreground = cyan',
             '{"enabledThemes": ["mine.css"]}',
         ])
+
+    def test_firefox_content_and_spicetify_install_and_rollback(self):
+        out = self.run_install('''
+            cat ~/.config/mozilla/firefox/abc.default/chrome/userContent.css
+            test -s ~/.config/mozilla/firefox/abc.default/chrome/penumbra-content.css
+            test -s ~/.config/spicetify/Themes/Penumbra/color.ini
+            test -s ~/.config/spicetify/Themes/Penumbra/user.css
+            STAMP=later uninstall_user >/dev/null
+            cat ~/.config/mozilla/firefox/abc.default/chrome/userContent.css
+            test ! -e ~/.config/spicetify/Themes/Penumbra/color.ini
+        ''')
+        self.assertEqual(out.splitlines(), ['@import "penumbra-content.css";',
+                                          '/* My content styles */', '/* My content styles */'])
 
     def test_cava_keeps_named_theme_and_handles_fresh_config(self):
         out = self.run_install('''

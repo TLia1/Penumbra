@@ -1,0 +1,33 @@
+/* Generated Penumbra new-tab theme; imported by userContent.css, scoped to Firefox pages. */
+@-moz-document url("about:home"), url("about:newtab") {
+    :root {
+        --newtab-background-color: #0d0a12 !important;
+        --newtab-text-primary-color: #e9e1f5 !important;
+        --newtab-text-secondary-color: #c8bbde !important;
+        --newtab-background-color-secondary: #1c1528 !important;
+        --newtab-primary-action-background: #b69af7 !important;
+        --newtab-element-hover-color: #38264f !important;
+    }
+    body {
+        background: radial-gradient(ellipse at 50% 15%, rgba(109,40,217, 0.24), transparent 65%), #0d0a12 !important;
+        color: #e9e1f5 !important;
+    }
+    .search-wrapper .search-handoff-button, .search-wrapper input {
+        border-radius: 28px !important;
+        background-color: rgba(28,21,40, 0.85) !important;
+        border: 1px solid #33263f !important;
+        color: #e9e1f5 !important;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.16) !important;
+    }
+    .search-wrapper .search-handoff-button:focus-within {
+        outline: 2px solid #b69af7 !important;
+    }
+    .top-site-outer .tile {
+        border-radius: 18px !important;
+        background: linear-gradient(rgba(28,21,40, 0.8), rgba(16,13,24, 0.65)) !important;
+        border: 1px solid #33263f !important;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12) !important;
+    }
+    .top-site-outer:hover { background-color: #38264f !important; border-radius: 18px !important; }
+    .top-site-outer .title { color: #c8bbde !important; }
+}

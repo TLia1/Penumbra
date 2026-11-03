@@ -44,12 +44,16 @@ require('lazy').setup('penumbra.plugins', {
 })
 require('penumbra.keys')
 vim.diagnostic.config({ virtual_text = false, float = { border = 'rounded' }, severity_sort = true })
+local reading_stdin = false
+vim.api.nvim_create_autocmd('StdinReadPre', { callback = function() reading_stdin = true end })
 vim.api.nvim_create_autocmd('VimEnter', {
   callback = function()
-    if #vim.api.nvim_list_uis() == 0 or vim.fn.argc() > 1 then return end
+    if #vim.api.nvim_list_uis() == 0 or reading_stdin or vim.fn.argc() > 1 then return end
     local arg = vim.fn.argv(0)
-    if vim.fn.argc() == 0 or vim.fn.isdirectory(arg) == 1 then
-      if vim.fn.isdirectory(arg) == 1 then vim.cmd.cd(vim.fn.fnameescape(arg)) end
+    if vim.fn.argc() == 0 then
+      require('penumbra.dashboard').open()
+    elseif vim.fn.isdirectory(arg) == 1 then
+      vim.cmd.cd(vim.fn.fnameescape(arg))
       require('nvim-tree.api').tree.open()
     end
   end,

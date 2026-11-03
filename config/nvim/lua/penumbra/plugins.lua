@@ -29,7 +29,8 @@ return {
       visual = { a = { fg = c.bg, bg = c.pink } },
       replace = { a = { fg = c.bg, bg = c.rose } },
       inactive = { a = { fg = c.muted, bg = c.panel }, b = { fg = c.muted, bg = c.panel }, c = { fg = c.muted, bg = c.panel } },
-    }, globalstatus = true } }
+    }, globalstatus = true, section_separators = { left = '', right = '' },
+      component_separators = { left = '│', right = '│' }, disabled_filetypes = { statusline = { 'penumbra' } } } }
   end },
   -- Treesitter parsers, so code is coloured by its structure. Building them needs tree-sitter-cli
   -- and a C compiler (both installed by ./install.sh); `:TSInstall LANGUAGE` adds more.

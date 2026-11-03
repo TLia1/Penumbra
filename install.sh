@@ -848,6 +848,8 @@ color_firefox() {
             [[ -d $profile ]] || continue
             install_file "$1/chrome/penumbra.css" "$profile/chrome/penumbra.css"
             add_line "$profile/chrome/userChrome.css" '@import "penumbra.css";' top
+            install_file "$1/chrome/penumbra-content.css" "$profile/chrome/penumbra-content.css"
+            add_line "$profile/chrome/userContent.css" '@import "penumbra-content.css";' top
             add_line "$profile/user.js" 'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);'
             add_line "$profile/user.js" 'user_pref("widget.use-xdg-desktop-portal.file-picker", 1);'
         done < <(sed -n 's/^Path=//p' "$root/profiles.ini")

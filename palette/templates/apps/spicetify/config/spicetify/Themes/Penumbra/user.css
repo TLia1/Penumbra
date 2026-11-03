@@ -1,0 +1,18 @@
+/* Generated Penumbra surfaces. Palette variables also follow Spicetify's colour replacement. */
+.Root__nav-bar, .Root__main-view, .Root__right-sidebar {
+    border: 1px solid {{border}};
+    border-radius: 18px;
+    overflow: hidden;
+}
+.Root__now-playing-bar {
+    margin: 0 8px 8px;
+    border: 1px solid {{border}};
+    border-radius: 20px;
+    background: linear-gradient({{raised}}, {{surface}});
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.main-card-card { border-radius: 16px; }
+.main-trackList-trackListRow { border-radius: 10px; }
+.main-playButton-PlayButton { box-shadow: 0 0 20px rgba({{accent:rgb}}, 0.2); }
+.x-progressBar-fillColor { background-color: {{accent}}; }
+button:focus-visible, a:focus-visible { outline-color: {{accentBright}}; }

@@ -14,6 +14,9 @@ Singleton {
     property alias desktopClock: adapter.desktopClock
     property alias desktopAura: adapter.desktopAura
     property alias screenFrame: adapter.screenFrame
+    property alias weatherEnabled: adapter.weatherEnabled
+    property alias dockMode: adapter.dockMode
+    property alias dockPins: adapter.dockPins
     property alias hotCorner: adapter.hotCorner
     // Night light: its warmth in kelvin, and when it comes on (see NightLight).
     property alias nightTemperature: adapter.nightTemperature
@@ -84,6 +87,9 @@ Singleton {
             property bool desktopClock: false
             property bool desktopAura: false
             property bool screenFrame: false
+            property bool weatherEnabled: false
+            property string dockMode: "off" // off, auto, empty
+            property var dockPins: ["firefox", "kitty", "org.kde.dolphin"]
             property bool hotCorner: true
             property int nightTemperature: 4500
             property string nightSchedule: "manual"

@@ -1,0 +1,33 @@
+/* Generated Penumbra new-tab theme; imported by userContent.css, scoped to Firefox pages. */
+@-moz-document url("about:home"), url("about:newtab") {
+    :root {
+        --newtab-background-color: {{base}} !important;
+        --newtab-text-primary-color: {{text}} !important;
+        --newtab-text-secondary-color: {{textSoft}} !important;
+        --newtab-background-color-secondary: {{raised}} !important;
+        --newtab-primary-action-background: {{accent}} !important;
+        --newtab-element-hover-color: {{hover}} !important;
+    }
+    body {
+        background: radial-gradient(ellipse at 50% 15%, rgba({{accentDeep:rgb}}, 0.24), transparent 65%), {{base}} !important;
+        color: {{text}} !important;
+    }
+    .search-wrapper .search-handoff-button, .search-wrapper input {
+        border-radius: 28px !important;
+        background-color: rgba({{raised:rgb}}, 0.85) !important;
+        border: 1px solid {{border}} !important;
+        color: {{text}} !important;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.16) !important;
+    }
+    .search-wrapper .search-handoff-button:focus-within {
+        outline: 2px solid {{accent}} !important;
+    }
+    .top-site-outer .tile {
+        border-radius: 18px !important;
+        background: linear-gradient(rgba({{raised:rgb}}, 0.8), rgba({{surface:rgb}}, 0.65)) !important;
+        border: 1px solid {{border}} !important;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12) !important;
+    }
+    .top-site-outer:hover { background-color: {{hover}} !important; border-radius: 18px !important; }
+    .top-site-outer .title { color: {{textSoft}} !important; }
+}

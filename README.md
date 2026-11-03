@@ -364,7 +364,8 @@ The full desktop installer also includes this configuration and the packages
 `neovim git ripgrep wl-clipboard unzip nodejs npm tree-sitter-cli gcc`. For an editor-only installation,
 install missing dependencies with `sudo pacman -S --needed` followed by those
 package names. Open Neovim from your project's root, or pass its directory.
-The file tree opens automatically for a directory or an empty launch.
+A directory launch opens the file tree. An empty launch shows the Penumbra dashboard: `f` finds
+a file, `r` opens recent files, `n` starts a new buffer, and `c` opens the configuration.
 
 Press `i` to type, then `Esc` to return to normal mode. In normal mode, press
 **Space and wait** for shortcut hints. Press `Space ?` for the full menu.
@@ -419,6 +420,58 @@ Plugin references: [lazy.nvim installation](https://lazy.folke.io/installation),
 [nvim-tree](https://github.com/nvim-tree/nvim-tree.lua),
 [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter), and
 [which-key](https://github.com/folke/which-key.nvim).
+
+## Lyrics, weather and the floating dock
+
+In the Control Center, **Lyrics** expands a three-line synced view and Cava waveform.
+Track title, artist, album and duration are sent to [LRCLIB](https://lrclib.net/docs) only while
+lyrics are expanded. Unsynced lyrics remain scrollable, instrumental tracks are labeled,
+and seeking updates the highlighted line. Results are cached for 30 days, missing tracks
+for one day, under `$XDG_CACHE_HOME/penumbra/lyrics` (normally `~/.cache/penumbra/lyrics`).
+Offline and rate-limited requests offer a retry; service cooldowns are respected.
+
+**Settings → Look → Show weather** enables [Open-Meteo](https://open-meteo.com/en/docs) in
+the calendar. **Choose location** opens Night Light's location setting: a city from the
+local time-zone database or explicit `latitude, longitude`. An empty location uses the
+time zone's representative city, which can be far from your actual location. Coordinates
+are sent to Open-Meteo every 30 minutes while enabled. Temperatures use Celsius and wind
+uses km/h. Cached readings are labeled when stale and discarded after 24 hours. The lunar
+phase is calculated locally with a low-order astronomical model and is approximate.
+
+**Settings → Look → Floating dock** offers Off (default), Auto-hide, and Empty workspace
+(stays visible on empty workspaces and reveals at the bottom edge elsewhere). Each monitor
+shows pinned apps and its running apps. Click to launch or cycle windows, middle-click to
+launch another instance, and right-click to pin/unpin. Hover a running app for clickable live
+window previews; horizontally scroll when there are more apps or previews than fit. The dock
+hides for fullscreen windows, locking, and shell overlays. Pins are desktop entry IDs in
+`dockPins` in `~/.config/penumbra/shell.json`.
+
+Firefox's tabs, address bar, home and new-tab pages now follow the palette. The installer
+imports `penumbra-content.css` into each profile's `userContent.css`, preserving existing
+rules; restart Firefox after installation. Starship and Neovim's status line use matching
+capsule separators. Nerd Font glyphs require the fonts installed by Penumbra.
+
+When Spicetify is installed, the installer copies the Penumbra theme without replacing your
+selected theme. Activate it with the [Spicetify CLI](https://spicetify.app/docs/development/themes):
+
+```bash
+spicetify config current_theme Penumbra color_scheme Base inject_css 1 replace_colors 1
+spicetify backup apply
+```
+
+`penumbra-theme` regenerates installed Spicetify files on palette changes; run `spicetify apply`
+to refresh Spotify afterwards. Spotify and Spicetify are optional and are not installed by Penumbra.
+
+The screenshots below use actual QML components with offline sample data, rendered without
+reading the current desktop, location or media. Reproduce them with:
+
+```bash
+python tools/preview-widgets.py
+python tools/preview-widgets.py previews/widgets-light.png --light
+```
+
+![Phase 3 widgets, dark palette](previews/widgets.png)
+![Phase 3 widgets, light palette](previews/widgets-light.png)
 
 ## Sources and licensing
 
