@@ -175,9 +175,11 @@ WallpaperScene {
     // Aurora along the near world's horizon (eclipse/aurora.frag).
     ShaderEffect {
         z: 17
-        y: 640
-        width: 1600
-        height: 960
+        // Tall and wide enough for the highest audio curtains; the ambient ones fade at y 640.
+        y: 300
+        width: 1800
+        height: root.height - y
+        property real ceiling: 640 - y
         // Audio takes over the curtains completely; only the ambient mode uses the clock.
         property color sceneTint: root.sceneTint
         property real time: desktopDepth.live ? 0 : root.t
@@ -188,6 +190,19 @@ WallpaperScene {
         property real mids: ((desktopDepth.samples[3] ?? 0) + (desktopDepth.samples[4] ?? 0)
             + (desktopDepth.samples[5] ?? 0)) / 3
         property real treble: ((desktopDepth.samples[6] ?? 0) + (desktopDepth.samples[7] ?? 0)) / 2
+        // Every band gets its own stretch of the horizon.
+        property vector4d bandsLow: Qt.vector4d(desktopDepth.samples[0] ?? 0, desktopDepth.samples[1] ?? 0,
+            desktopDepth.samples[2] ?? 0, desktopDepth.samples[3] ?? 0)
+        property vector4d bandsHigh: Qt.vector4d(desktopDepth.samples[4] ?? 0, desktopDepth.samples[5] ?? 0,
+            desktopDepth.samples[6] ?? 0, desktopDepth.samples[7] ?? 0)
+        Behavior on bandsLow {
+            enabled: desktopDepth.live
+            PropertyAnimation { duration: 70; easing.type: Easing.OutCubic }
+        }
+        Behavior on bandsHigh {
+            enabled: desktopDepth.live
+            PropertyAnimation { duration: 70; easing.type: Easing.OutCubic }
+        }
         Behavior on bass {
             enabled: desktopDepth.live
             NumberAnimation { duration: 60; easing.type: Easing.OutCubic }
