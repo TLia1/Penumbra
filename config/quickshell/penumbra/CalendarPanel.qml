@@ -11,7 +11,7 @@ Panel {
     originKey: "calendar"
     anchors { top: true; left: true }
     margins.left: edgeMargin - shadowRoom
-    sheetWidth: 320
+    preferredSheetWidth: 360
     open: Ui.calendarOpen
     onDismissed: Ui.dismiss()
 
@@ -179,7 +179,7 @@ Panel {
                             anchors.centerIn: parent
                             text: model.day
                             font.weight: parent.isToday ? Font.Bold : Font.Normal
-                            color: parent.isToday ? Theme.onAccent : model.month === root.month ? Theme.text : Theme.dim
+                            color: parent.isToday ? Theme.accentInk : model.month === root.month ? Theme.text : Theme.dim
                         }
                         Rectangle {
                             anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 4 }
@@ -187,7 +187,7 @@ Panel {
                             width: 4
                             height: 4
                             radius: 2
-                            color: parent.isToday ? Theme.onAccent : Theme.accentBright
+                            color: parent.isToday ? Theme.accentInk : Theme.accentBright
                         }
                     }
                 }

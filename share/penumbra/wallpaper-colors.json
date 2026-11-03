@@ -1,5 +1,66 @@
 {
- "wallpaper": [{"hue": 300, "vividness": 1.0}, {"hue": 302, "vividness": 0.5}],
- "wallpaper-dawn": [{"hue": 313, "vividness": 0.95}, {"hue": 297, "vividness": 1.0}, {"hue": 316, "vividness": 0.45}],
- "wallpaper-eclipse": [{"hue": 296, "vividness": 1.1}, {"hue": 298, "vividness": 0.6}]
+  "wallpaper": [
+    {
+      "hue": 300,
+      "vividness": 1.0
+    },
+    {
+      "hue": 302,
+      "vividness": 0.5
+    }
+  ],
+  "wallpaper-dawn": [
+    {
+      "hue": 313,
+      "vividness": 0.95
+    },
+    {
+      "hue": 297,
+      "vividness": 1.0
+    },
+    {
+      "hue": 316,
+      "vividness": 0.45
+    }
+  ],
+  "wallpaper-eclipse": [
+    {
+      "hue": 296,
+      "vividness": 1.1
+    },
+    {
+      "hue": 298,
+      "vividness": 0.6
+    }
+  ],
+  "wallpaper-solar-corona": [
+    {
+      "hue": 69,
+      "vividness": 0.37
+    }
+  ],
+  "wallpaper-aurora-borealis": [
+    {
+      "hue": 185,
+      "vividness": 0.41
+    }
+  ],
+  "wallpaper-event-horizon": [
+    {
+      "hue": 7,
+      "vividness": 0.61
+    }
+  ],
+  "wallpaper-nebula-rose": [
+    {
+      "hue": 352,
+      "vividness": 0.39
+    }
+  ],
+  "wallpaper-starlight": [
+    {
+      "hue": 304,
+      "vividness": 0.35
+    }
+  ]
 }

@@ -23,7 +23,7 @@ Item {
         width: Math.min(root.width - 20, root.apps.length * 56 + 64)
         height: 64
         radius: Theme.radiusLarge
-        color: Theme.glassStrong
+        color: Theme.panel
         border.color: Theme.line
         opacity: root.shown ? 1 : 0
         transform: Translate { y: root.shown ? 0 : 80; Behavior on y { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } } }
@@ -48,15 +48,14 @@ Item {
                         height: 52
                         radius: Theme.corner(14)
                         color: pointer.containsMouse ? Theme.hover : "transparent"
-                        scale: pointer.pressed ? 0.94 : pointer.containsMouse ? 1.04 : 1
+                        scale: Theme.reducedMotion ? 1 : pointer.pressed ? 0.94 : pointer.containsMouse ? 1.04 : 1
                         Behavior on scale { NumberAnimation { duration: Theme.fast } }
-                        IconImage {
+                        AppIcon {
                             id: appIcon
                             anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 5 }
                             implicitSize: 32
-                            source: app.modelData.entry?.icon ? Quickshell.iconPath(app.modelData.entry.icon, true) : ""
+                            icon: app.modelData.entry?.icon ?? ""
                             asynchronous: true
-                            Glyph { anchors.centerIn: parent; visible: appIcon.status !== Image.Ready; text: "󰣆"; size: 28 }
                         }
                         Row {
                             anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 4 }
@@ -111,7 +110,7 @@ Item {
         anchors { left: parent.left; right: parent.right; top: parent.top; margins: 10 }
         height: 156
         radius: Theme.radius
-        color: Theme.glassStrong
+        color: Theme.panel
         border.color: Theme.line
         GlassEdge { radius: parent.radius }
         Flickable {

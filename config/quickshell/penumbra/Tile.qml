@@ -16,11 +16,11 @@ Rectangle {
     signal toggled()
     signal more()
 
-    implicitHeight: 62
+    implicitHeight: Math.max(68, labels.implicitHeight + 24)
     radius: Theme.radius
-    // On is a violet tint with the accent on the icon's disc; a solid fill outweighed the panel.
-    color: on ? Theme.alpha(Theme.accent, body.containsMouse ? 0.3 : 0.22) : body.containsMouse ? Theme.hover : Theme.raised
-    border.color: on ? Theme.alpha(Theme.accentBright, 0.55) : Theme.line
+    // Selected controls carry the accent; the surrounding panel stays quiet.
+    color: on ? (body.containsMouse ? Theme.accentBright : Theme.accent) : body.containsMouse ? Theme.hover : Theme.control
+    border.color: "transparent"
     opacity: available ? 1 : 0.45
     Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
@@ -35,35 +35,38 @@ Rectangle {
     }
 
     RowLayout {
-        anchors { fill: parent; leftMargin: 12; rightMargin: root.hasMore ? 6 : 14 }
+        anchors { fill: parent; leftMargin: Theme.controlPadding; rightMargin: root.hasMore ? 6 : 14 }
         spacing: 11
         Rectangle {
             implicitWidth: 36
             implicitHeight: 36
             radius: Theme.corner(18)
-            color: root.on ? Theme.accent : Theme.alpha(Theme.accent, 0.12)
+            color: root.on ? Theme.alpha(Theme.accentInk, 0.10) : Theme.alpha(Theme.accent, 0.10)
             Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
             Glyph {
                 anchors.centerIn: parent
                 text: root.glyph
                 size: 17
-                color: root.on ? Theme.onAccent : Theme.accentBright
+                color: root.on ? Theme.accentInk : Theme.accentBright
             }
         }
         ColumnLayout {
+            id: labels
             Layout.fillWidth: true
             spacing: 1
             Label {
                 Layout.fillWidth: true
                 text: root.title
+                wrapMode: Text.Wrap
+                maximumLineCount: 2
                 font.weight: Font.DemiBold
-                color: Theme.text
+                color: root.on ? Theme.accentInk : Theme.text
             }
             Label {
                 Layout.fillWidth: true
                 text: root.subtitle
                 font.pixelSize: Theme.textSmall
-                color: root.on ? Theme.accentBright : Theme.muted
+                color: root.on ? Theme.accentInk : Theme.textSoft
             }
         }
         Rectangle {
@@ -75,7 +78,7 @@ Rectangle {
             Glyph {
                 anchors.centerIn: parent
                 text: "󰅂"
-                color: root.on ? Theme.accentBright : Theme.muted
+                color: root.on ? Theme.accentInk : Theme.textSoft
             }
             MouseArea {
                 id: more

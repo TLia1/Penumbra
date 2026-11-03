@@ -13,7 +13,7 @@ Panel {
     originKey: "control"
     anchors { top: true; right: true }
     margins.right: edgeMargin - shadowRoom
-    sheetWidth: 400
+    preferredSheetWidth: 440
     open: Ui.controlOpen
     onDismissed: Ui.dismiss()
 
@@ -35,11 +35,11 @@ Panel {
     // and the settings' own pages. A page taller than the room under the bar scrolls.
     Flickable {
         id: scroller
-        x: 18
-        y: 18
-        width: root.sheetWidth - 36
+        x: Theme.padding
+        y: Theme.padding
+        width: root.sheetWidth - 2 * Theme.padding
         // The sheet's padding and shadow room above and below.
-        height: Math.min(pages.implicitHeight, root.height - 2 * root.shadowRoom - 36)
+        height: Math.min(pages.implicitHeight, root.height - 2 * root.shadowRoom - 2 * Theme.padding)
         contentWidth: width
         contentHeight: pages.implicitHeight
         clip: true
@@ -482,7 +482,7 @@ Panel {
                                     radius: Theme.corner(implicitWidth / 2)
                                     opacity: modelData.ok ? 1 : 0.4
                                     color: modelData.main ? Theme.accent : mediaArea.containsMouse ? Theme.hover : "transparent"
-                                    Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 16; color: modelData.main ? Theme.onAccent : Theme.text }
+                                    Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 16; color: modelData.main ? Theme.accentInk : Theme.text }
                                     MouseArea {
                                         id: mediaArea
                                         anchors.fill: parent

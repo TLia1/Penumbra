@@ -41,6 +41,22 @@
     --color-accent-primary-hover: #c4a5ff !important;
     --color-accent-primary-active: #916dcf !important;
     --button-text-color-primary: #100b1b !important;
+    /* Current Firefox token names; keep the older names above for earlier releases. */
+    --toolbox-background-color: #100d18 !important;
+    --toolbox-background-color-inactive: #100d18 !important;
+    --toolbox-text-color: #c8bbde !important;
+    --toolbox-text-color-inactive: #8f809f !important;
+    --toolbar-background-color: #0d0a12 !important;
+    --toolbar-text-color: #e9e1f5 !important;
+    --toolbar-field-text-color: #e9e1f5 !important;
+    --toolbar-field-text-color-focus: #faf5ff !important;
+    --toolbar-field-background-color-focus: #1c1528 !important;
+    --toolbar-field-border-color-focus: #b69af7 !important;
+    --tab-background-color-selected: #0d0a12 !important;
+    --tab-background-color-hover: #1c1528 !important;
+    --tab-text-color: #c8bbde !important;
+    --tab-text-color-selected: #faf5ff !important;
+    --tab-text-color-hover: #faf5ff !important;
 }
 ::selection {
     background-color: #563b7e !important;

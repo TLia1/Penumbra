@@ -118,7 +118,7 @@ class WallpaperAccents(unittest.TestCase):
     def test_built_in_wallpapers(self):
         """Penumbra's wallpapers have hand-picked accents; the first is the picture's own hue."""
         shipped = json.loads((ROOT / 'share/penumbra/wallpaper-colors.json').read_text())
-        self.assertEqual(set(shipped), {'wallpaper', 'wallpaper-dawn', 'wallpaper-eclipse'})
+        self.assertEqual(set(shipped), {'wallpaper', 'wallpaper-dawn', 'wallpaper-eclipse'} | {p['wallpaper'] for p in palette.PRESETS.values()})
         for name, accents in shipped.items():
             with self.subTest(name=name):
                 picture = palette.wallpaper_pixels(ROOT / 'assets' / f'{name}-clean.png')
@@ -303,7 +303,7 @@ class Command(unittest.TestCase):
         helper.write_text('#!/bin/sh\nprintf "%s" "$1" > "' + str(self.home / 'scene') + '"\n')
         helper.chmod(0o755)
         self.theme('set', 'preset=solar-corona')
-        self.assertEqual((self.home / 'scene').read_text(), 'wallpaper-dawn')
+        self.assertEqual((self.home / 'scene').read_text(), 'wallpaper-solar-corona')
         expected = palette.preset_palette(PALETTES, 'dark', 'solar-corona')
         self.assertEqual(self.palette_json()['colors'], expected)
         self.theme('preview', 'preset=starlight')

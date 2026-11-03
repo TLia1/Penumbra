@@ -7,6 +7,7 @@ Item {
     required property string folder
     required property var layers
     property bool running: true
+    property color sceneTint: "#c4a6ff"
     // The lock screen leaves out the wordmark.
     property bool clean: false
     // Only the desktop opts in; lock-screen scenes never contain desktop widgets.

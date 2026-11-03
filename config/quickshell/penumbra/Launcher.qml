@@ -428,11 +428,11 @@ PanelWindow {
         id: card
         width: root.showPreview ? 960 : Math.min(640, root.width - 32)
         x: (parent.width - width) / 2
-        y: Math.round(parent.height * 0.17)
+        y: Math.min(100, Math.round(parent.height * 0.12))
         implicitHeight: Math.max(root.showPreview ? 370 : 0, column.implicitHeight + 24)
         height: implicitHeight
         radius: Theme.radiusLarge
-        color: Theme.glassStrong
+        color: Theme.panel
         border.color: Theme.lineStrong
         clip: true
         opacity: Ui.launcherOpen ? 1 : 0
@@ -545,8 +545,8 @@ PanelWindow {
                             id: modeRow
                             anchors.centerIn: parent
                             spacing: 6
-                            Glyph { text: modelData.glyph; size: 13; color: current ? Theme.onAccent : Theme.textSoft }
-                            Label { visible: current; text: modelData.label; font.pixelSize: Theme.textSmall; font.weight: Font.DemiBold; color: current ? Theme.onAccent : Theme.text }
+                            Glyph { text: modelData.glyph; size: 13; color: current ? Theme.accentInk : Theme.textSoft }
+                            Label { visible: current; text: modelData.label; font.pixelSize: Theme.textSmall; font.weight: Font.DemiBold; color: current ? Theme.accentInk : Theme.text }
                         }
                         MouseArea {
                             id: modeArea
@@ -568,7 +568,7 @@ PanelWindow {
             ListView {
                 id: view
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.min(contentHeight, 7 * 56)
+                Layout.preferredHeight: Math.min(contentHeight, 7 * 64, Math.max(64, root.height - card.y - 210 * Theme.textScale))
                 visible: root.results.length > 0 && !root.characters
                 clip: true
                 spacing: 2
@@ -588,7 +588,7 @@ PanelWindow {
                     readonly property bool current: ListView.isCurrentItem
                     readonly property bool isImage: modelData.kind === "clip" && modelData.clip.image !== ""
                     width: ListView.view.width
-                    implicitHeight: isImage ? 84 : 54
+                    implicitHeight: isImage ? 84 : Math.max(60, Theme.textMedium + Theme.textSmall + 26)
 
                     MouseArea {
                         anchors.fill: parent
@@ -607,10 +607,10 @@ PanelWindow {
                             implicitWidth: 32
                             implicitHeight: 32
                             readonly property bool hasIcon: ["app", "action", "window"].includes(row.modelData.kind)
-                            IconImage {
+                            AppIcon {
                                 anchors.fill: parent
                                 visible: parent.hasIcon
-                                source: parent.hasIcon ? Quickshell.iconPath(row.modelData.action?.icon || row.modelData.entry?.icon || row.modelData.toplevel?.appId || "", "application-x-executable") : ""
+                                icon: parent.hasIcon ? row.modelData.action?.icon || row.modelData.entry?.icon || row.modelData.toplevel?.appId || "" : ""
                                 asynchronous: true
                             }
                             // Picked colors (#rrggbb) show as a swatch.
@@ -738,7 +738,7 @@ PanelWindow {
                 id: grid
                 readonly property int columns: 10
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.min(Math.ceil(count / columns), 5) * cellHeight
+                Layout.preferredHeight: Math.min(Math.min(Math.ceil(count / columns), 5) * cellHeight, Math.max(cellHeight, root.height - card.y - 210 * Theme.textScale))
                 visible: root.results.length > 0 && root.characters
                 clip: true
                 cellWidth: Math.floor(width / columns)

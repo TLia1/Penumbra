@@ -143,7 +143,7 @@ ColumnLayout {
                     color: Theme.text
                     placeholderTextColor: Theme.dim
                     selectionColor: Theme.accent
-                    selectedTextColor: Theme.onAccent
+                    selectedTextColor: Theme.accentInk
                     font.family: Theme.sans
                     font.pixelSize: Theme.textBody
                     leftPadding: 12

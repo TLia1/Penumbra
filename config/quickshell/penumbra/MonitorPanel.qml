@@ -13,7 +13,7 @@ Panel {
     originKey: "monitor"
     anchors { top: true; right: true }
     margins.right: edgeMargin - shadowRoom
-    sheetWidth: 440
+    preferredSheetWidth: 440
     open: Ui.monitorOpen
     onDismissed: Ui.dismiss()
 
@@ -297,8 +297,8 @@ Panel {
                         id: pageRow
                         anchors.centerIn: parent
                         spacing: 6
-                        Glyph { text: modelData.glyph; size: 13; color: current ? Theme.onAccent : Theme.textSoft }
-                        Label { visible: current; text: modelData.label; font.pixelSize: Theme.textSmall; font.weight: Font.DemiBold; color: Theme.onAccent }
+                        Glyph { text: modelData.glyph; size: 13; color: current ? Theme.accentInk : Theme.textSoft }
+                        Label { visible: current; text: modelData.label; font.pixelSize: Theme.textSmall; font.weight: Font.DemiBold; color: Theme.accentInk }
                     }
                     MouseArea {
                         id: pageArea

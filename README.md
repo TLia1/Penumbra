@@ -2,6 +2,23 @@
 
 An original black-and-violet desktop for Arch Linux and the distributions built on it (EndeavourOS, CachyOS…). Everything that differs between distributions lives in `distro/`, so others can be added; see [EXTENDING.md](EXTENDING.md), which also covers adding settings and shell features. Targets **Hyprland 0.56 with Lua configuration**, Quickshell 0.3, SDDM 0.21, Kitty 0.49 and Fish 4.
 
+![Penumbra desktop — live Hyprland capture at 125% scale](previews/desktop.png)
+
+Floating capsules, numbered workspaces, comfortable 14 px body text, and an orbital scene
+with room for your windows. **Settings → Look → Apply signature layout** restores this
+composition without changing your palette, text scale, or reduced-motion preference.
+
+| Solar Corona · amber dawn | Starlight · pearl and lavender |
+|---|---|
+| ![Solar Corona desktop](previews/solar-corona.png) | ![Starlight with the Control Center](previews/starlight.png) |
+
+[Working desktop](previews/workspace.png) · [Control Center](previews/control-center.png) ·
+[Launcher](previews/launcher.png) · [Motion demonstration](previews/motion.webp)
+
+These are live captures from an isolated Hyprland session using the current shell and shaders.
+The workspace runs Firefox, Neovim and Lia Files with local sample content; the account and
+network labels are demonstration values. See [visual validation](validation/visual-polish.md).
+
 ## Install
 
 Copy this whole folder to the target machine, open a terminal in it, and run:
@@ -484,11 +501,11 @@ the palette engine checks text contrast in both modes. Custom colour edits leave
 | Preset | CLI ID | Paired scene |
 |---|---|---|
 | Penumbra | `penumbra` | Eclipse |
-| Solar Corona | `solar-corona` | Dawn |
-| Aurora Borealis | `aurora-borealis` | Eclipse |
-| Event Horizon | `event-horizon` | Eclipse |
-| Nebula Rose | `nebula-rose` | Night |
-| Starlight | `starlight` | Dawn |
+| Solar Corona | `solar-corona` | Amber Dawn |
+| Aurora Borealis | `aurora-borealis` | Teal Eclipse |
+| Event Horizon | `event-horizon` | Rose-red Eclipse |
+| Nebula Rose | `nebula-rose` | Rose Night |
+| Starlight | `starlight` | Pearl Dawn |
 
 ```bash
 penumbra-theme set preset=solar-corona
@@ -496,13 +513,25 @@ penumbra-theme set colors=default mode=dark
 ```
 
 The second command restores the default palette while keeping the selected wallpaper.
-Presets reuse Penumbra's existing artwork; they do not recolour its baked wallpaper layers.
+Each preset now pairs its palette with coordinated artwork. `tools/build-wallpapers.py`
+recolours the original SVG sources before rendering the still, wordmark-free lock image and
+animated layers. Stars, moonlets and the eclipse aurora use the scene's matching tint. The
+original Night, Dawn and Eclipse remain available in the wallpaper picker. Custom wallpaper
+images keep their own colours.
 
 Look also offers **Capsules / Island / Framed** bar layouts, **Numbers / Numbers + icons /
 Dots** workspace styles, a **Bottom / Top island** OSD, and a **Glass frost** slider.
-The existing floating layout remains the default. Weather beside the clock uses the calendar's
-opt-in weather service and hides stale readings. Spring feedback, taller slider tracks and
-value bubbles accompany the new card wash and cursor lighting. Reduced motion and sharp
+The signature layout keeps floating capsules and uses numbered workspaces; existing saved
+preferences remain in effect. **Apply signature layout** also turns off the frame, desktop
+clock/aura, bar weather and dock, and restores the bottom OSD and neutral frost. Weather service,
+accessibility and palette choices stay yours. Weather beside the clock uses the calendar's
+opt-in weather service and hides stale readings. Body text defaults to 14 px, secondary labels to 12 px and metadata to 11 px. Panels use a
+readable, nearly opaque surface; quiet separators and solid accent selections establish hierarchy.
+The bar retains its glass treatment. Controls grow with their labels, panel widths fit the output,
+and the launcher and wallpaper gallery scroll on small screens. System controls use the shared
+Nerd Font family, lunar phases use a palette-aware illustration, and app logos share one resolver
+for icon names, absolute files and image URLs. Spring feedback, slider value bubbles, card wash
+and cursor lighting remain available. Reduced motion and sharp
 corners still apply.
 
 The media capsule stays available while paused. Hover to open the mini-player; click to keep
@@ -539,10 +568,12 @@ While recording, demonstrate the Control Center, Overview and Launcher using the
 shortcuts. Cava needs playing audio for a visible spectrum.
 
 The helper requires `hyprctl`, `kitty`, `fastfetch`, `cava`, `nvim` and `grim`; video additionally
-requires `wf-recorder` and `ffmpeg`. Live capture could not be verified in the development
-session because the compositor socket was unavailable. The image below is an explicitly
-labeled offline component rendering, reproduced by `python tools/preview-polish.py`. Shader
-lighting requires the live GPU renderer and is not represented by the software preview.
+requires `wf-recorder` and `ffmpeg`. The live gallery above was captured in a nested Hyprland session with a 1920×1080 virtual
+output at 125% scale. A second output, rapid panel reversals, reduced motion, and 1024×768 with
+130% text were also checked. The motion demonstration includes panels, launcher, dock and a
+sample notification. This exercises the actual shaders; it is not a physical multi-monitor
+performance benchmark. The image below is a separate offline component study, reproduced by
+`python tools/preview-polish.py`, whose software renderer omits shader lighting.
 
 ![Curated palettes and aesthetic controls, offline sample data](previews/aesthetics.png)
 

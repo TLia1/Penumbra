@@ -9,7 +9,7 @@ Panel {
     originKey: "updates"
     anchors { top: true; right: true }
     margins.right: edgeMargin - shadowRoom
-    sheetWidth: 400
+    preferredSheetWidth: 400
     open: Ui.updatesOpen
     onDismissed: Ui.dismiss()
 
@@ -30,7 +30,7 @@ Panel {
                     GradientStop { position: 0; color: Theme.accent }
                     GradientStop { position: 1; color: Theme.accentDeep }
                 }
-                Glyph { anchors.centerIn: parent; text: "󰚰"; size: 19; color: Theme.onAccent }
+                Glyph { anchors.centerIn: parent; text: "󰚰"; size: 19; color: Theme.accentInk }
             }
             ColumnLayout {
                 Layout.fillWidth: true

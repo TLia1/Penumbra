@@ -23,7 +23,7 @@ Singleton {
     // hand meanwhile holds until they do.
     readonly property bool sharing: Recorder.recording || Cast.casting || Cast.connecting
     readonly property bool fullscreen: Hyprland.focusedMonitor?.activeWorkspace?.hasFullscreen ?? false
-    readonly property bool autoQuiet: Settings.dndWhileSharing && sharing || Settings.dndFullscreen && fullscreen
+    readonly property bool autoQuiet: !!(Settings.dndWhileSharing && sharing || Settings.dndFullscreen && fullscreen)
     property bool autoDismissed: false
     onAutoQuietChanged: if (!autoQuiet) autoDismissed = false
     readonly property bool dnd: dndOn || autoQuiet && !autoDismissed

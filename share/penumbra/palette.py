@@ -227,15 +227,15 @@ PRESETS = {
     'penumbra': dict(title='Penumbra', mode='dark', hue=297, vividness=1,
                      wallpaper='wallpaper-eclipse', base='#0d0a12', surface='#100d18', accent='#b69af7'),
     'solar-corona': dict(title='Solar Corona', mode='dark', hue=65, vividness=.9,
-                         wallpaper='wallpaper-dawn', base='#16100c', surface='#211811', accent='#f4b976'),
+                         wallpaper='wallpaper-solar-corona', base='#16100c', surface='#211811', accent='#f4b976'),
     'aurora-borealis': dict(title='Aurora Borealis', mode='dark', hue=185, vividness=.85,
-                            wallpaper='wallpaper-eclipse', base='#09151a', surface='#102128', accent='#7cdbd5'),
+                            wallpaper='wallpaper-aurora-borealis', base='#09151a', surface='#102128', accent='#7cdbd5'),
     'event-horizon': dict(title='Event Horizon', mode='dark', hue=10, vividness=1.1,
-                          wallpaper='wallpaper-eclipse', base='#040307', surface='#0b080e', accent='#f27996'),
+                          wallpaper='wallpaper-event-horizon', base='#040307', surface='#0b080e', accent='#f27996'),
     'nebula-rose': dict(title='Nebula Rose', mode='dark', hue=350, vividness=.65,
-                        wallpaper='wallpaper', base='#14121d', surface='#201c2b', accent='#e5abc2'),
+                        wallpaper='wallpaper-nebula-rose', base='#14121d', surface='#201c2b', accent='#e5abc2'),
     'starlight': dict(title='Starlight', mode='light', hue=297, vividness=1,
-                      wallpaper='wallpaper-dawn', base='#f8f6fb', surface='#efebf5', accent='#754cbd'),
+                      wallpaper='wallpaper-starlight', base='#f8f6fb', surface='#efebf5', accent='#754cbd'),
 }
 
 

@@ -84,12 +84,12 @@ Rectangle {
                         visible: root.style === "dots"
                         implicitWidth: 7; implicitHeight: 7
                         radius: Theme.corner(3.5)
-                        color: workspace.current ? Theme.onAccent : workspace.modelData.urgent ? Theme.rose : Theme.muted
+                        color: workspace.current ? Theme.accentInk : workspace.modelData.urgent ? Theme.rose : Theme.muted
                     }
                     Label {
                         visible: root.style !== "dots"
                         text: workspace.modelData.name
-                        color: workspace.current ? Theme.onAccent : workspace.modelData.urgent ? Theme.rose : Theme.textSoft
+                        color: workspace.current ? Theme.accentInk : workspace.modelData.urgent ? Theme.rose : Theme.textSoft
                         font.weight: workspace.current ? Font.Bold : Font.DemiBold
                     }
                     Repeater {
@@ -112,7 +112,7 @@ Rectangle {
                                 visible: icon.status !== Image.Ready
                                 text: "󰣆"
                                 size: 13
-                                color: workspace.current ? Theme.onAccent : Theme.subtle
+                                color: workspace.current ? Theme.accentInk : Theme.subtle
                             }
                         }
                     }
@@ -120,7 +120,7 @@ Rectangle {
                         visible: root.showIcons && workspace.windows.length > 2
                         text: "+" + (workspace.windows.length - 2)
                         font.pixelSize: Theme.textTiny
-                        color: workspace.current ? Theme.onAccent : Theme.subtle
+                        color: workspace.current ? Theme.accentInk : Theme.subtle
                     }
                 }
                 MouseArea {

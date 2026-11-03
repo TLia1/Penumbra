@@ -17,7 +17,10 @@ Singleton {
     readonly property color glassStrong: alpha(surface, Math.min(1, Math.max(0.55, level("glassStrong") + Settings.glassFrost)))
     readonly property color raised: alpha(mix("glassRaised"), level("raised"))
     readonly property color hover: mix("hover")
-    readonly property color line: alpha(accent, level("line"))
+    // Background = base; panels prioritize legibility; controls have their own solid fill.
+    readonly property color panel: alpha(surface, Math.min(1, Math.max(0.92, level("glassStrong") + Settings.glassFrost)))
+    readonly property color control: mix("button")
+    readonly property color line: alpha(text, light ? 0.12 : 0.10)
     readonly property color lineStrong: alpha(accent, level("lineStrong"))
     // Behind full-screen overlays (launcher, session menu, polkit, screenshots).
     readonly property color scrim: mix("shade")
@@ -25,7 +28,7 @@ Singleton {
     readonly property color accentBright: mix("accentBright")
     readonly property color accentDeep: mix("accentDeep")
     // Text and glyphs on an accent fill.
-    readonly property color onAccent: mix("onAccent")
+    readonly property color accentInk: mix("onAccent")
     readonly property color white: mix("white")
     readonly property color text: mix("text")
     readonly property color textSoft: mix("textSoft")
@@ -133,7 +136,7 @@ Singleton {
         } catch (e) {
             console.warn("Theme: ignoring unreadable palette.json:", e);
         }
-        show(makePalette(p?.mode, p?.colors), started ? p?.duration ?? slow : 0);
+        show(makePalette(p?.mode, p?.colors), started && !reducedMotion ? p?.duration ?? slow : 0);
     }
     FileView {
         id: paletteFile
@@ -159,13 +162,13 @@ Singleton {
 
     // The type scale. Every text size in the shell is one of these, scaled by Settings → Text size.
     readonly property real textScale: Settings.textScale > 0 ? Settings.textScale : 1
-    readonly property int textTiny: Math.round(10 * textScale)     // badges, timestamps
-    readonly property int textSmall: Math.round(11 * textScale)    // subtitles, section labels
-    readonly property int textBody: Math.round(12 * textScale)     // the default
-    readonly property int textMedium: Math.round(13 * textScale)   // notification titles, emphasized rows
-    readonly property int textLarge: Math.round(15 * textScale)    // page titles, the bar clock
-    readonly property int textTitle: Math.round(18 * textScale)    // the launcher's search, big figures
-    readonly property int textHeading: Math.round(22 * textScale)  // panel headlines, in the display face
+    readonly property int textTiny: Math.round(11 * textScale)     // badges, timestamps
+    readonly property int textSmall: Math.round(12 * textScale)    // subtitles, section labels
+    readonly property int textBody: Math.round(14 * textScale)     // the default
+    readonly property int textMedium: Math.round(15 * textScale)   // notification titles, emphasized rows
+    readonly property int textLarge: Math.round(17 * textScale)    // page titles, the bar clock
+    readonly property int textTitle: Math.round(20 * textScale)    // the launcher's search, big figures
+    readonly property int textHeading: Math.round(24 * textScale)  // panel headlines, in the display face
     readonly property int textDisplay: 124 // the lock screen clock
 
     // Rounded or sharp corners, as penumbra-corners records them. Every radius goes through
@@ -185,12 +188,15 @@ Singleton {
     readonly property int radius: corner(16)
     readonly property int radiusSmall: corner(12)
     readonly property int barHeight: 40
+    readonly property int padding: 18
+    readonly property int controlPadding: 12
     readonly property int gap: 8
     readonly property int edge: 14
 
     // Animation timings; all of them are 0 with Settings → Reduced motion. `motion` is for
     // durations written out where they are used (multiply them by it).
     readonly property bool reducedMotion: Settings.reducedMotion
+    onReducedMotionChanged: if (reducedMotion && fade.running) show(to, 0)
     readonly property real motion: reducedMotion ? 0 : 1
     readonly property int fast: 160 * motion
     readonly property int normal: 260 * motion

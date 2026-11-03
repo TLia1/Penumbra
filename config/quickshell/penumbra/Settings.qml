@@ -64,6 +64,18 @@ Singleton {
     // hyprland.lua reads it at start; a change applies to the running Hyprland at once.
     onReducedMotionChanged: Quickshell.execDetached(["hyprctl", "eval", `hl.config({animations = {enabled = ${!reducedMotion}}})`])
 
+    function signatureComposition() {
+        barStyle = "floating";
+        workspaceStyle = "pills";
+        osdPosition = "bottom";
+        screenFrame = false;
+        desktopClock = false;
+        desktopAura = false;
+        weatherInBar = false;
+        dockMode = "off";
+        glassFrost = 0;
+    }
+
     function setRule(app, rule) {
         const rules = Object.assign({}, notificationRules);
         if (rule === "" || rule === "normal")
@@ -93,7 +105,7 @@ Singleton {
             property bool desktopClock: false
             property bool desktopAura: false
             property string barStyle: "floating"
-            property string workspaceStyle: "icons"
+            property string workspaceStyle: "pills"
             property string osdPosition: "bottom"
             property real glassFrost: 0
             property bool weatherInBar: false

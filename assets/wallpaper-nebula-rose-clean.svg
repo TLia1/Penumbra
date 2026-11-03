@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2560" height="1600" viewBox="0 0 2560 1600">
+<defs>
+ <radialGradient id="bg" cx="73%" cy="49%" r="66%"><stop stop-color="#28111b"/><stop offset=".47" stop-color="#150b0f"/><stop offset="1" stop-color="#090708"/></radialGradient>
+ <linearGradient id="rim" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#381627"/><stop offset=".37" stop-color="#9d4170"/><stop offset=".65" stop-color="#edbace"/><stop offset=".8" stop-color="#a15377"/><stop offset="1" stop-color="#231019"/></linearGradient>
+ <radialGradient id="planet" cx="74%" cy="26%" r="75%"><stop stop-color="#4d2637"/><stop offset=".3" stop-color="#231019"/><stop offset=".75" stop-color="#0b0709"/><stop offset="1" stop-color="#0a0708"/></radialGradient>
+ <filter id="glow"><feGaussianBlur stdDeviation="18"/></filter>
+ <filter id="soft"><feGaussianBlur stdDeviation="55"/></filter>
+</defs>
+<rect width="2560" height="1600" fill="url(#bg)"/>
+<ellipse cx="1750" cy="820" rx="540" ry="480" fill="#8e3363" opacity=".1" filter="url(#soft)"/>
+<g transform="translate(1730 790) rotate(-28)">
+ <ellipse rx="720" ry="245" fill="none" stroke="#974d6f" stroke-width="1" opacity=".16"/>
+ <ellipse rx="780" ry="290" fill="none" stroke="#974d6f" stroke-width="1" opacity=".08"/>
+</g>
+<circle cx="1730" cy="790" r="370" fill="url(#planet)" stroke="#3e212d" stroke-width="1"/>
+<g transform="translate(1730 790) rotate(-28)">
+ <ellipse rx="615" ry="188" fill="none" stroke="#c56e96" stroke-width="12" filter="url(#glow)" opacity=".5"/>
+ <ellipse rx="615" ry="188" fill="none" stroke="url(#rim)" stroke-width="4"/>
+ <ellipse rx="626" ry="199" fill="none" stroke="url(#rim)" stroke-width="1" opacity=".4"/>
+</g>
+<g fill="#dca2b9"><circle cx="2250" cy="430" r="3" opacity=".6"/><circle cx="1110" cy="1110" r="2" opacity=".5"/><circle cx="2080" cy="1260" r="2" opacity=".35"/></g>
+</svg>

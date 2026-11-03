@@ -20,7 +20,7 @@ Rectangle {
         radius: Theme.corner(9)
         y: 3
         x: root.checked ? root.width - width - 3 : 3
-        color: root.checked ? Theme.onAccent : Theme.textSoft
+        color: root.checked ? Theme.accentInk : Theme.textSoft
         Behavior on x { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
     }
 

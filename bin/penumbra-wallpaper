@@ -10,12 +10,12 @@ state="$HOME/.local/state/penumbra/wallpaper"
 folder="$HOME/Pictures/Wallpapers"
 # First frames and PNG copies, named after the md5 of the file's path (the shell finds them the same way).
 cache="$HOME/.cache/penumbra/wallpapers"
-names=(wallpaper wallpaper-dawn wallpaper-eclipse)
+names=(wallpaper wallpaper-dawn wallpaper-eclipse wallpaper-solar-corona wallpaper-aurora-borealis wallpaper-event-horizon wallpaper-nebula-rose wallpaper-starlight)
 stills='png|jpg|jpeg|webp|bmp'
 moving='gif|mp4|webm|mkv|mov|m4v'
 
 usage() {
- echo "Usage: penumbra-wallpaper [next|restore|posters|wallpaper|wallpaper-dawn|wallpaper-eclipse|FILE]" >&2
+ echo "Usage: penumbra-wallpaper [next|restore|posters|wallpaper|wallpaper-dawn|wallpaper-eclipse|wallpaper-solar-corona|wallpaper-aurora-borealis|wallpaper-event-horizon|wallpaper-nebula-rose|wallpaper-starlight|FILE]" >&2
  exit 2
 }
 kind() {
@@ -27,7 +27,7 @@ kind() {
 }
 valid() {
  case $1 in
-  wallpaper|wallpaper-dawn|wallpaper-eclipse) [[ -e $dir/$1.png ]];;
+  wallpaper|wallpaper-dawn|wallpaper-eclipse|wallpaper-solar-corona|wallpaper-aurora-borealis|wallpaper-event-horizon|wallpaper-nebula-rose|wallpaper-starlight) [[ -e $dir/$1.png ]];;
   /*) [[ -f $1 && $(kind "$1") != none ]];;
   *) false;;
  esac
@@ -69,7 +69,7 @@ case "${1:-next}" in
    [[ $(kind "$file") = moving ]] && { still "$file" >/dev/null || true; }
   done < <(choices)
   exit 0;;
- wallpaper|wallpaper-dawn|wallpaper-eclipse) current=$1;;
+ wallpaper|wallpaper-dawn|wallpaper-eclipse|wallpaper-solar-corona|wallpaper-aurora-borealis|wallpaper-event-horizon|wallpaper-nebula-rose|wallpaper-starlight) current=$1;;
  *)
   # Absolute, but through any symlinked folder, so the picker recognises it.
   file=$(realpath -es -- "$1" 2>/dev/null) || usage
@@ -79,9 +79,9 @@ esac
 # Grow each scene out of its planet, or the eclipse; your own from the middle.
 if [[ ${1:-next} != restore ]]; then
  case $current in
-  wallpaper-dawn) transition+=(--transition-pos 0.32,0.37);;
-  wallpaper-eclipse) transition+=(--transition-pos 0.65,0.63);;
-  wallpaper) transition+=(--transition-pos 0.68,0.51);;
+  wallpaper-dawn|wallpaper-solar-corona|wallpaper-starlight) transition+=(--transition-pos 0.32,0.37);;
+  wallpaper-eclipse|wallpaper-aurora-borealis|wallpaper-event-horizon) transition+=(--transition-pos 0.65,0.63);;
+  wallpaper|wallpaper-nebula-rose) transition+=(--transition-pos 0.68,0.51);;
   *) transition+=(--transition-pos 0.5,0.5);;
  esac
 fi

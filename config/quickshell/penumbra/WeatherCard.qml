@@ -6,18 +6,18 @@ Rectangle {
     id: root
     property date date: Clock.date
     readonly property var moon: Sun.moon(date)
-    implicitHeight: content.implicitHeight + 24
+    implicitHeight: content.implicitHeight + 2 * Theme.controlPadding
     radius: Theme.radius
-    color: Theme.raised
+    color: Theme.base
     border.color: Theme.line
     GlassEdge { anchors.fill: parent; radius: parent.radius; strength: 0.14 }
     ColumnLayout {
         id: content
-        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 12 }
+        anchors { left: parent.left; right: parent.right; top: parent.top; margins: Theme.controlPadding }
         spacing: 6
         RowLayout {
             Layout.fillWidth: true
-            Label { text: root.moon.glyph; font.pixelSize: 28 }
+            MoonPhase { phase: root.moon.phase; Layout.preferredWidth: 38; Layout.preferredHeight: 38 }
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 2
@@ -55,7 +55,7 @@ Rectangle {
             Label {
                 Layout.fillWidth: true
                 text: "Open-Meteo · " + (Weather.stale ? "Cached · " : "") + (Weather.result.at ? Qt.formatTime(new Date(Weather.result.at * 1000), "HH:mm") : "30 min updates")
-                color: Theme.dim
+                color: Theme.textSoft
                 font.pixelSize: Theme.textTiny
             }
             PillButton {

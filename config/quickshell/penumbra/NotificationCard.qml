@@ -33,7 +33,7 @@ Rectangle {
 
     implicitHeight: layout.implicitHeight + 28
     radius: Theme.radius
-    color: compact ? (area.containsMouse ? Theme.hover : Theme.raised) : Theme.glassStrong
+    color: compact ? (area.containsMouse ? Theme.hover : Theme.raised) : Theme.panel
     border.color: critical ? Theme.rose : compact ? Theme.line : Theme.lineStrong
     Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
@@ -205,7 +205,7 @@ Rectangle {
                     height: 28
                     radius: Theme.corner(14)
                     color: reply.text ? Theme.accent : "transparent"
-                    Glyph { anchors.centerIn: parent; text: "󰒊"; size: 13; color: reply.text ? Theme.onAccent : Theme.dim }
+                    Glyph { anchors.centerIn: parent; text: "󰒊"; size: 13; color: reply.text ? Theme.accentInk : Theme.dim }
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
@@ -233,7 +233,7 @@ Rectangle {
                             anchors.centerIn: parent
                             text: modelData.text
                             font.pixelSize: Theme.textSmall
-                            color: actionArea.containsMouse ? Theme.onAccent : Theme.text
+                            color: actionArea.containsMouse ? Theme.accentInk : Theme.text
                         }
                         MouseArea {
                             id: actionArea

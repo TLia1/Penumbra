@@ -31,7 +31,7 @@ ClippingRectangle {
         font.family: Theme.display
         font.pixelSize: Math.round(root.size * 0.4)
         font.weight: Font.Bold
-        color: Theme.onAccent
+        color: Theme.accentInk
     }
     Image {
         id: face

@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2560" height="1600" viewBox="0 0 2560 1600">
+<defs>
+ <radialGradient id="bg" cx="65%" cy="37%" r="72%"><stop stop-color="#001f1c"/><stop offset=".45" stop-color="#01120f"/><stop offset="1" stop-color="#050808"/></radialGradient>
+ <radialGradient id="halo"><stop stop-color="#b4e7e1"/><stop offset=".3" stop-color="#00a295" stop-opacity=".45"/><stop offset=".62" stop-color="#007066" stop-opacity=".12"/><stop offset="1" stop-color="#007066" stop-opacity="0"/></radialGradient>
+ <linearGradient id="streamer" x1="0" y1="1" x2="0" y2="0"><stop stop-color="#d3f1ed"/><stop offset=".35" stop-color="#56cfc2" stop-opacity=".5"/><stop offset="1" stop-color="#00a295" stop-opacity="0"/></linearGradient>
+ <linearGradient id="streamer-rose" x1="0" y1="1" x2="0" y2="0"><stop stop-color="#d1f1f4"/><stop offset=".35" stop-color="#42c0c9" stop-opacity=".45"/><stop offset="1" stop-color="#00868d" stop-opacity="0"/></linearGradient>
+ <radialGradient id="body" cx="38%" cy="70%" r="75%"><stop stop-color="#031815"/><stop offset=".6" stop-color="#030a09"/><stop offset="1" stop-color="#020605"/></radialGradient>
+ <radialGradient id="world" cx="74%" cy="6%" r="52%"><stop stop-color="#001b19"/><stop offset=".3" stop-color="#030f0d"/><stop offset="1" stop-color="#030706"/></radialGradient>
+ <linearGradient id="air" gradientUnits="userSpaceOnUse" x1="1180" y1="1476" x2="0" y2="1300"><stop stop-color="#d9f5f2"/><stop offset=".25" stop-color="#42c4b6" stop-opacity=".7"/><stop offset=".7" stop-color="#00776f" stop-opacity=".25"/><stop offset="1" stop-color="#007066" stop-opacity=".08"/></linearGradient>
+ <clipPath id="near"><rect x="-800" y="0" width="1600" height="300"/></clipPath>
+ <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="14"/></filter>
+ <filter id="wisp" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="12"/></filter>
+ <filter id="haze" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="28"/></filter>
+ <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="80"/></filter>
+</defs>
+<rect width="2560" height="1600" fill="url(#bg)"/>
+<g id="layer-nebula" transform="rotate(24 760 420)">
+ <ellipse cx="760" cy="420" rx="860" ry="170" fill="#006861" opacity=".1" filter="url(#soft)"/>
+ <ellipse cx="480" cy="400" rx="420" ry="110" fill="#00868d" opacity=".07" filter="url(#soft)"/>
+ <ellipse cx="1100" cy="430" rx="380" ry="100" fill="#00665c" opacity=".08" filter="url(#soft)"/>
+</g>
+<g id="layer-stars" fill="#b7e1dc"><circle class="glint" cx="2210" cy="250" r="2.6" opacity=".7"/><circle class="glint" cx="520" cy="760" r="2.2" opacity=".55"/><circle class="glint" cx="2420" cy="1060" r="2" opacity=".5"/><circle cx="1240" cy="150" r="1.6" opacity=".4"/><circle cx="980" cy="330" r="1.2" opacity=".3"/><circle cx="1420" cy="1010" r="1.5" opacity=".35"/><circle cx="2380" cy="560" r="1.5" opacity=".4"/><circle cx="2060" cy="1180" r="1.2" opacity=".3"/><circle cx="2470" cy="140" r="1.2" opacity=".3"/><circle cx="160" cy="220" r="1.5" opacity=".35"/><circle cx="330" cy="520" r="1.2" opacity=".25"/><circle cx="760" cy="120" r="1.2" opacity=".3"/><circle cx="210" cy="980" r="1.5" opacity=".3"/><circle cx="640" cy="1080" r="1.2" opacity=".25"/><circle cx="1080" cy="880" r="1.2" opacity=".25"/><circle cx="1880" cy="1360" r="1.5" opacity=".3"/><circle cx="2240" cy="1480" r="1.2" opacity=".25"/><circle cx="1620" cy="1250" r="1.2" opacity=".25"/><circle cx="2500" cy="820" r="1.2" opacity=".3"/><circle cx="1960" cy="80" r="1.5" opacity=".35"/><circle cx="440" cy="60" r="1.2" opacity=".25"/><circle cx="1130" cy="620" r="1.2" opacity=".2"/><circle cx="60" cy="640" r="1.2" opacity=".25"/><circle cx="2300" cy="900" r="1.2" opacity=".25"/></g>
+<circle id="layer-halo" cx="1660" cy="600" r="660" fill="url(#halo)" opacity=".6"/>
+<g id="layer-corona" transform="translate(1660 600)" filter="url(#wisp)">
+ <path d="M-46 0C-16-156-3-364 0-520C3-364 16-156 46 0Z" transform="rotate(70) translate(0 -185)" fill="url(#streamer)" opacity="0.5"/>
+ <path d="M-40 0C-14-99-3-231 0-330C3-231 14-99 40 0Z" transform="rotate(98) translate(0 -185)" fill="url(#streamer)" opacity="0.32"/>
+ <path d="M-46 0C-16-150-3-350 0-500C3-350 16-150 46 0Z" transform="rotate(252) translate(0 -185)" fill="url(#streamer)" opacity="0.48"/>
+ <path d="M-36 0C-13-90-3-210 0-300C3-210 13-90 36 0Z" transform="rotate(280) translate(0 -185)" fill="url(#streamer)" opacity="0.3"/>
+ <path d="M-34 0C-12-69-3-161 0-230C3-161 12-69 34 0Z" transform="rotate(12) translate(0 -185)" fill="url(#streamer)" opacity="0.28"/>
+ <path d="M-38 0C-13-84-3-196 0-280C3-196 13-84 38 0Z" transform="rotate(40) translate(0 -185)" fill="url(#streamer)" opacity="0.25"/>
+ <path d="M-34 0C-12-75-3-175 0-250C3-175 12-75 34 0Z" transform="rotate(165) translate(0 -185)" fill="url(#streamer)" opacity="0.26"/>
+ <path d="M-30 0C-10-60-3-140 0-200C3-140 10-60 30 0Z" transform="rotate(205) translate(0 -185)" fill="url(#streamer)" opacity="0.22"/>
+ <path d="M-34 0C-12-72-3-168 0-240C3-168 12-72 34 0Z" transform="rotate(320) translate(0 -185)" fill="url(#streamer)" opacity="0.24"/>
+ <path d="M-28 0C-10-54-3-126 0-180C3-126 10-54 28 0Z" transform="rotate(350) translate(0 -185)" fill="url(#streamer)" opacity="0.2"/>
+</g>
+<g id="layer-wisps" transform="translate(1660 600)" filter="url(#wisp)">
+ <path d="M-34 0C-12-120-3-280 0-400C3-280 12-120 34 0Z" transform="rotate(58) translate(0 -185)" fill="url(#streamer-rose)" opacity="0.32"/>
+ <path d="M-34 0C-12-114-3-266 0-380C3-266 12-114 34 0Z" transform="rotate(238) translate(0 -185)" fill="url(#streamer-rose)" opacity="0.32"/>
+ <path d="M-28 0C-10-69-3-161 0-230C3-161 10-69 28 0Z" transform="rotate(128) translate(0 -185)" fill="url(#streamer-rose)" opacity="0.24"/>
+ <path d="M-28 0C-10-63-3-147 0-210C3-147 10-63 28 0Z" transform="rotate(300) translate(0 -185)" fill="url(#streamer-rose)" opacity="0.22"/>
+ <path d="M-24 0C-8-48-3-112 0-160C3-112 8-48 24 0Z" transform="rotate(190) translate(0 -185)" fill="url(#streamer-rose)" opacity="0.2"/>
+ <path d="M-24 0C-8-45-3-105 0-150C3-105 8-45 24 0Z" transform="rotate(20) translate(0 -185)" fill="url(#streamer-rose)" opacity="0.18"/>
+</g>
+<g id="layer-orbits" transform="translate(1660 600) rotate(-18)" fill="none" stroke="#42c4b6" stroke-width="1.5" stroke-dasharray="2 10">
+ <ellipse rx="360" ry="92" opacity=".22"/>
+ <ellipse rx="560" ry="148" opacity=".16"/>
+ <ellipse rx="780" ry="206" stroke-dasharray="none" stroke-width="1" opacity=".06"/>
+</g>
+<circle id="layer-body" cx="1660" cy="600" r="200" fill="url(#body)"/>
+<g id="layer-limb">
+ <circle cx="1660" cy="600" r="222" fill="none" stroke="#7ad7cc" stroke-width="56" filter="url(#haze)" opacity=".45"/>
+ <circle cx="1660" cy="600" r="201" fill="none" stroke="#9ae0d7" stroke-width="18" filter="url(#glow)" opacity=".7"/>
+ <circle cx="1660" cy="600" r="200.5" fill="none" stroke="#e0f5f3" stroke-width="2.5" opacity=".9"/>
+</g>
+<g id="layer-bead">
+ <ellipse cx="1519" cy="741" rx="130" ry="1.4" fill="#d9f5f2" opacity=".45"/>
+ <ellipse cx="1519" cy="741" rx="1.4" ry="44" fill="#d9f5f2" opacity=".3"/>
+ <circle cx="1519" cy="741" r="30" fill="#baeeeb" filter="url(#glow)" opacity=".9"/>
+ <circle cx="1519" cy="741" r="6" fill="#ffffff"/>
+</g>
+<g id="layer-near" transform="translate(1660 600) rotate(-18)" clip-path="url(#near)" fill="none" stroke="#42c4b6" stroke-width="1.5" stroke-dasharray="2 10">
+ <ellipse rx="360" ry="92" opacity=".22"/>
+ <ellipse rx="560" ry="148" opacity=".16"/>
+</g>
+<circle id="layer-world" cx="380" cy="2950" r="1680" fill="url(#world)"/>
+<g id="layer-air">
+ <circle cx="380" cy="2950" r="1680" fill="none" stroke="url(#air)" stroke-width="24" filter="url(#glow)" opacity=".4"/>
+ <circle cx="380" cy="2950" r="1680" fill="none" stroke="url(#air)" stroke-width="2" opacity=".85"/>
+</g>
+</svg>

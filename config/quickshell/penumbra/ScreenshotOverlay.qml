@@ -280,8 +280,8 @@ PanelWindow {
                             id: toolRow
                             anchors.centerIn: parent
                             spacing: 7
-                            Glyph { text: modelData.glyph; size: 15; color: current ? Theme.onAccent : Theme.textSoft }
-                            Label { text: modelData.label; font.weight: Font.DemiBold; color: current ? Theme.onAccent : Theme.text }
+                            Glyph { text: modelData.glyph; size: 15; color: current ? Theme.accentInk : Theme.textSoft }
+                            Label { text: modelData.label; font.weight: Font.DemiBold; color: current ? Theme.accentInk : Theme.text }
                         }
                         MouseArea {
                             id: toolArea

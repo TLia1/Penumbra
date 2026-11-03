@@ -18,7 +18,7 @@ Rectangle {
     clip: true
     CardLight { radius: root.radius }
     ColumnLayout {
-        anchors { fill: parent; margins: 18 }
+        anchors { fill: parent; margins: Theme.padding }
         spacing: 12
         ClippingRectangle {
             Layout.fillWidth: true
@@ -42,11 +42,11 @@ Rectangle {
                 sourceSize: Qt.size(560, 280)
                 fillMode: Image.PreserveAspectFit
             }
-            IconImage {
+            AppIcon {
                 anchors.centerIn: parent
                 implicitSize: 64
                 visible: ["app", "action"].includes(root.kind)
-                source: visible ? Quickshell.iconPath(root.entry?.icon || "", "application-x-executable") : ""
+                icon: visible ? root.entry?.icon ?? "" : ""
                 asynchronous: true
             }
             Glyph {

@@ -68,7 +68,7 @@ PanelWindow {
             tip: "Applications · right-click for the clipboard"
             active: Ui.launcherOpen
             onClicked: m => Ui.toggleLauncher(m.button === Qt.RightButton ? "clipboard" : "apps")
-            Glyph { text: Theme.distroGlyph; size: 20; color: Ui.launcherOpen ? Theme.onAccent : Theme.accentBright }
+            Glyph { text: Theme.distroGlyph; size: 20; color: Ui.launcherOpen ? Theme.accentInk : Theme.accentBright }
         }
 
         Capsule {
@@ -81,7 +81,7 @@ PanelWindow {
                 text: Qt.formatDateTime(Clock.date, "HH:mm")
                 font.pixelSize: Theme.textLarge
                 font.weight: Font.Bold
-                color: Ui.calendarOpen ? Theme.onAccent : Theme.text
+                color: Ui.calendarOpen ? Theme.accentInk : Theme.text
             }
         }
 
@@ -200,8 +200,8 @@ PanelWindow {
             active: Ui.controlOpen && Ui.controlPage === "cast"
             tip: Cast.connecting ? `Connecting to ${Cast.tvName}…` : `Casting to ${Cast.tvName} · click to manage`
             onClicked: Ui.openControl("cast")
-            Glyph { text: "󰄙"; color: castCapsule.active ? Theme.onAccent : Theme.accentBright }
-            Label { text: Cast.tvName; font.weight: Font.Bold; color: castCapsule.active ? Theme.onAccent : Theme.accentBright }
+            Glyph { text: "󰄙"; color: castCapsule.active ? Theme.accentInk : Theme.accentBright }
+            Label { text: Cast.tvName; font.weight: Font.Bold; color: castCapsule.active ? Theme.accentInk : Theme.accentBright }
         }
 
         Capsule {
@@ -221,9 +221,9 @@ PanelWindow {
             tip: Sys.updatesDetail
             id: updatesCapsule
             onClicked: Ui.toggle("updates")
-            Glyph { visible: Sys.updates > 0; text: "󰚰"; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
-            Label { visible: Sys.updates > 0; text: Sys.updates; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
-            Glyph { visible: Sys.restartReasons.length > 0; text: "󰜉"; color: Ui.updatesOpen ? Theme.onAccent : Theme.amber }
+            Glyph { visible: Sys.updates > 0; text: "󰚰"; color: Ui.updatesOpen ? Theme.accentInk : Theme.accentBright }
+            Label { visible: Sys.updates > 0; text: Sys.updates; color: Ui.updatesOpen ? Theme.accentInk : Theme.accentBright }
+            Glyph { visible: Sys.restartReasons.length > 0; text: "󰜉"; color: Ui.updatesOpen ? Theme.accentInk : Theme.amber }
         }
 
         Capsule {
@@ -233,7 +233,7 @@ PanelWindow {
             active: Ui.monitorOpen
             tip: `CPU ${Usage.cpu}% · Memory ${Usage.memoryDetail}`
             onClicked: m => m.button === Qt.RightButton ? Ui.spawn(Ui.terminal(["btop"], ["--class", "penumbra-monitor"])) : Ui.toggle("monitor")
-            readonly property color tint: Ui.monitorOpen ? Theme.onAccent : Theme.subtle
+            readonly property color tint: Ui.monitorOpen ? Theme.accentInk : Theme.subtle
             Repeater {
                 model: ["CPU", "RAM"]
                 delegate: RowLayout {
@@ -244,7 +244,7 @@ PanelWindow {
                         font.pixelSize: Theme.textTiny
                         font.weight: Font.DemiBold
                         font.letterSpacing: 0.6
-                        color: Ui.monitorOpen ? Theme.onAccent : Theme.dim
+                        color: Ui.monitorOpen ? Theme.accentInk : Theme.dim
                     }
                     Label { text: (modelData === "CPU" ? Usage.cpu : Usage.memory) + "%"; color: monitor.tint }
                 }
@@ -318,7 +318,7 @@ PanelWindow {
                 + (Devices.peripheralBatteries.length ? "\n" + Devices.peripheralBatteries.join(" · ") : "")
             onClicked: m => m.button === Qt.RightButton ? Ui.run("pavucontrol") : Ui.toggle("control")
             onScrolled: step => Devices.adjust("volume", step > 0 ? "up" : "down")
-            readonly property color tint: Ui.controlOpen ? Theme.onAccent : Theme.textSoft
+            readonly property color tint: Ui.controlOpen ? Theme.accentInk : Theme.textSoft
 
             Glyph { text: Devices.networkGlyph; color: Devices.networkName === "Offline" && !Ui.controlOpen ? Theme.dim : controls.tint }
             Glyph { text: Devices.bluetoothGlyph; color: !Devices.bluetoothOn && !Ui.controlOpen ? Theme.dim : controls.tint }
@@ -334,8 +334,8 @@ PanelWindow {
             RowLayout {
                 visible: Devices.hasBattery
                 spacing: 5
-                Glyph { text: Devices.batteryGlyph; color: Ui.controlOpen ? Theme.onAccent : Devices.batteryColor }
-                Label { text: Devices.batteryPercent + "%"; color: Ui.controlOpen ? Theme.onAccent : Devices.batteryColor }
+                Glyph { text: Devices.batteryGlyph; color: Ui.controlOpen ? Theme.accentInk : Devices.batteryColor }
+                Label { text: Devices.batteryPercent + "%"; color: Ui.controlOpen ? Theme.accentInk : Devices.batteryColor }
             }
             Item {
                 implicitWidth: bell.implicitWidth
@@ -343,12 +343,12 @@ PanelWindow {
                 Glyph {
                     id: bell
                     text: Notifs.dnd ? "󰂛" : Notifs.count ? "󰂚" : "󰂜"
-                    color: Ui.controlOpen ? Theme.onAccent : Notifs.dnd ? Theme.dim : Theme.textSoft
+                    color: Ui.controlOpen ? Theme.accentInk : Notifs.dnd ? Theme.dim : Theme.textSoft
                 }
                 Rectangle {
                     visible: Notifs.count > 0 && !Notifs.dnd
                     width: 6; height: 6; radius: Theme.corner(3)
-                    color: Ui.controlOpen ? Theme.onAccent : Theme.accentBright
+                    color: Ui.controlOpen ? Theme.accentInk : Theme.accentBright
                     anchors { right: bell.right; top: bell.top; rightMargin: -2; topMargin: 1 }
                 }
             }

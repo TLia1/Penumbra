@@ -1,5 +1,6 @@
 pragma Singleton
 import QtQuick
+import "wallpapers.js" as Wallpapers
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
@@ -109,13 +110,13 @@ Singleton {
     property string wallpaper: "wallpaper"
     readonly property string wallpapers: Quickshell.env("HOME") + "/.local/share/penumbra/"
     readonly property string wallpaperFolder: Quickshell.env("HOME") + "/Pictures/Wallpapers"
-    readonly property var wallpaperTitles: ({ "wallpaper": "Night", "wallpaper-dawn": "Dawn", "wallpaper-eclipse": "Eclipse" })
+    readonly property var wallpaperScenes: Wallpapers.scenes
     function wallpaperTitle(name) {
-        return wallpaperTitles[name] ?? name.replace(/^.*\//, "").replace(/\.[^.]*$/, "");
+        return wallpaperScenes[name]?.title ?? name.replace(/^.*\//, "").replace(/\.[^.]*$/, "");
     }
     // scene (dawn, eclipse), still (night or an image), gif or video.
     function wallpaperKind(name) {
-        if (name === "wallpaper-dawn" || name === "wallpaper-eclipse")
+        if (wallpaperScenes[name]?.scene)
             return "scene";
         const ext = name.startsWith("/") ? name.replace(/^.*\./, "").toLowerCase() : "";
         if (ext === "gif")

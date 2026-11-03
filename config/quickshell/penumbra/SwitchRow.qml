@@ -11,7 +11,7 @@ Rectangle {
     signal toggled()
 
     Layout.fillWidth: true
-    implicitHeight: 52
+    implicitHeight: Math.max(56, labels.implicitHeight + 20)
     radius: Theme.radiusSmall
     color: rowArea.containsMouse ? Theme.raised : "transparent"
     Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
@@ -28,10 +28,11 @@ Rectangle {
         spacing: 11
         Glyph { Layout.preferredWidth: 22; text: row.glyph; size: 17 }
         ColumnLayout {
+            id: labels
             Layout.fillWidth: true
             spacing: 0
             Label { Layout.fillWidth: true; text: row.title }
-            Label { Layout.fillWidth: true; text: row.subtitle; font.pixelSize: Theme.textSmall; color: Theme.muted }
+            Label { Layout.fillWidth: true; text: row.subtitle; font.pixelSize: Theme.textSmall; color: Theme.textSoft }
         }
         Switch {
             checked: row.checked

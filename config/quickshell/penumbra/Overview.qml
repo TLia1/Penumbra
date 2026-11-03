@@ -261,10 +261,10 @@ PanelWindow {
                                             constraintSize: Qt.size(width, height)
                                         }
                                     }
-                                    IconImage {
+                                    AppIcon {
                                         anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: Math.min(10, parent.height / 6) }
                                         implicitSize: Math.max(14, Math.min(32, Math.min(parent.width, parent.height) / 3))
-                                        source: root.entry(win.modelData)?.icon ? Quickshell.iconPath(root.entry(win.modelData).icon, true) : ""
+                                        icon: root.entry(win.modelData)?.icon ?? ""
                                         asynchronous: true
                                     }
                                     MouseArea {

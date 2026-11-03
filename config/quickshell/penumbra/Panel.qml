@@ -24,7 +24,8 @@ PanelWindow {
         enabled: !Theme.reducedMotion
         SpringAnimation { spring: 4.5; damping: 0.82; epsilon: 0.001 }
     }
-    property int sheetWidth: 380
+    property int preferredSheetWidth: 400
+    readonly property int sheetWidth: Math.max(1, Math.min(preferredSheetWidth, (screen?.width ?? 1920) - 2 * Theme.edge))
     default property alias content: sheet.data
     property alias sheet: sheet
     // Items that see key presses before the sheet does (which closes on Escape).
@@ -74,7 +75,7 @@ PanelWindow {
             y: -12
             width: Math.min(parent.width, 100)
             height: 24
-            color: Theme.glassStrong
+            color: Theme.panel
             opacity: sheet.opacity
         }
         Shadow { target: sheet }
@@ -82,11 +83,11 @@ PanelWindow {
             id: sheet
             width: panel.sheetWidth
             // Content sits at x/y = 18; keep the same padding below it.
-            implicitHeight: childrenRect.y + childrenRect.height + 18
+            implicitHeight: childrenRect.y + childrenRect.height + Theme.padding
             height: implicitHeight
             clip: true
             radius: Theme.corner(Theme.barHeight / 2 + (22 - Theme.barHeight / 2) * panel.expansion)
-            color: Theme.glassStrong
+            color: Theme.panel
             border.color: Theme.line
             opacity: panel.open ? 1 : 0
             focus: panel.open

@@ -13,10 +13,10 @@ Rectangle {
     signal clicked()
 
     implicitWidth: label.implicitWidth + 26
-    implicitHeight: 30
+    implicitHeight: Math.max(34, label.implicitHeight + 16)
     radius: Theme.corner(height / 2)
     opacity: available ? 1 : 0.45
-    color: primary ? (area.containsMouse ? Theme.accentBright : Theme.accent) : area.containsMouse ? Theme.hover : Theme.raised
+    color: primary ? (area.containsMouse ? Theme.accentBright : Theme.accent) : area.containsMouse ? Theme.hover : Theme.control
     border.color: danger ? Theme.alpha(Theme.rose, 0.5) : primary ? Theme.accentBright : Theme.line
     Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
@@ -26,7 +26,7 @@ Rectangle {
         text: root.text
         font.pixelSize: Theme.textSmall
         font.weight: Font.DemiBold
-        color: root.primary ? Theme.onAccent : root.danger ? Theme.rose : Theme.text
+        color: root.primary ? Theme.accentInk : root.danger ? Theme.rose : Theme.text
     }
     MouseArea {
         id: area

@@ -80,6 +80,7 @@ ShellRoot {
                         width: 436; height: 174; radius: 16
                         color: modelData.base; border.color: modelData.accent
                         Rectangle { x: 18; y: 18; width: 400; height: 78; radius: 12; color: modelData.surface
+                            Image { anchors.fill: parent; source: modelData.artwork; fillMode: Image.PreserveAspectCrop }
                             Row { x: 18; y: 22; spacing: 12
                                 Rectangle { width: 34; height: 34; radius: 17; color: modelData.accent }
                                 Label { text: "Aa  012345"; color: modelData.accent; font.pixelSize: 26 }
@@ -145,7 +146,7 @@ import Quickshell
 Singleton { property bool hasVisualizer: true; property string bin: "/nonexistent/" }
 ''')
     palettes = palette.load(ROOT / 'palette/palette.toml')
-    presets = [{**preset, **palette.preset_palette(palettes, preset['mode'], key)} for key, preset in palette.PRESETS.items()]
+    presets = [{**preset, 'artwork': (ROOT / 'assets' / (preset['wallpaper'] + '-clean.png')).as_uri(), **palette.preset_palette(palettes, preset['mode'], key)} for key, preset in palette.PRESETS.items()]
     (folder / 'shell.qml').write_text(QML.replace('PRESETS', json.dumps(presets)).replace('WALLPAPER', (ROOT / 'assets/wallpaper-eclipse-clean.png').as_uri()))
 
 

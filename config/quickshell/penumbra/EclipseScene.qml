@@ -31,7 +31,7 @@ WallpaperScene {
     Stars {
         scene: root
         stars: Eclipse.stars
-        color: "#ddd0f5"
+        color: root.sceneTint
         z: 2
     }
     SceneLayer {
@@ -115,7 +115,7 @@ WallpaperScene {
             }
             ShapePath {
                 fillColor: "transparent"
-                strokeColor: "#efe4ff"
+                strokeColor: root.sceneTint
                 strokeWidth: 1.6
                 capStyle: ShapePath.RoundCap
                 PathAngleArc {
@@ -143,7 +143,7 @@ WallpaperScene {
             width: 2.6
             height: 2.6
             radius: 1.3
-            color: "#d8cbe8"
+            color: root.sceneTint
             opacity: 0.6
         }
         Rectangle {
@@ -179,6 +179,7 @@ WallpaperScene {
         width: 1600
         height: 960
         // Audio takes over the curtains completely; only the ambient mode uses the clock.
+        property color sceneTint: root.sceneTint
         property real time: desktopDepth.live ? 0 : root.t
         property real audioActive: desktopDepth.live ? 1 : 0
         // DesktopDepth disconnects Cava while paused, locked, disabled or in reduced motion.

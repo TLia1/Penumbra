@@ -5,7 +5,7 @@ Item {
     id: root
     required property WallpaperScene scene
     required property var stars
-    property color color: "#e9c8f2"
+    property color color: scene.sceneTint
 
     Repeater {
         model: root.stars

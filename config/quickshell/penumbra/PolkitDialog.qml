@@ -128,7 +128,7 @@ Scope {
                             GradientStop { position: 0; color: Theme.accent }
                             GradientStop { position: 1; color: Theme.accentDeep }
                         }
-                        Glyph { anchors.centerIn: parent; text: "󰒃"; size: 22; color: Theme.onAccent }
+                        Glyph { anchors.centerIn: parent; text: "󰒃"; size: 22; color: Theme.accentInk }
                     }
                     ColumnLayout {
                         Layout.fillWidth: true

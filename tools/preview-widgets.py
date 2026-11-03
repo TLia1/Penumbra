@@ -132,12 +132,17 @@ ShellRoot {
 
 def stage(folder):
     for name in ['Theme.qml', 'palette.js', 'Label.qml', 'Glyph.qml', 'GlassEdge.qml', 'PillButton.qml',
-                 'LyricsView.qml', 'lyrics.js', 'WeatherCard.qml', 'sun.js', 'DockSurface.qml']:
+                 'LyricsView.qml', 'lyrics.js', 'WeatherCard.qml', 'MoonPhase.qml', 'AppIcon.qml', 'sun.js', 'DockSurface.qml']:
         shutil.copy2(SHELL / name, folder / name)
     shutil.copytree(SHELL / 'shaders', folder / 'shaders')
     for name, body in STUBS.items():
         (folder / f'{name}.qml').write_text('pragma Singleton\nimport QtQuick\nimport Quickshell\nSingleton {\n' + body + '\n}\n')
-    (folder / 'shell.qml').write_text(QML)
+    qml = QML
+    for icon in ['firefox', 'kitty', 'system-file-manager', 'text-editor', 'multimedia-player']:
+        path = Path('/usr/share/icons/Papirus/32x32/apps') / (icon + '.svg')
+        if path.exists():
+            qml = qml.replace('icon: "' + icon + '"', 'icon: "' + str(path) + '"')
+    (folder / 'shell.qml').write_text(qml)
 
 
 def main():

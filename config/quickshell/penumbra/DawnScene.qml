@@ -72,7 +72,7 @@ WallpaperScene {
                 fillGradient: RadialGradient {
                     centerX: 24; centerY: 24; focalX: 24; focalY: 24
                     centerRadius: 24
-                    GradientStop { position: 0; color: Qt.rgba(243 / 255, 180 / 255, 214 / 255, 0.55) }
+                    GradientStop { position: 0; color: Theme.alpha(root.sceneTint, 0.55) }
                     GradientStop { position: 1; color: "transparent" }
                 }
                 PathAngleArc { centerX: 24; centerY: 24; radiusX: 24; radiusY: 24; sweepAngle: 360 }
@@ -84,7 +84,7 @@ WallpaperScene {
             width: 5
             height: 5
             radius: 2.5
-            color: "#ffe3f1"
+            color: root.sceneTint
         }
     }
 

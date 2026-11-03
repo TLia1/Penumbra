@@ -17,6 +17,7 @@ layout(std140, binding = 0) uniform buf {
     float mids;
     float treble;
     float audioActive;
+    vec4 sceneTint;
 };
 
 void main() {
@@ -55,6 +56,6 @@ void main() {
 
     float alpha = 0.55 * envelope * light * (curtain + below) * smoothstep(0.0, 160.0, p.y);
     alpha = min(0.9, alpha * strength);
-    vec3 color = mix(vec3(0.77, 0.65, 1.0), vec3(0.89, 0.54, 0.75), smoothstep(30.0, 260.0, h));
+    vec3 color = mix(sceneTint.rgb, mix(sceneTint.rgb, vec3(1.0), 0.22), smoothstep(30.0, 260.0, h));
     fragColor = vec4(color * alpha, alpha) * qt_Opacity;
 }

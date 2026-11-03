@@ -10,9 +10,9 @@ Rectangle {
     property var current
     signal chosen(var value)
 
-    implicitHeight: 42
+    implicitHeight: Math.max(44, Theme.textSmall + 28)
     radius: Theme.radius
-    color: Theme.raised
+    color: Theme.control
     border.color: Theme.line
 
     RowLayout {
@@ -29,7 +29,7 @@ Rectangle {
                 Layout.fillHeight: true
                 Layout.preferredWidth: 1 // equal shares
                 radius: Theme.corner(Theme.radius - 4)
-                color: current ? Theme.alpha(Theme.accent, 0.22) : segmentArea.containsMouse ? Theme.hover : "transparent"
+                color: current ? Theme.accent : segmentArea.containsMouse ? Theme.hover : "transparent"
                 border.color: current ? Theme.alpha(Theme.accentBright, 0.55) : "transparent"
                 opacity: available ? 1 : 0.45
                 Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
@@ -41,14 +41,14 @@ Rectangle {
                         visible: !!segment.modelData.glyph
                         text: segment.modelData.glyph ?? ""
                         size: 14
-                        color: segment.current ? Theme.accentBright : Theme.muted
+                        color: segment.current ? Theme.accentInk : Theme.textSoft
                     }
                     Label {
                         Layout.fillWidth: true
                         text: segment.modelData.title
                         font.pixelSize: Theme.textSmall
                         font.weight: segment.current ? Font.DemiBold : Font.Normal
-                        color: segment.current ? Theme.text : Theme.textSoft
+                        color: segment.current ? Theme.accentInk : Theme.textSoft
                     }
                 }
                 MouseArea {

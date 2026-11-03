@@ -28,12 +28,14 @@ Rectangle {
         id: scene
         anchors.centerIn: parent
         // Not before the surface has a size: the scene decodes its layers for it.
-        active: surface.width > 0 && ["wallpaper-dawn", "wallpaper-eclipse"].includes(Ui.wallpaper)
+        active: surface.width > 0 && !!Ui.wallpaperScenes[Ui.wallpaper]?.scene
         scale: item ? Math.max(surface.width / item.width, surface.height / item.height) : 1
-        sourceComponent: Ui.wallpaper === "wallpaper-eclipse" ? eclipse : dawn
+        sourceComponent: Ui.wallpaperScenes[Ui.wallpaper]?.scene === "eclipse" ? eclipse : dawn
         Component {
             id: dawn
             DawnScene {
+                folder: Ui.wallpaperScenes[Ui.wallpaper]?.folder ?? "dawn"
+                sceneTint: Ui.wallpaperScenes[Ui.wallpaper]?.tint ?? "#c4a6ff"
                 clean: true
                 running: !Theme.reducedMotion
                 pixelScale: width > 0 && height > 0 ? Math.max(surface.width / width, surface.height / height) * surface.pixelRatio : 1
@@ -42,6 +44,8 @@ Rectangle {
         Component {
             id: eclipse
             EclipseScene {
+                folder: Ui.wallpaperScenes[Ui.wallpaper]?.folder ?? "eclipse"
+                sceneTint: Ui.wallpaperScenes[Ui.wallpaper]?.tint ?? "#c4a6ff"
                 clean: true
                 running: !Theme.reducedMotion
                 pixelScale: width > 0 && height > 0 ? Math.max(surface.width / width, surface.height / height) * surface.pixelRatio : 1
@@ -335,7 +339,7 @@ Rectangle {
                         implicitHeight: implicitWidth
                         radius: Theme.corner(implicitWidth / 2)
                         color: modelData.main ? Theme.accent : lockMedia.containsMouse ? Theme.hover : "transparent"
-                        Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 15; color: modelData.main ? Theme.onAccent : Theme.text }
+                        Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 15; color: modelData.main ? Theme.accentInk : Theme.text }
                         MouseArea {
                             id: lockMedia
                             anchors.fill: parent

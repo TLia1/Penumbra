@@ -4,23 +4,21 @@ import Qt.labs.folderlistmodel
 import Quickshell.Io
 import Quickshell.Widgets
 
-// Penumbra's three wallpapers, then the images, GIFs and videos in ~/Pictures/Wallpapers; click
+// Penumbra's coordinated wallpapers, then the images, GIFs and videos in ~/Pictures/Wallpapers; click
 // one, or pick it with the arrow keys and Enter, to switch with penumbra-wallpaper's transition.
 Panel {
     id: root
     originKey: "wallpapers"
     anchors { top: true; right: true }
     margins.right: edgeMargin - shadowRoom
-    sheetWidth: 620
+    preferredSheetWidth: 620
     open: Ui.wallpapersOpen
     onDismissed: Ui.dismiss()
 
     readonly property int cell: (sheetWidth - 36 - 20) / 3
-    readonly property var scenes: [
-        { name: "wallpaper", badge: "" },
-        { name: "wallpaper-dawn", badge: "Animated" },
-        { name: "wallpaper-eclipse", badge: "Animated" }
-    ]
+    readonly property var scenes: Object.keys(Ui.wallpaperScenes).map(name => ({
+        name: name, badge: Ui.wallpaperScenes[name].scene ? "Animated" : ""
+    }))
 
     // Look again each time it opens: the folder may have been created or filled since, and new
     // videos need their first frame for a thumbnail.
@@ -64,14 +62,12 @@ Panel {
     }
     function select(index) {
         selected = Math.max(0, Math.min(total - 1, index));
-        const item = selected >= scenes.length ? mine.itemAt(selected - scenes.length) : null;
-        if (!item)
-            return;
-        // Scroll your wallpapers just enough to show it.
-        if (item.y < flick.contentY)
-            flick.contentY = item.y;
-        else if (item.y + item.height > flick.contentY + flick.height)
-            flick.contentY = item.y + item.height - flick.height;
+        const item = selected >= scenes.length ? mine.itemAt(selected - scenes.length) : builtins.itemAt(selected);
+        if (!item) return;
+        const y = item.mapToItem(content, 0, 0).y;
+        if (y < scroller.contentY) scroller.contentY = y;
+        else if (y + item.height > scroller.contentY + scroller.height)
+            scroller.contentY = y + item.height - scroller.height;
     }
     function choose(index) {
         const name = index < scenes.length ? scenes[index].name : customFiles[index - scenes.length];
@@ -207,64 +203,66 @@ Panel {
         }
     }
 
-    ColumnLayout {
-        x: 18
-        y: 18
-        width: root.sheetWidth - 36
-        spacing: 12
+    Flickable {
+        id: scroller
+        x: Theme.padding; y: Theme.padding
+        width: root.sheetWidth - 2 * Theme.padding
+        height: Math.min(content.implicitHeight, root.height - 2 * root.shadowRoom - 2 * Theme.padding)
+        contentWidth: width
+        contentHeight: content.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        ColumnLayout {
+            id: content
+            width: scroller.width
+            spacing: 12
 
-        RowLayout {
-            Layout.fillWidth: true
-            Label {
+            RowLayout {
                 Layout.fillWidth: true
-                text: "Wallpaper"
-                font.pixelSize: Theme.textLarge
-                font.weight: Font.DemiBold
-            }
-            PillButton {
-                text: "Open folder"
-                onClicked: {
-                    Ui.spawn(["bash", "-c", 'mkdir -p "$1" && exec xdg-open "$1"', "_", Ui.wallpaperFolder]);
-                    Ui.dismiss();
+                Label {
+                    Layout.fillWidth: true
+                    text: "Wallpaper"
+                    font.pixelSize: Theme.textLarge
+                    font.weight: Font.DemiBold
+                }
+                PillButton {
+                    text: "Open folder"
+                    onClicked: {
+                        Ui.spawn(["bash", "-c", 'mkdir -p "$1" && exec xdg-open "$1"', "_", Ui.wallpaperFolder]);
+                        Ui.dismiss();
+                    }
                 }
             }
-        }
 
-        Overline { text: "Penumbra" }
-        Row {
-            spacing: 10
-            Repeater {
-                model: root.scenes
-                delegate: Choice {
-                    required property var modelData
-                    required property int index
-                    position: index
-                    name: modelData.name
-                    badge: modelData.badge
-                    thumbnail: Ui.fileUrl(Ui.wallpapers + modelData.name + ".png")
+            Overline { text: "Penumbra" }
+            Grid {
+                columns: 3
+                spacing: 10
+                Repeater {
+                    id: builtins
+                    model: root.scenes
+                    delegate: Choice {
+                        required property var modelData
+                        required property int index
+                        position: index
+                        name: modelData.name
+                        badge: modelData.badge
+                        thumbnail: Ui.fileUrl(Ui.wallpapers + modelData.name + ".png")
+                    }
                 }
             }
-        }
 
-        Overline { text: "Yours" }
-        Label {
-            visible: root.customFiles.length === 0
-            Layout.fillWidth: true
-            wrapMode: Text.Wrap
-            text: "Put images, GIFs and videos in ~/Pictures/Wallpapers, or right-click one in Lia Files or Dolphin and choose Set as Wallpaper."
-            color: Theme.muted
-        }
-        Flickable {
-            id: flick
-            visible: root.customFiles.length > 0
-            Layout.fillWidth: true
-            // Two rows and a peek at the third.
-            Layout.preferredHeight: Math.min(contentHeight, root.cell * 1.45 + 60)
-            contentHeight: grid.height
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
+            Overline { text: "Yours" }
+            Label {
+                visible: root.customFiles.length === 0
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: "Put images, GIFs and videos in ~/Pictures/Wallpapers, or right-click one in Lia Files or Dolphin and choose Set as Wallpaper."
+                color: Theme.muted
+            }
             Grid {
                 id: grid
+                visible: root.customFiles.length > 0
                 columns: 3
                 spacing: 10
                 Repeater {
@@ -282,13 +280,13 @@ Panel {
                     }
                 }
             }
-        }
 
-        Label {
-            Layout.fillWidth: true
-            text: "Arrow keys and Enter pick one · Super+W cycles through them · the lock screen follows"
-            font.pixelSize: Theme.textSmall
-            color: Theme.dim
+            Label {
+                Layout.fillWidth: true
+                text: "Arrow keys and Enter pick one · Super+W cycles through them · the lock screen follows"
+                font.pixelSize: Theme.textSmall
+                color: Theme.dim
+            }
         }
     }
 }

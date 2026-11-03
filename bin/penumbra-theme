@@ -46,7 +46,6 @@ PALETTE_JSON = STATE / 'palette.json'
 SHARE = DATA / 'penumbra'
 TEMPLATES = SHARE / 'palette' / 'templates'
 WALLPAPER = STATE / 'wallpaper'  # penumbra-wallpaper's choice: one of Penumbra's, or a path
-BUILT_IN = ('wallpaper', 'wallpaper-dawn', 'wallpaper-eclipse')
 CACHE = HOME / '.cache' / 'penumbra' / 'theme'
 # The icon theme as Penumbra ships it (install.sh keeps a copy), and the one apps use.
 ICONS = SHARE / 'icons' / 'Penumbra'
@@ -60,6 +59,8 @@ try:
     import palette  # ~/.local/share/penumbra/palette.py, shared with tools/build-palette.py
 except ImportError:
     sys.exit('penumbra-theme: ~/.local/share/penumbra/palette.py is missing; run ./install.sh --user-only.')
+
+BUILT_IN = ('wallpaper', 'wallpaper-dawn', 'wallpaper-eclipse', *(p['wallpaper'] for p in palette.PRESETS.values()))
 
 DEFAULTS = {'mode': 'dark', 'colors': 'default', 'hue': palette.BASE_HUE, 'vividness': 1.0, 'pick': 0,
             'harmonize': False, 'auto': 'dark', 'preset': ''}

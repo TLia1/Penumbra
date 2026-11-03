@@ -151,7 +151,7 @@ ColumnLayout {
                     height: 16
                     radius: Theme.corner(8)
                     color: Theme.accent
-                    Line { anchors.centerIn: parent; width: 24; color: Theme.onAccent }
+                    Line { anchors.centerIn: parent; width: 24; color: Theme.accentInk }
                 }
                 Rectangle {
                     width: 40
@@ -226,12 +226,18 @@ ColumnLayout {
                     anchors.fill: parent
                     color: modelData.base
                     radius: Theme.radiusSmall
+                    Image {
+                        anchors.fill: parent
+                        source: Ui.fileUrl(Ui.wallpapers + modelData.wallpaper + "-clean.png")
+                        fillMode: Image.PreserveAspectCrop
+                    }
                     Rectangle {
-                        anchors { fill: parent; margins: 9 }
+                        anchors { right: parent.right; bottom: parent.bottom; margins: 6 }
+                        width: 50; height: 28
                         radius: Theme.radiusSmall
                         color: modelData.surface
                         border.color: modelData.accent
-                        Label { anchors.centerIn: parent; text: "Aa  ◯"; color: modelData.accent; font.pixelSize: 22 }
+                        Label { anchors.centerIn: parent; text: "Aa"; color: modelData.accent; font.pixelSize: 16 }
                     }
                 }
             }
@@ -244,6 +250,16 @@ ColumnLayout {
         color: Theme.dim
         font.pixelSize: Theme.textSmall
     }
+
+    Section { text: "Desktop composition" }
+    Label {
+        Layout.fillWidth: true
+        text: "Signature: floating capsules, numbered workspaces and a clear desktop. Palette and text size stay yours."
+        wrapMode: Text.Wrap
+        color: Theme.textSoft
+        font.pixelSize: Theme.textSmall
+    }
+    PillButton { text: "Apply signature layout"; onClicked: Settings.signatureComposition() }
 
     Section { text: "Bar style" }
     Segmented {

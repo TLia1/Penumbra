@@ -148,7 +148,7 @@ Scope {
                         opacity: root.fade
                         // Nothing for a still or no scene: a video player with no video would
                         // still load FFmpeg and wake the GPUs' video decoders.
-                        sourceComponent: ({ "wallpaper-dawn": dawn, "wallpaper-eclipse": eclipse })[root.scene]
+                        sourceComponent: ({ "dawn": dawn, "eclipse": eclipse })[Ui.wallpaperScenes[root.scene]?.scene]
                             ?? ({ "gif": gif, "video": video })[Ui.wallpaperKind(root.scene)] ?? (root.customDepth ? depth : null)
 
                         Component {
@@ -177,6 +177,8 @@ Scope {
                         Component {
                             id: dawn
                             DawnScene {
+                                folder: Ui.wallpaperScenes[root.scene]?.folder ?? "dawn"
+                                sceneTint: Ui.wallpaperScenes[root.scene]?.tint ?? "#c4a6ff"
                                 desktop: true
                                 running: window.running
                                 pixelScale: Math.max(window.width / width, window.height / height) * window.devicePixelRatio
@@ -185,6 +187,8 @@ Scope {
                         Component {
                             id: eclipse
                             EclipseScene {
+                                folder: Ui.wallpaperScenes[root.scene]?.folder ?? "eclipse"
+                                sceneTint: Ui.wallpaperScenes[root.scene]?.tint ?? "#c4a6ff"
                                 desktop: true
                                 running: window.running
                                 pixelScale: Math.max(window.width / width, window.height / height) * window.devicePixelRatio
