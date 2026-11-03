@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Compile the shell's own shaders (config/quickshell/penumbra/shaders/*.frag) to the .qsb files
-Qt loads; they ship compiled. Needs qsb from qt6-shadertools. --check only reports stale ones.
-The wallpaper scenes' shaders are built by build-wallpapers.py."""
+"""Compile shell and wallpaper shaders to the .qsb files Qt loads; they ship compiled.
+Needs qsb from qt6-shadertools. --check only reports stale ones.
+Wallpaper shaders can also be rebuilt with their scene assets by build-wallpapers.py."""
 from pathlib import Path
 import shutil
 import subprocess
@@ -12,7 +12,7 @@ root = Path(__file__).resolve().parents[1]
 qsb = shutil.which('qsb') or '/usr/lib/qt6/bin/qsb'
 check = '--check' in sys.argv[1:]
 stale = []
-for shader in sorted((root / 'config/quickshell/penumbra/shaders').glob('*.frag')):
+for shader in sorted((root / 'config/quickshell/penumbra').rglob('*.frag')):
     target = shader.with_name(shader.name + '.qsb')
     with tempfile.TemporaryDirectory() as tmp:
         built = Path(tmp) / target.name

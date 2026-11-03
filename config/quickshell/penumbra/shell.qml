@@ -15,7 +15,12 @@ ShellRoot {
 
     Variants {
         model: Quickshell.screens
-        delegate: Bar {}
+        delegate: Scope {
+            id: output
+            required property var modelData
+            Bar { modelData: output.modelData }
+            ScreenFrame { modelData: output.modelData }
+        }
     }
 
     ControlCenter {}

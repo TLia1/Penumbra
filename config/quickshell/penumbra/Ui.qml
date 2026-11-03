@@ -36,6 +36,12 @@ Singleton {
     // Panels follow the monitor that has focus.
     readonly property var screen: Quickshell.screens.find(s => s.name === Hyprland.focusedMonitor?.name) ?? Quickshell.screens[0]
 
+    // Capsule centers in screen-local coordinates, published by each monitor's bar.
+    property var panelOrigins: ({})
+    function setPanelOrigins(name, origins) {
+        panelOrigins = Object.assign({}, panelOrigins, { [name]: origins });
+    }
+
     function close() {
         openPanel = "";
     }

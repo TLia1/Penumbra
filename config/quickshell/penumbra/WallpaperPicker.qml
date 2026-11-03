@@ -8,6 +8,7 @@ import Quickshell.Widgets
 // one, or pick it with the arrow keys and Enter, to switch with penumbra-wallpaper's transition.
 Panel {
     id: root
+    originKey: "wallpapers"
     anchors { top: true; right: true }
     margins.right: Theme.edge - shadowRoom
     sheetWidth: 620

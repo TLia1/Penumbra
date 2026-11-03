@@ -10,6 +10,10 @@ Singleton {
     // Animated wallpapers hold still while tiled windows hide them, and on battery or in power saver.
     property alias stillWhenCovered: adapter.stillWhenCovered
     property alias stillOnBattery: adapter.stillOnBattery
+    // Optional desktop depth and a frame joined to the bar.
+    property alias desktopClock: adapter.desktopClock
+    property alias desktopAura: adapter.desktopAura
+    property alias screenFrame: adapter.screenFrame
     property alias hotCorner: adapter.hotCorner
     // Night light: its warmth in kelvin, and when it comes on (see NightLight).
     property alias nightTemperature: adapter.nightTemperature
@@ -77,6 +81,9 @@ Singleton {
             property bool animatedWallpapers: true
             property bool stillWhenCovered: true
             property bool stillOnBattery: true
+            property bool desktopClock: false
+            property bool desktopAura: false
+            property bool screenFrame: false
             property bool hotCorner: true
             property int nightTemperature: 4500
             property string nightSchedule: "manual"

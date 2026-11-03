@@ -8,6 +8,7 @@ import Quickshell.Io
 // the chosen day's list below.
 Panel {
     id: root
+    originKey: "calendar"
     anchors { top: true; left: true }
     margins.left: Theme.edge - shadowRoom
     sheetWidth: 320

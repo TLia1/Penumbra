@@ -16,7 +16,11 @@ Scope {
     // The chosen wallpaper; the animated one that should be up, and the one loaded now (they
     // differ while one fades out).
     property string chosen: ""
-    readonly property string target: Settings.animatedWallpapers && !Settings.reducedMotion && Ui.wallpaperKind(chosen) !== "still" ? chosen : ""
+    // Depth widgets still need the layered scene when wallpaper motion is disabled.
+    readonly property bool depthScene: Ui.wallpaperKind(chosen) === "scene"
+        && (Settings.desktopClock || Settings.desktopAura)
+    readonly property string target: depthScene || (Settings.animatedWallpapers && !Settings.reducedMotion
+        && Ui.wallpaperKind(chosen) !== "still") ? chosen : ""
     property string scene: ""
     // awww's transition is still running.
     property bool waiting: false
@@ -105,7 +109,7 @@ Scope {
 
                     // Nothing to see under a fullscreen or tiled window; stop drawing.
                     readonly property var workspace: Hyprland.monitorFor(screen)?.activeWorkspace ?? null
-                    readonly property bool running: !root.paused && !root.saving
+                    readonly property bool running: Settings.animatedWallpapers && !Settings.reducedMotion && !root.paused && !root.saving
                         && !(workspace?.hasFullscreen ?? false) && !root.covered(workspace)
 
                     // Cover the screen like `awww img --resize crop`.
@@ -122,6 +126,7 @@ Scope {
                         Component {
                             id: dawn
                             DawnScene {
+                                desktop: true
                                 running: window.running
                                 pixelScale: Math.max(window.width / width, window.height / height) * window.devicePixelRatio
                             }
@@ -129,6 +134,7 @@ Scope {
                         Component {
                             id: eclipse
                             EclipseScene {
+                                desktop: true
                                 running: window.running
                                 pixelScale: Math.max(window.width / width, window.height / height) * window.devicePixelRatio
                             }

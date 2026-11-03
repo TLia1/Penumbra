@@ -453,6 +453,7 @@ PanelWindow {
 
             // Search field and mode switch.
             RowLayout {
+                StaggerReveal { shown: Ui.launcherOpen; order: 0 }
                 Layout.fillWidth: true
                 Layout.leftMargin: 10
                 Layout.preferredHeight: 48
@@ -568,6 +569,7 @@ PanelWindow {
                 }
                 delegate: Item {
                     id: row
+                    StaggerReveal { shown: Ui.launcherOpen; order: 1 + row.index }
                     required property var modelData
                     required property int index
                     readonly property bool current: ListView.isCurrentItem
@@ -733,6 +735,7 @@ PanelWindow {
                 }
                 delegate: Item {
                     id: cell
+                    StaggerReveal { shown: Ui.launcherOpen; order: 1 + Math.floor(cell.index / grid.columns) }
                     required property var modelData
                     required property int index
                     width: grid.cellWidth

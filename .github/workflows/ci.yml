@@ -10,7 +10,7 @@ jobs:
     container: archlinux:base
     steps:
       - name: Install tools
-        run: pacman -Syu --noconfirm --needed git python nodejs qt6-shadertools ffmpeg shellcheck
+        run: pacman -Syu --noconfirm --needed git python nodejs qt6-shadertools qt6-declarative ffmpeg shellcheck
       - uses: actions/checkout@v4
       # Unit tests (with the shell's JavaScript under Node), and generated colour files, compiled
       # shaders and CONFIGURATION.md matching their sources.

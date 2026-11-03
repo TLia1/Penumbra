@@ -494,6 +494,37 @@ ColumnLayout {
         onToggled: Look.set({ harmonize: !(Look.choice.harmonize === true) })
     }
 
+    Section { text: "Desktop depth" }
+    SwitchRow {
+        title: "Depth clock"
+        subtitle: "Time and date behind the planet in Dawn and Eclipse"
+        glyph: "󰥔"
+        checked: Settings.desktopClock
+        onToggled: Settings.desktopClock = !Settings.desktopClock
+    }
+    SwitchRow {
+        title: "Audio aura"
+        subtitle: "Dawn’s ring and Eclipse’s horizon aurora react to music"
+        glyph: "󰝚"
+        checked: Settings.desktopAura
+        onToggled: Settings.desktopAura = !Settings.desktopAura
+    }
+    Label {
+        Layout.fillWidth: true
+        text: "Choose Dawn or Eclipse in Wallpaper. The aura rests when wallpaper motion is paused."
+        wrapMode: Text.Wrap
+        font.pixelSize: Theme.textSmall
+        color: Theme.dim
+    }
+    Section { text: "Screen frame" }
+    SwitchRow {
+        title: "Join the bar to a screen frame"
+        subtitle: "A thin bezel with curved inner corners around each display"
+        glyph: "󰍹"
+        checked: Settings.screenFrame
+        onToggled: Settings.screenFrame = !Settings.screenFrame
+    }
+
     Section { text: "Corners" }
     // Each card draws a little bar and window in its own style.
     RowLayout {

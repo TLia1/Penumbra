@@ -9,6 +9,8 @@ Item {
     property bool running: true
     // The lock screen leaves out the wordmark.
     property bool clean: false
+    // Only the desktop opts in; lock-screen scenes never contain desktop widgets.
+    property bool desktop: false
     // Device pixels per scene unit, so layers decode no larger than they are shown.
     property real pixelScale: 1
 

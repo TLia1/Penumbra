@@ -6,6 +6,7 @@ import QtQuick.Layouts
 // (Arch's sometimes ask for a step by hand), each opening in the browser.
 Panel {
     id: root
+    originKey: "updates"
     anchors { top: true; right: true }
     margins.right: Theme.edge - shadowRoom
     sheetWidth: 400

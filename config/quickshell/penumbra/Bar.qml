@@ -20,6 +20,17 @@ PanelWindow {
     color: "transparent"
     WlrLayershell.namespace: "penumbra-bar"
 
+    // Explicit layout coordinates keep the origin live as capsules resize or appear.
+    readonly property var panelOrigins: ({
+        calendar: margins.left + leftSide.x + clockCapsule.x + clockCapsule.width / 2,
+        control: margins.left + rightSide.x + controls.x + controls.width / 2,
+        monitor: margins.left + rightSide.x + monitor.x + monitor.width / 2,
+        updates: margins.left + rightSide.x + updatesCapsule.x + updatesCapsule.width / 2,
+        wallpapers: margins.left + rightSide.x + controls.x + controls.width / 2
+    })
+    onPanelOriginsChanged: if (screen) Ui.setPanelOrigins(screen.name, panelOrigins)
+    Component.onCompleted: if (screen) Ui.setPanelOrigins(screen.name, panelOrigins)
+
     IdleInhibitor {
         window: bar
         // Stay awake, or an app chosen in Settings → Idle and sleep is open.
@@ -186,6 +197,7 @@ PanelWindow {
             padding: 12
             active: Ui.updatesOpen
             tip: Sys.updatesDetail
+            id: updatesCapsule
             onClicked: Ui.toggle("updates")
             Glyph { visible: Sys.updates > 0; text: "󰚰"; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
             Label { visible: Sys.updates > 0; text: Sys.updates; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }

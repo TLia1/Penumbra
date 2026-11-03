@@ -10,6 +10,7 @@ import Quickshell.Widgets
 // Quick settings, sliders, media and notification history, under the status capsule.
 Panel {
     id: root
+    originKey: "control"
     anchors { top: true; right: true }
     margins.right: Theme.edge - shadowRoom
     sheetWidth: 400
@@ -152,12 +153,14 @@ Panel {
             }
 
             ColumnLayout {
+                id: mainPage
                 Layout.fillWidth: true
                 visible: Ui.controlPage === "main"
                 spacing: 14
 
                 // Header: who, how long, and session shortcuts.
                 RowLayout {
+                    StaggerReveal { shown: root.open && mainPage.visible; order: 0 }
                     Layout.fillWidth: true
                     spacing: 12
                     Avatar { size: 42 }
@@ -194,6 +197,7 @@ Panel {
                 }
 
                 GridLayout {
+                    StaggerReveal { shown: root.open && mainPage.visible; order: 1 }
                     Layout.fillWidth: true
                     columns: 2
                     rowSpacing: 8
@@ -271,6 +275,7 @@ Panel {
 
                 // Power profile, through power-profiles-daemon.
                 ColumnLayout {
+                    StaggerReveal { shown: root.open && mainPage.visible; order: 2 }
                     Layout.fillWidth: true
                     visible: Ui.hasPowerProfiles
                     spacing: 6
@@ -298,6 +303,7 @@ Panel {
                 }
 
                 ColumnLayout {
+                    StaggerReveal { shown: root.open && mainPage.visible; order: 3 }
                     Layout.fillWidth: true
                     spacing: 4
                     RowLayout {
@@ -349,6 +355,7 @@ Panel {
 
                 // Media: blurred cover art behind the track, controls and a seek bar.
                 ClippingRectangle {
+                    StaggerReveal { shown: root.open && mainPage.visible; order: 4 }
                     id: media
                     Layout.fillWidth: true
                     visible: !!root.player
@@ -524,6 +531,7 @@ Panel {
 
                 // Notifications
                 RowLayout {
+                    StaggerReveal { shown: root.open && mainPage.visible; order: 5 }
                     Layout.fillWidth: true
                     Layout.topMargin: 2
                     Overline {
@@ -559,6 +567,8 @@ Panel {
                     boundsBehavior: Flickable.StopAtBounds
                     delegate: ColumnLayout {
                         id: group
+                        required property int index
+                        StaggerReveal { shown: root.open && mainPage.visible; order: 6 + group.index }
                         required property string modelData
                         readonly property string app: modelData
                         readonly property var items: Notifs.groups.find(g => g.app === app)?.items ?? []
@@ -644,6 +654,7 @@ Panel {
                 }
 
                 ColumnLayout {
+                    StaggerReveal { shown: root.open && mainPage.visible; order: 6 }
                     Layout.fillWidth: true
                     Layout.bottomMargin: 6
                     visible: Notifs.count === 0

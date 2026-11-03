@@ -61,6 +61,16 @@ WallpaperScene {
         opacity: 0.7 + 0.3 * root.wave(5.1, 2)
     }
     SceneLayer { scene: root; name: "orbits"; z: 6 }
+    DesktopDepth {
+        id: desktopDepth
+        radialAura: false
+        z: 7
+        active: root.desktop && !root.clean
+        running: root.running
+        center: root.eclipse
+        orbitRadius: 295
+        clockY: 190
+    }
     SceneLayer { scene: root; name: "body"; z: 8 }
     SceneLayer {
         scene: root
@@ -169,6 +179,25 @@ WallpaperScene {
         width: 1600
         height: 960
         property real time: root.t
+        // Keep the original drifting aurora at rest; music lifts its curtains and glow.
+        // DesktopDepth disconnects Cava while paused, locked, disabled or in reduced motion.
+        property real bass: ((desktopDepth.samples[0] ?? 0) + (desktopDepth.samples[1] ?? 0)
+            + (desktopDepth.samples[2] ?? 0)) / 3
+        property real mids: ((desktopDepth.samples[3] ?? 0) + (desktopDepth.samples[4] ?? 0)
+            + (desktopDepth.samples[5] ?? 0)) / 3
+        property real treble: ((desktopDepth.samples[6] ?? 0) + (desktopDepth.samples[7] ?? 0)) / 2
+        Behavior on bass {
+            enabled: desktopDepth.live
+            NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+        }
+        Behavior on mids {
+            enabled: desktopDepth.live
+            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+        }
+        Behavior on treble {
+            enabled: desktopDepth.live
+            NumberAnimation { duration: 100; easing.type: Easing.OutCubic }
+        }
         property size size: Qt.size(width, height)
         property point center: Qt.point(root.world.x - x, root.world.y - y)
         property real radius: root.worldRadius

@@ -1,7 +1,7 @@
 #version 440
 // Aurora over the near world's horizon: curtains that fold and drift along the arc, fine rays,
 // violet at the base turning rose higher up, and a faint glow on the night side below.
-// Compiled to aurora.frag.qsb by tools/build-wallpapers.py.
+// Compiled to aurora.frag.qsb by tools/build-shaders.py or tools/build-wallpapers.py.
 layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
 layout(std140, binding = 0) uniform buf {
@@ -13,6 +13,9 @@ layout(std140, binding = 0) uniform buf {
     float radius;   // world radius
     float arcFrom;  // where the aurora starts and ends, radians from the top of the world
     float arcTo;
+    float bass;
+    float mids;
+    float treble;
 };
 
 void main() {
@@ -29,12 +32,18 @@ void main() {
     float light = fold * (0.35 + 0.65 * ripple);
     float rays = 0.74 + 0.16 * sin(s * 0.21 + 4.0 * sin(s * 0.012 - time * 0.55)) + 0.1 * sin(s * 0.083 - time * 0.3);
 
+    // Low to high frequencies spread along the horizon, blended into continuous curtains.
+    // Zero audio preserves the original aurora exactly, including on the lock screen.
+    float energy = mix(bass, mids, smoothstep(0.0, 0.5, u));
+    energy = mix(energy, treble, smoothstep(0.5, 1.0, u));
     float top = 150.0 + 130.0 * (0.5 + 0.5 * sin(s * 0.005 + time * 0.2));
+    top *= 1.0 + 0.55 * energy + 0.2 * bass;
     // Curtains thin out well before the top of the item, so its edge never shows.
     float curtain = smoothstep(0.0, 22.0, h) * exp(-max(h, 0.0) / top) * (1.0 - smoothstep(top, top * 2.0, h)) * rays;
     float below = exp(min(h, 0.0) / 40.0) * (1.0 - step(0.0, h)) * 0.35;
 
     float alpha = 0.55 * envelope * light * (curtain + below) * smoothstep(0.0, 160.0, p.y);
+    alpha = min(0.9, alpha * (1.0 + 0.9 * energy));
     vec3 color = mix(vec3(0.77, 0.65, 1.0), vec3(0.89, 0.54, 0.75), smoothstep(30.0, 260.0, h));
     fragColor = vec4(color * alpha, alpha) * qt_Opacity;
 }

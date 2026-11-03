@@ -1957,9 +1957,9 @@ if __name__ == '__main__':
 
 ```python
 #!/usr/bin/env python3
-"""Compile the shell's own shaders (config/quickshell/penumbra/shaders/*.frag) to the .qsb files
-Qt loads; they ship compiled. Needs qsb from qt6-shadertools. --check only reports stale ones.
-The wallpaper scenes' shaders are built by build-wallpapers.py."""
+"""Compile shell and wallpaper shaders to the .qsb files Qt loads; they ship compiled.
+Needs qsb from qt6-shadertools. --check only reports stale ones.
+Wallpaper shaders can also be rebuilt with their scene assets by build-wallpapers.py."""
 from pathlib import Path
 import shutil
 import subprocess
@@ -1970,7 +1970,7 @@ root = Path(__file__).resolve().parents[1]
 qsb = shutil.which('qsb') or '/usr/lib/qt6/bin/qsb'
 check = '--check' in sys.argv[1:]
 stale = []
-for shader in sorted((root / 'config/quickshell/penumbra/shaders').glob('*.frag')):
+for shader in sorted((root / 'config/quickshell/penumbra').rglob('*.frag')):
     target = shader.with_name(shader.name + '.qsb')
     with tempfile.TemporaryDirectory() as tmp:
         built = Path(tmp) / target.name
@@ -3540,6 +3540,67 @@ class AppColors(unittest.TestCase):
             '#nav-bar { padding: 0 }',
             'delta.features=side-by-side',
             '2', '2', ''])
+
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
+## `tests/test_motion.py`
+
+```python
+"""Exercise visual component lifecycles offscreen, without shell services or user settings."""
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parent.parent
+RUNNER = next((str(p) for p in [Path('/usr/lib/qt6/bin/qmltestrunner'),
+                              Path('/usr/lib64/qt6/bin/qmltestrunner')]
+               if p.is_file()), shutil.which('qmltestrunner6'))
+
+STUBS = {
+    'Theme': '''property bool reducedMotion: false
+        property bool sharp: false
+        property int motion: reducedMotion ? 0 : 1
+        property int normal: 260 * motion
+        property int barHeight: 40
+        property string sans: "sans-serif"
+        property string display: "sans-serif"
+        property color accentBright: "#d4bfff"
+        property color white: "#eee8f6"
+        property color base: "#0d0a12"
+        property color surface: "#100d18"
+        property color pink: "#f3b4d6"
+        function corner(n) { return sharp ? 0 : n; }
+        function alpha(c, a) { return Qt.rgba(c.r, c.g, c.b, a); }''',
+    'Settings': 'property bool desktopClock: true; property bool desktopAura: true',
+    'Ui': 'property bool hasVisualizer: true',
+    'Media': 'property bool playing: true; property var bars: [0.2, 0.4, 0.8, 1, 0.7, 0.5, 0.3, 0.15]',
+    'Clock': 'property date date: new Date(2026, 10, 3, 10, 24)',
+}
+
+
+@unittest.skipUnless(RUNNER, 'needs Qt 6 qmltestrunner (qt6-declarative)')
+class Motion(unittest.TestCase):
+    def test_visual_lifecycles(self):
+        with tempfile.TemporaryDirectory(prefix='penumbra-motion-') as folder:
+            stage = Path(folder)
+            for name in ['DesktopDepth', 'StaggerReveal', 'FrameSurface']:
+                shutil.copy2(ROOT / 'config/quickshell/penumbra' / f'{name}.qml', stage)
+            shutil.copy2(ROOT / 'tests/qml/tst_motion.qml', stage)
+            (stage / 'qmldir').write_text(''.join(f'singleton {name} 1.0 {name}.qml\n' for name in STUBS))
+            for name, body in STUBS.items():
+                (stage / f'{name}.qml').write_text(f'pragma Singleton\nimport QtQuick\nQtObject {{ {body} }}\n')
+            result = subprocess.run([RUNNER, '-input', folder, '-o', '-,txt'],
+                                    env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen',
+                                         'QT_QUICK_BACKEND': 'software', 'QML_DISABLE_DISK_CACHE': '1'},
+                                    capture_output=True, text=True, timeout=20)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertNotIn('QWARN', result.stdout + result.stderr)
 
 
 if __name__ == '__main__':
@@ -7966,6 +8027,17 @@ PanelWindow {
     color: "transparent"
     WlrLayershell.namespace: "penumbra-bar"
 
+    // Explicit layout coordinates keep the origin live as capsules resize or appear.
+    readonly property var panelOrigins: ({
+        calendar: margins.left + leftSide.x + clockCapsule.x + clockCapsule.width / 2,
+        control: margins.left + rightSide.x + controls.x + controls.width / 2,
+        monitor: margins.left + rightSide.x + monitor.x + monitor.width / 2,
+        updates: margins.left + rightSide.x + updatesCapsule.x + updatesCapsule.width / 2,
+        wallpapers: margins.left + rightSide.x + controls.x + controls.width / 2
+    })
+    onPanelOriginsChanged: if (screen) Ui.setPanelOrigins(screen.name, panelOrigins)
+    Component.onCompleted: if (screen) Ui.setPanelOrigins(screen.name, panelOrigins)
+
     IdleInhibitor {
         window: bar
         // Stay awake, or an app chosen in Settings → Idle and sleep is open.
@@ -8132,6 +8204,7 @@ PanelWindow {
             padding: 12
             active: Ui.updatesOpen
             tip: Sys.updatesDetail
+            id: updatesCapsule
             onClicked: Ui.toggle("updates")
             Glyph { visible: Sys.updates > 0; text: "󰚰"; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
             Label { visible: Sys.updates > 0; text: Sys.updates; color: Ui.updatesOpen ? Theme.onAccent : Theme.accentBright }
@@ -8546,6 +8619,7 @@ import Quickshell.Io
 // the chosen day's list below.
 Panel {
     id: root
+    originKey: "calendar"
     anchors { top: true; left: true }
     margins.left: Theme.edge - shadowRoom
     sheetWidth: 320
@@ -9363,6 +9437,7 @@ import Quickshell.Widgets
 // Quick settings, sliders, media and notification history, under the status capsule.
 Panel {
     id: root
+    originKey: "control"
     anchors { top: true; right: true }
     margins.right: Theme.edge - shadowRoom
     sheetWidth: 400
@@ -9505,12 +9580,14 @@ Panel {
             }
 
             ColumnLayout {
+                id: mainPage
                 Layout.fillWidth: true
                 visible: Ui.controlPage === "main"
                 spacing: 14
 
                 // Header: who, how long, and session shortcuts.
                 RowLayout {
+                    StaggerReveal { shown: root.open && mainPage.visible; order: 0 }
                     Layout.fillWidth: true
                     spacing: 12
                     Avatar { size: 42 }
@@ -9547,6 +9624,7 @@ Panel {
                 }
 
                 GridLayout {
+                    StaggerReveal { shown: root.open && mainPage.visible; order: 1 }
                     Layout.fillWidth: true
                     columns: 2
                     rowSpacing: 8
@@ -9624,6 +9702,7 @@ Panel {
 
                 // Power profile, through power-profiles-daemon.
                 ColumnLayout {
+                    StaggerReveal { shown: root.open && mainPage.visible; order: 2 }
                     Layout.fillWidth: true
                     visible: Ui.hasPowerProfiles
                     spacing: 6
@@ -9651,6 +9730,7 @@ Panel {
                 }
 
                 ColumnLayout {
+                    StaggerReveal { shown: root.open && mainPage.visible; order: 3 }
                     Layout.fillWidth: true
                     spacing: 4
                     RowLayout {
@@ -9702,6 +9782,7 @@ Panel {
 
                 // Media: blurred cover art behind the track, controls and a seek bar.
                 ClippingRectangle {
+                    StaggerReveal { shown: root.open && mainPage.visible; order: 4 }
                     id: media
                     Layout.fillWidth: true
                     visible: !!root.player
@@ -9877,6 +9958,7 @@ Panel {
 
                 // Notifications
                 RowLayout {
+                    StaggerReveal { shown: root.open && mainPage.visible; order: 5 }
                     Layout.fillWidth: true
                     Layout.topMargin: 2
                     Overline {
@@ -9912,6 +9994,8 @@ Panel {
                     boundsBehavior: Flickable.StopAtBounds
                     delegate: ColumnLayout {
                         id: group
+                        required property int index
+                        StaggerReveal { shown: root.open && mainPage.visible; order: 6 + group.index }
                         required property string modelData
                         readonly property string app: modelData
                         readonly property var items: Notifs.groups.find(g => g.app === app)?.items ?? []
@@ -9997,6 +10081,7 @@ Panel {
                 }
 
                 ColumnLayout {
+                    StaggerReveal { shown: root.open && mainPage.visible; order: 6 }
                     Layout.fillWidth: true
                     Layout.bottomMargin: 6
                     visible: Notifs.count === 0
@@ -10046,6 +10131,14 @@ WallpaperScene {
         z: 2
     }
     SceneLayer { scene: root; name: "back"; z: 3 }
+    DesktopDepth {
+        z: 4
+        active: root.desktop && !root.clean
+        running: root.running
+        center: root.planet
+        orbitRadius: 465
+        clockY: 362
+    }
     SceneLayer { scene: root; name: "planet"; z: 5 }
     SceneLayer {
         scene: root
@@ -10100,6 +10193,97 @@ WallpaperScene {
         z: 9
         running: root.running
         area: Qt.rect(1700, 80, 700, 300)
+    }
+}
+```
+
+## `config/quickshell/penumbra/DesktopDepth.qml`
+
+```qml
+import QtQuick
+
+// SVG-space widgets: foreground scene layers occlude the lower edge of the clock and aura.
+// Reuses the bar's Cava stream; no extra audio process or frame timer.
+Item {
+    id: root
+    required property bool active
+    required property bool running
+    required property point center
+    required property real orbitRadius
+    required property real clockY
+    // Eclipse feeds the same audio samples into its existing horizon aurora instead.
+    property bool radialAura: true
+    readonly property bool live: active && running && Settings.desktopAura
+        && !Theme.reducedMotion && Ui.hasVisualizer && !!Media.playing
+    visible: active
+    // Disconnect the audio binding while resting or covered.
+    readonly property var samples: live ? Media.bars : []
+
+    Column {
+        z: 1
+        x: root.center.x - width / 2
+        y: root.clockY
+        width: 800
+        visible: root.active && Settings.desktopClock
+        spacing: -8
+        Text {
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            text: Qt.formatDateTime(Clock.date, "dddd, d MMMM").toUpperCase()
+            font.family: Theme.sans
+            font.pixelSize: 23
+            font.letterSpacing: 5
+            font.weight: Font.Medium
+            color: Theme.accentBright
+            style: Text.Outline
+            styleColor: Theme.alpha(Theme.base, 0.35)
+        }
+        Text {
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            text: Qt.formatDateTime(Clock.date, "HH:mm")
+            font.family: Theme.display
+            font.pixelSize: 240
+            font.weight: Font.DemiBold
+            font.letterSpacing: -12
+            color: Theme.white
+            opacity: 0.86
+            style: Text.Outline
+            styleColor: Theme.alpha(Theme.base, 0.35)
+        }
+    }
+
+    Item {
+        x: root.center.x
+        y: root.center.y
+        visible: root.live && root.radialAura
+        Repeater {
+            model: root.active && root.radialAura && Settings.desktopAura ? 64 : 0
+            delegate: Item {
+                required property int index
+                // Mirror eight frequency bands into a continuous circular spectrum.
+                readonly property real band: (index % 32) / 31 * 7
+                readonly property real sample: {
+                    const a = root.samples[Math.floor(band)] ?? 0;
+                    const b = root.samples[Math.min(7, Math.ceil(band))] ?? 0;
+                    return a + (b - a) * (band % 1);
+                }
+                rotation: index * 360 / 64
+                Rectangle {
+                    x: -2.5
+                    y: -root.orbitRadius - height
+                    width: 5
+                    height: 4 + 70 * parent.sample
+                    radius: Theme.corner(2.5)
+                    color: index % 16 < 8 ? Theme.accentBright : Theme.pink
+                    opacity: 0.25 + 0.5 * parent.sample
+                    Behavior on height {
+                        enabled: root.live
+                        NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
+                    }
+                }
+            }
+        }
     }
 }
 ```
@@ -10844,6 +11028,16 @@ WallpaperScene {
         opacity: 0.7 + 0.3 * root.wave(5.1, 2)
     }
     SceneLayer { scene: root; name: "orbits"; z: 6 }
+    DesktopDepth {
+        id: desktopDepth
+        radialAura: false
+        z: 7
+        active: root.desktop && !root.clean
+        running: root.running
+        center: root.eclipse
+        orbitRadius: 295
+        clockY: 190
+    }
     SceneLayer { scene: root; name: "body"; z: 8 }
     SceneLayer {
         scene: root
@@ -10952,6 +11146,25 @@ WallpaperScene {
         width: 1600
         height: 960
         property real time: root.t
+        // Keep the original drifting aurora at rest; music lifts its curtains and glow.
+        // DesktopDepth disconnects Cava while paused, locked, disabled or in reduced motion.
+        property real bass: ((desktopDepth.samples[0] ?? 0) + (desktopDepth.samples[1] ?? 0)
+            + (desktopDepth.samples[2] ?? 0)) / 3
+        property real mids: ((desktopDepth.samples[3] ?? 0) + (desktopDepth.samples[4] ?? 0)
+            + (desktopDepth.samples[5] ?? 0)) / 3
+        property real treble: ((desktopDepth.samples[6] ?? 0) + (desktopDepth.samples[7] ?? 0)) / 2
+        Behavior on bass {
+            enabled: desktopDepth.live
+            NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+        }
+        Behavior on mids {
+            enabled: desktopDepth.live
+            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+        }
+        Behavior on treble {
+            enabled: desktopDepth.live
+            NumberAnimation { duration: 100; easing.type: Easing.OutCubic }
+        }
         property size size: Qt.size(width, height)
         property point center: Qt.point(root.world.x - x, root.world.y - y)
         property real radius: root.worldRadius
@@ -10989,6 +11202,47 @@ TextField {
         color: Theme.glassStrong
         border.color: root.invalid ? Theme.rose : root.activeFocus ? Theme.accent : Theme.lineStrong
         Behavior on border.color { ColorAnimation { duration: Theme.fast } }
+    }
+}
+```
+
+## `config/quickshell/penumbra/FrameSurface.qml`
+
+```qml
+import QtQuick
+import QtQuick.Shapes
+
+// A bezel with a clear capsule row and concave inner corners below it.
+Shape {
+    id: root
+    readonly property real edge: 3
+    readonly property real topEdge: 10 + Theme.barHeight + 4
+    readonly property real radius: Theme.corner(22)
+    preferredRendererType: Shape.CurveRenderer
+    ShapePath {
+        strokeColor: "transparent"
+        fillColor: Theme.surface
+        fillRule: ShapePath.OddEvenFill
+        startX: 0; startY: 0
+        PathLine { x: root.width; y: 0 }
+        PathLine { x: root.width; y: root.height }
+        PathLine { x: 0; y: root.height }
+        PathLine { x: 0; y: 0 }
+        // Leave the capsule row clear even when this surface maps above the bar.
+        PathMove { x: root.edge; y: root.edge }
+        PathLine { x: root.width - root.edge; y: root.edge }
+        PathLine { x: root.width - root.edge; y: root.topEdge - 4 }
+        PathLine { x: root.edge; y: root.topEdge - 4 }
+        PathLine { x: root.edge; y: root.edge }
+        PathMove { x: root.edge + root.radius; y: root.topEdge }
+        PathLine { x: root.width - root.edge - root.radius; y: root.topEdge }
+        PathArc { x: root.width - root.edge; y: root.topEdge + root.radius; radiusX: root.radius; radiusY: root.radius }
+        PathLine { x: root.width - root.edge; y: root.height - root.edge - root.radius }
+        PathArc { x: root.width - root.edge - root.radius; y: root.height - root.edge; radiusX: root.radius; radiusY: root.radius }
+        PathLine { x: root.edge + root.radius; y: root.height - root.edge }
+        PathArc { x: root.edge; y: root.height - root.edge - root.radius; radiusX: root.radius; radiusY: root.radius }
+        PathLine { x: root.edge; y: root.topEdge + root.radius }
+        PathArc { x: root.edge + root.radius; y: root.topEdge; radiusX: root.radius; radiusY: root.radius }
     }
 }
 ```
@@ -11946,6 +12200,7 @@ PanelWindow {
 
             // Search field and mode switch.
             RowLayout {
+                StaggerReveal { shown: Ui.launcherOpen; order: 0 }
                 Layout.fillWidth: true
                 Layout.leftMargin: 10
                 Layout.preferredHeight: 48
@@ -12061,6 +12316,7 @@ PanelWindow {
                 }
                 delegate: Item {
                     id: row
+                    StaggerReveal { shown: Ui.launcherOpen; order: 1 + row.index }
                     required property var modelData
                     required property int index
                     readonly property bool current: ListView.isCurrentItem
@@ -12226,6 +12482,7 @@ PanelWindow {
                 }
                 delegate: Item {
                     id: cell
+                    StaggerReveal { shown: Ui.launcherOpen; order: 1 + Math.floor(cell.index / grid.columns) }
                     required property var modelData
                     required property int index
                     width: grid.cellWidth
@@ -13681,6 +13938,37 @@ ColumnLayout {
         onToggled: Look.set({ harmonize: !(Look.choice.harmonize === true) })
     }
 
+    Section { text: "Desktop depth" }
+    SwitchRow {
+        title: "Depth clock"
+        subtitle: "Time and date behind the planet in Dawn and Eclipse"
+        glyph: "󰥔"
+        checked: Settings.desktopClock
+        onToggled: Settings.desktopClock = !Settings.desktopClock
+    }
+    SwitchRow {
+        title: "Audio aura"
+        subtitle: "Dawn’s ring and Eclipse’s horizon aurora react to music"
+        glyph: "󰝚"
+        checked: Settings.desktopAura
+        onToggled: Settings.desktopAura = !Settings.desktopAura
+    }
+    Label {
+        Layout.fillWidth: true
+        text: "Choose Dawn or Eclipse in Wallpaper. The aura rests when wallpaper motion is paused."
+        wrapMode: Text.Wrap
+        font.pixelSize: Theme.textSmall
+        color: Theme.dim
+    }
+    Section { text: "Screen frame" }
+    SwitchRow {
+        title: "Join the bar to a screen frame"
+        subtitle: "A thin bezel with curved inner corners around each display"
+        glyph: "󰍹"
+        checked: Settings.screenFrame
+        onToggled: Settings.screenFrame = !Settings.screenFrame
+    }
+
     Section { text: "Corners" }
     // Each card draws a little bar and window in its own style.
     RowLayout {
@@ -14095,6 +14383,7 @@ import "processes.js" as Processes
 // graphics, disks and network with storage, or the busiest apps.
 Panel {
     id: root
+    originKey: "monitor"
     anchors { top: true; right: true }
     margins.right: Theme.edge - shadowRoom
     sheetWidth: 440
@@ -14349,6 +14638,7 @@ Panel {
 
         // Header: the machine, and the two pages. Only the current page shows its name.
         RowLayout {
+            StaggerReveal { shown: root.open; order: 0 }
             Layout.fillWidth: true
             Layout.bottomMargin: 2
             spacing: 6
@@ -14413,6 +14703,8 @@ Panel {
                 columnSpacing: 8
 
                 Meter {
+                    id: meter1
+                    StaggerReveal { target: meter1; shown: root.open && root.page === "overview"; order: 1 }
                     glyph: "󰻠"
                     title: "Processor"
                     accent: Theme.accent
@@ -14453,6 +14745,8 @@ Panel {
                 }
 
                 Meter {
+                    id: meter2
+                    StaggerReveal { target: meter2; shown: root.open && root.page === "overview"; order: 2 }
                     glyph: "󰍛"
                     title: "Memory"
                     accent: Theme.pink
@@ -14475,6 +14769,8 @@ Panel {
                 }
 
                 Meter {
+                    id: meter3
+                    StaggerReveal { target: meter3; shown: root.open && root.page === "overview"; order: 3 }
                     glyph: "󰢮"
                     title: root.gpu?.name ?? "Graphics"
                     accent: Theme.blue
@@ -14521,6 +14817,8 @@ Panel {
                 }
 
                 Meter {
+                    id: meter4
+                    StaggerReveal { target: meter4; shown: root.open && root.page === "overview"; order: 4 }
                     glyph: "󰋊"
                     title: "Disks"
                     accent: Theme.green
@@ -14539,6 +14837,8 @@ Panel {
                 }
 
                 Meter {
+                    id: meter5
+                    StaggerReveal { target: meter5; shown: root.open && root.page === "overview"; order: 5 }
                     Layout.columnSpan: 2
                     glyph: Devices.networkGlyph
                     title: Devices.networkName
@@ -16322,11 +16622,23 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Wayland
 
-// A glass sheet that drops in under the bar and closes on Escape or a click outside.
+// A glass sheet that grows from its bar capsule and closes on Escape or a click outside.
 PanelWindow {
     id: panel
 
     property bool open: false
+    property string originKey: ""
+    // Screen-local bar coordinates also work for keyboard/IPC opens. Clamp to the sheet when
+    // a capsule lies outside it; without a bar (startup), grow from its nearest upper corner.
+    readonly property real originX: Math.max(0, Math.min(sheetWidth,
+        (Ui.panelOrigins[screen?.name]?.[originKey] ?? (anchors.right ? screen?.width ?? sheetWidth : 0))
+        - (anchors.right ? (screen?.width ?? implicitWidth) - margins.right - implicitWidth : margins.left)
+        - shadowRoom))
+    property real expansion: open ? 1 : 0
+    Behavior on expansion {
+        enabled: !Theme.reducedMotion
+        SpringAnimation { spring: 4.5; damping: 0.82; epsilon: 0.001 }
+    }
     property int sheetWidth: 380
     default property alias content: sheet.data
     property alias sheet: sheet
@@ -16357,33 +16669,44 @@ PanelWindow {
         onCleared: panel.dismissed()
     }
 
-    Shadow { target: sheet }
-
-    Rectangle {
-        id: sheet
+    // The material, rim and shadow share one transform, so their edges never separate.
+    Item {
+        id: surface
         x: panel.shadowRoom
+        y: panel.shadowRoom
         width: panel.sheetWidth
-        // Content sits at x/y = 18; keep the same padding below it.
-        implicitHeight: childrenRect.y + childrenRect.height + 18
-        height: implicitHeight
-        clip: true
-        radius: Theme.radiusLarge
-        color: Theme.glassStrong
-        border.color: Theme.line
-        opacity: panel.open ? 1 : 0
-        y: panel.shadowRoom + (panel.open ? 0 : -14)
-        focus: panel.open
-        Keys.forwardTo: panel.keyTargets
-        Keys.onEscapePressed: panel.dismissed()
-        Behavior on opacity { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
-        Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
-        Behavior on height { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
-    }
-    // Over the sheet rather than inside it, where it would count towards the sheet's height.
-    GlassEdge {
-        anchors.fill: sheet
-        radius: sheet.radius
-        opacity: sheet.opacity
+        height: sheet.height
+        transform: Scale {
+            origin.x: panel.originX
+            origin.y: -Theme.gap - Theme.barHeight / 2
+            xScale: 0.86 + 0.14 * panel.expansion
+            yScale: xScale
+        }
+
+        Shadow { target: sheet }
+        Rectangle {
+            id: sheet
+            width: panel.sheetWidth
+            // Content sits at x/y = 18; keep the same padding below it.
+            implicitHeight: childrenRect.y + childrenRect.height + 18
+            height: implicitHeight
+            clip: true
+            radius: Theme.corner(Theme.barHeight / 2 + (22 - Theme.barHeight / 2) * panel.expansion)
+            color: Theme.glassStrong
+            border.color: Theme.line
+            opacity: panel.open ? 1 : 0
+            focus: panel.open
+            Keys.forwardTo: panel.keyTargets
+            Keys.onEscapePressed: panel.dismissed()
+            Behavior on opacity { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+            Behavior on height { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+        }
+        // Outside the sheet so it doesn't count toward the content height.
+        GlassEdge {
+            anchors.fill: sheet
+            radius: sheet.radius
+            opacity: sheet.opacity
+        }
     }
 }
 ```
@@ -16816,6 +17139,31 @@ Image {
             angle: root.angle
         }
     ]
+}
+```
+
+## `config/quickshell/penumbra/ScreenFrame.qml`
+
+```qml
+import QtQuick
+import Quickshell
+import Quickshell.Hyprland
+import Quickshell.Wayland
+
+// A click-through bezel on every output. The inner cutout forms concave joins below the bar;
+// it hides for fullscreen windows. It reserves no space beyond the bar's existing exclusive zone.
+PanelWindow {
+    id: root
+    required property var modelData
+    screen: modelData
+    visible: Settings.screenFrame && !(Hyprland.monitorFor(screen)?.activeWorkspace?.hasFullscreen ?? false)
+    anchors { top: true; bottom: true; left: true; right: true }
+    exclusionMode: ExclusionMode.Ignore
+    color: "transparent"
+    mask: Region {}
+    WlrLayershell.layer: WlrLayer.Top
+    WlrLayershell.namespace: "screen-frame"
+    FrameSurface { anchors.fill: parent }
 }
 ```
 
@@ -17430,6 +17778,10 @@ Singleton {
     // Animated wallpapers hold still while tiled windows hide them, and on battery or in power saver.
     property alias stillWhenCovered: adapter.stillWhenCovered
     property alias stillOnBattery: adapter.stillOnBattery
+    // Optional desktop depth and a frame joined to the bar.
+    property alias desktopClock: adapter.desktopClock
+    property alias desktopAura: adapter.desktopAura
+    property alias screenFrame: adapter.screenFrame
     property alias hotCorner: adapter.hotCorner
     // Night light: its warmth in kelvin, and when it comes on (see NightLight).
     property alias nightTemperature: adapter.nightTemperature
@@ -17497,6 +17849,9 @@ Singleton {
             property bool animatedWallpapers: true
             property bool stillWhenCovered: true
             property bool stillOnBattery: true
+            property bool desktopClock: false
+            property bool desktopAura: false
+            property bool screenFrame: false
             property bool hotCorner: true
             property int nightTemperature: 4500
             property string nightSchedule: "manual"
@@ -17552,7 +17907,7 @@ ColumnLayout {
 
     // What search finds: a page to open (page), or a row of this page (page: "settings").
     readonly property var index: [
-        { page: "look", glyph: "󰏘", title: "Look", words: "theme dark light auto colours colors accent hue vividness corners rounded sharp harmonize" },
+        { page: "look", glyph: "󰏘", title: "Look", words: "theme dark light auto colours colors accent hue vividness corners rounded sharp harmonize depth clock audio aura screen frame bezel" },
         { page: "displays", glyph: "󰍹", title: "Displays", words: "monitors screens resolution refresh rate scale rotation arrangement" },
         { page: "keyboard", glyph: "󰌌", title: "Keyboard", words: "layout variant options num lock xkb" },
         { page: "idle", glyph: "󰒲", title: "Idle and sleep", words: "dim lock screens off suspend timeout stay awake apps inhibit video calls" },
@@ -18000,6 +18355,57 @@ RowLayout {
         text: root.label
         font.pixelSize: Theme.textSmall
         color: Theme.muted
+    }
+}
+```
+
+## `config/quickshell/penumbra/StaggerReveal.qml`
+
+```qml
+import QtQuick
+
+// Attach to a layout section or delegate. Transforming avoids moving the layout's geometry.
+// Closing resets immediately; reopening during a reveal cancels its old delay and starts fresh.
+Item {
+    id: root
+    property Item target: parent
+    required property bool shown
+    property int order: 0
+    property real progress: 0
+    visible: false
+
+    function reset() {
+        entrance.stop();
+        if (!shown) {
+            progress = 0;
+        } else if (Theme.reducedMotion) {
+            progress = 1;
+        } else {
+            progress = 0;
+            entrance.start();
+        }
+    }
+    onShownChanged: reset()
+    Connections {
+        target: Theme
+        function onReducedMotionChanged() { root.reset(); }
+    }
+    Component.onCompleted: {
+        target.transform = [...target.transform, offset];
+        reset();
+    }
+    Binding { target: root.target; property: "opacity"; value: root.progress }
+    Translate { id: offset; y: 10 * (1 - root.progress) }
+    SequentialAnimation {
+        id: entrance
+        PauseAnimation { duration: Math.min(12, Math.max(0, root.order)) * 18 * Theme.motion }
+        NumberAnimation {
+            target: root
+            property: "progress"
+            to: 1
+            duration: Theme.normal
+            easing.type: Easing.OutQuint
+        }
     }
 }
 ```
@@ -18729,6 +19135,12 @@ Singleton {
     // Panels follow the monitor that has focus.
     readonly property var screen: Quickshell.screens.find(s => s.name === Hyprland.focusedMonitor?.name) ?? Quickshell.screens[0]
 
+    // Capsule centers in screen-local coordinates, published by each monitor's bar.
+    property var panelOrigins: ({})
+    function setPanelOrigins(name, origins) {
+        panelOrigins = Object.assign({}, panelOrigins, { [name]: origins });
+    }
+
     function close() {
         openPanel = "";
     }
@@ -18880,6 +19292,7 @@ import QtQuick.Layouts
 // (Arch's sometimes ask for a step by hand), each opening in the browser.
 Panel {
     id: root
+    originKey: "updates"
     anchors { top: true; right: true }
     margins.right: Theme.edge - shadowRoom
     sheetWidth: 400
@@ -19412,7 +19825,11 @@ Scope {
     // The chosen wallpaper; the animated one that should be up, and the one loaded now (they
     // differ while one fades out).
     property string chosen: ""
-    readonly property string target: Settings.animatedWallpapers && !Settings.reducedMotion && Ui.wallpaperKind(chosen) !== "still" ? chosen : ""
+    // Depth widgets still need the layered scene when wallpaper motion is disabled.
+    readonly property bool depthScene: Ui.wallpaperKind(chosen) === "scene"
+        && (Settings.desktopClock || Settings.desktopAura)
+    readonly property string target: depthScene || (Settings.animatedWallpapers && !Settings.reducedMotion
+        && Ui.wallpaperKind(chosen) !== "still") ? chosen : ""
     property string scene: ""
     // awww's transition is still running.
     property bool waiting: false
@@ -19501,7 +19918,7 @@ Scope {
 
                     // Nothing to see under a fullscreen or tiled window; stop drawing.
                     readonly property var workspace: Hyprland.monitorFor(screen)?.activeWorkspace ?? null
-                    readonly property bool running: !root.paused && !root.saving
+                    readonly property bool running: Settings.animatedWallpapers && !Settings.reducedMotion && !root.paused && !root.saving
                         && !(workspace?.hasFullscreen ?? false) && !root.covered(workspace)
 
                     // Cover the screen like `awww img --resize crop`.
@@ -19518,6 +19935,7 @@ Scope {
                         Component {
                             id: dawn
                             DawnScene {
+                                desktop: true
                                 running: window.running
                                 pixelScale: Math.max(window.width / width, window.height / height) * window.devicePixelRatio
                             }
@@ -19525,6 +19943,7 @@ Scope {
                         Component {
                             id: eclipse
                             EclipseScene {
+                                desktop: true
                                 running: window.running
                                 pixelScale: Math.max(window.width / width, window.height / height) * window.devicePixelRatio
                             }
@@ -19580,6 +19999,7 @@ import Quickshell.Widgets
 // one, or pick it with the arrow keys and Enter, to switch with penumbra-wallpaper's transition.
 Panel {
     id: root
+    originKey: "wallpapers"
     anchors { top: true; right: true }
     margins.right: Theme.edge - shadowRoom
     sheetWidth: 620
@@ -19867,6 +20287,8 @@ Item {
     property bool running: true
     // The lock screen leaves out the wordmark.
     property bool clean: false
+    // Only the desktop opts in; lock-screen scenes never contain desktop widgets.
+    property bool desktop: false
     // Device pixels per scene unit, so layers decode no larger than they are shown.
     property real pixelScale: 1
 
@@ -20264,7 +20686,7 @@ Rectangle {
 #version 440
 // Aurora over the near world's horizon: curtains that fold and drift along the arc, fine rays,
 // violet at the base turning rose higher up, and a faint glow on the night side below.
-// Compiled to aurora.frag.qsb by tools/build-wallpapers.py.
+// Compiled to aurora.frag.qsb by tools/build-shaders.py or tools/build-wallpapers.py.
 layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
 layout(std140, binding = 0) uniform buf {
@@ -20276,6 +20698,9 @@ layout(std140, binding = 0) uniform buf {
     float radius;   // world radius
     float arcFrom;  // where the aurora starts and ends, radians from the top of the world
     float arcTo;
+    float bass;
+    float mids;
+    float treble;
 };
 
 void main() {
@@ -20292,12 +20717,18 @@ void main() {
     float light = fold * (0.35 + 0.65 * ripple);
     float rays = 0.74 + 0.16 * sin(s * 0.21 + 4.0 * sin(s * 0.012 - time * 0.55)) + 0.1 * sin(s * 0.083 - time * 0.3);
 
+    // Low to high frequencies spread along the horizon, blended into continuous curtains.
+    // Zero audio preserves the original aurora exactly, including on the lock screen.
+    float energy = mix(bass, mids, smoothstep(0.0, 0.5, u));
+    energy = mix(energy, treble, smoothstep(0.5, 1.0, u));
     float top = 150.0 + 130.0 * (0.5 + 0.5 * sin(s * 0.005 + time * 0.2));
+    top *= 1.0 + 0.55 * energy + 0.2 * bass;
     // Curtains thin out well before the top of the item, so its edge never shows.
     float curtain = smoothstep(0.0, 22.0, h) * exp(-max(h, 0.0) / top) * (1.0 - smoothstep(top, top * 2.0, h)) * rays;
     float below = exp(min(h, 0.0) / 40.0) * (1.0 - step(0.0, h)) * 0.35;
 
     float alpha = 0.55 * envelope * light * (curtain + below) * smoothstep(0.0, 160.0, p.y);
+    alpha = min(0.9, alpha * (1.0 + 0.9 * energy));
     vec3 color = mix(vec3(0.77, 0.65, 1.0), vec3(0.89, 0.54, 0.75), smoothstep(30.0, 260.0, h));
     fragColor = vec4(color * alpha, alpha) * qt_Opacity;
 }
@@ -20827,7 +21258,12 @@ ShellRoot {
 
     Variants {
         model: Quickshell.screens
-        delegate: Bar {}
+        delegate: Scope {
+            id: output
+            required property var modelData
+            Bar { modelData: output.modelData }
+            ScreenFrame { modelData: output.modelData }
+        }
     }
 
     ControlCenter {}

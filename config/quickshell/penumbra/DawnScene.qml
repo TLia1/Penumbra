@@ -31,6 +31,14 @@ WallpaperScene {
         z: 2
     }
     SceneLayer { scene: root; name: "back"; z: 3 }
+    DesktopDepth {
+        z: 4
+        active: root.desktop && !root.clean
+        running: root.running
+        center: root.planet
+        orbitRadius: 465
+        clockY: 362
+    }
     SceneLayer { scene: root; name: "planet"; z: 5 }
     SceneLayer {
         scene: root

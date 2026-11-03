@@ -10,6 +10,7 @@ import "processes.js" as Processes
 // graphics, disks and network with storage, or the busiest apps.
 Panel {
     id: root
+    originKey: "monitor"
     anchors { top: true; right: true }
     margins.right: Theme.edge - shadowRoom
     sheetWidth: 440
@@ -264,6 +265,7 @@ Panel {
 
         // Header: the machine, and the two pages. Only the current page shows its name.
         RowLayout {
+            StaggerReveal { shown: root.open; order: 0 }
             Layout.fillWidth: true
             Layout.bottomMargin: 2
             spacing: 6
@@ -328,6 +330,8 @@ Panel {
                 columnSpacing: 8
 
                 Meter {
+                    id: meter1
+                    StaggerReveal { target: meter1; shown: root.open && root.page === "overview"; order: 1 }
                     glyph: "󰻠"
                     title: "Processor"
                     accent: Theme.accent
@@ -368,6 +372,8 @@ Panel {
                 }
 
                 Meter {
+                    id: meter2
+                    StaggerReveal { target: meter2; shown: root.open && root.page === "overview"; order: 2 }
                     glyph: "󰍛"
                     title: "Memory"
                     accent: Theme.pink
@@ -390,6 +396,8 @@ Panel {
                 }
 
                 Meter {
+                    id: meter3
+                    StaggerReveal { target: meter3; shown: root.open && root.page === "overview"; order: 3 }
                     glyph: "󰢮"
                     title: root.gpu?.name ?? "Graphics"
                     accent: Theme.blue
@@ -436,6 +444,8 @@ Panel {
                 }
 
                 Meter {
+                    id: meter4
+                    StaggerReveal { target: meter4; shown: root.open && root.page === "overview"; order: 4 }
                     glyph: "󰋊"
                     title: "Disks"
                     accent: Theme.green
@@ -454,6 +464,8 @@ Panel {
                 }
 
                 Meter {
+                    id: meter5
+                    StaggerReveal { target: meter5; shown: root.open && root.page === "overview"; order: 5 }
                     Layout.columnSpan: 2
                     glyph: Devices.networkGlyph
                     title: Devices.networkName
