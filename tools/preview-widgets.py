@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SHELL = ROOT / 'config/quickshell/penumbra'
 
 STUBS = {
-    'Settings': 'property real textScale: 1; property bool reducedMotion: true; property bool weatherEnabled: true',
+    'Settings': 'property real glassFrost: 0; property real textScale: 1; property bool reducedMotion: true; property bool weatherEnabled: true',
     'Ui': 'property string bin: "/nonexistent/"',
     'Media': 'function isLive(p) { return false; }',
     'Clock': 'property date date: new Date("2026-11-03T17:30:00Z")',

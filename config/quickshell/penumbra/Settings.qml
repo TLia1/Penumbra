@@ -13,6 +13,11 @@ Singleton {
     // Optional desktop depth and a frame joined to the bar.
     property alias desktopClock: adapter.desktopClock
     property alias desktopAura: adapter.desktopAura
+    property alias barStyle: adapter.barStyle
+    property alias workspaceStyle: adapter.workspaceStyle
+    property alias osdPosition: adapter.osdPosition
+    property alias glassFrost: adapter.glassFrost
+    property alias weatherInBar: adapter.weatherInBar
     property alias screenFrame: adapter.screenFrame
     property alias weatherEnabled: adapter.weatherEnabled
     property alias dockMode: adapter.dockMode
@@ -86,6 +91,11 @@ Singleton {
             property bool stillOnBattery: true
             property bool desktopClock: false
             property bool desktopAura: false
+            property string barStyle: "floating"
+            property string workspaceStyle: "icons"
+            property string osdPosition: "bottom"
+            property real glassFrost: 0
+            property bool weatherInBar: false
             property bool screenFrame: false
             property bool weatherEnabled: false
             property string dockMode: "off" // off, auto, empty

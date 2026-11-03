@@ -20,6 +20,7 @@ ColumnLayout {
 
     // What search finds: a page to open (page), or a row of this page (page: "settings").
     readonly property var index: [
+        { page: "notes", glyph: "󰎞", title: "Quick notes", words: "notes draft text writing local sidebar" },
         { page: "look", glyph: "󰏘", title: "Look", words: "theme dark light auto colours colors accent hue vividness corners rounded sharp harmonize depth clock audio aura screen frame bezel" },
         { page: "displays", glyph: "󰍹", title: "Displays", words: "monitors screens resolution refresh rate scale rotation arrangement" },
         { page: "keyboard", glyph: "󰌌", title: "Keyboard", words: "layout variant options num lock xkb" },
@@ -128,6 +129,7 @@ ColumnLayout {
             spacing: 2
             Repeater {
                 model: [
+                    { page: "notes", glyph: "󰎞", title: "Quick notes", subtitle: "A local draft, saved as you type" },
                     { page: "look", glyph: "󰏘", title: "Look", subtitle: Look.summary },
                     { page: "displays", glyph: "󰍹", title: "Displays", subtitle: Quickshell.screens.length > 1 ? `${Quickshell.screens.length} screens · arrangement, resolution, scale` : "Resolution, refresh rate, scale" },
                     { page: "keyboard", glyph: "󰌌", title: "Keyboard", subtitle: (Config.values.kb_layout ?? "").split(",").map(l => Config.layoutName(l)).join(", ") },

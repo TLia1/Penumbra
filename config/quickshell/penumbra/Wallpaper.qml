@@ -1,6 +1,7 @@
 import QtQuick
 import QtMultimedia
 import Quickshell
+import Quickshell.Io
 import Quickshell.Hyprland
 import Quickshell.Services.UPower
 import Quickshell.Wayland
@@ -19,7 +20,34 @@ Scope {
     // Depth widgets still need the layered scene when wallpaper motion is disabled.
     readonly property bool depthScene: Ui.wallpaperKind(chosen) === "scene"
         && (Settings.desktopClock || Settings.desktopAura)
-    readonly property string target: depthScene || (Settings.animatedWallpapers && !Settings.reducedMotion
+    readonly property bool customDepth: chosen.startsWith("/") && Ui.wallpaperKind(chosen) === "still" && Settings.desktopClock
+    property string depthMask: ""
+    property string sceneMask: ""
+    onSceneChanged: sceneMask = depthMask
+    onChosenChanged: maskCheck.restart()
+    onCustomDepthChanged: maskCheck.restart()
+    Timer {
+        id: maskCheck
+        interval: 100
+        onTriggered: {
+            root.depthMask = "";
+            if (!root.customDepth || maskProbe.running) return;
+            maskProbe.wallpaper = root.chosen;
+            maskProbe.candidate = root.chosen.replace(/\.[^/.]+$/, "-fg.png");
+            maskProbe.command = ["test", "-f", maskProbe.candidate];
+            maskProbe.running = true;
+        }
+    }
+    Process {
+        id: maskProbe
+        property string wallpaper
+        property string candidate
+        onExited: (exitCode, exitStatus) => {
+            if (wallpaper !== root.chosen) maskCheck.restart();
+            else if (root.customDepth && exitCode === 0) root.depthMask = candidate;
+        }
+    }
+    readonly property string target: depthMask !== "" || depthScene || (Settings.animatedWallpapers && !Settings.reducedMotion
         && Ui.wallpaperKind(chosen) !== "still") ? chosen : ""
     property string scene: ""
     // awww's transition is still running.
@@ -121,8 +149,31 @@ Scope {
                         // Nothing for a still or no scene: a video player with no video would
                         // still load FFmpeg and wake the GPUs' video decoders.
                         sourceComponent: ({ "wallpaper-dawn": dawn, "wallpaper-eclipse": eclipse })[root.scene]
-                            ?? ({ "gif": gif, "video": video })[Ui.wallpaperKind(root.scene)] ?? null
+                            ?? ({ "gif": gif, "video": video })[Ui.wallpaperKind(root.scene)] ?? (root.customDepth ? depth : null)
 
+                        Component {
+                            id: depth
+                            Item {
+                                width: window.width; height: window.height
+                                DesktopDepth {
+                                    anchors.fill: parent
+                                    active: foreground.status === Image.Ready
+                                    running: window.running
+                                    center: Qt.point(parent.width / 2, parent.height / 2)
+                                    orbitRadius: parent.height * 0.22
+                                    clockY: parent.height * 0.15
+                                    scale: Math.min(1, parent.width / 1100)
+                                    transformOrigin: Item.Top
+                                }
+                                Image {
+                                    id: foreground
+                                    anchors.fill: parent
+                                    source: Ui.fileUrl(root.sceneMask)
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                }
+                            }
+                        }
                         Component {
                             id: dawn
                             DawnScene {

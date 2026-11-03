@@ -99,6 +99,7 @@ PanelWindow {
                         Behavior on scale { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
                         Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
+                        CardLight { radius: tile.radius; pointer: Qt.point(tileMouse.mouseX, tileMouse.mouseY); hovered: tileMouse.containsMouse }
                         ColumnLayout {
                             anchors.centerIn: parent
                             spacing: 12
@@ -117,6 +118,7 @@ PanelWindow {
                             }
                         }
                         MouseArea {
+                            id: tileMouse
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor

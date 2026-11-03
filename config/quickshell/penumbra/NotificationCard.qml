@@ -37,6 +37,7 @@ Rectangle {
     border.color: critical ? Theme.rose : compact ? Theme.line : Theme.lineStrong
     Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
+    CardLight { radius: root.radius }
     Shadow {
         z: -1
         target: root

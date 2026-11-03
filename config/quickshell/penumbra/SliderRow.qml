@@ -55,6 +55,7 @@ RowLayout {
         Layout.fillWidth: true
         // The custom background and handle give no implicit height, which would leave a 0 px hit area.
         implicitHeight: 36
+        hoverEnabled: true
         from: root.from
         to: root.to
         stepSize: root.stepSize
@@ -64,13 +65,14 @@ RowLayout {
             x: slider.leftPadding
             y: slider.topPadding + slider.availableHeight / 2 - height / 2
             width: slider.availableWidth
-            height: 8
-            radius: Theme.corner(4)
+            height: slider.hovered || slider.pressed ? 12 : 6
+            radius: Theme.corner(height / 2)
+            Behavior on height { NumberAnimation { duration: Theme.fast } }
             color: Theme.raised
             Rectangle {
                 width: slider.visualPosition * parent.width
                 height: parent.height
-                radius: Theme.corner(4)
+                radius: Theme.corner(height / 2)
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
                     GradientStop { position: 0; color: Theme.accentDeep }
@@ -87,6 +89,17 @@ RowLayout {
             color: Theme.white
             border.color: Theme.accent
             border.width: 2
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: -height - 8
+                width: bubble.implicitWidth + 16
+                height: 26
+                radius: Theme.corner(13)
+                visible: slider.pressed
+                color: Theme.surface
+                border.color: Theme.accent
+                Label { id: bubble; anchors.centerIn: parent; text: root.label; color: Theme.text }
+            }
             Behavior on width { NumberAnimation { duration: Theme.fast } }
         }
     }

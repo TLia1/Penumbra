@@ -36,7 +36,7 @@ valid() {
 choices() {
  printf '%s\n' "${names[@]}"
  [[ -d $folder ]] || return 0
- find "$folder" -maxdepth 1 -type f -regextype posix-extended -iregex ".*\.($stills|$moving)" | LC_ALL=C sort
+ find "$folder" -maxdepth 1 -type f -regextype posix-extended -iregex ".*\.($stills|$moving)" ! -iname "*-fg.png" | LC_ALL=C sort
 }
 # still FILE: a PNG of the file's first frame, which awww and the lock screen can show.
 still() {

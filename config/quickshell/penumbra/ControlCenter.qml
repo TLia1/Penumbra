@@ -12,7 +12,7 @@ Panel {
     id: root
     originKey: "control"
     anchors { top: true; right: true }
-    margins.right: Theme.edge - shadowRoom
+    margins.right: edgeMargin - shadowRoom
     sheetWidth: 400
     open: Ui.controlOpen
     onDismissed: Ui.dismiss()
@@ -150,6 +150,13 @@ Panel {
                 active: Ui.controlPage === "apps"
                 visible: active
                 sourceComponent: Component { AppsPage {} }
+            }
+
+            Loader {
+                Layout.fillWidth: true
+                active: Ui.controlPage === "notes"
+                visible: active
+                sourceComponent: Component { NotesPage {} }
             }
 
             ColumnLayout {

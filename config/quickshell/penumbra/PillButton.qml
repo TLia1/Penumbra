@@ -3,6 +3,8 @@ import QtQuick
 // Small text button used inside expanded rows.
 Rectangle {
     id: root
+    scale: Theme.reducedMotion ? 1 : (available ? (area.pressed ? 0.96 : area.containsMouse ? 1.02 : 1) : 1)
+    Behavior on scale { enabled: !Theme.reducedMotion; SpringAnimation { spring: 5; damping: 0.7 } }
 
     property string text
     property bool primary: false

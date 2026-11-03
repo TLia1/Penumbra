@@ -175,6 +175,8 @@ PanelWindow {
                     model: root.workspaces
                     delegate: ColumnLayout {
                         id: tile
+                        required property int index
+                        StaggerReveal { shown: Ui.overviewOpen; order: tile.index }
                         required property var modelData
                         readonly property var workspace: modelData.workspace
                         readonly property var monitor: workspace?.monitor ?? Hyprland.focusedMonitor

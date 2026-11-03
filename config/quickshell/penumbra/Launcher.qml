@@ -40,6 +40,10 @@ PanelWindow {
     readonly property var symbols: charactersUsed ? Symbols.groups.reduce((all, g) => all.concat(g[1].map(s => ({ char: s[0], name: s[1], group: g[0] }))), []) : []
     property var emoji: []
     property var results: []
+    readonly property var selectedResult: results[view.currentIndex] ?? null
+    readonly property bool showPreview: width >= 1080 && !characters
+        && ["app", "action", "window", "clip", "pin"].includes(selectedResult?.kind)
+    property var readyThumbs: ({})
     property var clips: []
     property var usage: ({}) // desktop entry id → { score, at } (frecency, see search.js)
     property var picks: ({}) // emoji or symbol → times picked
@@ -422,10 +426,10 @@ PanelWindow {
     Shadow { target: card }
     Rectangle {
         id: card
-        width: 640
+        width: root.showPreview ? 960 : Math.min(640, root.width - 32)
         x: (parent.width - width) / 2
         y: Math.round(parent.height * 0.17)
-        implicitHeight: column.implicitHeight + 24
+        implicitHeight: Math.max(root.showPreview ? 370 : 0, column.implicitHeight + 24)
         height: implicitHeight
         radius: Theme.radiusLarge
         color: Theme.glassStrong
@@ -436,6 +440,15 @@ PanelWindow {
         Behavior on opacity { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
         Behavior on scale { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
         Behavior on height { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
+
+        LauncherPreview {
+            anchors { top: parent.top; right: parent.right; bottom: parent.bottom; margins: 12 }
+            width: 304
+            visible: root.showPreview
+            active: visible && Ui.launcherOpen
+            result: root.selectedResult
+            clipImage: root.selectedResult?.kind === "clip" ? root.readyThumbs[root.selectedResult.clip.id] ?? "" : ""
+        }
 
         // Swallow clicks so they don't reach the backdrop.
         MouseArea { anchors.fill: parent }
@@ -448,7 +461,7 @@ PanelWindow {
             id: column
             x: 12
             y: 12
-            width: parent.width - 24
+            width: root.showPreview ? 616 : parent.width - 24
             spacing: 8
 
             // Search field and mode switch.
@@ -636,7 +649,12 @@ PanelWindow {
                                 running: row.isImage
                                 command: ["bash", "-c", 'f=$1; [ -s "$f" ] || { mkdir -p "${f%/*}"; printf "%s" "$2" | cliphist decode > "$f"; }',
                                     "_", `${root.thumbs}/${row.modelData.clip?.id}.${row.modelData.clip?.image}`, row.modelData.clip?.line ?? ""]
-                                onExited: thumb.source = `file://${root.thumbs}/${row.modelData.clip.id}.${row.modelData.clip.image}`
+                                onExited: exitCode => {
+                                    if (exitCode !== 0) return;
+                                    const source = Ui.fileUrl(`${root.thumbs}/${row.modelData.clip.id}.${row.modelData.clip.image}`);
+                                    thumb.source = source;
+                                    root.readyThumbs = Object.assign({}, root.readyThumbs, { [row.modelData.clip.id]: source });
+                                }
                             }
                         }
 

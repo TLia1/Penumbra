@@ -209,6 +209,73 @@ ColumnLayout {
         }
     }
 
+    Section { text: "Curated palettes" }
+    GridLayout {
+        Layout.fillWidth: true
+        columns: 2
+        columnSpacing: 8
+        rowSpacing: 8
+        Repeater {
+            model: Look.presets
+            delegate: Choice {
+                required property var modelData
+                title: modelData.title
+                current: Look.choice.preset === modelData.id
+                onPicked: Look.set({ preset: modelData.id })
+                Rectangle {
+                    anchors.fill: parent
+                    color: modelData.base
+                    radius: Theme.radiusSmall
+                    Rectangle {
+                        anchors { fill: parent; margins: 9 }
+                        radius: Theme.radiusSmall
+                        color: modelData.surface
+                        border.color: modelData.accent
+                        Label { anchors.centerIn: parent; text: "Aa  ◯"; color: modelData.accent; font.pixelSize: 22 }
+                    }
+                }
+            }
+        }
+    }
+    Label {
+        Layout.fillWidth: true
+        text: "A complete palette and matching wallpaper scene. Custom colours below clear the preset."
+        wrapMode: Text.Wrap
+        color: Theme.dim
+        font.pixelSize: Theme.textSmall
+    }
+
+    Section { text: "Bar style" }
+    Segmented {
+        Layout.fillWidth: true
+        current: Settings.barStyle
+        options: [{ value: "floating", title: "Capsules" }, { value: "island", title: "Island" }, { value: "framed", title: "Framed" }]
+        onChosen: value => Settings.barStyle = value
+    }
+    Section { text: "Workspaces" }
+    Segmented {
+        Layout.fillWidth: true
+        current: Settings.workspaceStyle
+        options: [{ value: "pills", title: "Numbers" }, { value: "icons", title: "Numbers + icons" }, { value: "dots", title: "Dots" }]
+        onChosen: value => Settings.workspaceStyle = value
+    }
+    Section { text: "Volume and brightness" }
+    Segmented {
+        Layout.fillWidth: true
+        current: Settings.osdPosition
+        options: [{ value: "bottom", title: "Bottom" }, { value: "top", title: "Top island" }]
+        onChosen: value => Settings.osdPosition = value
+    }
+    Section { text: "Glass frost" }
+    SliderRow {
+        Layout.fillWidth: true
+        glyph: "󰂓"
+        from: -0.15; to: 0.28; stepSize: 0.01
+        value: Settings.glassFrost
+        label: Math.round((value + 0.15) / 0.43 * 100) + "%"
+        onMoved: value => Settings.glassFrost = value
+    }
+
     Section { text: "Mode" }
     Segmented {
         Layout.fillWidth: true
@@ -497,7 +564,7 @@ ColumnLayout {
     Section { text: "Desktop depth" }
     SwitchRow {
         title: "Depth clock"
-        subtitle: "Time and date behind the planet in Dawn and Eclipse"
+        subtitle: "Time behind Dawn, Eclipse or a custom foreground mask"
         glyph: "󰥔"
         checked: Settings.desktopClock
         onToggled: Settings.desktopClock = !Settings.desktopClock
@@ -523,6 +590,14 @@ ColumnLayout {
         glyph: "󰖐"
         checked: Settings.weatherEnabled
         onToggled: Settings.weatherEnabled = !Settings.weatherEnabled
+    }
+    SwitchRow {
+        visible: Settings.weatherEnabled
+        title: "Weather beside the clock"
+        subtitle: "Temperature and sky conditions in the bar"
+        glyph: "󰖐"
+        checked: Settings.weatherInBar
+        onToggled: Settings.weatherInBar = !Settings.weatherInBar
     }
     PillButton { text: "Choose location"; onClicked: Ui.controlPage = "night" }
     Section { text: "Floating dock" }

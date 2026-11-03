@@ -4,6 +4,8 @@ import QtQuick.Layouts
 // Quick-settings toggle: click the body to toggle, the chevron for more.
 Rectangle {
     id: root
+    scale: Theme.reducedMotion ? 1 : (available ? (body.pressed ? 0.96 : body.containsMouse ? 1.02 : 1) : 1)
+    Behavior on scale { enabled: !Theme.reducedMotion; SpringAnimation { spring: 5; damping: 0.7 } }
 
     property string glyph
     property string title
@@ -22,6 +24,7 @@ Rectangle {
     opacity: available ? 1 : 0.45
     Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
+    CardLight { radius: root.radius; pointer: Qt.point(body.mouseX, body.mouseY); hovered: body.containsMouse }
     MouseArea {
         id: body
         anchors.fill: parent

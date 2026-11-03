@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""Build an isolated four-terminal showcase, capture one output, then restore focus.
+
+Use --dry-run to inspect the plan; --video SECONDS records a 60 fps clip as well.
+While recording, demonstrate panels, Overview and Launcher with normal shortcuts.
+Only windows created by this invocation are closed. No theme/settings are changed.
+"""
+import argparse
+from datetime import datetime
+import json
+import os
+from pathlib import Path
+import shlex
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+
+
+def run(args, timeout=15):
+    result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or f'{args[0]} failed')
+    return result.stdout
+
+
+def dispatch(expr):
+    result = run(['hyprctl', 'dispatch', expr]).strip()
+    if result and result != 'ok':
+        raise RuntimeError(result)
+
+
+def quote(value):
+    return json.dumps(value, ensure_ascii=False)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    repo = Path(__file__).resolve().parents[1]
+    default = repo / 'previews' if (repo / 'AESTHETICS.md').exists() else Path.home() / 'Pictures/Penumbra'
+    parser.add_argument('--output', type=Path, default=default)
+    parser.add_argument('--monitor', help='output name; defaults to the focused monitor')
+    parser.add_argument('--video', type=int, default=0, metavar='SECONDS')
+    parser.add_argument('--delay', type=float, default=3, help='settle time before capture (0–30 seconds)')
+    parser.add_argument('--dry-run', action='store_true')
+    args = parser.parse_args()
+    if not 0 <= args.video <= 60 or not 0 <= args.delay <= 30:
+        parser.error('--video must be 0–60 and --delay 0–30')
+    if args.dry_run:
+        print(json.dumps({'output': str(args.output.resolve()), 'monitor': args.monitor or 'focused',
+                          'windows': ['Fastfetch', 'Cava', 'Neovim sample code', 'Palette swatches'],
+                          'workspace': 'unique, temporary named workspace', 'video_fps': 60 if args.video else None,
+                          'video_seconds': args.video, 'restore_focus': True, 'close_created_windows': True}, indent=2))
+        return 0
+    needed = ['hyprctl', 'kitty', 'fastfetch', 'cava', 'nvim', 'grim']
+    if args.video:
+        needed += ['wf-recorder', 'ffmpeg']
+    missing = [name for name in needed if not shutil.which(name)]
+    if missing:
+        raise RuntimeError('Missing tools: ' + ', '.join(missing))
+    monitors = json.loads(run(['hyprctl', '-j', 'monitors']))
+    focused = next((m for m in monitors if m.get('focused')), None)
+    monitor = next((m for m in monitors if m['name'] == args.monitor), None) if args.monitor else focused
+    if not monitor or not focused:
+        raise RuntimeError('No matching, active Hyprland output')
+    def selector(workspace):
+        return workspace['id'] if workspace['id'] > 0 else 'name:' + workspace['name']
+    old_workspace = selector(focused['activeWorkspace'])
+    old_target_workspace = selector(monitor['activeWorkspace'])
+    tag = 'penumbra-showcase-' + uuid.uuid4().hex[:12]
+    workspace = 'name:' + tag
+    out = args.output.resolve() / (datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + '-' + tag[-6:])
+    out.mkdir(parents=True, exist_ok=False)
+    recorder = None
+    classes = [tag + '-' + str(i) for i in range(4)]
+    try:
+        with tempfile.TemporaryDirectory(prefix=tag) as temp:
+            sample = Path(temp) / 'orbit.py'
+            sample.write_text('''"""PENUMBRA · orbit study"""
+from math import cos, sin, tau
+
+
+def orbit(radius, phase, samples=64):
+    for step in range(samples):
+        angle = tau * step / samples + phase
+        yield radius * cos(angle), radius * sin(angle)
+
+
+for x, y in orbit(240, 0.3):
+    print(f"{x:7.2f}  {y:7.2f}")
+''')
+            swatches = Path(temp) / 'swatches.py'
+            swatches.write_text('print("\\n  P E N U M B R A\\n  light at the edge of shadow\\n")\n'
+                                'for i in range(8):\n print("  " + "".join(f"\\033[48;5;{16+36*i+j}m    " for j in range(6)) + "\\033[0m\\n")\n')
+            commands = [['fastfetch'], ['cava'], ['nvim', '-R', '-n', str(sample)], [sys.executable, str(swatches)]]
+            dispatch('hl.dsp.focus({monitor=' + quote(monitor['name']) + '})')
+            dispatch('hl.dsp.focus({workspace=' + quote(workspace) + '})')
+            for cls, command in zip(classes, commands):
+                argv = ['kitty', '--class', cls, '--title', 'Penumbra Showcase', '--hold', *command]
+                # shlex quotes the command language; JSON quotes the enclosing Lua string.
+                expr = 'hl.dsp.exec_cmd(' + quote(shlex.join(argv)) + ', {workspace=' + quote(workspace) + ', tile=true})'
+                dispatch(expr)
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    if any(c.get('class') == cls for c in json.loads(run(['hyprctl', '-j', 'clients']))):
+                        break
+                    time.sleep(.1)
+                else:
+                    raise RuntimeError('Timed out opening ' + command[0])
+            time.sleep(args.delay)
+            run(['grim', '-o', monitor['name'], str(out / 'desktop.png')])
+            if args.video:
+                print(f'Recording {args.video}s at 60 fps. Demonstrate panels, Overview and Launcher now.', flush=True)
+                with (out / 'recording.log').open('w') as log:
+                    recorder = subprocess.Popen(['wf-recorder', '-o', monitor['name'], '-r', '60', '-f', str(out / 'hero.mp4')],
+                                                stdout=log, stderr=log)
+                    time.sleep(args.video)
+                    recorder.send_signal(signal.SIGINT)
+                    if recorder.wait(timeout=15):
+                        raise RuntimeError('wf-recorder failed; see recording.log')
+                    recorder = None
+                run(['ffmpeg', '-v', 'error', '-i', str(out / 'hero.mp4'), '-vf', 'fps=30,scale=960:-2',
+                     '-loop', '0', '-c:v', 'libwebp_anim', str(out / 'hero.webp')], timeout=120)
+            print(out)
+    finally:
+        if recorder and recorder.poll() is None:
+            recorder.send_signal(signal.SIGINT)
+            try:
+                recorder.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                recorder.terminate()
+        try:
+            for client in json.loads(run(['hyprctl', '-j', 'clients'])):
+                if client.get('class') in classes:
+                    dispatch('hl.dsp.window.close({window=' + quote('address:' + client['address']) + '})')
+            dispatch('hl.dsp.focus({workspace=' + quote(old_target_workspace) + '})')
+            dispatch('hl.dsp.focus({workspace=' + quote(old_workspace) + '})')
+        except (RuntimeError, subprocess.SubprocessError, ValueError) as error:
+            print('Could not restore showcase workspace: ' + str(error), file=sys.stderr)
+    return 0
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        sys.exit('penumbra-showcase: ' + str(error))
+    except KeyboardInterrupt:
+        sys.exit(130)

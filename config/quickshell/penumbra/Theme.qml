@@ -13,8 +13,8 @@ Singleton {
     // colour below, and every binding on them, crossfades instead of snapping.
     readonly property color base: mix("base")
     readonly property color surface: mix("surface")
-    readonly property color glass: alpha(surface, level("glass"))
-    readonly property color glassStrong: alpha(surface, level("glassStrong"))
+    readonly property color glass: alpha(surface, Math.min(1, Math.max(0.4, level("glass") + Settings.glassFrost)))
+    readonly property color glassStrong: alpha(surface, Math.min(1, Math.max(0.55, level("glassStrong") + Settings.glassFrost)))
     readonly property color raised: alpha(mix("glassRaised"), level("raised"))
     readonly property color hover: mix("hover")
     readonly property color line: alpha(accent, level("line"))

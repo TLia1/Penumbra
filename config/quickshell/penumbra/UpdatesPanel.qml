@@ -8,7 +8,7 @@ Panel {
     id: root
     originKey: "updates"
     anchors { top: true; right: true }
-    margins.right: Theme.edge - shadowRoom
+    margins.right: edgeMargin - shadowRoom
     sheetWidth: 400
     open: Ui.updatesOpen
     onDismissed: Ui.dismiss()

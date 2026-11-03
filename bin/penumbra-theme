@@ -8,6 +8,7 @@ can reload their colours are told to; the others show them on their next start. 
 borders step through the fade with the shell, the folder icons take the accent, and VS Code's
 Penumbra themes are rewritten in place, which open windows follow.
 
+  penumbra-theme set preset=solar-corona   apply a named palette and matching scene
   penumbra-theme get                     the choice, as JSON
   penumbra-theme set KEY=VALUE...        check, save and apply; nothing changes if one is wrong
   penumbra-theme preview KEY=VALUE...    show a choice in the shell only, without saving it
@@ -61,7 +62,7 @@ except ImportError:
     sys.exit('penumbra-theme: ~/.local/share/penumbra/palette.py is missing; run ./install.sh --user-only.')
 
 DEFAULTS = {'mode': 'dark', 'colors': 'default', 'hue': palette.BASE_HUE, 'vividness': 1.0, 'pick': 0,
-            'harmonize': False, 'auto': 'dark'}
+            'harmonize': False, 'auto': 'dark', 'preset': ''}
 DURATIONS = {'set': 420, 'preview': 160, 'restore': 0, 'wallpaper': 1400}
 # Templates the engine leaves alone: the shell reads palette.json instead (a new palette.js would
 # restart it), and the login screen's files belong to root.
@@ -73,7 +74,10 @@ BOOLEANS = {'true': True, 'false': False, '1': True, '0': False}
 
 def problem(key, value):
     """Why VALUE won't do for KEY, or None."""
-    if key == 'mode':
+    if key == 'preset':
+        if not isinstance(value, str) or (value != '' and value not in palette.PRESETS):
+            return 'Unknown preset: ' + str(value)
+    elif key == 'mode':
         if value not in palette.MODES + ('auto',):
             return "Mode should be 'dark', 'light' or 'auto'."
     elif key == 'auto':
@@ -404,7 +408,8 @@ def apply(choice, duration, everything=True, wallpaper=None):
         sys.exit(f'penumbra-theme: {error}; run ./install.sh --user-only.')
     mode = shown_mode(choice)
     picked = accent(choice, wallpaper)
-    colors = palette.resolve(palettes, mode, *picked, choice['harmonize'])
+    colors = (palette.preset_palette(palettes, mode, choice['preset']) if choice.get('preset')
+              else palette.resolve(palettes, mode, *picked, choice['harmonize']))
     try:
         old = json.loads(PALETTE_JSON.read_text())['colors']
     except (OSError, ValueError, KeyError, TypeError):
@@ -417,7 +422,8 @@ def apply(choice, duration, everything=True, wallpaper=None):
         fade_hyprland(old, colors, mode, duration)
     # The files' other mode comes from the same choice, for the ones that hold both ({{light.name}}).
     other = 'light' if mode == 'dark' else 'dark'
-    palettes = {mode: colors, other: palette.resolve(palettes, other, *picked, choice['harmonize'])}
+    palettes = {mode: colors, other: (palette.preset_palette(palettes, other, choice['preset'])
+                if choice.get('preset') else palette.resolve(palettes, other, *picked, choice['harmonize']))}
     changed = render_files(palettes, mode)
     icons = recolor_icons(picked)
     apply_mode(mode)
@@ -450,7 +456,8 @@ def parse(args):
 def main():
     command, args = (sys.argv[1], sys.argv[2:]) if len(sys.argv) > 1 else ('', [])
     if command == 'get':
-        print(json.dumps({**load(), 'candidates': wallpaper_accents(current_wallpaper())}))
+        print(json.dumps({**load(), 'candidates': wallpaper_accents(current_wallpaper()),
+                          'presets': [dict(id=k, **v) for k, v in palette.PRESETS.items()]}))
     elif command == 'wallpaper':
         name = args.pop(0) if args and not args[0].startswith('--') else current_wallpaper()
         if name not in BUILT_IN:
@@ -475,10 +482,22 @@ def main():
         updates, duration = parse(args)
         if command == 'restore' and updates:
             sys.exit('penumbra-theme: restore takes no settings; use set.')
+        if 'preset' in updates and updates['preset']:
+            p = palette.PRESETS[updates['preset']]
+            updates = {**{k: p[k] for k in ('mode', 'hue', 'vividness')},
+                       'colors': 'custom', 'harmonize': True, **updates}
+        elif set(updates) & {'colors', 'hue', 'vividness', 'harmonize'}:
+            updates.setdefault('preset', '')
         choice = {**load(), **updates}
         if command == 'set':
             write(CHOICE, json.dumps(choice) + '\n')
         apply(choice, DURATIONS[command] if duration is None else duration, everything=command != 'preview')
+        if command == 'set' and updates.get('preset'):
+            helper = Path(__file__).resolve().with_name('penumbra-wallpaper')
+            result = (subprocess.run([str(helper), palette.PRESETS[updates['preset']]['wallpaper']], check=False)
+                      if helper.is_file() else None)
+            if result is None or result.returncode:
+                print('Palette applied; matching wallpaper could not be selected.', file=sys.stderr)
     else:
         sys.exit(__doc__.strip())
 

@@ -10,7 +10,7 @@ Panel {
     id: root
     originKey: "wallpapers"
     anchors { top: true; right: true }
-    margins.right: Theme.edge - shadowRoom
+    margins.right: edgeMargin - shadowRoom
     sheetWidth: 620
     open: Ui.wallpapersOpen
     onDismissed: Ui.dismiss()
@@ -35,11 +35,21 @@ Panel {
 
     // The highlighted choice: Penumbra's three, then yours, read as one three-column grid.
     property int selected: 0
-    readonly property int total: scenes.length + yours.count
+    property var customFiles: []
+    function refreshFiles() {
+        const files = [];
+        for (let i = 0; i < yours.count; i++) {
+            const path = yours.get(i, "filePath");
+            if (path && !path.toLowerCase().endsWith("-fg.png")) files.push(path);
+        }
+        customFiles = files;
+        if (open) selectCurrent();
+    }
+    readonly property int total: scenes.length + customFiles.length
     function selectCurrent() {
         const scene = scenes.findIndex(s => s.name === Ui.wallpaper);
-        let mine = yours.count - 1;
-        while (mine >= 0 && yours.get(mine, "filePath") !== Ui.wallpaper)
+        let mine = customFiles.length - 1;
+        while (mine >= 0 && customFiles[mine] !== Ui.wallpaper)
             mine--;
         select(scene >= 0 ? scene : mine >= 0 ? scenes.length + mine : 0);
     }
@@ -48,8 +58,9 @@ Panel {
         target: yours
         function onStatusChanged() {
             if (yours.status === FolderListModel.Ready && root.open)
-                root.selectCurrent();
+                root.refreshFiles();
         }
+        function onCountChanged() { root.refreshFiles(); }
     }
     function select(index) {
         selected = Math.max(0, Math.min(total - 1, index));
@@ -63,7 +74,7 @@ Panel {
             flick.contentY = item.y + item.height - flick.height;
     }
     function choose(index) {
-        const name = index < scenes.length ? scenes[index].name : yours.get(index - scenes.length, "filePath");
+        const name = index < scenes.length ? scenes[index].name : customFiles[index - scenes.length];
         if (name && name !== Ui.wallpaper)
             Ui.spawn([Ui.bin + "penumbra-wallpaper", name]);
     }
@@ -237,7 +248,7 @@ Panel {
 
         Overline { text: "Yours" }
         Label {
-            visible: yours.count === 0
+            visible: root.customFiles.length === 0
             Layout.fillWidth: true
             wrapMode: Text.Wrap
             text: "Put images, GIFs and videos in ~/Pictures/Wallpapers, or right-click one in Lia Files or Dolphin and choose Set as Wallpaper."
@@ -245,7 +256,7 @@ Panel {
         }
         Flickable {
             id: flick
-            visible: yours.count > 0
+            visible: root.customFiles.length > 0
             Layout.fillWidth: true
             // Two rows and a peek at the third.
             Layout.preferredHeight: Math.min(contentHeight, root.cell * 1.45 + 60)
@@ -258,9 +269,10 @@ Panel {
                 spacing: 10
                 Repeater {
                     id: mine
-                    model: yours
+                    model: root.customFiles
                     delegate: Choice {
-                        required property string filePath
+                        required property string modelData
+                        readonly property string filePath: modelData
                         required property int index
                         position: root.scenes.length + index
                         readonly property string kind: Ui.wallpaperKind(filePath)

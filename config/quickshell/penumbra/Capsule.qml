@@ -4,6 +4,8 @@ import QtQuick.Layouts
 // A floating glass pill; children are laid out in a row.
 Rectangle {
     id: root
+    scale: Theme.reducedMotion ? 1 : (interactive ? (mouse.pressed ? 0.96 : hovered ? 1.02 : 1) : 1)
+    Behavior on scale { enabled: !Theme.reducedMotion; SpringAnimation { spring: 5; damping: 0.7 } }
 
     default property alias content: row.data
     property alias spacing: row.spacing
@@ -30,9 +32,9 @@ Rectangle {
     implicitHeight: Theme.barHeight
     implicitWidth: row.implicitWidth + padding * 2
     radius: Theme.corner(height / 2)
-    color: active ? Theme.accent : (interactive && hovered ? Theme.hover : Theme.glass)
+    color: active ? Theme.accent : (interactive && hovered ? Theme.hover : Settings.barStyle === "floating" ? Theme.glass : "transparent")
     border.width: 1
-    border.color: active ? Theme.accentBright : Theme.line
+    border.color: active ? Theme.accentBright : Settings.barStyle === "floating" ? Theme.line : "transparent"
     Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
     Behavior on implicitWidth { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
 
@@ -72,7 +74,7 @@ Rectangle {
     // The lit top edge the panels have, so the bar reads as the same glass.
     GlassEdge {
         radius: root.radius
-        strength: root.active ? 0.55 : 0.2
+        strength: root.active ? 0.55 : Settings.barStyle === "floating" ? 0.2 : 0
     }
 
     RowLayout {

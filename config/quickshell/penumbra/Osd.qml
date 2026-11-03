@@ -8,13 +8,22 @@ import Quickshell.Wayland
 PanelWindow {
     id: root
     screen: Ui.screen
-    anchors.bottom: true
+    readonly property bool atTop: Settings.osdPosition === "top"
+    anchors.bottom: !atTop
+    anchors.top: atTop
     // Room around the pill for its shadow.
     readonly property int shadowRoom: 16
-    margins.bottom: 80 - shadowRoom
+    margins.bottom: atTop ? 0 : 80 - shadowRoom
+    margins.top: 0
     exclusionMode: ExclusionMode.Ignore
     implicitWidth: 300 + 2 * shadowRoom
     implicitHeight: 58 + 2 * shadowRoom
+    IslandSurface {
+        x: root.shadowRoom; y: 0
+        width: parent.width - 2 * root.shadowRoom; height: parent.height - root.shadowRoom
+        visible: root.atTop
+        opacity: pill.opacity
+    }
     visible: Ui.osdVisible || pill.opacity > 0
     color: "transparent"
     mask: Region {}
@@ -39,7 +48,7 @@ PanelWindow {
         id: pill
         anchors { fill: parent; margins: root.shadowRoom }
         radius: Theme.corner(height / 2)
-        color: Theme.glassStrong
+        color: root.atTop ? "transparent" : Theme.glassStrong
         border.color: Theme.line
         opacity: Ui.osdVisible ? 1 : 0
         scale: Ui.osdVisible ? 1 : 0.92

@@ -12,7 +12,7 @@ Panel {
     id: root
     originKey: "monitor"
     anchors { top: true; right: true }
-    margins.right: Theme.edge - shadowRoom
+    margins.right: edgeMargin - shadowRoom
     sheetWidth: 440
     open: Ui.monitorOpen
     onDismissed: Ui.dismiss()
@@ -165,6 +165,7 @@ Panel {
         border.color: Theme.line
         Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
+        CardLight { parent: meter; radius: meter.radius }
         MouseArea {
             id: meterArea
             anchors.fill: parent

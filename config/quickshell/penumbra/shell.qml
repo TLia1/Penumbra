@@ -18,8 +18,8 @@ ShellRoot {
         delegate: Scope {
             id: output
             required property var modelData
-            Bar { modelData: output.modelData }
             ScreenFrame { modelData: output.modelData }
+            Bar { modelData: output.modelData }
             Dock { modelData: output.modelData; locked: lockScreen.locked }
         }
     }

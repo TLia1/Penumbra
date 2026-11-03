@@ -8,7 +8,8 @@ Rectangle {
     id: root
     required property var workspaces
     // Compact to numbers when the rest of the bar needs the space.
-    property bool showIcons: true
+    property string style: Settings.workspaceStyle
+    property bool showIcons: style === "icons"
     readonly property int activeIndex: workspaces.findIndex(w => w.active)
     readonly property Item activeItem: spaces.count > activeIndex && activeIndex >= 0 ? spaces.itemAt(activeIndex) : null
     readonly property real targetLeft: activeItem ? activeItem.x + row.x : 4
@@ -70,7 +71,7 @@ Rectangle {
                 readonly property bool current: modelData.active
                 readonly property var windows: modelData.toplevels.values
                 readonly property string tip: "Workspace " + modelData.name + (windows.length ? " · " + windows.length + " windows" : "")
-                width: Math.max(36, contents.implicitWidth + 20)
+                width: root.style === "dots" ? 28 : Math.max(36, contents.implicitWidth + 20)
                 height: root.height - 8
                 radius: Theme.corner(height / 2)
                 color: current ? "transparent" : modelData.urgent ? Theme.alpha(Theme.rose, 0.3) : mouse.containsMouse ? Theme.hover : "transparent"
@@ -79,7 +80,14 @@ Rectangle {
                     id: contents
                     anchors.centerIn: parent
                     spacing: 5
+                    Rectangle {
+                        visible: root.style === "dots"
+                        implicitWidth: 7; implicitHeight: 7
+                        radius: Theme.corner(3.5)
+                        color: workspace.current ? Theme.onAccent : workspace.modelData.urgent ? Theme.rose : Theme.muted
+                    }
                     Label {
+                        visible: root.style !== "dots"
                         text: workspace.modelData.name
                         color: workspace.current ? Theme.onAccent : workspace.modelData.urgent ? Theme.rose : Theme.textSoft
                         font.weight: workspace.current ? Font.Bold : Font.DemiBold

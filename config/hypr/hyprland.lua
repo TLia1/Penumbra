@@ -63,13 +63,14 @@ hl.config({
  misc = {disable_hyprland_logo = true, disable_splash_rendering = true, force_default_wallpaper = 0, allow_session_lock_restore = true},
 })
 hl.curve("penumbra", {type = "bezier", points = {{0.16, 1}, {0.3, 1}}})
+hl.curve("overshoot", {type = "bezier", points = {{0.05, 0.9}, {0.1, 1.04}}})
 hl.curve("soft", {type = "bezier", points = {{0.4, 0}, {0.2, 1}}})
 hl.curve("linear", {type = "bezier", points = {{0, 0}, {1, 1}}})
 for _, a in ipairs({
- {"windows", 4.5, "penumbra", "slide"}, {"windowsIn", 4, "penumbra", "popin 94%"},
+ {"windows", 4.5, "penumbra", "slide"}, {"windowsIn", 4, "overshoot", "popin 88%"},
  {"windowsOut", 3, "soft", "popin 96%"}, {"border", 5, "penumbra", nil},
  {"borderangle", 60, "linear", "loop"},
- {"fade", 3, "soft", nil}, {"workspaces", 4.5, "penumbra", "slide"},
+ {"fade", 3, "soft", nil}, {"workspaces", 4.5, "overshoot", "slidefade 18%"},
  {"layers", 3.5, "penumbra", "fade"}
 }) do hl.animation({leaf=a[1], enabled=true, speed=a[2], bezier=a[3], style=a[4]}) end
 local function exec(key, cmd) hl.bind(key, hl.dsp.exec_cmd(cmd)) end

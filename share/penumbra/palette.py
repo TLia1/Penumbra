@@ -221,6 +221,44 @@ def guard(colors):
             colors[moved] = oklch_to_hex(L, C, H)
 
 
+# Named palettes tune surfaces as well as accent hue. The opposite mode uses the
+# same accent family with that mode's readable surfaces.
+PRESETS = {
+    'penumbra': dict(title='Penumbra', mode='dark', hue=297, vividness=1,
+                     wallpaper='wallpaper-eclipse', base='#0d0a12', surface='#100d18', accent='#b69af7'),
+    'solar-corona': dict(title='Solar Corona', mode='dark', hue=65, vividness=.9,
+                         wallpaper='wallpaper-dawn', base='#16100c', surface='#211811', accent='#f4b976'),
+    'aurora-borealis': dict(title='Aurora Borealis', mode='dark', hue=185, vividness=.85,
+                            wallpaper='wallpaper-eclipse', base='#09151a', surface='#102128', accent='#7cdbd5'),
+    'event-horizon': dict(title='Event Horizon', mode='dark', hue=10, vividness=1.1,
+                          wallpaper='wallpaper-eclipse', base='#040307', surface='#0b080e', accent='#f27996'),
+    'nebula-rose': dict(title='Nebula Rose', mode='dark', hue=350, vividness=.65,
+                        wallpaper='wallpaper', base='#14121d', surface='#201c2b', accent='#e5abc2'),
+    'starlight': dict(title='Starlight', mode='light', hue=297, vividness=1,
+                      wallpaper='wallpaper-dawn', base='#f8f6fb', surface='#efebf5', accent='#754cbd'),
+}
+
+
+def preset_palette(palettes, mode, name):
+    preset = PRESETS[name]
+    if name == 'penumbra':
+        return dict(palettes[mode])
+    colors = generate(palettes[mode], preset['hue'], preset['vividness'], True)
+    if mode == preset['mode']:
+        # Move the entire surface ladder by the new surface lightness, then set
+        # the art-directed base, surface and accent exactly.
+        delta = hex_to_oklch(preset['surface'])[0] - hex_to_oklch(colors['surface'])[0]
+        for key in ('shade', 'viewAlt', 'surfaceAlt', 'raised', 'button', 'buttonAlt', 'glassRaised'):
+            L, C, H = hex_to_oklch(colors[key])
+            colors[key] = oklch_to_hex(max(0, min(1, L + delta)), C, H)
+        colors.update({key: preset[key] for key in ('base', 'surface', 'accent')})
+    for ink, (fill, least) in INKS.items():
+        colors[ink] = choose_ink(palettes[mode], colors, ink, fill, least,
+                                preset['hue'] - BASE_HUE, preset['vividness'])
+    guard(colors)
+    return colors
+
+
 def resolve(palettes, mode, colors='default', hue=BASE_HUE, vividness=1.0, harmonize=False):
     """The palette for a theme choice: the mode's default, or it moved to an accent."""
     if colors == 'default':

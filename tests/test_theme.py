@@ -24,6 +24,15 @@ class Engine(unittest.TestCase):
             with self.subTest(mode=mode):
                 self.assertEqual(palette.generate(PALETTES[mode], palette.BASE_HUE, 1.0), PALETTES[mode])
 
+    def test_named_palettes_keep_contrast_in_both_modes(self):
+        for name in palette.PRESETS:
+            for mode in palette.MODES:
+                colors = palette.preset_palette(PALETTES, mode, name)
+                self.assertEqual(set(colors), set(PALETTES[mode]))
+                for a, b, least in palette.GUARDS:
+                    self.assertGreaterEqual(palette.contrast(colors[a], colors[b]), least, (name, mode, a, b))
+        self.assertEqual(palette.preset_palette(PALETTES, 'dark', 'event-horizon')['base'], '#040307')
+
     def test_light_templates_render(self):
         for template in sorted(p for p in TEMPLATES.rglob('*') if p.is_file()):
             with self.subTest(template=template.relative_to(TEMPLATES)):
@@ -250,7 +259,8 @@ class Command(unittest.TestCase):
         self.assertIn(f'cursor {colors["accent"]}', (self.home / '.config/kitty/penumbra-colors.conf').read_text())
         self.assertEqual(json.loads(self.theme('get')),
                          {'mode': 'dark', 'colors': 'custom', 'hue': 190.0, 'vividness': 0.8, 'pick': 0,
-                          'harmonize': False, 'auto': 'dark',
+                          'harmonize': False, 'auto': 'dark', 'preset': '',
+                          'presets': [dict(id=k, **v) for k, v in palette.PRESETS.items()],
                           'candidates': json.loads((ROOT / 'share/penumbra/wallpaper-colors.json').read_text())['wallpaper']})
 
     def test_harmonize(self):
@@ -287,6 +297,22 @@ class Command(unittest.TestCase):
         before = self.calls().count('hyprctl eval hl.config({general')
         self.theme('set', 'colors=default', '--duration', '0')
         self.assertEqual(self.calls().count('hyprctl eval hl.config({general') - before, 1)
+
+    def test_preset_restore_preview_and_manual_override(self):
+        helper = self.home / '.local/bin/penumbra-wallpaper'
+        helper.write_text('#!/bin/sh\nprintf "%s" "$1" > "' + str(self.home / 'scene') + '"\n')
+        helper.chmod(0o755)
+        self.theme('set', 'preset=solar-corona')
+        self.assertEqual((self.home / 'scene').read_text(), 'wallpaper-dawn')
+        expected = palette.preset_palette(PALETTES, 'dark', 'solar-corona')
+        self.assertEqual(self.palette_json()['colors'], expected)
+        self.theme('preview', 'preset=starlight')
+        self.assertEqual(json.loads(self.theme('get'))['preset'], 'solar-corona')
+        self.theme('restore')
+        self.assertEqual(self.palette_json()['colors'], expected)
+        self.theme('set', 'hue=210')
+        self.assertEqual(json.loads(self.theme('get'))['preset'], '')
+        self.assertNotEqual(self.palette_json()['colors'], expected)
 
     def test_icons_follow_the_accent(self):
         live = self.home / '.local/share/icons/Penumbra'

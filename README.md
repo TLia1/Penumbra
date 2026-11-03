@@ -473,6 +473,77 @@ python tools/preview-widgets.py previews/widgets-light.png --light
 ![Phase 3 widgets, dark palette](previews/widgets.png)
 ![Phase 3 widgets, light palette](previews/widgets-light.png)
 
+## Curated palettes and the remaining aesthetic controls
+
+**Settings → Look → Curated palettes** applies a complete palette and a paired built-in
+wallpaper scene. The six presets tune background and surface lightness as well as the accent;
+the palette engine checks text contrast in both modes. Custom colour edits leave the preset.
+
+| Preset | CLI ID | Paired scene |
+|---|---|---|
+| Penumbra | `penumbra` | Eclipse |
+| Solar Corona | `solar-corona` | Dawn |
+| Aurora Borealis | `aurora-borealis` | Eclipse |
+| Event Horizon | `event-horizon` | Eclipse |
+| Nebula Rose | `nebula-rose` | Night |
+| Starlight | `starlight` | Dawn |
+
+```bash
+penumbra-theme set preset=solar-corona
+penumbra-theme set colors=default mode=dark
+```
+
+The second command restores the default palette while keeping the selected wallpaper.
+Presets reuse Penumbra's existing artwork; they do not recolour its baked wallpaper layers.
+
+Look also offers **Capsules / Island / Framed** bar layouts, **Numbers / Numbers + icons /
+Dots** workspace styles, a **Bottom / Top island** OSD, and a **Glass frost** slider.
+The existing floating layout remains the default. Weather beside the clock uses the calendar's
+opt-in weather service and hides stale readings. Spring feedback, taller slider tracks and
+value bubbles accompany the new card wash and cursor lighting. Reduced motion and sharp
+corners still apply.
+
+The media capsule stays available while paused. Hover to open the mini-player; click to keep
+it open, use × to dismiss, middle-click to toggle playback, or scroll to skip. Its spectrum takes
+an accent from the cover artwork. Mini-player lyrics remain opt-in through the **Lyrics**
+button, using the same cached LRCLIB helper as the Control Center.
+
+Wide screens gain a launcher details pane for applications, live windows and clipboard content;
+smaller screens keep the compact list. **Settings → Quick notes** opens a local scratchpad.
+Drafts save after a short typing pause to `~/.local/state/penumbra/notes.txt`, even if the page
+closes. A failed save keeps the draft in memory and shows a retry action; no AI or cloud service
+is involved.
+
+For custom desktop depth, put `mountains.jpg` and a matching transparent `mountains-fg.png`
+in `~/Pictures/Wallpapers`, select the base image and enable **Depth clock**. Use the same
+image dimensions and alignment for both files; foreground masks are omitted from the picker
+and wallpaper cycling. A missing mask leaves the normal wallpaper alone. The lock screen
+continues to use the unmodified wallpaper.
+
+### Reproducible showcase captures
+
+```bash
+penumbra-showcase --dry-run
+penumbra-showcase --output previews
+penumbra-showcase --output previews --monitor DP-1 --video 30
+```
+
+Run these in a live Hyprland session with Penumbra installed. The helper opens Fastfetch,
+Cava, read-only sample code in Neovim, and terminal swatches on a unique named workspace,
+captures only the selected output, closes its own windows and restores the previous workspaces.
+Existing windows are left in place. Each run creates a new directory; it does not overwrite
+previous captures. A video run records a 60 fps MP4 and converts a smaller 30 fps looping WebP.
+While recording, demonstrate the Control Center, Overview and Launcher using their normal
+shortcuts. Cava needs playing audio for a visible spectrum.
+
+The helper requires `hyprctl`, `kitty`, `fastfetch`, `cava`, `nvim` and `grim`; video additionally
+requires `wf-recorder` and `ffmpeg`. Live capture could not be verified in the development
+session because the compositor socket was unavailable. The image below is an explicitly
+labeled offline component rendering, reproduced by `python tools/preview-polish.py`. Shader
+lighting requires the live GPU renderer and is not represented by the software preview.
+
+![Curated palettes and aesthetic controls, offline sample data](previews/aesthetics.png)
+
 ## Sources and licensing
 
 The Penumbra QML, wallpaper, configurations, and helper scripts were created for this setup. The icon overlay redistributes unmodified violet Papirus folder SVGs from the installed package, under GPL-3.0; see `licenses/Papirus-GPL-3.0.txt` and the [Papirus source](https://github.com/PapirusDevelopmentTeam/papirus-icon-theme). It inherits the remaining icons from the installed Papirus theme.

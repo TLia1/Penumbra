@@ -15,6 +15,10 @@ PanelWindow {
         (Ui.panelOrigins[screen?.name]?.[originKey] ?? (anchors.right ? screen?.width ?? sheetWidth : 0))
         - (anchors.right ? (screen?.width ?? implicitWidth) - margins.right - implicitWidth : margins.left)
         - shadowRoom))
+    readonly property real attachedLeft: Math.max(Theme.edge, Math.min((screen?.width ?? 1920) - sheetWidth - Theme.edge,
+        (Ui.panelOrigins[screen?.name]?.[originKey] ?? (screen?.width ?? 1920) / 2) - sheetWidth / 2))
+    readonly property real edgeMargin: Settings.barStyle === "island"
+        ? (anchors.right ? (screen?.width ?? 1920) - attachedLeft - sheetWidth : attachedLeft) : Theme.edge
     property real expansion: open ? 1 : 0
     Behavior on expansion {
         enabled: !Theme.reducedMotion
@@ -39,7 +43,7 @@ PanelWindow {
     // A fixed-height surface; only the sheet takes input, so it can grow and shrink smoothly.
     implicitHeight: (screen?.height ?? 1080) - margins.top - Theme.edge
     mask: Region { item: sheet }
-    margins.top: Theme.barHeight + 10 + Theme.gap - shadowRoom
+    margins.top: Theme.barHeight + 10 + (Settings.barStyle === "floating" ? Theme.gap : 0) - shadowRoom
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "penumbra-panel"
     WlrLayershell.keyboardFocus: open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
@@ -64,6 +68,15 @@ PanelWindow {
             yScale: xScale
         }
 
+        Rectangle {
+            visible: Settings.barStyle !== "floating"
+            x: Math.max(0, Math.min(parent.width - width, panel.originX - width / 2))
+            y: -12
+            width: Math.min(parent.width, 100)
+            height: 24
+            color: Theme.glassStrong
+            opacity: sheet.opacity
+        }
         Shadow { target: sheet }
         Rectangle {
             id: sheet

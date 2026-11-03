@@ -2849,6 +2849,184 @@ nvim --headless '+Lazy! restore' +qa
 printf 'Open a project with: nvim /path/to/project\n'
 ```
 
+## `tools/preview-polish.py`
+
+```python
+#!/usr/bin/env python3
+"""Render the remaining aesthetics with actual components and offline sample data."""
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+sys.dont_write_bytecode = True
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'share/penumbra'))
+import palette
+spec = importlib.util.spec_from_file_location('widgets', ROOT / 'tools/preview-widgets.py')
+widgets = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(widgets)
+
+QML = '''import QtQuick
+import QtQuick.Layouts
+import Quickshell
+ShellRoot {
+    FloatingWindow {
+        visible: true
+        implicitWidth: 1440; implicitHeight: 1000
+        Rectangle {
+            id: scene
+            anchors.fill: parent
+            color: Theme.base
+            Label { x: 48; y: 30; text: "P E N U M B R A"; font.pixelSize: 28; font.weight: Font.Bold }
+            Label { x: 48; y: 78; text: "Six atmospheres. One desktop."; color: Theme.muted; font.pixelSize: 18 }
+            Rectangle {
+                x: 48; y: 124; width: 1344; height: 400
+                radius: Theme.radiusLarge
+                color: Theme.surface
+                clip: true
+                Image { anchors.fill: parent; source: "WALLPAPER"; fillMode: Image.PreserveAspectCrop }
+                IslandSurface { x: 110; y: 0; width: 780; height: 62 }
+                RowLayout {
+                    x: 144; y: 10; spacing: 10
+                    Capsule { Glyph { text: "󰣇"; color: Theme.accentBright } }
+                    Capsule { Label { text: "18:30"; font.weight: Font.Bold } }
+                    WorkspaceStrip {
+                        workspaces: [
+                            {name: "1", active: true, toplevels: {values: []}},
+                            {name: "2", active: false, toplevels: {values: []}},
+                            {name: "3", active: false, toplevels: {values: []}}]
+                    }
+                    MediaCapsule { id: previewMedia; titleWidth: 180 }
+                }
+                Label { x: 64; y: 225; text: "LIGHT AT THE EDGE"; font.pixelSize: 15; font.letterSpacing: 6; color: Theme.accentBright }
+                Label { x: 60; y: 248; text: "of shadow"; font.pixelSize: 64; color: Theme.white; font.weight: Font.Light }
+                Rectangle {
+                    x: 940; y: 24; width: 380; height: 350
+                    radius: Theme.radiusLarge; color: Theme.glassStrong; border.color: Theme.line
+                    GlassEdge { radius: parent.radius }
+                    ColumnLayout {
+                        anchors { fill: parent; margins: 20 }
+                        spacing: 12
+                        Label { text: "Small details, in motion"; font.pixelSize: 18; font.weight: Font.Bold }
+                        Tile { Layout.fillWidth: true; glyph: "󰖩"; title: "Connected"; subtitle: "Sample network"; on: true }
+                        Tile { Layout.fillWidth: true; glyph: "󰂓"; title: "Glass frost"; subtitle: "Light, layered surfaces" }
+                        SliderRow { Layout.fillWidth: true; glyph: "󰕾"; value: 68 }
+                        RowLayout { PillButton { text: "Moonlight"; primary: true } PillButton { text: "Stillness" } }
+                    }
+                }
+            }
+            LauncherPreview {
+                visible: false
+                width: 304; height: 370
+                result: ({kind: "app", entry: {name: "Sample app", comment: "An offline preview", icon: ""}})
+            }
+            Grid {
+                x: 48; y: 552; columns: 3; spacing: 18
+                Repeater {
+                    model: PRESETS
+                    delegate: Rectangle {
+                        required property var modelData
+                        width: 436; height: 174; radius: 16
+                        color: modelData.base; border.color: modelData.accent
+                        Rectangle { x: 18; y: 18; width: 400; height: 78; radius: 12; color: modelData.surface
+                            Row { x: 18; y: 22; spacing: 12
+                                Rectangle { width: 34; height: 34; radius: 17; color: modelData.accent }
+                                Label { text: "Aa  012345"; color: modelData.accent; font.pixelSize: 26 }
+                            }
+                        }
+                        Label { x: 20; y: 112; text: modelData.title; color: modelData.text; font.pixelSize: 18; font.weight: Font.DemiBold }
+                        Label { x: 20; y: 140; text: modelData.wallpaper.replace("wallpaper-", "").replace("wallpaper", "night").toUpperCase() + "  /  " + modelData.mode.toUpperCase(); color: modelData.muted; font.pixelSize: 11; font.letterSpacing: 2 }
+                    }
+                }
+            }
+            Label { x: 48; y: 948; text: "OFFLINE COMPONENT STUDY / SAMPLE DATA · SOFTWARE RENDER · SHADER LIGHTING REQUIRES THE LIVE GPU SHELL"; color: Theme.dim; font.pixelSize: 10; font.letterSpacing: 1.1 }
+        }
+        Timer { interval: 1200; running: true; onTriggered: {
+            if (Math.abs(previewMedia.artTint.g - 187/255) > 0.05) {
+                console.error("Album palette was not sampled: " + previewMedia.artTint); Qt.exit(1); return;
+            }
+            scene.grabToImage(result => {
+            if (!result.saveToFile(Quickshell.env("PENUMBRA_PREVIEW"))) Qt.exit(1); else Qt.quit();
+        }); } }
+    }
+}
+'''
+
+
+def stage(folder):
+    widgets.stage(folder)
+    for name in ['Capsule', 'Tile', 'SliderRow', 'CardLight', 'IslandSurface', 'WorkspaceStrip', 'MediaCapsule', 'MediaPopover', 'LauncherPreview']:
+        shutil.copy2(widgets.SHELL / (name + '.qml'), folder)
+    (folder / 'Settings.qml').write_text('''pragma Singleton
+import Quickshell
+Singleton { property real glassFrost: 0; property real textScale: 1; property bool reducedMotion: true; property string workspaceStyle: "icons"; property string barStyle: "island" }
+''')
+    (folder / 'Media.qml').write_text('''pragma Singleton
+import QtQuick
+import Quickshell
+Singleton {
+    property QtObject player: QtObject {
+        property string trackTitle: "Orbit / Sample track"
+        property string trackArtist: "Penumbra"
+        property string trackArtUrl: "COVER_URL"
+        property bool isPlaying: true
+        property bool canTogglePlaying: true
+        property bool canGoPrevious: false
+        property bool canGoNext: false
+        property bool canSeek: false
+        property real length: 240
+        property real position: 60
+        function togglePlaying() { isPlaying = !isPlaying; }
+        function positionChanged() {}
+    }
+    property var playing: player
+    property int count: 8
+    property var bars: [.2, .5, .8, .4, .9, .6, .3, .5]
+    function isLive(p) { return false; }
+    function hasLength(p) { return true; }
+    function time(v) { return "1:00"; }
+    function appName(p) { return "Sample player"; }
+}
+'''.replace('        function positionChanged() {}\n', '').replace('COVER_URL', (folder / 'cover.svg').as_uri()))
+    (folder / 'cover.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#33bbaa"/></svg>')
+    (folder / 'Ui.qml').write_text('''pragma Singleton
+import Quickshell
+Singleton { property bool hasVisualizer: true; property string bin: "/nonexistent/" }
+''')
+    palettes = palette.load(ROOT / 'palette/palette.toml')
+    presets = [{**preset, **palette.preset_palette(palettes, preset['mode'], key)} for key, preset in palette.PRESETS.items()]
+    (folder / 'shell.qml').write_text(QML.replace('PRESETS', json.dumps(presets)).replace('WALLPAPER', (ROOT / 'assets/wallpaper-eclipse-clean.png').as_uri()))
+
+
+def main():
+    output = Path(sys.argv[1] if len(sys.argv) > 1 else ROOT / 'previews/aesthetics.png').resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='penumbra-polish-') as temp:
+        folder = Path(temp)
+        stage(folder)
+        runtime = folder / 'runtime'; runtime.mkdir(mode=0o700)
+        env = {**os.environ, 'HOME': temp, 'XDG_CONFIG_HOME': temp, 'XDG_CACHE_HOME': temp,
+               'XDG_RUNTIME_DIR': str(runtime), 'QT_QPA_PLATFORM': 'offscreen', 'QT_QUICK_BACKEND': 'software',
+               'PENUMBRA_PREVIEW': str(output)}
+        env.pop('WAYLAND_DISPLAY', None); env.pop('HYPRLAND_INSTANCE_SIGNATURE', None)
+        result = subprocess.run(['quickshell', '-p', temp, '--no-color'], env=env, capture_output=True, text=True, timeout=20)
+        log = result.stdout + result.stderr
+        errors = [line for line in log.splitlines() if 'ERROR' in line and 'quickshell.ipc:' not in line]
+        if result.returncode or errors or any(s in log for s in ['ReferenceError', 'TypeError', 'Unable to assign', 'Binding loop']) or not output.exists():
+            print(log, file=sys.stderr); return 1
+        print(output)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
+```
+
 ## `tools/preview-widgets.py`
 
 ```python
@@ -2871,7 +3049,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SHELL = ROOT / 'config/quickshell/penumbra'
 
 STUBS = {
-    'Settings': 'property real textScale: 1; property bool reducedMotion: true; property bool weatherEnabled: true',
+    'Settings': 'property real glassFrost: 0; property real textScale: 1; property bool reducedMotion: true; property bool weatherEnabled: true',
     'Ui': 'property string bin: "/nonexistent/"',
     'Media': 'function isLive(p) { return false; }',
     'Clock': 'property date date: new Date("2026-11-03T17:30:00Z")',
@@ -3898,6 +4076,84 @@ class Online(unittest.TestCase):
         self.assertEqual(online.retry_after('Tue, 03 Nov 2026 12:00:00 GMT', 0), 1793707200)
 ```
 
+## `tests/test_qml_load.py`
+
+```python
+"""Compile shell components offscreen without instantiating desktop services.
+
+Only PanelWindow is substituted: Qt offscreen has no Wayland layer-shell backend.
+This catches QML API/type errors, not compositor geometry or live input behaviour.
+"""
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+WINDOW = '''import QtQuick
+import Quickshell
+FloatingWindow {
+    component EdgeFlags: QtObject {
+        property bool top: false; property bool bottom: false
+        property bool left: false; property bool right: false
+    }
+    property EdgeFlags anchors: EdgeFlags {}
+    component Margins: QtObject {
+        property real top: 0; property real bottom: 0
+        property real left: 0; property real right: 0
+    }
+    property Margins margins: Margins {}
+    property int exclusionMode: 0
+    property int exclusiveZone: 0
+}
+'''
+HARNESS = '''import QtQuick
+import Quickshell
+ShellRoot {
+    Timer {
+        interval: 100; running: true
+        onTriggered: {
+            let failed = false;
+            for (const name of COMPONENTS) {
+                const component = Qt.createComponent(name);
+                if (component.status !== Component.Ready) {
+                    console.error(name + ": " + component.errorString());
+                    failed = true;
+                }
+            }
+            Qt.exit(failed ? 1 : 0);
+        }
+    }
+}
+'''
+
+
+@unittest.skipUnless(shutil.which('quickshell'), 'needs Quickshell')
+class QmlLoad(unittest.TestCase):
+    def test_shell_components_compile(self):
+        with tempfile.TemporaryDirectory(prefix='penumbra-load-') as temp:
+            stage = Path(temp)
+            shutil.copytree(ROOT / 'config/quickshell/penumbra', stage, dirs_exist_ok=True)
+            names = ['Bar', 'LookPage', 'Osd', 'Overview', 'Wallpaper', 'ControlCenter',
+                     'MonitorPanel', 'WallpaperPicker', 'ScreenFrame', 'SessionMenu', 'Launcher']
+            for path in stage.glob('*.qml'):
+                path.write_text(path.read_text().replace('PanelWindow {', 'TestPanelWindow {'))
+            (stage / 'TestPanelWindow.qml').write_text(WINDOW)
+            (stage / 'shell.qml').write_text(HARNESS.replace('COMPONENTS', json.dumps([n + '.qml' for n in names])))
+            (stage / 'runtime').mkdir(mode=0o700)
+            env = {**os.environ, 'HOME': temp, 'XDG_CONFIG_HOME': temp, 'XDG_CACHE_HOME': temp,
+                   'XDG_RUNTIME_DIR': str(stage / 'runtime'), 'QT_QPA_PLATFORM': 'offscreen',
+                   'QT_QUICK_BACKEND': 'software'}
+            env.pop('HYPRLAND_INSTANCE_SIGNATURE', None)
+            env.pop('WAYLAND_DISPLAY', None)
+            result = subprocess.run(['quickshell', '-p', temp, '--no-color'], env=env,
+                                    capture_output=True, text=True, timeout=20)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+```
+
 ## `tests/test_shell.py`
 
 ```python
@@ -3942,6 +4198,77 @@ if __name__ == '__main__':
     unittest.main()
 ```
 
+## `tests/test_showcase.py`
+
+```python
+"""Showcase capture owns only its unique windows, including on a failed capture."""
+import importlib.machinery
+import importlib.util
+import json
+from pathlib import Path
+import re
+import tempfile
+import unittest
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+loader = importlib.machinery.SourceFileLoader('showcase', str(ROOT / 'bin/penumbra-showcase'))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+showcase = importlib.util.module_from_spec(spec)
+loader.exec_module(showcase)
+
+
+class Showcase(unittest.TestCase):
+    def capture(self, fail=False):
+        calls, created = [], []
+        def run(argv):
+            calls.append(argv)
+            if argv == ['hyprctl', '-j', 'monitors']:
+                return json.dumps([{'name': 'DP-1', 'focused': True, 'activeWorkspace': {'id': 2}}])
+            if argv == ['hyprctl', '-j', 'clients']:
+                return json.dumps([{'class': 'personal-editor', 'address': '0xabc'}] +
+                                  [{'class': cls, 'address': '0x' + str(i)} for i, cls in enumerate(created)])
+            if argv[:2] == ['hyprctl', 'dispatch']:
+                match = re.search(r'penumbra-showcase-[a-f0-9]+-[0-3]', argv[2])
+                if 'exec_cmd' in argv[2] and match:
+                    created.append(match[0])
+                return 'ok'
+            if argv[0] == 'grim':
+                if fail:
+                    raise RuntimeError('capture failed')
+                Path(argv[-1]).write_bytes(b'PNG')
+            return ''
+        with tempfile.TemporaryDirectory() as temp, patch.object(showcase, 'run', side_effect=run), \
+                patch.object(showcase.shutil, 'which', return_value='/bin/tool'), \
+                patch.object(showcase.time, 'sleep'), \
+                patch.object(showcase.sys, 'argv', ['penumbra-showcase', '--output', temp, '--delay', '0']):
+            if fail:
+                with self.assertRaisesRegex(RuntimeError, 'capture failed'):
+                    showcase.main()
+            else:
+                self.assertEqual(showcase.main(), 0)
+                self.assertEqual(len(list(Path(temp).glob('*/desktop.png'))), 1)
+        closes = [argv[2] for argv in calls if argv[:2] == ['hyprctl', 'dispatch'] and 'window.close' in argv[2]]
+        self.assertEqual(len(closes), 4)
+        self.assertFalse(any('0xabc' in expression for expression in closes))
+        self.assertEqual(calls[-1], ['hyprctl', 'dispatch', 'hl.dsp.focus({workspace=2})'])
+
+    def test_capture_and_restore(self):
+        self.capture()
+
+    def test_capture_failure_still_restores(self):
+        self.capture(fail=True)
+
+    def test_dry_run_does_not_connect(self):
+        with patch.object(showcase, 'run') as run, patch.object(showcase.sys, 'argv', ['penumbra-showcase', '--dry-run']):
+            self.assertEqual(showcase.main(), 0)
+            run.assert_not_called()
+
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
 ## `tests/test_theme.py`
 
 ```python
@@ -3970,6 +4297,15 @@ class Engine(unittest.TestCase):
         for mode in palette.MODES:
             with self.subTest(mode=mode):
                 self.assertEqual(palette.generate(PALETTES[mode], palette.BASE_HUE, 1.0), PALETTES[mode])
+
+    def test_named_palettes_keep_contrast_in_both_modes(self):
+        for name in palette.PRESETS:
+            for mode in palette.MODES:
+                colors = palette.preset_palette(PALETTES, mode, name)
+                self.assertEqual(set(colors), set(PALETTES[mode]))
+                for a, b, least in palette.GUARDS:
+                    self.assertGreaterEqual(palette.contrast(colors[a], colors[b]), least, (name, mode, a, b))
+        self.assertEqual(palette.preset_palette(PALETTES, 'dark', 'event-horizon')['base'], '#040307')
 
     def test_light_templates_render(self):
         for template in sorted(p for p in TEMPLATES.rglob('*') if p.is_file()):
@@ -4197,7 +4533,8 @@ class Command(unittest.TestCase):
         self.assertIn(f'cursor {colors["accent"]}', (self.home / '.config/kitty/penumbra-colors.conf').read_text())
         self.assertEqual(json.loads(self.theme('get')),
                          {'mode': 'dark', 'colors': 'custom', 'hue': 190.0, 'vividness': 0.8, 'pick': 0,
-                          'harmonize': False, 'auto': 'dark',
+                          'harmonize': False, 'auto': 'dark', 'preset': '',
+                          'presets': [dict(id=k, **v) for k, v in palette.PRESETS.items()],
                           'candidates': json.loads((ROOT / 'share/penumbra/wallpaper-colors.json').read_text())['wallpaper']})
 
     def test_harmonize(self):
@@ -4234,6 +4571,22 @@ class Command(unittest.TestCase):
         before = self.calls().count('hyprctl eval hl.config({general')
         self.theme('set', 'colors=default', '--duration', '0')
         self.assertEqual(self.calls().count('hyprctl eval hl.config({general') - before, 1)
+
+    def test_preset_restore_preview_and_manual_override(self):
+        helper = self.home / '.local/bin/penumbra-wallpaper'
+        helper.write_text('#!/bin/sh\nprintf "%s" "$1" > "' + str(self.home / 'scene') + '"\n')
+        helper.chmod(0o755)
+        self.theme('set', 'preset=solar-corona')
+        self.assertEqual((self.home / 'scene').read_text(), 'wallpaper-dawn')
+        expected = palette.preset_palette(PALETTES, 'dark', 'solar-corona')
+        self.assertEqual(self.palette_json()['colors'], expected)
+        self.theme('preview', 'preset=starlight')
+        self.assertEqual(json.loads(self.theme('get'))['preset'], 'solar-corona')
+        self.theme('restore')
+        self.assertEqual(self.palette_json()['colors'], expected)
+        self.theme('set', 'hue=210')
+        self.assertEqual(json.loads(self.theme('get'))['preset'], '')
+        self.assertNotEqual(self.palette_json()['colors'], expected)
 
     def test_icons_follow_the_accent(self):
         live = self.home / '.local/share/icons/Penumbra'
@@ -4396,6 +4749,28 @@ class Widgets(unittest.TestCase):
                                     capture_output=True, text=True, timeout=25)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertGreater(Path(temp + '/widgets.png').stat().st_size, 10000)
+
+    def test_aesthetics_component_render(self):
+        with tempfile.TemporaryDirectory() as temp:
+            result = subprocess.run(['python', str(ROOT / 'tools/preview-polish.py'), temp + '/aesthetics.png'],
+                                    capture_output=True, text=True, timeout=25)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertGreater(Path(temp + '/aesthetics.png').stat().st_size, 10000)
+
+    def test_notes_save_survives_sidebar_lifetime(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / '.local/state/penumbra').mkdir(parents=True)
+            (folder / 'runtime').mkdir(mode=0o700)
+            shutil.copy2(preview.SHELL / 'Notes.qml', folder)
+            (folder / 'shell.qml').write_text('import QtQuick\nimport Quickshell\nShellRoot {\n    property bool notesReady: Notes.ready\n    Timer { interval: 100; running: true; onTriggered: { if (!Notes.ready) { Qt.exit(1); return; } Notes.edit("first draft"); } }\n    Timer { interval: 200; running: true; onTriggered: Notes.edit("kept after closing the sidebar") }\n    Timer { interval: 1200; running: true; onTriggered: Qt.exit(Notes.dirty || Notes.error ? 1 : 0) }\n}\n')
+            env = {**os.environ, 'HOME': temp, 'XDG_CONFIG_HOME': temp, 'XDG_CACHE_HOME': temp,
+                   'XDG_RUNTIME_DIR': str(folder / 'runtime'), 'QT_QPA_PLATFORM': 'offscreen', 'QT_QUICK_BACKEND': 'software'}
+            env.pop('WAYLAND_DISPLAY', None)
+            env.pop('HYPRLAND_INSTANCE_SIGNATURE', None)
+            result = subprocess.run(['quickshell', '-p', temp, '--no-color'], env=env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((folder / '.local/state/penumbra/notes.txt').read_text(), 'kept after closing the sidebar')
 
     def test_track_and_location_races(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -6320,6 +6695,163 @@ wl-copy < "$file"
 notify-send -a Penumbra -i "$file" 'Screenshot saved' "Copied to clipboard · ${file/#$HOME/\~}"
 ```
 
+## `bin/penumbra-showcase`
+
+```python
+#!/usr/bin/env python3
+"""Build an isolated four-terminal showcase, capture one output, then restore focus.
+
+Use --dry-run to inspect the plan; --video SECONDS records a 60 fps clip as well.
+While recording, demonstrate panels, Overview and Launcher with normal shortcuts.
+Only windows created by this invocation are closed. No theme/settings are changed.
+"""
+import argparse
+from datetime import datetime
+import json
+import os
+from pathlib import Path
+import shlex
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+
+
+def run(args, timeout=15):
+    result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or f'{args[0]} failed')
+    return result.stdout
+
+
+def dispatch(expr):
+    result = run(['hyprctl', 'dispatch', expr]).strip()
+    if result and result != 'ok':
+        raise RuntimeError(result)
+
+
+def quote(value):
+    return json.dumps(value, ensure_ascii=False)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    repo = Path(__file__).resolve().parents[1]
+    default = repo / 'previews' if (repo / 'AESTHETICS.md').exists() else Path.home() / 'Pictures/Penumbra'
+    parser.add_argument('--output', type=Path, default=default)
+    parser.add_argument('--monitor', help='output name; defaults to the focused monitor')
+    parser.add_argument('--video', type=int, default=0, metavar='SECONDS')
+    parser.add_argument('--delay', type=float, default=3, help='settle time before capture (0–30 seconds)')
+    parser.add_argument('--dry-run', action='store_true')
+    args = parser.parse_args()
+    if not 0 <= args.video <= 60 or not 0 <= args.delay <= 30:
+        parser.error('--video must be 0–60 and --delay 0–30')
+    if args.dry_run:
+        print(json.dumps({'output': str(args.output.resolve()), 'monitor': args.monitor or 'focused',
+                          'windows': ['Fastfetch', 'Cava', 'Neovim sample code', 'Palette swatches'],
+                          'workspace': 'unique, temporary named workspace', 'video_fps': 60 if args.video else None,
+                          'video_seconds': args.video, 'restore_focus': True, 'close_created_windows': True}, indent=2))
+        return 0
+    needed = ['hyprctl', 'kitty', 'fastfetch', 'cava', 'nvim', 'grim']
+    if args.video:
+        needed += ['wf-recorder', 'ffmpeg']
+    missing = [name for name in needed if not shutil.which(name)]
+    if missing:
+        raise RuntimeError('Missing tools: ' + ', '.join(missing))
+    monitors = json.loads(run(['hyprctl', '-j', 'monitors']))
+    focused = next((m for m in monitors if m.get('focused')), None)
+    monitor = next((m for m in monitors if m['name'] == args.monitor), None) if args.monitor else focused
+    if not monitor or not focused:
+        raise RuntimeError('No matching, active Hyprland output')
+    def selector(workspace):
+        return workspace['id'] if workspace['id'] > 0 else 'name:' + workspace['name']
+    old_workspace = selector(focused['activeWorkspace'])
+    old_target_workspace = selector(monitor['activeWorkspace'])
+    tag = 'penumbra-showcase-' + uuid.uuid4().hex[:12]
+    workspace = 'name:' + tag
+    out = args.output.resolve() / (datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + '-' + tag[-6:])
+    out.mkdir(parents=True, exist_ok=False)
+    recorder = None
+    classes = [tag + '-' + str(i) for i in range(4)]
+    try:
+        with tempfile.TemporaryDirectory(prefix=tag) as temp:
+            sample = Path(temp) / 'orbit.py'
+            sample.write_text('''"""PENUMBRA · orbit study"""
+from math import cos, sin, tau
+
+
+def orbit(radius, phase, samples=64):
+    for step in range(samples):
+        angle = tau * step / samples + phase
+        yield radius * cos(angle), radius * sin(angle)
+
+
+for x, y in orbit(240, 0.3):
+    print(f"{x:7.2f}  {y:7.2f}")
+''')
+            swatches = Path(temp) / 'swatches.py'
+            swatches.write_text('print("\\n  P E N U M B R A\\n  light at the edge of shadow\\n")\n'
+                                'for i in range(8):\n print("  " + "".join(f"\\033[48;5;{16+36*i+j}m    " for j in range(6)) + "\\033[0m\\n")\n')
+            commands = [['fastfetch'], ['cava'], ['nvim', '-R', '-n', str(sample)], [sys.executable, str(swatches)]]
+            dispatch('hl.dsp.focus({monitor=' + quote(monitor['name']) + '})')
+            dispatch('hl.dsp.focus({workspace=' + quote(workspace) + '})')
+            for cls, command in zip(classes, commands):
+                argv = ['kitty', '--class', cls, '--title', 'Penumbra Showcase', '--hold', *command]
+                # shlex quotes the command language; JSON quotes the enclosing Lua string.
+                expr = 'hl.dsp.exec_cmd(' + quote(shlex.join(argv)) + ', {workspace=' + quote(workspace) + ', tile=true})'
+                dispatch(expr)
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    if any(c.get('class') == cls for c in json.loads(run(['hyprctl', '-j', 'clients']))):
+                        break
+                    time.sleep(.1)
+                else:
+                    raise RuntimeError('Timed out opening ' + command[0])
+            time.sleep(args.delay)
+            run(['grim', '-o', monitor['name'], str(out / 'desktop.png')])
+            if args.video:
+                print(f'Recording {args.video}s at 60 fps. Demonstrate panels, Overview and Launcher now.', flush=True)
+                with (out / 'recording.log').open('w') as log:
+                    recorder = subprocess.Popen(['wf-recorder', '-o', monitor['name'], '-r', '60', '-f', str(out / 'hero.mp4')],
+                                                stdout=log, stderr=log)
+                    time.sleep(args.video)
+                    recorder.send_signal(signal.SIGINT)
+                    if recorder.wait(timeout=15):
+                        raise RuntimeError('wf-recorder failed; see recording.log')
+                    recorder = None
+                run(['ffmpeg', '-v', 'error', '-i', str(out / 'hero.mp4'), '-vf', 'fps=30,scale=960:-2',
+                     '-loop', '0', '-c:v', 'libwebp_anim', str(out / 'hero.webp')], timeout=120)
+            print(out)
+    finally:
+        if recorder and recorder.poll() is None:
+            recorder.send_signal(signal.SIGINT)
+            try:
+                recorder.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                recorder.terminate()
+        try:
+            for client in json.loads(run(['hyprctl', '-j', 'clients'])):
+                if client.get('class') in classes:
+                    dispatch('hl.dsp.window.close({window=' + quote('address:' + client['address']) + '})')
+            dispatch('hl.dsp.focus({workspace=' + quote(old_target_workspace) + '})')
+            dispatch('hl.dsp.focus({workspace=' + quote(old_workspace) + '})')
+        except (RuntimeError, subprocess.SubprocessError, ValueError) as error:
+            print('Could not restore showcase workspace: ' + str(error), file=sys.stderr)
+    return 0
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        sys.exit('penumbra-showcase: ' + str(error))
+    except KeyboardInterrupt:
+        sys.exit(130)
+```
+
 ## `bin/penumbra-terminal`
 
 ```bash
@@ -6411,6 +6943,7 @@ can reload their colours are told to; the others show them on their next start. 
 borders step through the fade with the shell, the folder icons take the accent, and VS Code's
 Penumbra themes are rewritten in place, which open windows follow.
 
+  penumbra-theme set preset=solar-corona   apply a named palette and matching scene
   penumbra-theme get                     the choice, as JSON
   penumbra-theme set KEY=VALUE...        check, save and apply; nothing changes if one is wrong
   penumbra-theme preview KEY=VALUE...    show a choice in the shell only, without saving it
@@ -6464,7 +6997,7 @@ except ImportError:
     sys.exit('penumbra-theme: ~/.local/share/penumbra/palette.py is missing; run ./install.sh --user-only.')
 
 DEFAULTS = {'mode': 'dark', 'colors': 'default', 'hue': palette.BASE_HUE, 'vividness': 1.0, 'pick': 0,
-            'harmonize': False, 'auto': 'dark'}
+            'harmonize': False, 'auto': 'dark', 'preset': ''}
 DURATIONS = {'set': 420, 'preview': 160, 'restore': 0, 'wallpaper': 1400}
 # Templates the engine leaves alone: the shell reads palette.json instead (a new palette.js would
 # restart it), and the login screen's files belong to root.
@@ -6476,7 +7009,10 @@ BOOLEANS = {'true': True, 'false': False, '1': True, '0': False}
 
 def problem(key, value):
     """Why VALUE won't do for KEY, or None."""
-    if key == 'mode':
+    if key == 'preset':
+        if not isinstance(value, str) or (value != '' and value not in palette.PRESETS):
+            return 'Unknown preset: ' + str(value)
+    elif key == 'mode':
         if value not in palette.MODES + ('auto',):
             return "Mode should be 'dark', 'light' or 'auto'."
     elif key == 'auto':
@@ -6807,7 +7343,8 @@ def apply(choice, duration, everything=True, wallpaper=None):
         sys.exit(f'penumbra-theme: {error}; run ./install.sh --user-only.')
     mode = shown_mode(choice)
     picked = accent(choice, wallpaper)
-    colors = palette.resolve(palettes, mode, *picked, choice['harmonize'])
+    colors = (palette.preset_palette(palettes, mode, choice['preset']) if choice.get('preset')
+              else palette.resolve(palettes, mode, *picked, choice['harmonize']))
     try:
         old = json.loads(PALETTE_JSON.read_text())['colors']
     except (OSError, ValueError, KeyError, TypeError):
@@ -6820,7 +7357,8 @@ def apply(choice, duration, everything=True, wallpaper=None):
         fade_hyprland(old, colors, mode, duration)
     # The files' other mode comes from the same choice, for the ones that hold both ({{light.name}}).
     other = 'light' if mode == 'dark' else 'dark'
-    palettes = {mode: colors, other: palette.resolve(palettes, other, *picked, choice['harmonize'])}
+    palettes = {mode: colors, other: (palette.preset_palette(palettes, other, choice['preset'])
+                if choice.get('preset') else palette.resolve(palettes, other, *picked, choice['harmonize']))}
     changed = render_files(palettes, mode)
     icons = recolor_icons(picked)
     apply_mode(mode)
@@ -6853,7 +7391,8 @@ def parse(args):
 def main():
     command, args = (sys.argv[1], sys.argv[2:]) if len(sys.argv) > 1 else ('', [])
     if command == 'get':
-        print(json.dumps({**load(), 'candidates': wallpaper_accents(current_wallpaper())}))
+        print(json.dumps({**load(), 'candidates': wallpaper_accents(current_wallpaper()),
+                          'presets': [dict(id=k, **v) for k, v in palette.PRESETS.items()]}))
     elif command == 'wallpaper':
         name = args.pop(0) if args and not args[0].startswith('--') else current_wallpaper()
         if name not in BUILT_IN:
@@ -6878,10 +7417,22 @@ def main():
         updates, duration = parse(args)
         if command == 'restore' and updates:
             sys.exit('penumbra-theme: restore takes no settings; use set.')
+        if 'preset' in updates and updates['preset']:
+            p = palette.PRESETS[updates['preset']]
+            updates = {**{k: p[k] for k in ('mode', 'hue', 'vividness')},
+                       'colors': 'custom', 'harmonize': True, **updates}
+        elif set(updates) & {'colors', 'hue', 'vividness', 'harmonize'}:
+            updates.setdefault('preset', '')
         choice = {**load(), **updates}
         if command == 'set':
             write(CHOICE, json.dumps(choice) + '\n')
         apply(choice, DURATIONS[command] if duration is None else duration, everything=command != 'preview')
+        if command == 'set' and updates.get('preset'):
+            helper = Path(__file__).resolve().with_name('penumbra-wallpaper')
+            result = (subprocess.run([str(helper), palette.PRESETS[updates['preset']]['wallpaper']], check=False)
+                      if helper.is_file() else None)
+            if result is None or result.returncode:
+                print('Palette applied; matching wallpaper could not be selected.', file=sys.stderr)
     else:
         sys.exit(__doc__.strip())
 
@@ -7090,7 +7641,7 @@ valid() {
 choices() {
  printf '%s\n' "${names[@]}"
  [[ -d $folder ]] || return 0
- find "$folder" -maxdepth 1 -type f -regextype posix-extended -iregex ".*\.($stills|$moving)" | LC_ALL=C sort
+ find "$folder" -maxdepth 1 -type f -regextype posix-extended -iregex ".*\.($stills|$moving)" ! -iname "*-fg.png" | LC_ALL=C sort
 }
 # still FILE: a PNG of the file's first frame, which awww and the lock screen can show.
 still() {
@@ -7445,15 +7996,15 @@ end
 /* PENUMBRA colours for GTK 3. Generated by tools/build-palette.py from palette/palette.toml; do not edit. */
 @define-color theme_selected_bg_color #916dcf;
 @define-color theme_selected_fg_color #ffffff;
-@define-color theme_bg_color #100d18;
+@define-color theme_bg_color alpha(#100d18, 0.84);
 @define-color theme_fg_color #e9e1f5;
-@define-color theme_base_color #0d0a12;
+@define-color theme_base_color alpha(#0d0a12, 0.84);
 @define-color theme_text_color #e9e1f5;
 @define-color accent_color #b69af7;
 @define-color accent_bg_color #916dcf;
 @define-color accent_fg_color #ffffff;
-window, dialog { background-color: #100d18; color: #e9e1f5; }
-headerbar { background: #16111f; color: #e9e1f5; }
+window, dialog { background-color: alpha(#100d18, 0.84); color: #e9e1f5; }
+headerbar { background: alpha(#16111f, 0.76); color: #e9e1f5; }
 selection { background-color: #916dcf; color: #ffffff; }
 ```
 
@@ -7628,13 +8179,14 @@ hl.config({
  misc = {disable_hyprland_logo = true, disable_splash_rendering = true, force_default_wallpaper = 0, allow_session_lock_restore = true},
 })
 hl.curve("penumbra", {type = "bezier", points = {{0.16, 1}, {0.3, 1}}})
+hl.curve("overshoot", {type = "bezier", points = {{0.05, 0.9}, {0.1, 1.04}}})
 hl.curve("soft", {type = "bezier", points = {{0.4, 0}, {0.2, 1}}})
 hl.curve("linear", {type = "bezier", points = {{0, 0}, {1, 1}}})
 for _, a in ipairs({
- {"windows", 4.5, "penumbra", "slide"}, {"windowsIn", 4, "penumbra", "popin 94%"},
+ {"windows", 4.5, "penumbra", "slide"}, {"windowsIn", 4, "overshoot", "popin 88%"},
  {"windowsOut", 3, "soft", "popin 96%"}, {"border", 5, "penumbra", nil},
  {"borderangle", 60, "linear", "loop"},
- {"fade", 3, "soft", nil}, {"workspaces", 4.5, "penumbra", "slide"},
+ {"fade", 3, "soft", nil}, {"workspaces", 4.5, "overshoot", "slidefade 18%"},
  {"layers", 3.5, "penumbra", "fade"}
 }) do hl.animation({leaf=a[1], enabled=true, speed=a[2], bezier=a[3], style=a[4]}) end
 local function exec(key, cmd) hl.bind(key, hl.dsp.exec_cmd(cmd)) end
@@ -8638,19 +9190,20 @@ PanelWindow {
     screen: modelData
 
     anchors { top: true; left: true; right: true }
-    margins { top: 10; left: Theme.edge; right: Theme.edge }
-    implicitHeight: Theme.barHeight
+    readonly property bool island: Settings.barStyle === "island"
+    margins { top: island ? 0 : 10; left: Settings.barStyle === "framed" ? 3 : Theme.edge; right: Settings.barStyle === "framed" ? 3 : Theme.edge }
+    implicitHeight: Theme.barHeight + (island ? 10 : 0)
     exclusiveZone: Theme.barHeight + 4
     color: "transparent"
     WlrLayershell.namespace: "penumbra-bar"
 
     // Explicit layout coordinates keep the origin live as capsules resize or appear.
     readonly property var panelOrigins: ({
-        calendar: margins.left + leftSide.x + clockCapsule.x + clockCapsule.width / 2,
-        control: margins.left + rightSide.x + controls.x + controls.width / 2,
-        monitor: margins.left + rightSide.x + monitor.x + monitor.width / 2,
-        updates: margins.left + rightSide.x + updatesCapsule.x + updatesCapsule.width / 2,
-        wallpapers: margins.left + rightSide.x + controls.x + controls.width / 2
+        calendar: margins.left + content.x + leftSide.x + clockCapsule.x + clockCapsule.width / 2,
+        control: margins.left + content.x + rightSide.x + controls.x + controls.width / 2,
+        monitor: margins.left + content.x + rightSide.x + monitor.x + monitor.width / 2,
+        updates: margins.left + content.x + rightSide.x + updatesCapsule.x + updatesCapsule.width / 2,
+        wallpapers: margins.left + content.x + rightSide.x + controls.x + controls.width / 2
     })
     onPanelOriginsChanged: if (screen) Ui.setPanelOrigins(screen.name, panelOrigins)
     Component.onCompleted: if (screen) Ui.setPanelOrigins(screen.name, panelOrigins)
@@ -8663,7 +9216,17 @@ PanelWindow {
 
     Item {
     id: content
-    anchors.fill: parent
+    anchors.horizontalCenter: parent.horizontalCenter
+    y: bar.island ? 6 : 0
+    width: bar.island ? Math.min(bar.width, leftSide.implicitWidth + rightSide.implicitWidth + 3 * Theme.gap) : bar.width
+    height: Theme.barHeight
+    Rectangle { anchors.fill: parent; visible: Settings.barStyle === "framed"; color: Theme.surface }
+    IslandSurface {
+        visible: bar.island
+        x: -Theme.gap; y: -6
+        width: parent.width + 2 * Theme.gap
+        height: parent.height + 10
+    }
     HoverHandler {
         onPointChanged: bar.updateTip(point.position)
         onHoveredChanged: if (!hovered) bar.updateTip(null)
@@ -8698,19 +9261,30 @@ PanelWindow {
             }
         }
 
+        // Weather uses the same opt-in cached request as Calendar.
+        Capsule {
+            id: weatherCapsule
+            shown: Settings.weatherEnabled && Settings.weatherInBar && !!Weather.current && !Weather.stale
+            padding: 10
+            tip: Weather.description
+            onClicked: Ui.toggle("calendar")
+            Glyph { text: Weather.current?.weather_code === 0 ? "󰖙" : "󰖐"; color: Theme.accentBright }
+            Label { text: Math.round(Weather.current?.temperature_2m ?? 0) + "°" }
+        }
+
         WorkspaceStrip {
             id: workspaceStrip
             workspaces: Hyprland.workspaces.values
                 .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
                 .sort((a, b) => a.id - b.id)
-            showIcons: content.width - rightSide.width > 850
+            showIcons: Settings.workspaceStyle === "icons" && bar.width - rightSide.width > 850
         }
 
         MediaCapsule {
             // Reserve the status area first; long titles elide and small screens keep just art + spectrum.
-            titleWidth: Math.max(0, Math.min(140, content.width - rightSide.width
+            titleWidth: Math.max(0, Math.min(140, bar.width - rightSide.width
                 - workspaceStrip.implicitWidth - clockCapsule.implicitWidth - launcherCapsule.implicitWidth
-                - 5 * Theme.gap - 108))
+                - weatherCapsule.implicitWidth * weatherCapsule.reveal - 6 * Theme.gap - 108))
         }
     }
 
@@ -8733,7 +9307,7 @@ PanelWindow {
             }
             readonly property real availableWidth: 2 * Math.min(content.width / 2 - leftSide.x - leftSide.width,
                 rightSide.x - content.width / 2) - 2 * Theme.gap
-            shown: availableWidth >= 80 && !!client && client.activated && text !== "" && client.screens.some(s => s.name === bar.screen.name)
+            shown: !bar.island && availableWidth >= 80 && !!client && client.activated && text !== "" && client.screens.some(s => s.name === bar.screen.name)
             interactive: false
             padding: 15
             spacing: 8
@@ -9238,7 +9812,7 @@ Panel {
     id: root
     originKey: "calendar"
     anchors { top: true; left: true }
-    margins.left: Theme.edge - shadowRoom
+    margins.left: edgeMargin - shadowRoom
     sheetWidth: 320
     open: Ui.calendarOpen
     onDismissed: Ui.dismiss()
@@ -9468,6 +10042,8 @@ import QtQuick.Layouts
 // A floating glass pill; children are laid out in a row.
 Rectangle {
     id: root
+    scale: Theme.reducedMotion ? 1 : (interactive ? (mouse.pressed ? 0.96 : hovered ? 1.02 : 1) : 1)
+    Behavior on scale { enabled: !Theme.reducedMotion; SpringAnimation { spring: 5; damping: 0.7 } }
 
     default property alias content: row.data
     property alias spacing: row.spacing
@@ -9494,9 +10070,9 @@ Rectangle {
     implicitHeight: Theme.barHeight
     implicitWidth: row.implicitWidth + padding * 2
     radius: Theme.corner(height / 2)
-    color: active ? Theme.accent : (interactive && hovered ? Theme.hover : Theme.glass)
+    color: active ? Theme.accent : (interactive && hovered ? Theme.hover : Settings.barStyle === "floating" ? Theme.glass : "transparent")
     border.width: 1
-    border.color: active ? Theme.accentBright : Theme.line
+    border.color: active ? Theme.accentBright : Settings.barStyle === "floating" ? Theme.line : "transparent"
     Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
     Behavior on implicitWidth { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
 
@@ -9536,7 +10112,7 @@ Rectangle {
     // The lit top edge the panels have, so the bar reads as the same glass.
     GlassEdge {
         radius: root.radius
-        strength: root.active ? 0.55 : 0.2
+        strength: root.active ? 0.55 : Settings.barStyle === "floating" ? 0.2 : 0
     }
 
     RowLayout {
@@ -9544,6 +10120,27 @@ Rectangle {
         anchors.centerIn: parent
         spacing: 6
     }
+}
+```
+
+## `config/quickshell/penumbra/CardLight.qml`
+
+```qml
+import QtQuick
+
+ShaderEffect {
+    id: root
+    anchors.fill: parent
+    property real radius: 0
+    property point pointer: Qt.point(width / 2, height / 2)
+    property bool hovered: false
+    property real glow: hovered ? 1 : 0
+    Behavior on glow { NumberAnimation { duration: Theme.fast } }
+    readonly property size size: Qt.size(width, height)
+    readonly property color tint: Theme.accent
+    readonly property color light: Theme.highlight
+    fragmentShader: "shaders/card-light.frag.qsb"
+    GlassEdge { radius: root.radius; strength: 0.14 }
 }
 ```
 
@@ -10068,7 +10665,7 @@ Panel {
     id: root
     originKey: "control"
     anchors { top: true; right: true }
-    margins.right: Theme.edge - shadowRoom
+    margins.right: edgeMargin - shadowRoom
     sheetWidth: 400
     open: Ui.controlOpen
     onDismissed: Ui.dismiss()
@@ -10206,6 +10803,13 @@ Panel {
                 active: Ui.controlPage === "apps"
                 visible: active
                 sourceComponent: Component { AppsPage {} }
+            }
+
+            Loader {
+                Layout.fillWidth: true
+                active: Ui.controlPage === "notes"
+                visible: active
+                sourceComponent: Component { NotesPage {} }
             }
 
             ColumnLayout {
@@ -12469,6 +13073,33 @@ ColumnLayout {
 }
 ```
 
+## `config/quickshell/penumbra/IslandSurface.qml`
+
+```qml
+import QtQuick
+import QtQuick.Shapes
+
+// A top-docked island with concave shoulders and rounded lower corners.
+Shape {
+    id: root
+    property real radius: Theme.corner(16)
+    preferredRendererType: Shape.CurveRenderer
+    ShapePath {
+        strokeColor: "transparent"
+        fillColor: Theme.glassStrong
+        startX: 0; startY: 0
+        PathLine { x: root.width; y: 0 }
+        PathQuad { x: root.width - root.radius; y: root.radius; controlX: root.width - root.radius; controlY: 0 }
+        PathLine { x: root.width - root.radius; y: root.height - root.radius }
+        PathQuad { x: root.width - 2 * root.radius; y: root.height; controlX: root.width - root.radius; controlY: root.height }
+        PathLine { x: 2 * root.radius; y: root.height }
+        PathQuad { x: root.radius; y: root.height - root.radius; controlX: root.radius; controlY: root.height }
+        PathLine { x: root.radius; y: root.radius }
+        PathQuad { x: 0; y: 0; controlX: root.radius; controlY: 0 }
+    }
+}
+```
+
 ## `config/quickshell/penumbra/KeyboardPage.qml`
 
 ```qml
@@ -12697,6 +13328,10 @@ PanelWindow {
     readonly property var symbols: charactersUsed ? Symbols.groups.reduce((all, g) => all.concat(g[1].map(s => ({ char: s[0], name: s[1], group: g[0] }))), []) : []
     property var emoji: []
     property var results: []
+    readonly property var selectedResult: results[view.currentIndex] ?? null
+    readonly property bool showPreview: width >= 1080 && !characters
+        && ["app", "action", "window", "clip", "pin"].includes(selectedResult?.kind)
+    property var readyThumbs: ({})
     property var clips: []
     property var usage: ({}) // desktop entry id → { score, at } (frecency, see search.js)
     property var picks: ({}) // emoji or symbol → times picked
@@ -13079,10 +13714,10 @@ PanelWindow {
     Shadow { target: card }
     Rectangle {
         id: card
-        width: 640
+        width: root.showPreview ? 960 : Math.min(640, root.width - 32)
         x: (parent.width - width) / 2
         y: Math.round(parent.height * 0.17)
-        implicitHeight: column.implicitHeight + 24
+        implicitHeight: Math.max(root.showPreview ? 370 : 0, column.implicitHeight + 24)
         height: implicitHeight
         radius: Theme.radiusLarge
         color: Theme.glassStrong
@@ -13093,6 +13728,15 @@ PanelWindow {
         Behavior on opacity { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
         Behavior on scale { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
         Behavior on height { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
+
+        LauncherPreview {
+            anchors { top: parent.top; right: parent.right; bottom: parent.bottom; margins: 12 }
+            width: 304
+            visible: root.showPreview
+            active: visible && Ui.launcherOpen
+            result: root.selectedResult
+            clipImage: root.selectedResult?.kind === "clip" ? root.readyThumbs[root.selectedResult.clip.id] ?? "" : ""
+        }
 
         // Swallow clicks so they don't reach the backdrop.
         MouseArea { anchors.fill: parent }
@@ -13105,7 +13749,7 @@ PanelWindow {
             id: column
             x: 12
             y: 12
-            width: parent.width - 24
+            width: root.showPreview ? 616 : parent.width - 24
             spacing: 8
 
             // Search field and mode switch.
@@ -13293,7 +13937,12 @@ PanelWindow {
                                 running: row.isImage
                                 command: ["bash", "-c", 'f=$1; [ -s "$f" ] || { mkdir -p "${f%/*}"; printf "%s" "$2" | cliphist decode > "$f"; }',
                                     "_", `${root.thumbs}/${row.modelData.clip?.id}.${row.modelData.clip?.image}`, row.modelData.clip?.line ?? ""]
-                                onExited: thumb.source = `file://${root.thumbs}/${row.modelData.clip.id}.${row.modelData.clip.image}`
+                                onExited: exitCode => {
+                                    if (exitCode !== 0) return;
+                                    const source = Ui.fileUrl(`${root.thumbs}/${row.modelData.clip.id}.${row.modelData.clip.image}`);
+                                    thumb.source = source;
+                                    root.readyThumbs = Object.assign({}, root.readyThumbs, { [row.modelData.clip.id]: source });
+                                }
                             }
                         }
 
@@ -13505,6 +14154,94 @@ PanelWindow {
         radius: card.radius
         opacity: card.opacity
         scale: card.scale
+    }
+}
+```
+
+## `config/quickshell/penumbra/LauncherPreview.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Wayland
+import Quickshell.Widgets
+
+// Selected-result details. Live capture stops as soon as the launcher closes.
+Rectangle {
+    id: root
+    property var result: null
+    property bool active: false
+    property url clipImage: ""
+    readonly property var entry: result?.entry ?? null
+    readonly property string kind: result?.kind ?? ""
+    radius: Theme.radius
+    color: Theme.raised
+    border.color: Theme.line
+    clip: true
+    CardLight { radius: root.radius }
+    ColumnLayout {
+        anchors { fill: parent; margins: 18 }
+        spacing: 12
+        ClippingRectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 140
+            radius: Theme.radiusSmall
+            color: Theme.surface
+            Loader {
+                anchors.fill: parent
+                active: root.active && root.kind === "window"
+                sourceComponent: ScreencopyView {
+                    captureSource: root.result?.toplevel ?? null
+                    live: root.active
+                    constraintSize: Qt.size(width, height)
+                }
+            }
+            Image {
+                anchors.fill: parent
+                visible: root.kind === "clip" && root.clipImage.toString() !== ""
+                source: visible ? root.clipImage : ""
+                asynchronous: true
+                sourceSize: Qt.size(560, 280)
+                fillMode: Image.PreserveAspectFit
+            }
+            IconImage {
+                anchors.centerIn: parent
+                implicitSize: 64
+                visible: ["app", "action"].includes(root.kind)
+                source: visible ? Quickshell.iconPath(root.entry?.icon || "", "application-x-executable") : ""
+                asynchronous: true
+            }
+            Glyph {
+                anchors.centerIn: parent
+                visible: !["app", "action", "window"].includes(root.kind) && !root.clipImage.toString()
+                text: "󰅍"; size: 40; color: Theme.accentBright
+            }
+        }
+        Label {
+            Layout.fillWidth: true
+            text: root.kind === "window" ? root.result?.toplevel?.title ?? ""
+                : root.entry?.name ?? (root.kind === "pin" ? "Pinned note" : "Clipboard")
+            wrapMode: Text.Wrap
+            maximumLineCount: 3
+            font.pixelSize: Theme.textTitle
+            font.weight: Font.DemiBold
+        }
+        Label {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            text: root.entry?.comment || root.entry?.genericName || root.result?.text || root.result?.clip?.text || ""
+            wrapMode: Text.Wrap
+            verticalAlignment: Text.AlignTop
+            color: Theme.textSoft
+            maximumLineCount: 8
+        }
+        Label {
+            Layout.fillWidth: true
+            text: root.kind === "window" ? "Enter to focus" : ["clip", "pin"].includes(root.kind) ? "Enter to copy" : "Enter to launch"
+            color: Theme.muted
+            font.pixelSize: Theme.textSmall
+        }
     }
 }
 ```
@@ -14177,6 +14914,7 @@ Singleton {
     readonly property string mode: choice.mode === "auto" ? (choice.auto === "light" ? "light" : "dark") : choice.mode
     // The accents penumbra-theme found in the current wallpaper, the strongest first: [{ hue, vividness }].
     property var candidates: []
+    property var presets: []
     // The one colors=wallpaper uses, or null when the wallpaper has none (the default accent then).
     readonly property var wallpaperAccent: candidates.length ? candidates[Math.min(choice.pick ?? 0, candidates.length - 1)] : null
     property string error: ""
@@ -14184,7 +14922,7 @@ Singleton {
 
     // "Dark · Default colours · Rounded", for the Settings row.
     readonly property string summary: [({ light: "Light", auto: "Auto" })[choice.mode] ?? "Dark",
-        ({ custom: "Custom colours", wallpaper: "Wallpaper colours" })[choice.colors] ?? "Default colours",
+        presets.find(p => p.id === choice.preset)?.title ?? ({ custom: "Custom colours", wallpaper: "Wallpaper colours" })[choice.colors] ?? "Default colours",
         Theme.sharp ? "Sharp" : "Rounded"].join(" · ")
 
     // Change some: { mode: "light" }, faded in over `duration` ms (penumbra-theme's own when
@@ -14224,6 +14962,8 @@ Singleton {
     // Show a choice in the shell only, without saving it or touching the apps (while a slider is
     // dragged); the latest one wins. Saving the choice on release replaces the preview.
     function preview(changes) {
+        if (Object.keys(changes).some(k => ["colors", "hue", "vividness", "harmonize"].includes(k)))
+            changes = Object.assign({}, changes, { preset: "" });
         previewing = Object.assign({}, choice, changes);
         if (!previewer.running)
             showPreview();
@@ -14266,6 +15006,8 @@ Singleton {
                 }
                 root.candidates = got.candidates ?? [];
                 delete got.candidates;
+                root.presets = got.presets ?? [];
+                delete got.presets;
                 // A change still on its way would be undone for a moment.
                 if (!setter.running && !Object.keys(root.pending).length)
                     root.choice = Object.assign({}, root.choice, got);
@@ -14563,6 +15305,73 @@ ColumnLayout {
         }
     }
 
+    Section { text: "Curated palettes" }
+    GridLayout {
+        Layout.fillWidth: true
+        columns: 2
+        columnSpacing: 8
+        rowSpacing: 8
+        Repeater {
+            model: Look.presets
+            delegate: Choice {
+                required property var modelData
+                title: modelData.title
+                current: Look.choice.preset === modelData.id
+                onPicked: Look.set({ preset: modelData.id })
+                Rectangle {
+                    anchors.fill: parent
+                    color: modelData.base
+                    radius: Theme.radiusSmall
+                    Rectangle {
+                        anchors { fill: parent; margins: 9 }
+                        radius: Theme.radiusSmall
+                        color: modelData.surface
+                        border.color: modelData.accent
+                        Label { anchors.centerIn: parent; text: "Aa  ◯"; color: modelData.accent; font.pixelSize: 22 }
+                    }
+                }
+            }
+        }
+    }
+    Label {
+        Layout.fillWidth: true
+        text: "A complete palette and matching wallpaper scene. Custom colours below clear the preset."
+        wrapMode: Text.Wrap
+        color: Theme.dim
+        font.pixelSize: Theme.textSmall
+    }
+
+    Section { text: "Bar style" }
+    Segmented {
+        Layout.fillWidth: true
+        current: Settings.barStyle
+        options: [{ value: "floating", title: "Capsules" }, { value: "island", title: "Island" }, { value: "framed", title: "Framed" }]
+        onChosen: value => Settings.barStyle = value
+    }
+    Section { text: "Workspaces" }
+    Segmented {
+        Layout.fillWidth: true
+        current: Settings.workspaceStyle
+        options: [{ value: "pills", title: "Numbers" }, { value: "icons", title: "Numbers + icons" }, { value: "dots", title: "Dots" }]
+        onChosen: value => Settings.workspaceStyle = value
+    }
+    Section { text: "Volume and brightness" }
+    Segmented {
+        Layout.fillWidth: true
+        current: Settings.osdPosition
+        options: [{ value: "bottom", title: "Bottom" }, { value: "top", title: "Top island" }]
+        onChosen: value => Settings.osdPosition = value
+    }
+    Section { text: "Glass frost" }
+    SliderRow {
+        Layout.fillWidth: true
+        glyph: "󰂓"
+        from: -0.15; to: 0.28; stepSize: 0.01
+        value: Settings.glassFrost
+        label: Math.round((value + 0.15) / 0.43 * 100) + "%"
+        onMoved: value => Settings.glassFrost = value
+    }
+
     Section { text: "Mode" }
     Segmented {
         Layout.fillWidth: true
@@ -14851,7 +15660,7 @@ ColumnLayout {
     Section { text: "Desktop depth" }
     SwitchRow {
         title: "Depth clock"
-        subtitle: "Time and date behind the planet in Dawn and Eclipse"
+        subtitle: "Time behind Dawn, Eclipse or a custom foreground mask"
         glyph: "󰥔"
         checked: Settings.desktopClock
         onToggled: Settings.desktopClock = !Settings.desktopClock
@@ -14877,6 +15686,14 @@ ColumnLayout {
         glyph: "󰖐"
         checked: Settings.weatherEnabled
         onToggled: Settings.weatherEnabled = !Settings.weatherEnabled
+    }
+    SwitchRow {
+        visible: Settings.weatherEnabled
+        title: "Weather beside the clock"
+        subtitle: "Temperature and sky conditions in the bar"
+        glyph: "󰖐"
+        checked: Settings.weatherInBar
+        onToggled: Settings.weatherInBar = !Settings.weatherInBar
     }
     PillButton { text: "Choose location"; onClicked: Ui.controlPage = "night" }
     Section { text: "Floating dock" }
@@ -15127,18 +15944,72 @@ Singleton {
 ```qml
 import QtQuick
 import QtQuick.Layouts
+import Quickshell
 import Quickshell.Widgets
 
 Capsule {
     id: root
     property real titleWidth: 140
-    shown: !!Media.playing
+    shown: !!Media.player
     padding: 12
     spacing: 10
-    tip: Media.player ? [Media.player.trackTitle, Media.player.trackArtist].filter(t => t).join(" · ") + "\nMiddle-click to pause · scroll to skip" : ""
+    tip: ""
     // The player can disappear during the exit animation.
-    onClicked: m => m.button === Qt.MiddleButton ? Media.player?.togglePlaying() : Ui.toggle("control")
+    onClicked: m => {
+        if (m.button === Qt.MiddleButton) Media.player?.togglePlaying();
+        else { pinned = !popup.visible || !pinned; popup.visible = pinned; }
+    }
     onScrolled: step => step > 0 ? Media.player?.previous() : Media.player?.next()
+
+    property bool pinned: false
+    property color artTint: Theme.accentBright
+    onHoveredChanged: hovered ? openDelay.restart() : closeDelay.restart()
+    onShownChanged: if (!shown) { pinned = false; popup.visible = false; }
+    property Timer openDelay: Timer {
+        interval: 280
+        onTriggered: if (root.hovered && Media.player) popup.visible = true
+    }
+    property Timer closeDelay: Timer {
+        interval: 350
+        onTriggered: if (!root.hovered && !popup.hovered && !root.pinned) popup.visible = false
+    }
+    property MediaPopover popup: MediaPopover {
+        anchor.item: root
+        onHoveredChanged: if (!hovered) root.closeDelay.restart()
+        onDismissed: { root.pinned = false; visible = false; }
+    }
+    // Quantize a tiny cover sample; use its most common saturated colour for the spectrum.
+    // This runs once per cover, never once per audio frame.
+    property Canvas sampler: Canvas {
+        parent: root
+        width: 16; height: 16; opacity: 0
+        property string art: Media.player?.trackArtUrl ?? ""
+        property string previous: ""
+        onArtChanged: {
+            root.artTint = Theme.accentBright;
+            if (previous) unloadImage(previous);
+            previous = art;
+            if (art) loadImage(art);
+        }
+        onImageLoaded: requestPaint()
+        onAvailableChanged: if (available) requestPaint()
+        onPaint: {
+            if (!art || !isImageLoaded(art)) return;
+            const ctx = getContext("2d");
+            ctx.clearRect(0, 0, 16, 16); ctx.drawImage(art, 0, 0, 16, 16);
+            const pixels = ctx.getImageData(0, 0, 16, 16).data;
+            const buckets = {}; let best = null;
+            for (let i = 0; i < pixels.length; i += 4) {
+                const r = pixels[i], g = pixels[i+1], b = pixels[i+2];
+                if (pixels[i+3] < 128 || Math.max(r,g,b) < 65 || Math.max(r,g,b)-Math.min(r,g,b) < 25) continue;
+                const key = [r >> 5, g >> 5, b >> 5].join(",");
+                const v = buckets[key] ?? (buckets[key] = {n: 0, r: 0, g: 0, b: 0});
+                v.n++; v.r += r; v.g += g; v.b += b;
+                if (!best || v.n > best.n) best = v;
+            }
+            if (best) root.artTint = Qt.rgba(best.r / best.n / 255, best.g / best.n / 255, best.b / best.n / 255, 1);
+        }
+    }
 
     ClippingRectangle {
         implicitWidth: 24
@@ -15180,10 +16051,104 @@ Capsule {
                 width: 3
                 height: 5 + (Media.bars[index] ?? 0) * 13
                 radius: Theme.corner(1.5)
-                color: Theme.accentBright
+                color: root.artTint
                 Behavior on height { NumberAnimation { duration: 60 * Theme.motion } }
             }
         }
+    }
+}
+```
+
+## `config/quickshell/penumbra/MediaPopover.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Widgets
+
+PopupWindow {
+    id: root
+    property var player: Media.player
+    property bool hovered: hover.hovered
+    signal dismissed()
+    implicitWidth: 340
+    implicitHeight: body.implicitHeight + 32
+    color: "transparent"
+    anchor.edges: Edges.Bottom
+    anchor.gravity: Edges.Bottom
+    anchor.margins.top: 4
+
+    Rectangle {
+        anchors.fill: parent
+        radius: Theme.radiusLarge
+        color: Theme.glassStrong
+        border.color: Theme.line
+        opacity: root.visible ? 1 : 0
+        scale: root.visible ? 1 : 0.94
+        transformOrigin: Item.Top
+        Behavior on scale { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutBack } }
+        GlassEdge { radius: parent.radius }
+        HoverHandler { id: hover }
+        ColumnLayout {
+            id: body
+            anchors { left: parent.left; right: parent.right; top: parent.top; margins: 16 }
+            spacing: 10
+            RowLayout {
+                spacing: 12
+                ClippingRectangle {
+                    implicitWidth: 64; implicitHeight: 64
+                    radius: Theme.radiusSmall
+                    color: Theme.raised
+                    Image {
+                        id: art
+                        anchors.fill: parent
+                        source: root.player?.trackArtUrl ?? ""
+                        sourceSize: Qt.size(128, 128)
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                    }
+                    Glyph { anchors.centerIn: parent; visible: art.status !== Image.Ready; text: "󰎆"; size: 26 }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Label { Layout.fillWidth: true; text: root.player?.trackTitle || "Nothing playing"; font.weight: Font.Bold }
+                    Label { Layout.fillWidth: true; text: root.player?.trackArtist ?? ""; color: Theme.muted }
+                }
+                PillButton { text: "×"; onClicked: root.dismissed() }
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignHCenter
+                PillButton { text: "󰒮"; available: root.player?.canGoPrevious ?? false; onClicked: root.player?.previous() }
+                PillButton { text: root.player?.isPlaying ? "󰏤" : "󰐊"; primary: true; available: root.player?.canTogglePlaying ?? false; onClicked: root.player?.togglePlaying() }
+                PillButton { text: "󰒭"; available: root.player?.canGoNext ?? false; onClicked: root.player?.next() }
+                PillButton { text: "Lyrics"; primary: lyrics.active; onClicked: lyrics.active = !lyrics.active }
+            }
+            SliderRow {
+                Layout.fillWidth: true
+                visible: Media.hasLength(root.player)
+                enabled: root.player?.canSeek ?? false
+                glyph: "󰎆"
+                to: Math.max(1, root.player?.length ?? 1)
+                value: root.player?.position ?? 0
+                label: Media.time(value)
+                labelWidth: 45
+                onMoved: value => { if (root.player?.canSeek) root.player.position = value; }
+            }
+            LyricsView {
+                id: lyrics
+                Layout.fillWidth: true
+                visible: active
+                player: root.player
+                onVisibleChanged: if (!root.visible) active = false
+            }
+        }
+    }
+    onVisibleChanged: if (!visible) lyrics.active = false
+    Timer {
+        interval: 250; repeat: true
+        running: root.visible && !!root.player?.isPlaying
+        onTriggered: root.player?.positionChanged()
     }
 }
 ```
@@ -15426,7 +16391,7 @@ Panel {
     id: root
     originKey: "monitor"
     anchors { top: true; right: true }
-    margins.right: Theme.edge - shadowRoom
+    margins.right: edgeMargin - shadowRoom
     sheetWidth: 440
     open: Ui.monitorOpen
     onDismissed: Ui.dismiss()
@@ -15579,6 +16544,7 @@ Panel {
         border.color: Theme.line
         Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
+        CardLight { parent: meter; radius: meter.radius }
         MouseArea {
             id: meterArea
             anchors.fill: parent
@@ -16496,6 +17462,104 @@ ColumnLayout {
 }
 ```
 
+## `config/quickshell/penumbra/Notes.qml`
+
+```qml
+pragma Singleton
+import QtQuick
+import Quickshell
+import Quickshell.Io
+
+// Keep the draft and pending save alive when the sidebar page closes.
+Singleton {
+    id: root
+    property string draft: ""
+    property bool ready: false
+    property bool dirty: false
+    property string error: ""
+    property string writing: ""
+    function edit(text) {
+        draft = text;
+        dirty = true;
+        settle.restart();
+    }
+    function save() {
+        if (!ready || !dirty) return;
+        error = "";
+        writing = draft;
+        file.setText(writing);
+    }
+    Timer { id: settle; interval: 400; onTriggered: root.save() }
+    FileView {
+        id: file
+        path: Quickshell.env("HOME") + "/.local/state/penumbra/notes.txt"
+        printErrors: false
+        onLoaded: { root.draft = text(); root.ready = true; }
+        onLoadFailed: code => {
+            root.ready = code === FileViewError.FileNotFound;
+            if (!root.ready) root.error = "Couldn't read notes";
+        }
+        onSaved: {
+            root.dirty = root.draft !== root.writing;
+            if (root.dirty) settle.restart();
+        }
+        onSaveFailed: root.error = "Couldn't save notes. Your draft is still here; retry when storage is available."
+    }
+}
+```
+
+## `config/quickshell/penumbra/NotesPage.qml`
+
+```qml
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+ColumnLayout {
+    spacing: 12
+    PageHeader {
+        Layout.fillWidth: true
+        title: "Quick notes"
+        status: Notes.error || (Notes.dirty ? "Saving…" : "Saved on this computer")
+        showSwitch: false
+        onBack: Ui.controlPage = "settings"
+    }
+    Rectangle {
+        Layout.fillWidth: true
+        implicitHeight: 300
+        radius: Theme.radius
+        color: Theme.raised
+        border.color: Theme.line
+        ScrollView {
+            anchors { fill: parent; margins: 12 }
+            clip: true
+            TextArea {
+                enabled: Notes.ready
+                text: Notes.draft
+                placeholderText: "A thought to keep close…"
+                wrapMode: TextEdit.Wrap
+                color: Theme.text
+                placeholderTextColor: Theme.dim
+                selectionColor: Theme.accentDeep
+                selectedTextColor: Theme.white
+                font.family: Theme.sans
+                font.pixelSize: Theme.textBody
+                background: null
+                onTextChanged: if (activeFocus && text !== Notes.draft) Notes.edit(text)
+            }
+        }
+    }
+    PillButton { visible: Notes.error !== ""; text: "Retry save"; onClicked: Notes.save() }
+    Label {
+        Layout.fillWidth: true
+        text: "Local plain text · ~/.local/state/penumbra/notes.txt"
+        wrapMode: Text.Wrap
+        font.pixelSize: Theme.textSmall
+        color: Theme.dim
+    }
+}
+```
+
 ## `config/quickshell/penumbra/NotificationCard.qml`
 
 ```qml
@@ -16538,6 +17602,7 @@ Rectangle {
     border.color: critical ? Theme.rose : compact ? Theme.line : Theme.lineStrong
     Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
+    CardLight { radius: root.radius }
     Shadow {
         z: -1
         target: root
@@ -17134,13 +18199,22 @@ import Quickshell.Wayland
 PanelWindow {
     id: root
     screen: Ui.screen
-    anchors.bottom: true
+    readonly property bool atTop: Settings.osdPosition === "top"
+    anchors.bottom: !atTop
+    anchors.top: atTop
     // Room around the pill for its shadow.
     readonly property int shadowRoom: 16
-    margins.bottom: 80 - shadowRoom
+    margins.bottom: atTop ? 0 : 80 - shadowRoom
+    margins.top: 0
     exclusionMode: ExclusionMode.Ignore
     implicitWidth: 300 + 2 * shadowRoom
     implicitHeight: 58 + 2 * shadowRoom
+    IslandSurface {
+        x: root.shadowRoom; y: 0
+        width: parent.width - 2 * root.shadowRoom; height: parent.height - root.shadowRoom
+        visible: root.atTop
+        opacity: pill.opacity
+    }
     visible: Ui.osdVisible || pill.opacity > 0
     color: "transparent"
     mask: Region {}
@@ -17165,7 +18239,7 @@ PanelWindow {
         id: pill
         anchors { fill: parent; margins: root.shadowRoom }
         radius: Theme.corner(height / 2)
-        color: Theme.glassStrong
+        color: root.atTop ? "transparent" : Theme.glassStrong
         border.color: Theme.line
         opacity: Ui.osdVisible ? 1 : 0
         scale: Ui.osdVisible ? 1 : 0.92
@@ -17417,6 +18491,8 @@ PanelWindow {
                     model: root.workspaces
                     delegate: ColumnLayout {
                         id: tile
+                        required property int index
+                        StaggerReveal { shown: Ui.overviewOpen; order: tile.index }
                         required property var modelData
                         readonly property var workspace: modelData.workspace
                         readonly property var monitor: workspace?.monitor ?? Hyprland.focusedMonitor
@@ -17675,6 +18751,10 @@ PanelWindow {
         (Ui.panelOrigins[screen?.name]?.[originKey] ?? (anchors.right ? screen?.width ?? sheetWidth : 0))
         - (anchors.right ? (screen?.width ?? implicitWidth) - margins.right - implicitWidth : margins.left)
         - shadowRoom))
+    readonly property real attachedLeft: Math.max(Theme.edge, Math.min((screen?.width ?? 1920) - sheetWidth - Theme.edge,
+        (Ui.panelOrigins[screen?.name]?.[originKey] ?? (screen?.width ?? 1920) / 2) - sheetWidth / 2))
+    readonly property real edgeMargin: Settings.barStyle === "island"
+        ? (anchors.right ? (screen?.width ?? 1920) - attachedLeft - sheetWidth : attachedLeft) : Theme.edge
     property real expansion: open ? 1 : 0
     Behavior on expansion {
         enabled: !Theme.reducedMotion
@@ -17699,7 +18779,7 @@ PanelWindow {
     // A fixed-height surface; only the sheet takes input, so it can grow and shrink smoothly.
     implicitHeight: (screen?.height ?? 1080) - margins.top - Theme.edge
     mask: Region { item: sheet }
-    margins.top: Theme.barHeight + 10 + Theme.gap - shadowRoom
+    margins.top: Theme.barHeight + 10 + (Settings.barStyle === "floating" ? Theme.gap : 0) - shadowRoom
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "penumbra-panel"
     WlrLayershell.keyboardFocus: open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
@@ -17724,6 +18804,15 @@ PanelWindow {
             yScale: xScale
         }
 
+        Rectangle {
+            visible: Settings.barStyle !== "floating"
+            x: Math.max(0, Math.min(parent.width - width, panel.originX - width / 2))
+            y: -12
+            width: Math.min(parent.width, 100)
+            height: 24
+            color: Theme.glassStrong
+            opacity: sheet.opacity
+        }
         Shadow { target: sheet }
         Rectangle {
             id: sheet
@@ -17760,6 +18849,8 @@ import QtQuick
 // Small text button used inside expanded rows.
 Rectangle {
     id: root
+    scale: Theme.reducedMotion ? 1 : (available ? (area.pressed ? 0.96 : area.containsMouse ? 1.02 : 1) : 1)
+    Behavior on scale { enabled: !Theme.reducedMotion; SpringAnimation { spring: 5; damping: 0.7 } }
 
     property string text
     property bool primary: false
@@ -18197,7 +19288,7 @@ PanelWindow {
     id: root
     required property var modelData
     screen: modelData
-    visible: Settings.screenFrame && !(Hyprland.monitorFor(screen)?.activeWorkspace?.hasFullscreen ?? false)
+    visible: (Settings.screenFrame || Settings.barStyle === "framed") && !(Hyprland.monitorFor(screen)?.activeWorkspace?.hasFullscreen ?? false)
     anchors { top: true; bottom: true; left: true; right: true }
     exclusionMode: ExclusionMode.Ignore
     color: "transparent"
@@ -18765,6 +19856,7 @@ PanelWindow {
                         Behavior on scale { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
                         Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
+                        CardLight { radius: tile.radius; pointer: Qt.point(tileMouse.mouseX, tileMouse.mouseY); hovered: tileMouse.containsMouse }
                         ColumnLayout {
                             anchors.centerIn: parent
                             spacing: 12
@@ -18783,6 +19875,7 @@ PanelWindow {
                             }
                         }
                         MouseArea {
+                            id: tileMouse
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
@@ -18822,6 +19915,11 @@ Singleton {
     // Optional desktop depth and a frame joined to the bar.
     property alias desktopClock: adapter.desktopClock
     property alias desktopAura: adapter.desktopAura
+    property alias barStyle: adapter.barStyle
+    property alias workspaceStyle: adapter.workspaceStyle
+    property alias osdPosition: adapter.osdPosition
+    property alias glassFrost: adapter.glassFrost
+    property alias weatherInBar: adapter.weatherInBar
     property alias screenFrame: adapter.screenFrame
     property alias weatherEnabled: adapter.weatherEnabled
     property alias dockMode: adapter.dockMode
@@ -18895,6 +19993,11 @@ Singleton {
             property bool stillOnBattery: true
             property bool desktopClock: false
             property bool desktopAura: false
+            property string barStyle: "floating"
+            property string workspaceStyle: "icons"
+            property string osdPosition: "bottom"
+            property real glassFrost: 0
+            property bool weatherInBar: false
             property bool screenFrame: false
             property bool weatherEnabled: false
             property string dockMode: "off" // off, auto, empty
@@ -18954,6 +20057,7 @@ ColumnLayout {
 
     // What search finds: a page to open (page), or a row of this page (page: "settings").
     readonly property var index: [
+        { page: "notes", glyph: "󰎞", title: "Quick notes", words: "notes draft text writing local sidebar" },
         { page: "look", glyph: "󰏘", title: "Look", words: "theme dark light auto colours colors accent hue vividness corners rounded sharp harmonize depth clock audio aura screen frame bezel" },
         { page: "displays", glyph: "󰍹", title: "Displays", words: "monitors screens resolution refresh rate scale rotation arrangement" },
         { page: "keyboard", glyph: "󰌌", title: "Keyboard", words: "layout variant options num lock xkb" },
@@ -19062,6 +20166,7 @@ ColumnLayout {
             spacing: 2
             Repeater {
                 model: [
+                    { page: "notes", glyph: "󰎞", title: "Quick notes", subtitle: "A local draft, saved as you type" },
                     { page: "look", glyph: "󰏘", title: "Look", subtitle: Look.summary },
                     { page: "displays", glyph: "󰍹", title: "Displays", subtitle: Quickshell.screens.length > 1 ? `${Quickshell.screens.length} screens · arrangement, resolution, scale` : "Resolution, refresh rate, scale" },
                     { page: "keyboard", glyph: "󰌌", title: "Keyboard", subtitle: (Config.values.kb_layout ?? "").split(",").map(l => Config.layoutName(l)).join(", ") },
@@ -19360,6 +20465,7 @@ RowLayout {
         Layout.fillWidth: true
         // The custom background and handle give no implicit height, which would leave a 0 px hit area.
         implicitHeight: 36
+        hoverEnabled: true
         from: root.from
         to: root.to
         stepSize: root.stepSize
@@ -19369,13 +20475,14 @@ RowLayout {
             x: slider.leftPadding
             y: slider.topPadding + slider.availableHeight / 2 - height / 2
             width: slider.availableWidth
-            height: 8
-            radius: Theme.corner(4)
+            height: slider.hovered || slider.pressed ? 12 : 6
+            radius: Theme.corner(height / 2)
+            Behavior on height { NumberAnimation { duration: Theme.fast } }
             color: Theme.raised
             Rectangle {
                 width: slider.visualPosition * parent.width
                 height: parent.height
-                radius: Theme.corner(4)
+                radius: Theme.corner(height / 2)
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
                     GradientStop { position: 0; color: Theme.accentDeep }
@@ -19392,6 +20499,17 @@ RowLayout {
             color: Theme.white
             border.color: Theme.accent
             border.width: 2
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: -height - 8
+                width: bubble.implicitWidth + 16
+                height: 26
+                radius: Theme.corner(13)
+                visible: slider.pressed
+                color: Theme.surface
+                border.color: Theme.accent
+                Label { id: bubble; anchors.centerIn: parent; text: root.label; color: Theme.text }
+            }
             Behavior on width { NumberAnimation { duration: Theme.fast } }
         }
     }
@@ -19864,8 +20982,8 @@ Singleton {
     // colour below, and every binding on them, crossfades instead of snapping.
     readonly property color base: mix("base")
     readonly property color surface: mix("surface")
-    readonly property color glass: alpha(surface, level("glass"))
-    readonly property color glassStrong: alpha(surface, level("glassStrong"))
+    readonly property color glass: alpha(surface, Math.min(1, Math.max(0.4, level("glass") + Settings.glassFrost)))
+    readonly property color glassStrong: alpha(surface, Math.min(1, Math.max(0.55, level("glassStrong") + Settings.glassFrost)))
     readonly property color raised: alpha(mix("glassRaised"), level("raised"))
     readonly property color hover: mix("hover")
     readonly property color line: alpha(accent, level("line"))
@@ -20058,6 +21176,8 @@ import QtQuick.Layouts
 // Quick-settings toggle: click the body to toggle, the chevron for more.
 Rectangle {
     id: root
+    scale: Theme.reducedMotion ? 1 : (available ? (body.pressed ? 0.96 : body.containsMouse ? 1.02 : 1) : 1)
+    Behavior on scale { enabled: !Theme.reducedMotion; SpringAnimation { spring: 5; damping: 0.7 } }
 
     property string glyph
     property string title
@@ -20076,6 +21196,7 @@ Rectangle {
     opacity: available ? 1 : 0.45
     Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
+    CardLight { radius: root.radius; pointer: Qt.point(body.mouseX, body.mouseY); hovered: body.containsMouse }
     MouseArea {
         id: body
         anchors.fill: parent
@@ -20341,7 +21462,7 @@ Panel {
     id: root
     originKey: "updates"
     anchors { top: true; right: true }
-    margins.right: Theme.edge - shadowRoom
+    margins.right: edgeMargin - shadowRoom
     sheetWidth: 400
     open: Ui.updatesOpen
     onDismissed: Ui.dismiss()
@@ -20857,6 +21978,7 @@ Singleton {
 import QtQuick
 import QtMultimedia
 import Quickshell
+import Quickshell.Io
 import Quickshell.Hyprland
 import Quickshell.Services.UPower
 import Quickshell.Wayland
@@ -20875,7 +21997,34 @@ Scope {
     // Depth widgets still need the layered scene when wallpaper motion is disabled.
     readonly property bool depthScene: Ui.wallpaperKind(chosen) === "scene"
         && (Settings.desktopClock || Settings.desktopAura)
-    readonly property string target: depthScene || (Settings.animatedWallpapers && !Settings.reducedMotion
+    readonly property bool customDepth: chosen.startsWith("/") && Ui.wallpaperKind(chosen) === "still" && Settings.desktopClock
+    property string depthMask: ""
+    property string sceneMask: ""
+    onSceneChanged: sceneMask = depthMask
+    onChosenChanged: maskCheck.restart()
+    onCustomDepthChanged: maskCheck.restart()
+    Timer {
+        id: maskCheck
+        interval: 100
+        onTriggered: {
+            root.depthMask = "";
+            if (!root.customDepth || maskProbe.running) return;
+            maskProbe.wallpaper = root.chosen;
+            maskProbe.candidate = root.chosen.replace(/\.[^/.]+$/, "-fg.png");
+            maskProbe.command = ["test", "-f", maskProbe.candidate];
+            maskProbe.running = true;
+        }
+    }
+    Process {
+        id: maskProbe
+        property string wallpaper
+        property string candidate
+        onExited: (exitCode, exitStatus) => {
+            if (wallpaper !== root.chosen) maskCheck.restart();
+            else if (root.customDepth && exitCode === 0) root.depthMask = candidate;
+        }
+    }
+    readonly property string target: depthMask !== "" || depthScene || (Settings.animatedWallpapers && !Settings.reducedMotion
         && Ui.wallpaperKind(chosen) !== "still") ? chosen : ""
     property string scene: ""
     // awww's transition is still running.
@@ -20977,8 +22126,31 @@ Scope {
                         // Nothing for a still or no scene: a video player with no video would
                         // still load FFmpeg and wake the GPUs' video decoders.
                         sourceComponent: ({ "wallpaper-dawn": dawn, "wallpaper-eclipse": eclipse })[root.scene]
-                            ?? ({ "gif": gif, "video": video })[Ui.wallpaperKind(root.scene)] ?? null
+                            ?? ({ "gif": gif, "video": video })[Ui.wallpaperKind(root.scene)] ?? (root.customDepth ? depth : null)
 
+                        Component {
+                            id: depth
+                            Item {
+                                width: window.width; height: window.height
+                                DesktopDepth {
+                                    anchors.fill: parent
+                                    active: foreground.status === Image.Ready
+                                    running: window.running
+                                    center: Qt.point(parent.width / 2, parent.height / 2)
+                                    orbitRadius: parent.height * 0.22
+                                    clockY: parent.height * 0.15
+                                    scale: Math.min(1, parent.width / 1100)
+                                    transformOrigin: Item.Top
+                                }
+                                Image {
+                                    id: foreground
+                                    anchors.fill: parent
+                                    source: Ui.fileUrl(root.sceneMask)
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                }
+                            }
+                        }
                         Component {
                             id: dawn
                             DawnScene {
@@ -21048,7 +22220,7 @@ Panel {
     id: root
     originKey: "wallpapers"
     anchors { top: true; right: true }
-    margins.right: Theme.edge - shadowRoom
+    margins.right: edgeMargin - shadowRoom
     sheetWidth: 620
     open: Ui.wallpapersOpen
     onDismissed: Ui.dismiss()
@@ -21073,11 +22245,21 @@ Panel {
 
     // The highlighted choice: Penumbra's three, then yours, read as one three-column grid.
     property int selected: 0
-    readonly property int total: scenes.length + yours.count
+    property var customFiles: []
+    function refreshFiles() {
+        const files = [];
+        for (let i = 0; i < yours.count; i++) {
+            const path = yours.get(i, "filePath");
+            if (path && !path.toLowerCase().endsWith("-fg.png")) files.push(path);
+        }
+        customFiles = files;
+        if (open) selectCurrent();
+    }
+    readonly property int total: scenes.length + customFiles.length
     function selectCurrent() {
         const scene = scenes.findIndex(s => s.name === Ui.wallpaper);
-        let mine = yours.count - 1;
-        while (mine >= 0 && yours.get(mine, "filePath") !== Ui.wallpaper)
+        let mine = customFiles.length - 1;
+        while (mine >= 0 && customFiles[mine] !== Ui.wallpaper)
             mine--;
         select(scene >= 0 ? scene : mine >= 0 ? scenes.length + mine : 0);
     }
@@ -21086,8 +22268,9 @@ Panel {
         target: yours
         function onStatusChanged() {
             if (yours.status === FolderListModel.Ready && root.open)
-                root.selectCurrent();
+                root.refreshFiles();
         }
+        function onCountChanged() { root.refreshFiles(); }
     }
     function select(index) {
         selected = Math.max(0, Math.min(total - 1, index));
@@ -21101,7 +22284,7 @@ Panel {
             flick.contentY = item.y + item.height - flick.height;
     }
     function choose(index) {
-        const name = index < scenes.length ? scenes[index].name : yours.get(index - scenes.length, "filePath");
+        const name = index < scenes.length ? scenes[index].name : customFiles[index - scenes.length];
         if (name && name !== Ui.wallpaper)
             Ui.spawn([Ui.bin + "penumbra-wallpaper", name]);
     }
@@ -21275,7 +22458,7 @@ Panel {
 
         Overline { text: "Yours" }
         Label {
-            visible: yours.count === 0
+            visible: root.customFiles.length === 0
             Layout.fillWidth: true
             wrapMode: Text.Wrap
             text: "Put images, GIFs and videos in ~/Pictures/Wallpapers, or right-click one in Lia Files or Dolphin and choose Set as Wallpaper."
@@ -21283,7 +22466,7 @@ Panel {
         }
         Flickable {
             id: flick
-            visible: yours.count > 0
+            visible: root.customFiles.length > 0
             Layout.fillWidth: true
             // Two rows and a peek at the third.
             Layout.preferredHeight: Math.min(contentHeight, root.cell * 1.45 + 60)
@@ -21296,9 +22479,10 @@ Panel {
                 spacing: 10
                 Repeater {
                     id: mine
-                    model: yours
+                    model: root.customFiles
                     delegate: Choice {
-                        required property string filePath
+                        required property string modelData
+                        readonly property string filePath: modelData
                         required property int index
                         position: root.scenes.length + index
                         readonly property string kind: Ui.wallpaperKind(filePath)
@@ -21746,7 +22930,8 @@ Rectangle {
     id: root
     required property var workspaces
     // Compact to numbers when the rest of the bar needs the space.
-    property bool showIcons: true
+    property string style: Settings.workspaceStyle
+    property bool showIcons: style === "icons"
     readonly property int activeIndex: workspaces.findIndex(w => w.active)
     readonly property Item activeItem: spaces.count > activeIndex && activeIndex >= 0 ? spaces.itemAt(activeIndex) : null
     readonly property real targetLeft: activeItem ? activeItem.x + row.x : 4
@@ -21808,7 +22993,7 @@ Rectangle {
                 readonly property bool current: modelData.active
                 readonly property var windows: modelData.toplevels.values
                 readonly property string tip: "Workspace " + modelData.name + (windows.length ? " · " + windows.length + " windows" : "")
-                width: Math.max(36, contents.implicitWidth + 20)
+                width: root.style === "dots" ? 28 : Math.max(36, contents.implicitWidth + 20)
                 height: root.height - 8
                 radius: Theme.corner(height / 2)
                 color: current ? "transparent" : modelData.urgent ? Theme.alpha(Theme.rose, 0.3) : mouse.containsMouse ? Theme.hover : "transparent"
@@ -21817,7 +23002,14 @@ Rectangle {
                     id: contents
                     anchors.centerIn: parent
                     spacing: 5
+                    Rectangle {
+                        visible: root.style === "dots"
+                        implicitWidth: 7; implicitHeight: 7
+                        radius: Theme.corner(3.5)
+                        color: workspace.current ? Theme.onAccent : workspace.modelData.urgent ? Theme.rose : Theme.muted
+                    }
                     Label {
+                        visible: root.style !== "dots"
                         text: workspace.modelData.name
                         color: workspace.current ? Theme.onAccent : workspace.modelData.urgent ? Theme.rose : Theme.textSoft
                         font.weight: workspace.current ? Font.Bold : Font.DemiBold
@@ -22413,6 +23605,34 @@ function currency(text) {
 }
 ```
 
+## `config/quickshell/penumbra/shaders/card-light.frag`
+
+```glsl
+#version 440
+layout(location = 0) in vec2 qt_TexCoord0;
+layout(location = 0) out vec4 fragColor;
+layout(std140, binding = 0) uniform buf {
+    mat4 qt_Matrix;
+    float qt_Opacity;
+    float radius;
+    vec2 pointer;
+    float glow;
+    vec2 size;
+    vec4 tint;
+    vec4 light;
+};
+void main() {
+    vec2 p = qt_TexCoord0 * size;
+    float r = min(radius, min(size.x, size.y) * .5);
+    vec2 q = abs(p - .5 * size) - .5 * size + r;
+    float d = min(max(q.x, q.y), 0.) + length(max(q, 0.)) - r;
+    float mask = clamp(.5 - d, 0., 1.);
+    float wash = .035 * (1. - qt_TexCoord0.y);
+    float spot = .12 * glow * exp(-dot(p - pointer, p - pointer) / 7000.);
+    fragColor = vec4(light.rgb * wash + tint.rgb * spot, wash + spot) * mask * qt_Opacity;
+}
+```
+
 ## `config/quickshell/penumbra/shaders/glass-edge.frag`
 
 ```glsl
@@ -22479,8 +23699,8 @@ ShellRoot {
         delegate: Scope {
             id: output
             required property var modelData
-            Bar { modelData: output.modelData }
             ScreenFrame { modelData: output.modelData }
+            Bar { modelData: output.modelData }
             Dock { modelData: output.modelData; locked: lockScreen.locked }
         }
     }

@@ -9,7 +9,7 @@ PanelWindow {
     id: root
     required property var modelData
     screen: modelData
-    visible: Settings.screenFrame && !(Hyprland.monitorFor(screen)?.activeWorkspace?.hasFullscreen ?? false)
+    visible: (Settings.screenFrame || Settings.barStyle === "framed") && !(Hyprland.monitorFor(screen)?.activeWorkspace?.hasFullscreen ?? false)
     anchors { top: true; bottom: true; left: true; right: true }
     exclusionMode: ExclusionMode.Ignore
     color: "transparent"

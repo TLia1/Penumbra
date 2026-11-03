@@ -14,19 +14,20 @@ PanelWindow {
     screen: modelData
 
     anchors { top: true; left: true; right: true }
-    margins { top: 10; left: Theme.edge; right: Theme.edge }
-    implicitHeight: Theme.barHeight
+    readonly property bool island: Settings.barStyle === "island"
+    margins { top: island ? 0 : 10; left: Settings.barStyle === "framed" ? 3 : Theme.edge; right: Settings.barStyle === "framed" ? 3 : Theme.edge }
+    implicitHeight: Theme.barHeight + (island ? 10 : 0)
     exclusiveZone: Theme.barHeight + 4
     color: "transparent"
     WlrLayershell.namespace: "penumbra-bar"
 
     // Explicit layout coordinates keep the origin live as capsules resize or appear.
     readonly property var panelOrigins: ({
-        calendar: margins.left + leftSide.x + clockCapsule.x + clockCapsule.width / 2,
-        control: margins.left + rightSide.x + controls.x + controls.width / 2,
-        monitor: margins.left + rightSide.x + monitor.x + monitor.width / 2,
-        updates: margins.left + rightSide.x + updatesCapsule.x + updatesCapsule.width / 2,
-        wallpapers: margins.left + rightSide.x + controls.x + controls.width / 2
+        calendar: margins.left + content.x + leftSide.x + clockCapsule.x + clockCapsule.width / 2,
+        control: margins.left + content.x + rightSide.x + controls.x + controls.width / 2,
+        monitor: margins.left + content.x + rightSide.x + monitor.x + monitor.width / 2,
+        updates: margins.left + content.x + rightSide.x + updatesCapsule.x + updatesCapsule.width / 2,
+        wallpapers: margins.left + content.x + rightSide.x + controls.x + controls.width / 2
     })
     onPanelOriginsChanged: if (screen) Ui.setPanelOrigins(screen.name, panelOrigins)
     Component.onCompleted: if (screen) Ui.setPanelOrigins(screen.name, panelOrigins)
@@ -39,7 +40,17 @@ PanelWindow {
 
     Item {
     id: content
-    anchors.fill: parent
+    anchors.horizontalCenter: parent.horizontalCenter
+    y: bar.island ? 6 : 0
+    width: bar.island ? Math.min(bar.width, leftSide.implicitWidth + rightSide.implicitWidth + 3 * Theme.gap) : bar.width
+    height: Theme.barHeight
+    Rectangle { anchors.fill: parent; visible: Settings.barStyle === "framed"; color: Theme.surface }
+    IslandSurface {
+        visible: bar.island
+        x: -Theme.gap; y: -6
+        width: parent.width + 2 * Theme.gap
+        height: parent.height + 10
+    }
     HoverHandler {
         onPointChanged: bar.updateTip(point.position)
         onHoveredChanged: if (!hovered) bar.updateTip(null)
@@ -74,19 +85,30 @@ PanelWindow {
             }
         }
 
+        // Weather uses the same opt-in cached request as Calendar.
+        Capsule {
+            id: weatherCapsule
+            shown: Settings.weatherEnabled && Settings.weatherInBar && !!Weather.current && !Weather.stale
+            padding: 10
+            tip: Weather.description
+            onClicked: Ui.toggle("calendar")
+            Glyph { text: Weather.current?.weather_code === 0 ? "󰖙" : "󰖐"; color: Theme.accentBright }
+            Label { text: Math.round(Weather.current?.temperature_2m ?? 0) + "°" }
+        }
+
         WorkspaceStrip {
             id: workspaceStrip
             workspaces: Hyprland.workspaces.values
                 .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
                 .sort((a, b) => a.id - b.id)
-            showIcons: content.width - rightSide.width > 850
+            showIcons: Settings.workspaceStyle === "icons" && bar.width - rightSide.width > 850
         }
 
         MediaCapsule {
             // Reserve the status area first; long titles elide and small screens keep just art + spectrum.
-            titleWidth: Math.max(0, Math.min(140, content.width - rightSide.width
+            titleWidth: Math.max(0, Math.min(140, bar.width - rightSide.width
                 - workspaceStrip.implicitWidth - clockCapsule.implicitWidth - launcherCapsule.implicitWidth
-                - 5 * Theme.gap - 108))
+                - weatherCapsule.implicitWidth * weatherCapsule.reveal - 6 * Theme.gap - 108))
         }
     }
 
@@ -109,7 +131,7 @@ PanelWindow {
             }
             readonly property real availableWidth: 2 * Math.min(content.width / 2 - leftSide.x - leftSide.width,
                 rightSide.x - content.width / 2) - 2 * Theme.gap
-            shown: availableWidth >= 80 && !!client && client.activated && text !== "" && client.screens.some(s => s.name === bar.screen.name)
+            shown: !bar.island && availableWidth >= 80 && !!client && client.activated && text !== "" && client.screens.some(s => s.name === bar.screen.name)
             interactive: false
             padding: 15
             spacing: 8

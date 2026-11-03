@@ -10,7 +10,7 @@ Panel {
     id: root
     originKey: "calendar"
     anchors { top: true; left: true }
-    margins.left: Theme.edge - shadowRoom
+    margins.left: edgeMargin - shadowRoom
     sheetWidth: 320
     open: Ui.calendarOpen
     onDismissed: Ui.dismiss()

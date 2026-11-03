@@ -22,6 +22,28 @@ class Widgets(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertGreater(Path(temp + '/widgets.png').stat().st_size, 10000)
 
+    def test_aesthetics_component_render(self):
+        with tempfile.TemporaryDirectory() as temp:
+            result = subprocess.run(['python', str(ROOT / 'tools/preview-polish.py'), temp + '/aesthetics.png'],
+                                    capture_output=True, text=True, timeout=25)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertGreater(Path(temp + '/aesthetics.png').stat().st_size, 10000)
+
+    def test_notes_save_survives_sidebar_lifetime(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / '.local/state/penumbra').mkdir(parents=True)
+            (folder / 'runtime').mkdir(mode=0o700)
+            shutil.copy2(preview.SHELL / 'Notes.qml', folder)
+            (folder / 'shell.qml').write_text('import QtQuick\nimport Quickshell\nShellRoot {\n    property bool notesReady: Notes.ready\n    Timer { interval: 100; running: true; onTriggered: { if (!Notes.ready) { Qt.exit(1); return; } Notes.edit("first draft"); } }\n    Timer { interval: 200; running: true; onTriggered: Notes.edit("kept after closing the sidebar") }\n    Timer { interval: 1200; running: true; onTriggered: Qt.exit(Notes.dirty || Notes.error ? 1 : 0) }\n}\n')
+            env = {**os.environ, 'HOME': temp, 'XDG_CONFIG_HOME': temp, 'XDG_CACHE_HOME': temp,
+                   'XDG_RUNTIME_DIR': str(folder / 'runtime'), 'QT_QPA_PLATFORM': 'offscreen', 'QT_QUICK_BACKEND': 'software'}
+            env.pop('WAYLAND_DISPLAY', None)
+            env.pop('HYPRLAND_INSTANCE_SIGNATURE', None)
+            result = subprocess.run(['quickshell', '-p', temp, '--no-color'], env=env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((folder / '.local/state/penumbra/notes.txt').read_text(), 'kept after closing the sidebar')
+
     def test_track_and_location_races(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)

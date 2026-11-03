@@ -18,6 +18,7 @@ Singleton {
     readonly property string mode: choice.mode === "auto" ? (choice.auto === "light" ? "light" : "dark") : choice.mode
     // The accents penumbra-theme found in the current wallpaper, the strongest first: [{ hue, vividness }].
     property var candidates: []
+    property var presets: []
     // The one colors=wallpaper uses, or null when the wallpaper has none (the default accent then).
     readonly property var wallpaperAccent: candidates.length ? candidates[Math.min(choice.pick ?? 0, candidates.length - 1)] : null
     property string error: ""
@@ -25,7 +26,7 @@ Singleton {
 
     // "Dark · Default colours · Rounded", for the Settings row.
     readonly property string summary: [({ light: "Light", auto: "Auto" })[choice.mode] ?? "Dark",
-        ({ custom: "Custom colours", wallpaper: "Wallpaper colours" })[choice.colors] ?? "Default colours",
+        presets.find(p => p.id === choice.preset)?.title ?? ({ custom: "Custom colours", wallpaper: "Wallpaper colours" })[choice.colors] ?? "Default colours",
         Theme.sharp ? "Sharp" : "Rounded"].join(" · ")
 
     // Change some: { mode: "light" }, faded in over `duration` ms (penumbra-theme's own when
@@ -65,6 +66,8 @@ Singleton {
     // Show a choice in the shell only, without saving it or touching the apps (while a slider is
     // dragged); the latest one wins. Saving the choice on release replaces the preview.
     function preview(changes) {
+        if (Object.keys(changes).some(k => ["colors", "hue", "vividness", "harmonize"].includes(k)))
+            changes = Object.assign({}, changes, { preset: "" });
         previewing = Object.assign({}, choice, changes);
         if (!previewer.running)
             showPreview();
@@ -107,6 +110,8 @@ Singleton {
                 }
                 root.candidates = got.candidates ?? [];
                 delete got.candidates;
+                root.presets = got.presets ?? [];
+                delete got.presets;
                 // A change still on its way would be undone for a moment.
                 if (!setter.running && !Object.keys(root.pending).length)
                     root.choice = Object.assign({}, root.choice, got);
