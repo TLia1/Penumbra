@@ -5,7 +5,6 @@ import Quickshell.Widgets
 
 Capsule {
     id: root
-    property real titleWidth: 140
     shown: !!Media.player
     padding: 12
     spacing: 10
@@ -87,13 +86,6 @@ Capsule {
             size: 15
             color: Theme.accentBright
         }
-    }
-    Label {
-        visible: root.titleWidth >= 40
-        Layout.maximumWidth: root.titleWidth
-        text: Media.player?.trackTitle || Media.appName(Media.player)
-        font.weight: Font.DemiBold
-        color: Theme.textSoft
     }
     Row {
         visible: Ui.hasVisualizer

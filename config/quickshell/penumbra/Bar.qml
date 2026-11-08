@@ -104,12 +104,7 @@ PanelWindow {
             showIcons: Settings.workspaceStyle === "icons" && bar.width - rightSide.width > 850
         }
 
-        MediaCapsule {
-            // Reserve the status area first; long titles elide and small screens keep just art + spectrum.
-            titleWidth: Math.max(0, Math.min(140, bar.width - rightSide.width
-                - workspaceStrip.implicitWidth - clockCapsule.implicitWidth - launcherCapsule.implicitWidth
-                - weatherCapsule.implicitWidth * weatherCapsule.reveal - 6 * Theme.gap - 108))
-        }
+        MediaCapsule {}
     }
 
     // ── Center ──────────────────────────────────────────────────────
@@ -367,11 +362,18 @@ PanelWindow {
     // ── Tooltip ─────────────────────────────────────────────────────
     property Item tipTarget: null
     function updateTip(pos) {
-        const target = pos ? capsuleAt(pos) : null;
+        const target = pos && !Ui.openPanel ? capsuleAt(pos) : null;
         if (target !== tipTarget) {
             tipTarget = target;
             tipWindow.visible = false;
             tipDelay.restart();
+        }
+    }
+    Connections {
+        target: Ui
+        function onOpenPanelChanged() {
+            if (Ui.openPanel)
+                bar.updateTip(null);
         }
     }
     // Innermost item under the pointer that declares a tooltip.
@@ -388,7 +390,7 @@ PanelWindow {
     Timer {
         id: tipDelay
         interval: 550
-        onTriggered: tipWindow.visible = !!bar.tipTarget && bar.tipTarget.tip !== ""
+        onTriggered: tipWindow.visible = !!bar.tipTarget && bar.tipTarget.tip !== "" && !Ui.openPanel
     }
     PopupWindow {
         id: tipWindow
@@ -399,6 +401,7 @@ PanelWindow {
         implicitWidth: tipText.implicitWidth + 24
         implicitHeight: tipText.implicitHeight + 16
         color: "transparent"
+        mask: Region {}
         Rectangle {
             anchors.fill: parent
             radius: Theme.radiusSmall

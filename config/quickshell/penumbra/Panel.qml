@@ -43,7 +43,7 @@ PanelWindow {
     implicitWidth: sheetWidth + 2 * shadowRoom
     // A fixed-height surface; only the sheet takes input, so it can grow and shrink smoothly.
     implicitHeight: (screen?.height ?? 1080) - margins.top - Theme.edge
-    mask: Region { item: sheet }
+    mask: Region { item: inputBounds }
     margins.top: Theme.barHeight + 10 + (Settings.barStyle === "floating" ? Theme.gap : 0) - shadowRoom
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "penumbra-panel"
@@ -53,6 +53,15 @@ PanelWindow {
         windows: [panel]
         active: panel.open
         onCleared: panel.dismissed()
+    }
+
+    // Outside the scale transform so the Wayland input mask covers the full sheet from the first frame.
+    Item {
+        id: inputBounds
+        x: panel.shadowRoom
+        y: panel.shadowRoom
+        width: panel.sheetWidth
+        height: sheet.height
     }
 
     // The material, rim and shadow share one transform, so their edges never separate.

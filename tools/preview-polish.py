@@ -47,7 +47,7 @@ ShellRoot {
                             {name: "2", active: false, toplevels: {values: []}},
                             {name: "3", active: false, toplevels: {values: []}}]
                     }
-                    MediaCapsule { id: previewMedia; titleWidth: 180 }
+                    MediaCapsule { id: previewMedia }
                 }
                 Label { x: 64; y: 225; text: "LIGHT AT THE EDGE"; font.pixelSize: 15; font.letterSpacing: 6; color: Theme.accentBright }
                 Label { x: 60; y: 248; text: "of shadow"; font.pixelSize: 64; color: Theme.white; font.weight: Font.Light }

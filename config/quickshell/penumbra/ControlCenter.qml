@@ -1,13 +1,11 @@
 import QtQuick
-import QtQuick.Effects
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import Quickshell.Networking
 import Quickshell.Services.UPower
-import Quickshell.Widgets
 
-// Quick settings, sliders, media and notification history, under the status capsule.
+// Quick settings, sliders and notification history, under the status capsule.
 Panel {
     id: root
     originKey: "control"
@@ -17,7 +15,6 @@ Panel {
     open: Ui.controlOpen
     onDismissed: Ui.dismiss()
 
-    readonly property var player: Media.player
     property var expandedApps: []
 
     property string uptime: ""
@@ -367,220 +364,9 @@ Panel {
                     }
                 }
 
-                // Media: blurred cover art behind the track, controls and a seek bar.
-                ClippingRectangle {
-                    StaggerReveal { shown: root.open && mainPage.visible; order: 4 }
-                    id: media
-                    property bool lyricsOpen: false
-                    Layout.fillWidth: true
-                    visible: !!root.player
-                    implicitHeight: mediaColumn.implicitHeight + 20
-                    radius: Theme.radius
-                    color: Theme.raised
-                    border.color: Theme.line
-
-                    Image {
-                        id: artwork
-                        anchors.fill: parent
-                        source: root.player?.trackArtUrl ?? ""
-                        sourceSize.width: 200
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        visible: false
-                    }
-                    MultiEffect {
-                        anchors.fill: parent
-                        source: artwork
-                        visible: artwork.status === Image.Ready
-                        blurEnabled: true
-                        blur: 1
-                        blurMax: 48
-                        saturation: 0.2
-                        opacity: 0.45
-                    }
-                    Rectangle {
-                        anchors.fill: parent
-                        gradient: Gradient {
-                            orientation: Gradient.Horizontal
-                            GradientStop { position: 0; color: Theme.alpha(Theme.surface, 0.55) }
-                            GradientStop { position: 1; color: Theme.alpha(Theme.surface, 0.15) }
-                        }
-                    }
-
-                    // MPRIS doesn't announce position changes; ask while it's on screen.
-                    Timer {
-                        interval: media.lyricsOpen ? 250 : 1000
-                        repeat: true
-                        running: root.open && !!root.player?.isPlaying
-                        onTriggered: root.player.positionChanged()
-                    }
-                    ColumnLayout {
-                        id: mediaColumn
-                        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 10 }
-                        spacing: 8
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 12
-                            ClippingRectangle {
-                                implicitWidth: 56
-                                implicitHeight: 56
-                                radius: Theme.corner(12)
-                                color: Theme.hover
-                                Image {
-                                    anchors.fill: parent
-                                    source: root.player?.trackArtUrl ?? ""
-                                    sourceSize: Qt.size(112, 112)
-                                    fillMode: Image.PreserveAspectCrop
-                                    asynchronous: true
-                                }
-                                Glyph {
-                                    anchors.centerIn: parent
-                                    visible: !root.player?.trackArtUrl
-                                    text: "󰎆"
-                                    size: 22
-                                    color: Theme.accentBright
-                                }
-                            }
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 2
-                                Label { Layout.fillWidth: true; text: root.player?.trackTitle || Media.appName(root.player); font.weight: Font.DemiBold }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 6
-                                    // A live stream has nothing to seek through; say so instead.
-                                    Rectangle {
-                                        visible: Media.isLive(root.player)
-                                        implicitWidth: liveLabel.implicitWidth + 12
-                                        implicitHeight: 16
-                                        radius: Theme.corner(8)
-                                        color: Theme.alpha(Theme.rose, 0.18)
-                                        border.color: Theme.alpha(Theme.rose, 0.5)
-                                        Label {
-                                            id: liveLabel
-                                            anchors.centerIn: parent
-                                            text: "LIVE"
-                                            font.pixelSize: Theme.textTiny
-                                            font.weight: Font.Bold
-                                            font.letterSpacing: 0.8
-                                            color: Theme.rose
-                                        }
-                                    }
-                                    Label { Layout.fillWidth: true; text: root.player?.trackArtist || Media.appName(root.player); font.pixelSize: Theme.textSmall; color: Theme.textSoft }
-                                }
-                            }
-                            Repeater {
-                                model: [
-                                    { glyph: "󰒮", run: () => root.player.previous(), ok: root.player?.canGoPrevious },
-                                    { glyph: root.player?.isPlaying ? "󰏤" : "󰐊", run: () => root.player.togglePlaying(), ok: root.player?.canTogglePlaying, main: true },
-                                    { glyph: "󰒭", run: () => root.player.next(), ok: root.player?.canGoNext }
-                                ]
-                                delegate: Rectangle {
-                                    required property var modelData
-                                    implicitWidth: modelData.main ? 38 : 30
-                                    implicitHeight: implicitWidth
-                                    radius: Theme.corner(implicitWidth / 2)
-                                    opacity: modelData.ok ? 1 : 0.4
-                                    color: modelData.main ? Theme.accent : mediaArea.containsMouse ? Theme.hover : "transparent"
-                                    Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 16; color: modelData.main ? Theme.accentInk : Theme.text }
-                                    MouseArea {
-                                        id: mediaArea
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        enabled: !!modelData.ok
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: modelData.run()
-                                    }
-                                }
-                            }
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            visible: Media.hasLength(root.player)
-                            spacing: 10
-                            Label {
-                                text: Media.time(seekArea.pressed ? seekArea.target * (root.player?.length ?? 0) : root.player?.position ?? 0)
-                                font.pixelSize: Theme.textTiny
-                                color: Theme.textSoft
-                            }
-                            Item {
-                                Layout.fillWidth: true
-                                implicitHeight: 14
-                                // While dragging, the bar follows the pointer; the player seeks once, on release.
-                                readonly property real progress: seekArea.pressed ? seekArea.target
-                                    : root.player?.length > 0 ? Math.min(1, root.player.position / root.player.length) : 0
-                                Rectangle {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    width: parent.width
-                                    height: seekArea.containsMouse ? 6 : 4
-                                    radius: Theme.corner(height / 2)
-                                    color: Theme.overlayStrong
-                                    Behavior on height { NumberAnimation { duration: Theme.fast } }
-                                    Rectangle {
-                                        width: parent.width * parent.parent.progress
-                                        height: parent.height
-                                        radius: Theme.corner(height / 2)
-                                        color: Theme.accent
-                                    }
-                                }
-                                MouseArea {
-                                    id: seekArea
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    enabled: root.player?.canSeek ?? false
-                                    cursorShape: Qt.PointingHandCursor
-                                    property real target: 0
-                                    onPressed: m => target = Math.max(0, Math.min(1, m.x / width))
-                                    onPositionChanged: m => { if (pressed) target = Math.max(0, Math.min(1, m.x / width)); }
-                                    onReleased: if (root.player) root.player.position = target * root.player.length
-                                }
-                            }
-                            Label {
-                                text: Media.time(root.player?.length ?? 0)
-                                font.pixelSize: Theme.textTiny
-                                color: Theme.textSoft
-                            }
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            PillButton {
-                                text: media.lyricsOpen ? "Hide lyrics" : "󰨸 Lyrics"
-                                primary: media.lyricsOpen
-                                onClicked: media.lyricsOpen = !media.lyricsOpen
-                            }
-                            Item { Layout.fillWidth: true }
-                        }
-                        LyricsView {
-                            Layout.fillWidth: true
-                            visible: media.lyricsOpen
-                            active: media.lyricsOpen && root.open && mainPage.visible
-                            player: root.player
-                        }
-                        // A mirrored Cava waveform over the blurred album cover.
-                        Row {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 24
-                            visible: media.lyricsOpen && Ui.hasVisualizer
-                            spacing: 3
-                            Repeater {
-                                model: 32
-                                delegate: Rectangle {
-                                    required property int index
-                                    width: (parent.width - 31 * 3) / 32
-                                    height: 2 + 22 * (Media.bars[Math.floor(index / 4)] ?? 0)
-                                    y: (24 - height) / 2
-                                    radius: Theme.corner(width / 2)
-                                    color: Theme.alpha(Theme.accentBright, 0.65)
-                                    Behavior on height { NumberAnimation { duration: Theme.reducedMotion ? 0 : 80 } }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 // Notifications
                 RowLayout {
-                    StaggerReveal { shown: root.open && mainPage.visible; order: 5 }
+                    StaggerReveal { shown: root.open && mainPage.visible; order: 4 }
                     Layout.fillWidth: true
                     Layout.topMargin: 2
                     Overline {
@@ -617,7 +403,7 @@ Panel {
                     delegate: ColumnLayout {
                         id: group
                         required property int index
-                        StaggerReveal { shown: root.open && mainPage.visible; order: 6 + group.index }
+                        StaggerReveal { shown: root.open && mainPage.visible; order: 5 + group.index }
                         required property string modelData
                         readonly property string app: modelData
                         readonly property var items: Notifs.groups.find(g => g.app === app)?.items ?? []
@@ -703,7 +489,7 @@ Panel {
                 }
 
                 ColumnLayout {
-                    StaggerReveal { shown: root.open && mainPage.visible; order: 6 }
+                    StaggerReveal { shown: root.open && mainPage.visible; order: 5 }
                     Layout.fillWidth: true
                     Layout.bottomMargin: 6
                     visible: Notifs.count === 0

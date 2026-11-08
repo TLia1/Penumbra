@@ -32,6 +32,9 @@ Singleton {
     // "current" only shows the popup. Held keys repeat faster than PipeWire reports back, so each
     // step starts from the last one asked for while it is recent.
     property var targets: ({})
+    // A new output/input must start from its own restored volume, even during key repeat.
+    onSinkChanged: targets = Object.assign({}, targets, { volume: null })
+    onSourceChanged: targets = Object.assign({}, targets, { microphone: null })
     function adjust(control, action) {
         const node = control === "microphone" ? source : sink;
         if (!node)
