@@ -151,6 +151,13 @@ Panel {
 
             Loader {
                 Layout.fillWidth: true
+                active: Ui.controlPage === "packages"
+                visible: active
+                sourceComponent: Component { PackagesPage {} }
+            }
+
+            Loader {
+                Layout.fillWidth: true
                 active: Ui.controlPage === "apps"
                 visible: active
                 sourceComponent: Component { AppsPage {} }

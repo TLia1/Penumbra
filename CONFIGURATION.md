@@ -2931,7 +2931,7 @@ ShellRoot {
                             {name: "2", active: false, toplevels: {values: []}},
                             {name: "3", active: false, toplevels: {values: []}}]
                     }
-                    MediaCapsule { id: previewMedia; titleWidth: 180 }
+                    MediaCapsule { id: previewMedia }
                 }
                 Label { x: 64; y: 225; text: "LIGHT AT THE EDGE"; font.pixelSize: 15; font.letterSpacing: 6; color: Theme.accentBright }
                 Label { x: 60; y: 248; text: "of shadow"; font.pixelSize: 64; color: Theme.white; font.weight: Font.Light }
@@ -4164,6 +4164,237 @@ class Online(unittest.TestCase):
         self.assertEqual(online.retry_after('Tue, 03 Nov 2026 12:00:00 GMT', 0), 1793707200)
 ```
 
+## `tests/test_packages.py`
+
+```python
+"""Inventory parsing and safe action routing; never change installed software."""
+import importlib.machinery
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+loader = importlib.machinery.SourceFileLoader('packages', str(ROOT / 'bin/penumbra-packages'))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+p = importlib.util.module_from_spec(spec)
+loader.exec_module(p)
+
+
+class Packages(unittest.TestCase):
+    def test_pacman_foreign_and_multiline_details(self):
+        info = ('Name            : native\nVersion         : 1.2\nDescription     : First line\n'
+                '                  second line\nDepends On      : libc>=2  virtual-lib  libvirt.so=1-64\nRequired By     : local-build\n                  another\nOptional Deps   : extra: useful feature\n                  local-build: another feature [installed]\nOptional For    : None\nInstalled Size  : 20 MiB\nInstall Reason  : Explicitly installed\n\n'
+                'Name            : local-build\nVersion         : 2.0\nDescription     : Local\nProvides        : virtual-lib=2.0  libvirt.so=1-64\nInstalled Size  : 512 KiB\nInstall Reason  : Installed as a dependency for another package\n')
+        with patch.object(p, 'query', side_effect=['local-build\n', info]):
+            records = p.pacman_records()
+        self.assertEqual([r['source'] for r in records], ['pacman', 'aur'])
+        self.assertEqual(records[0]['description'], 'First line second line')
+        self.assertEqual(records[0]['dependencies'], 'libc>=2 · virtual-lib · libvirt.so=1-64')
+        self.assertEqual(records[0]['required_by'], 'local-build · another')
+        self.assertEqual(records[0]['optional_dependencies'], 'extra: useful feature\nlocal-build: another feature [installed]')
+        self.assertEqual(records[0]['optional_for'], 'None')
+        self.assertNotIn('Depends On:', records[0]['details'])
+        self.assertEqual(records[1]['dependencies'], 'Unavailable')
+        self.assertTrue(records[0]['explicit'])
+        self.assertFalse(records[1]['explicit'])
+        self.assertEqual(records[0]['size_bytes'], 20 * 1024 * 1024)
+        self.assertEqual(records[1]['size_bytes'], 512 * 1024)
+        # Virtual and soname dependencies resolve to the providing package and deduplicate by key.
+        self.assertEqual(records[0]['dependency_links'], [
+            {'name': 'libc', 'label': 'libc>=2', 'token': 'libc>=2', 'key': '', 'installed': False},
+            {'name': 'local-build', 'label': 'local-build (virtual-lib)', 'token': 'virtual-lib', 'key': 'aur:local-build', 'installed': True},
+        ])
+        self.assertEqual(records[0]['required_by_links'][0]['key'], 'aur:local-build')
+        self.assertEqual(records[0]['optional_dependency_links'], [
+            {'name': 'extra', 'label': 'extra', 'token': 'extra', 'key': '', 'installed': False, 'description': 'useful feature'},
+            {'name': 'local-build', 'label': 'local-build', 'token': 'local-build', 'key': 'aur:local-build', 'installed': True, 'description': 'another feature'},
+        ])
+
+    def test_flatpak_scope_branch_and_kind_are_preserved(self):
+        with patch.object(p, 'query', side_effect=[
+                'org.example.App/x86_64/stable\tExample\t1\tflathub\tuser\t1 MB\torg.example.Runtime/x86_64/1\n'
+                'org.example.App/x86_64/beta\tExample\t2\tflathub\twork\t2 MB\torg.example.Runtime/x86_64/2\n',
+                'org.example.Runtime/x86_64/1\tRuntime\t\tflathub\tsystem\t3 MB\n']):
+            records = p.flatpak_records()
+        self.assertEqual(len({r['key'] for r in records}), 3)
+        self.assertEqual(records[0]['dependencies'], 'org.example.Runtime/x86_64/1 (system)')
+        self.assertEqual(records[0]['dependency_links'][0]['key'], records[2]['key'])
+        self.assertIn('app/org.example.App/x86_64/stable (user)', records[2]['required_by'])
+        self.assertEqual(records[2]['required_by_links'][0]['key'], records[0]['key'])
+        self.assertNotIn('beta', records[2]['required_by'])
+        self.assertIn('installation not resolved', records[1]['dependencies'])
+        self.assertFalse(records[1]['dependency_links'][0]['installed'])
+        self.assertEqual(p.action_command(records[1], 'remove'),
+                         ['flatpak', 'uninstall', '--installation=work', '--', 'app/org.example.App/x86_64/beta'])
+        self.assertEqual(p.action_command(records[2], 'update')[-1], 'runtime/org.example.Runtime/x86_64/1')
+
+    def test_flatpak_prefers_same_installation_runtime(self):
+        with patch.object(p, 'query', side_effect=[
+                'org.App/x86_64/stable\tApp\t1\tremote\tuser\t1 MB\torg.Runtime/x86_64/1\n',
+                'org.Runtime/x86_64/1\tRuntime\t1\tremote\tuser\t1 MB\t\n'
+                'org.Runtime/x86_64/1\tRuntime\t1\tremote\tsystem\t1 MB\t\n']):
+            records = p.flatpak_records()
+        self.assertIn('(user)', records[0]['dependencies'])
+        self.assertIn('app/org.App', records[1]['required_by'])
+        self.assertNotIn('app/org.App', records[2]['required_by'])
+
+    def test_partial_inventory_survives_backend_failure(self):
+        with patch.object(p.shutil, 'which', return_value='/bin/tool'), \
+             patch.object(p, 'pacman_records', side_effect=RuntimeError('database unavailable')), \
+             patch.object(p, 'flatpak_records', return_value=[{'name': 'App', 'key': 'one'}]), \
+             patch.object(p, 'appimage_records', return_value=([], [])):
+            data = p.inventory()
+        self.assertEqual(len(data['packages']), 1)
+        self.assertIn('database unavailable', data['errors'][0])
+
+    def test_appimage_discovery_deduplicates_and_keeps_symlinks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            file = root / 'An app;$(touch nope).AppImage'
+            file.write_bytes(b'example')
+            link = root / 'Shortcut.AppImage'
+            link.symlink_to(file)
+            (root / 'ignored.txt').touch()
+            with patch.object(p, 'appimage_roots', return_value=[root, root]):
+                records, errors = p.appimage_records()
+            self.assertFalse(errors)
+            self.assertEqual(len(records), 2)
+            record = next(r for r in records if r['name'] == link.name)
+            self.assertEqual(p.action_command(record, 'remove'), ['gio', 'trash', '--', str(link)])
+            self.assertTrue(file.exists())
+            self.assertIn('Unavailable', record['dependencies'])
+            self.assertIn('not tracked', record['required_by'])
+
+    def test_upgrade_is_full_system_and_removal_is_not_recursive(self):
+        record = {'source': 'pacman', 'target': 'example'}
+        with patch.object(p.shutil, 'which', return_value=None):
+            self.assertEqual(p.action_command(record, 'update'), ['sudo', 'pacman', '-Syu'])
+            self.assertEqual(p.action_command(record, 'remove'), ['sudo', 'pacman', '-R', '--', 'example'])
+            with self.assertRaisesRegex(RuntimeError, 'paru or yay'):
+                p.action_command({**record, 'source': 'aur'}, 'update')
+        with patch.object(p.shutil, 'which', return_value='/usr/bin/paru'):
+            self.assertEqual(p.action_command(record, 'update'), ['/usr/bin/paru', '-Syu'])
+
+    def test_missing_package_never_runs_action(self):
+        with patch.object(p, 'inventory', return_value={'packages': [], 'errors': []}), \
+             patch.object(p.subprocess, 'call') as call:
+            with self.assertRaisesRegex(RuntimeError, 'no longer available'):
+                p.manage('pacman:gone', 'remove')
+            call.assert_not_called()
+
+    def test_appimage_removal_can_be_cancelled(self):
+        record = dict(key='appimage:/tmp/a.AppImage', source='appimage', target='/tmp/a.AppImage',
+                      name='a', details='test')
+        with patch.object(p, 'inventory', return_value={'packages': [record], 'errors': []}), \
+             patch('builtins.input', return_value='n'), patch.object(p.subprocess, 'call') as call:
+            self.assertEqual(p.manage(record['key'], 'remove'), 0)
+            call.assert_not_called()
+
+    @unittest.skipUnless(shutil.which('quickshell'), 'needs Quickshell')
+    def test_qml_dependency_and_reverse_navigation(self):
+        with tempfile.TemporaryDirectory(prefix='penumbra-pkg-qml-') as temp:
+            stage = Path(temp)
+            shutil.copytree(ROOT / 'config/quickshell/penumbra', stage, dirs_exist_ok=True)
+            (stage / 'Ui.qml').write_text('''pragma Singleton
+import QtQuick
+import Quickshell
+Singleton {
+    property string bin: "/bin/false "
+    property string controlPage: "packages"
+    function spawn(cmd) {}
+    function terminal(cmd, opts) { return cmd; }
+}
+''')
+            sample = [
+                {
+                    'key': 'pacman:app', 'source': 'pacman', 'target': 'app', 'name': 'app',
+                    'version': '1.0', 'size': '10 MiB', 'size_bytes': 10485760,
+                    'description': 'Top level app', 'explicit': True, 'reason': 'Explicitly installed',
+                    'dependencies': 'libfoo', 'required_by': 'None', 'details': 'Name: app',
+                    'dependency_links': [{'name': 'libfoo', 'label': 'libfoo', 'key': 'aur:libfoo', 'installed': True}],
+                    'required_by_links': [], 'optional_dependency_links': [], 'optional_for_links': []
+                },
+                {
+                    'key': 'aur:libfoo', 'source': 'aur', 'target': 'libfoo', 'name': 'libfoo',
+                    'version': '2.0', 'size': '1 MiB', 'size_bytes': 1048576,
+                    'description': 'Helper library', 'explicit': False, 'reason': 'Installed as dependency',
+                    'dependencies': 'None', 'required_by': 'app', 'details': 'Name: libfoo',
+                    'dependency_links': [],
+                    'required_by_links': [{'name': 'app', 'label': 'app', 'key': 'pacman:app', 'installed': True}],
+                    'optional_dependency_links': [], 'optional_for_links': []
+                }
+            ]
+            harness = f'''import QtQuick
+import Quickshell
+ShellRoot {{
+    FloatingWindow {{
+        visible: true
+        width: 440; height: 700
+        PackagesPage {{
+            id: page
+            width: 404
+        }}
+        Timer {{
+            interval: 150; running: true
+            onTriggered: {{
+                page.packages = {json.dumps(sample)};
+                page.source = "pacman";
+                page.roleFilter = "explicit";
+                page.selected = "pacman:app";
+                // Jump from explicit pacman app to AUR dependency libfoo: filters should relax to reveal it.
+                page.jumpTo("aur:libfoo", page.byKey["pacman:app"]);
+                if (page.selected !== "aur:libfoo" || page.source !== "all" || page.roleFilter !== "all" || page.history.length !== 1) {{
+                    console.error("Failed forward jump:", page.selected, page.source, page.roleFilter, page.history.length);
+                    Qt.exit(1);
+                    return;
+                }}
+                // Jump via required_by from libfoo back to app, then goBack twice.
+                page.jumpTo("pacman:app", page.byKey["aur:libfoo"]);
+                if (page.selected !== "pacman:app" || page.history.length !== 2) {{
+                    console.error("Failed reverse-dep jump:", page.selected, page.history.length);
+                    Qt.exit(1);
+                    return;
+                }}
+                page.goBack();
+                if (page.selected !== "aur:libfoo" || page.history.length !== 1) {{
+                    console.error("Failed first goBack:", page.selected, page.history.length);
+                    Qt.exit(1);
+                    return;
+                }}
+                page.goBack();
+                if (page.selected !== "pacman:app" || page.source !== "pacman" || page.roleFilter !== "explicit" || page.history.length !== 0) {{
+                    console.error("Failed second goBack:", page.selected, page.source, page.roleFilter, page.history.length);
+                    Qt.exit(1);
+                    return;
+                }}
+                Qt.exit(0);
+            }}
+        }}
+    }}
+}}
+'''
+            (stage / 'shell.qml').write_text(harness)
+            (stage / 'runtime').mkdir(mode=0o700)
+            env = {**os.environ, 'HOME': temp, 'XDG_CONFIG_HOME': temp, 'XDG_CACHE_HOME': temp,
+                   'XDG_RUNTIME_DIR': str(stage / 'runtime'), 'QT_QPA_PLATFORM': 'offscreen',
+                   'QT_QUICK_BACKEND': 'software'}
+            env.pop('HYPRLAND_INSTANCE_SIGNATURE', None)
+            env.pop('WAYLAND_DISPLAY', None)
+            result = subprocess.run(['quickshell', '-p', temp, '--no-color'], env=env,
+                                    capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
 ## `tests/test_qml_load.py`
 
 ```python
@@ -4225,7 +4456,7 @@ class QmlLoad(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='penumbra-load-') as temp:
             stage = Path(temp)
             shutil.copytree(ROOT / 'config/quickshell/penumbra', stage, dirs_exist_ok=True)
-            names = ['Bar', 'LookPage', 'WeatherPage', 'Osd', 'Overview', 'Wallpaper', 'ControlCenter',
+            names = ['Bar', 'LookPage', 'WeatherPage', 'PackagesPage', 'Osd', 'Overview', 'Wallpaper', 'ControlCenter',
                      'MonitorPanel', 'WallpaperPicker', 'ScreenFrame', 'SessionMenu', 'Launcher']
             for path in stage.glob('*.qml'):
                 path.write_text(path.read_text().replace('PanelWindow {', 'TestPanelWindow {'))
@@ -6234,6 +6465,415 @@ if __name__ == '__main__':
         main()
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         sys.exit(f'penumbra-osd: {error}')
+```
+
+## `bin/penumbra-packages`
+
+```python
+#!/usr/bin/env python3
+"""Installed software inventory and interactive, argument-safe management actions."""
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+
+
+def query(command, empty=False):
+    result = subprocess.run(command, capture_output=True, text=True, timeout=60,
+                            env={**os.environ, "LC_ALL": "C"})
+    if result.returncode and not (empty and result.returncode == 1 and not result.stderr.strip()):
+        raise RuntimeError(result.stderr.strip() or f"{command[0]} exited with {result.returncode}")
+    return result.stdout
+
+
+def parse_size_bytes(text):
+    match = re.match(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*([A-Za-z]+)\s*$", text or "")
+    if not match:
+        return 0
+    value = float(match[1])
+    unit = match[2].lower()
+    factors = {
+        "b": 1,
+        "kib": 1024, "kb": 1000,
+        "mib": 1024 ** 2, "mb": 1000 ** 2,
+        "gib": 1024 ** 3, "gb": 1000 ** 3,
+        "tib": 1024 ** 4, "tb": 1000 ** 4,
+    }
+    return int(value * factors.get(unit, 1))
+
+
+def clean_field(value):
+    return "" if not value or value in ("None", "Unavailable") else value
+
+
+def split_tokens(value):
+    return [] if not value or value in ("None", "Unavailable") else value.split()
+
+
+def pacman_records():
+    foreign = set(query(["pacman", "-Qmq"], empty=True).splitlines())
+    records = []
+    raw_fields = []
+    for block in query(["pacman", "-Qi"], empty=True).strip().split("\n\n"):
+        fields = {}
+        last = None
+        for line in block.splitlines():
+            match = re.match(r"^([^ :][^:]*?)\s+: (.*)$", line)
+            if match:
+                last = match[1].strip()
+                fields[last] = match[2]
+            elif last and line.startswith(" "):
+                fields[last] += ("\n" if last == "Optional Deps" else " ") + line.strip()
+        name = fields.get("Name")
+        if not name:
+            continue
+        source = "aur" if name in foreign else "pacman"
+        relationships = {
+            "dependencies": fields.get("Depends On", "Unavailable"),
+            "required_by": fields.get("Required By", "Unavailable"),
+            "optional_dependencies": fields.get("Optional Deps", "Unavailable"),
+            "optional_for": fields.get("Optional For", "Unavailable"),
+        }
+        for key in ("dependencies", "required_by", "optional_for"):
+            if relationships[key] not in ("None", "Unavailable"):
+                relationships[key] = " · ".join(relationships[key].split())
+        reason_raw = fields.get("Install Reason", "")
+        explicit = not reason_raw.lower().startswith("installed as a dependency")
+        size_text = fields.get("Installed Size", "")
+        record = dict(
+            key=f"{source}:{name}",
+            source=source,
+            target=name,
+            name=name,
+            version=fields.get("Version", ""),
+            size=size_text,
+            size_bytes=parse_size_bytes(size_text),
+            description=fields.get("Description", ""),
+            explicit=explicit,
+            reason="Explicitly installed" if explicit else "Installed as dependency",
+            url=clean_field(fields.get("URL", "")),
+            licenses=clean_field(fields.get("Licenses", "")),
+            groups=" · ".join(split_tokens(fields.get("Groups", ""))),
+            provides=" · ".join(split_tokens(fields.get("Provides", ""))),
+            conflicts=" · ".join(split_tokens(fields.get("Conflicts With", ""))),
+            install_date=clean_field(fields.get("Install Date", "")),
+            build_date=clean_field(fields.get("Build Date", "")),
+            packager=clean_field(fields.get("Packager", "")),
+            **relationships,
+            dependency_note="Direct relationships from the installed pacman database, including version constraints and optional packages.",
+            details="\n".join(f"{k}: {v}" for k, v in fields.items()
+                              if k not in ("Depends On", "Required By", "Optional Deps", "Optional For")),
+        )
+        records.append(record)
+        raw_fields.append(fields)
+
+    by_name = {r["name"]: r for r in records}
+    by_provide = {}
+    for record, fields in zip(records, raw_fields):
+        for token in split_tokens(fields.get("Provides", "")):
+            bare = re.split(r"[<>=]", token, maxsplit=1)[0].strip()
+            if bare and bare not in by_provide:
+                by_provide[bare] = record
+            if token not in by_provide:
+                by_provide[token] = record
+
+    def resolve_token(token):
+        bare = re.split(r"[<>=]", token, maxsplit=1)[0].strip()
+        target = by_name.get(bare) or by_provide.get(token) or by_provide.get(bare)
+        if target is not None:
+            if target["name"] == bare:
+                label = token
+            elif ".so" in bare:
+                label = target["name"]
+            else:
+                label = f"{target['name']} ({bare})"
+            return {"name": target["name"], "label": label, "token": token, "key": target["key"], "installed": True}
+        return {"name": bare or token, "label": token, "token": token, "key": "", "installed": False}
+
+    def resolve_list(tokens):
+        links = []
+        seen_keys = set()
+        for token in tokens:
+            item = resolve_token(token)
+            dedup_id = item["key"] or item["label"]
+            if dedup_id in seen_keys:
+                continue
+            seen_keys.add(dedup_id)
+            links.append(item)
+        return links
+
+    for record, fields in zip(records, raw_fields):
+        record["dependency_links"] = resolve_list(split_tokens(fields.get("Depends On", "")))
+        record["required_by_links"] = resolve_list(split_tokens(fields.get("Required By", "")))
+        record["optional_for_links"] = resolve_list(split_tokens(fields.get("Optional For", "")))
+        opt_links = []
+        opt_raw = fields.get("Optional Deps", "")
+        if opt_raw and opt_raw not in ("None", "Unavailable"):
+            for line in opt_raw.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                pkg_part, _, desc_part = line.partition(":")
+                pkg_token = pkg_part.strip()
+                resolved = resolve_token(pkg_token)
+                clean_desc = re.sub(r"\s*\[(installed|pending)\]\s*$", "", desc_part).strip()
+                resolved["description"] = clean_desc
+                if "[installed]" in desc_part:
+                    resolved["installed"] = True
+                opt_links.append(resolved)
+        record["optional_dependency_links"] = opt_links
+    return records
+
+
+def flatpak_records():
+    records = []
+    for kind in ("app", "runtime"):
+        output = query(["flatpak", "list", f"--{kind}",
+                        "--columns=ref,name,version,origin,installation,size,runtime"])
+        for line in output.splitlines():
+            cells = line.split("\t")
+            # Flatpak omits an empty final runtime column.
+            if len(cells) == 6:
+                cells.append("")
+            if len(cells) != 7:
+                raise RuntimeError("Unexpected Flatpak inventory format")
+            ref, name, version, origin, scope, size, runtime = cells
+            target = f"{kind}/{ref}"
+            explicit = kind == "app"
+            records.append(dict(
+                key=f"flatpak:{scope}:{target}",
+                source="flatpak",
+                target=target,
+                scope=scope,
+                kind=kind,
+                origin=origin,
+                name=name or ref,
+                version=version,
+                size=size,
+                size_bytes=parse_size_bytes(size),
+                explicit=explicit,
+                reason=f"Flatpak {kind} ({scope})",
+                url="",
+                licenses="",
+                groups="",
+                provides="",
+                conflicts="",
+                install_date="",
+                build_date="",
+                packager=origin,
+                runtime=runtime,
+                dependencies=runtime or "No primary runtime reported",
+                required_by="No installed apps use this as their primary runtime",
+                optional_dependencies="None",
+                optional_for="None",
+                dependency_links=[],
+                required_by_links=[],
+                optional_dependency_links=[],
+                optional_for_links=[],
+                dependency_note="Flatpak shows primary runtime relationships only. Runtime extensions and bundled libraries are not included; this is not a safe-to-remove check.",
+                description=f"{kind} · {scope} · {origin}",
+                details=f"{target}\nInstallation: {scope}\nOrigin: {origin}\nSize: {size}",
+            ))
+    # A user app can use a system runtime; prefer a runtime in its own installation.
+    by_ref = {(r["scope"], r["target"]): r for r in records}
+    users = {}
+    user_links = {}
+    for record in records:
+        runtime = record["runtime"]
+        if not runtime:
+            continue
+        target = runtime if runtime.startswith("runtime/") else "runtime/" + runtime
+        dependency = by_ref.get((record["scope"], target))
+        if dependency is None and record["scope"] == "user":
+            dependency = by_ref.get(("system", target))
+        if dependency is not None:
+            record["dependencies"] = f"{runtime} ({dependency['scope']})"
+            record["dependency_links"] = [{
+                "name": dependency["name"],
+                "label": f"{dependency['name']} ({dependency['scope']})",
+                "detail": runtime,
+                "key": dependency["key"],
+                "installed": True,
+            }]
+            users.setdefault(dependency["key"], []).append(
+                f"{record['name']} · {record['target']} ({record['scope']})")
+            user_links.setdefault(dependency["key"], []).append({
+                "name": record["name"],
+                "label": f"{record['name']} ({record['scope']})",
+                "detail": record["target"],
+                "key": record["key"],
+                "installed": True,
+            })
+        else:
+            record["dependencies"] = f"{runtime} (installation not resolved)"
+            record["dependency_links"] = [{
+                "name": runtime,
+                "label": f"{runtime} (unresolved)",
+                "detail": "",
+                "key": "",
+                "installed": False,
+            }]
+    for record in records:
+        if record["key"] in users:
+            record["required_by"] = "\n".join(sorted(users[record["key"]]))
+            record["required_by_links"] = sorted(user_links[record["key"]], key=lambda item: (item["label"].lower(), item["key"]))
+    return records
+
+
+def appimage_roots(extra=""):
+    home = Path.home()
+    roots = [home / name for name in ("Applications", "AppImages", "Downloads", "Desktop", ".local/bin", ".local/share/AppImage")]
+    roots.extend((Path("/opt"), Path("/usr/local/bin")))
+    if extra.strip():
+        roots.append(Path(extra).expanduser().absolute())
+    return roots
+
+
+def appimage_records(extra=""):
+    records, seen, errors = [], set(), []
+    def failed(error):
+        errors.append(str(error))
+    for root in appimage_roots(extra):
+        if not root.is_dir():
+            if extra and root == Path(extra).expanduser().absolute():
+                errors.append(f"AppImage folder does not exist: {root}")
+            continue
+        for directory, dirs, files in os.walk(root, onerror=failed, followlinks=False):
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "__pycache__")]
+            for name in files:
+                if not name.lower().endswith(".appimage"):
+                    continue
+                path = Path(directory) / name
+                # Keep the directory entry: trashing a symlink must never remove its target.
+                key = str(path.absolute())
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    size_bytes = path.stat().st_size
+                    size = f"{size_bytes / (1024 * 1024):.1f} MiB"
+                except OSError as error:
+                    errors.append(str(error))
+                    continue
+                records.append(dict(
+                    key="appimage:" + key,
+                    source="appimage",
+                    target=key,
+                    name=name,
+                    version="",
+                    size=size,
+                    size_bytes=size_bytes,
+                    explicit=True,
+                    reason="Standalone AppImage",
+                    url="",
+                    licenses="",
+                    groups="",
+                    provides="",
+                    conflicts="",
+                    install_date="",
+                    build_date="",
+                    packager="",
+                    description=str(path.parent),
+                    dependencies="Unavailable — AppImages have no package-manager dependency database",
+                    required_by="Unavailable — reverse dependencies are not tracked",
+                    optional_dependencies="None",
+                    optional_for="None",
+                    dependency_links=[],
+                    required_by_links=[],
+                    optional_dependency_links=[],
+                    optional_for_links=[],
+                    dependency_note="Libraries may be bundled or supplied by the host. This file is not executed or inspected for dependencies.",
+                    details=f"{key}\nSize: {size}\nUpdate by replacing this file with a download from its publisher.",
+                ))
+    return records, errors
+
+
+def inventory(extra=""):
+    records, errors = [], []
+    for tool, reader in (("pacman", pacman_records), ("flatpak", flatpak_records)):
+        if not shutil.which(tool):
+            errors.append(f"{tool} is not installed")
+            continue
+        try:
+            records.extend(reader())
+        except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+            errors.append(f"{tool}: {error}")
+    images, image_errors = appimage_records(extra)
+    records.extend(images)
+    errors.extend(image_errors)
+    return {"packages": sorted(records, key=lambda p: (p["name"].lower(), p["key"])), "errors": errors}
+
+
+def action_command(record, action):
+    source, target = record["source"], record["target"]
+    if source in ("pacman", "aur"):
+        if action == "remove":
+            return ["sudo", "pacman", "-R", "--", target]
+        if action == "update":
+            helper = shutil.which("paru") or shutil.which("yay")
+            if source == "aur" and not helper:
+                raise RuntimeError("Install paru or yay to update AUR packages. Manually built foreign packages need their original build source.")
+            # Arch upgrades must update the whole system to avoid partial upgrades.
+            return [helper, "-Syu"] if helper else ["sudo", "pacman", "-Syu"]
+    if source == "flatpak":
+        scope = record["scope"]
+        flag = f"--{scope}" if scope in ("user", "system") else "--installation=" + scope
+        if action in ("remove", "update"):
+            return ["flatpak", "uninstall" if action == "remove" else "update", flag, "--", target]
+    if source == "appimage":
+        if action == "remove":
+            return ["gio", "trash", "--", target]
+        if action == "folder":
+            return ["xdg-open", str(Path(target).parent)]
+    raise RuntimeError("This action is not supported for this package")
+
+
+def manage(key, action, extra=""):
+    data = inventory(extra)
+    record = next((p for p in data["packages"] if p["key"] == key), None)
+    if record is None:
+        raise RuntimeError("Package is no longer available. Refresh the list. " + "; ".join(data["errors"]))
+    command = action_command(record, action)
+    print(f"\n{record['name']}\n{record['details']}\n", flush=True)
+    if record["source"] == "appimage" and action == "remove":
+        if input("Move this AppImage to the trash? [y/N] ").strip().lower() != "y":
+            return 0
+    if action == "update" and record["source"] in ("pacman", "aur"):
+        print("Starting a full system upgrade. Review the transaction below.\n", flush=True)
+    return subprocess.call(command)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("mode", choices=("list", "manage"))
+    parser.add_argument("action", nargs="?", choices=("remove", "update", "folder"))
+    parser.add_argument("key", nargs="?")
+    parser.add_argument("--appimage-directory", default="")
+    args = parser.parse_args()
+    if args.mode == "list":
+        print(json.dumps(inventory(args.appimage_directory)))
+        return 0
+    code = 1
+    try:
+        if not args.action or not args.key:
+            raise RuntimeError("Choose a package and action")
+        code = manage(args.key, args.action, args.appimage_directory)
+        print("\nFinished. Refresh Installed packages to see changes." if code == 0 else "\nOperation failed or was cancelled.")
+    except (OSError, RuntimeError, subprocess.TimeoutExpired, KeyboardInterrupt, EOFError) as error:
+        print(f"\n{error}", file=sys.stderr)
+    try:
+        input("\nPress Enter to close…")
+    except (EOFError, KeyboardInterrupt):
+        pass
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main())
 ```
 
 ## `bin/penumbra-picker`
@@ -9460,12 +10100,7 @@ PanelWindow {
             showIcons: Settings.workspaceStyle === "icons" && bar.width - rightSide.width > 850
         }
 
-        MediaCapsule {
-            // Reserve the status area first; long titles elide and small screens keep just art + spectrum.
-            titleWidth: Math.max(0, Math.min(140, bar.width - rightSide.width
-                - workspaceStrip.implicitWidth - clockCapsule.implicitWidth - launcherCapsule.implicitWidth
-                - weatherCapsule.implicitWidth * weatherCapsule.reveal - 6 * Theme.gap - 108))
-        }
+        MediaCapsule {}
     }
 
     // ── Center ──────────────────────────────────────────────────────
@@ -9723,11 +10358,18 @@ PanelWindow {
     // ── Tooltip ─────────────────────────────────────────────────────
     property Item tipTarget: null
     function updateTip(pos) {
-        const target = pos ? capsuleAt(pos) : null;
+        const target = pos && !Ui.openPanel ? capsuleAt(pos) : null;
         if (target !== tipTarget) {
             tipTarget = target;
             tipWindow.visible = false;
             tipDelay.restart();
+        }
+    }
+    Connections {
+        target: Ui
+        function onOpenPanelChanged() {
+            if (Ui.openPanel)
+                bar.updateTip(null);
         }
     }
     // Innermost item under the pointer that declares a tooltip.
@@ -9744,7 +10386,7 @@ PanelWindow {
     Timer {
         id: tipDelay
         interval: 550
-        onTriggered: tipWindow.visible = !!bar.tipTarget && bar.tipTarget.tip !== ""
+        onTriggered: tipWindow.visible = !!bar.tipTarget && bar.tipTarget.tip !== "" && !Ui.openPanel
     }
     PopupWindow {
         id: tipWindow
@@ -9755,6 +10397,7 @@ PanelWindow {
         implicitWidth: tipText.implicitWidth + 24
         implicitHeight: tipText.implicitHeight + 16
         color: "transparent"
+        mask: Region {}
         Rectangle {
             anchors.fill: parent
             radius: Theme.radiusSmall
@@ -10984,6 +11627,13 @@ Panel {
 
             Loader {
                 Layout.fillWidth: true
+                active: Ui.controlPage === "packages"
+                visible: active
+                sourceComponent: Component { PackagesPage {} }
+            }
+
+            Loader {
+                Layout.fillWidth: true
                 active: Ui.controlPage === "apps"
                 visible: active
                 sourceComponent: Component { AppsPage {} }
@@ -11566,6 +12216,9 @@ Singleton {
     // "current" only shows the popup. Held keys repeat faster than PipeWire reports back, so each
     // step starts from the last one asked for while it is recent.
     property var targets: ({})
+    // A new output/input must start from its own restored volume, even during key repeat.
+    onSinkChanged: targets = Object.assign({}, targets, { volume: null })
+    onSourceChanged: targets = Object.assign({}, targets, { microphone: null })
     function adjust(control, action) {
         const node = control === "microphone" ? source : sink;
         if (!node)
@@ -15958,7 +16611,6 @@ import Quickshell.Widgets
 
 Capsule {
     id: root
-    property real titleWidth: 140
     shown: !!Media.player
     padding: 12
     spacing: 10
@@ -16040,13 +16692,6 @@ Capsule {
             size: 15
             color: Theme.accentBright
         }
-    }
-    Label {
-        visible: root.titleWidth >= 40
-        Layout.maximumWidth: root.titleWidth
-        text: Media.player?.trackTitle || Media.appName(Media.player)
-        font.weight: Font.DemiBold
-        color: Theme.textSoft
     }
     Row {
         visible: Ui.hasVisualizer
@@ -18736,6 +19381,1094 @@ PanelWindow {
 }
 ```
 
+## `config/quickshell/penumbra/PackagesPage.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Io
+
+ColumnLayout {
+    id: root
+    spacing: 10
+    property var packages: []
+    property var byKey: ({})
+    property string error: ""
+    property string source: "all"
+    property string roleFilter: "all"
+    property string sortBy: "name"
+    property string selected: ""
+    property string showRawDetails: ""
+    property string confirmRemove: ""
+    property var history: []
+    property bool navigating: false
+    property int page: 0
+    readonly property int pageSize: 25
+
+    onPackagesChanged: {
+        const map = {};
+        for (const p of packages)
+            map[p.key] = p;
+        byKey = map;
+    }
+
+    function matchesFilters(p, src, role, queryText) {
+        if (src !== "all" && p.source !== src)
+            return false;
+        if (role === "explicit" && p.explicit === false)
+            return false;
+        if (role === "leaves" && (p.required_by_links ?? []).length > 0)
+            return false;
+        if (queryText !== "") {
+            const haystack = [p.name, p.target, p.description, p.provides ?? "", p.groups ?? ""].join(" ").toLowerCase();
+            if (!queryText.split(/\s+/).every(q => haystack.includes(q)))
+                return false;
+        }
+        return true;
+    }
+
+    readonly property string query: search.text.trim().toLowerCase()
+    readonly property var matches: {
+        const filtered = packages.filter(p => matchesFilters(p, source, roleFilter, query));
+        if (sortBy === "size")
+            return filtered.slice().sort((a, b) => ((b.size_bytes ?? 0) - (a.size_bytes ?? 0)) || a.name.localeCompare(b.name));
+        return filtered;
+    }
+    readonly property var shown: matches.slice(page * pageSize, (page + 1) * pageSize)
+
+    onMatchesChanged: {
+        if (navigating)
+            return;
+        page = 0;
+        selected = "";
+        confirmRemove = "";
+        showRawDetails = "";
+    }
+    Component.onCompleted: refresh()
+
+    function refresh() {
+        if (scan.running) return;
+        error = "";
+        scan.command = [Ui.bin + "penumbra-packages", "list", "--appimage-directory", imageFolder.text.trim()];
+        scan.running = true;
+    }
+    function manage(item, action) {
+        confirmRemove = "";
+        Ui.spawn(Ui.terminal([Ui.bin + "penumbra-packages", "manage", action, item.key,
+                             "--appimage-directory", imageFolder.text.trim()],
+                            ["--title", "Penumbra · Packages"]));
+    }
+    function sourceName(value) {
+        return ({pacman: "pacman", aur: "AUR", flatpak: "Flatpak", appimage: "AppImage"})[value] || value;
+    }
+    function sourceGlyph(value) {
+        return ({pacman: "󰏗", aur: "󰣇", flatpak: "󰏖", appimage: "󰀻"})[value] || "󰏗";
+    }
+    function relationshipSummary(item) {
+        if (item.source === "appimage")
+            return "Standalone file";
+        const deps = (item.dependency_links ?? []).length;
+        const reqs = (item.required_by_links ?? []).length;
+        const depText = deps === 0 ? "no deps" : `${deps} ${deps === 1 ? "dep" : "deps"}`;
+        const reqText = reqs === 0 ? "unused by others" : `needed by ${reqs}`;
+        return `${depText} · ${reqText}`;
+    }
+
+    function jumpTo(targetKey, fromPkg) {
+        const target = byKey[targetKey];
+        if (!target)
+            return;
+        if (fromPkg && fromPkg.key && fromPkg.key !== targetKey) {
+            const nextHistory = history.slice();
+            nextHistory.push({
+                key: fromPkg.key,
+                name: fromPkg.name,
+                source: root.source,
+                roleFilter: root.roleFilter,
+                sortBy: root.sortBy,
+                query: search.text,
+                page: root.page
+            });
+            history = nextHistory;
+        }
+        navigating = true;
+        if (!matchesFilters(target, root.source, root.roleFilter, root.query)) {
+            if (root.query !== "" && !matchesFilters(target, "all", "all", root.query))
+                search.text = "";
+            if (root.source !== "all" && target.source !== root.source)
+                root.source = "all";
+            if (root.roleFilter !== "all" && !matchesFilters(target, root.source, root.roleFilter, ""))
+                root.roleFilter = "all";
+        }
+        const idx = root.matches.findIndex(p => p.key === targetKey);
+        if (idx >= 0)
+            root.page = Math.floor(idx / root.pageSize);
+        root.selected = targetKey;
+        root.confirmRemove = "";
+        root.showRawDetails = "";
+        navigating = false;
+    }
+
+    function goBack() {
+        if (history.length === 0)
+            return;
+        const nextHistory = history.slice();
+        const prev = nextHistory.pop();
+        history = nextHistory;
+        navigating = true;
+        root.source = prev.source;
+        root.roleFilter = prev.roleFilter;
+        root.sortBy = prev.sortBy;
+        search.text = prev.query;
+        const idx = root.matches.findIndex(p => p.key === prev.key);
+        root.page = idx >= 0 ? Math.floor(idx / root.pageSize) : prev.page;
+        root.selected = prev.key;
+        root.confirmRemove = "";
+        root.showRawDetails = "";
+        navigating = false;
+    }
+
+    // Small filter/sort chip used in the toolbar.
+    component FilterChip: Rectangle {
+        id: chip
+        property string text
+        property string glyph: ""
+        property bool active: false
+        signal clicked()
+
+        implicitWidth: chipRow.implicitWidth + 14
+        implicitHeight: 28
+        radius: Theme.corner(14)
+        color: active ? Theme.alpha(Theme.accent, 0.2) : chipArea.containsMouse ? Theme.hover : Theme.control
+        border.color: active ? Theme.accent : Theme.line
+        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
+
+        RowLayout {
+            id: chipRow
+            anchors.centerIn: parent
+            spacing: 4
+            Glyph {
+                visible: chip.glyph !== ""
+                text: chip.glyph
+                size: 12
+                color: chip.active ? Theme.accentBright : Theme.textSoft
+            }
+            Label {
+                text: chip.text
+                font.pixelSize: Theme.textTiny
+                font.weight: chip.active ? Font.DemiBold : Font.Normal
+                color: chip.active ? Theme.accentBright : Theme.textSoft
+            }
+        }
+        MouseArea {
+            id: chipArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: chip.clicked()
+        }
+    }
+
+    // Clickable package chip for dependencies and reverse dependencies.
+    component PackageLinkChip: Rectangle {
+        id: linkChip
+        property string label
+        property string targetKey: ""
+        property bool installed: true
+        property string sublabel: ""
+        property int maxWidth: 340
+        signal activated(string key)
+
+        readonly property bool clickable: installed && targetKey !== "" && !!root.byKey[targetKey]
+        readonly property string fullText: label + (sublabel ? ` · ${sublabel}` : "")
+        implicitWidth: Math.min(maxWidth, linkRow.implicitWidth + 20)
+        implicitHeight: 28
+        radius: Theme.corner(14)
+        color: clickable
+            ? (linkArea.containsMouse ? Theme.alpha(Theme.accent, 0.24) : Theme.control)
+            : Theme.alpha(Theme.control, 0.5)
+        border.color: clickable
+            ? (linkArea.containsMouse ? Theme.accentBright : Theme.alpha(Theme.accent, 0.4))
+            : Theme.line
+        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
+
+        RowLayout {
+            id: linkRow
+            anchors { fill: parent; leftMargin: 10; rightMargin: 10 }
+            spacing: 5
+            Glyph {
+                id: linkGlyph
+                text: linkChip.clickable ? "󰏗" : "󰅙"
+                size: 11
+                color: linkChip.clickable ? (linkArea.containsMouse ? Theme.accentBright : Theme.accent) : Theme.dim
+            }
+            Label {
+                Layout.fillWidth: true
+                Layout.maximumWidth: Math.max(60, linkChip.maxWidth - (linkChip.clickable ? 48 : 34))
+                text: linkChip.fullText
+                elide: Text.ElideRight
+                font.pixelSize: Theme.textSmall
+                font.weight: linkChip.clickable ? Font.Medium : Font.Normal
+                color: linkChip.clickable ? (linkArea.containsMouse ? Theme.accentBright : Theme.text) : Theme.muted
+            }
+            Glyph {
+                id: linkArrow
+                visible: linkChip.clickable
+                text: "󰁔"
+                size: 10
+                color: linkArea.containsMouse ? Theme.accentBright : Theme.dim
+            }
+        }
+        MouseArea {
+            id: linkArea
+            anchors.fill: parent
+            hoverEnabled: true
+            enabled: linkChip.clickable
+            cursorShape: linkChip.clickable ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: linkChip.activated(linkChip.targetKey)
+        }
+    }
+
+    Process {
+        id: scan
+        stdout: StdioCollector { id: output }
+        stderr: StdioCollector { id: errors }
+        onExited: code => {
+            if (code !== 0) { root.error = errors.text.trim() || "Could not load packages. Try Refresh."; return; }
+            try {
+                const data = JSON.parse(output.text);
+                root.packages = data.packages;
+                root.error = data.errors.join("\n");
+            } catch (e) { root.error = "Could not read the package list. Try Refresh."; }
+        }
+    }
+
+    PageHeader {
+        Layout.fillWidth: true
+        title: "Installed packages"
+        status: scan.running ? "Reading installed software…" : `${root.packages.length} installed · ${root.matches.length} shown`
+        showSwitch: false
+        onBack: Ui.controlPage = "settings"
+    }
+
+    // Search field with quick clear button.
+    Item {
+        Layout.fillWidth: true
+        implicitHeight: search.implicitHeight
+        Field {
+            id: search
+            anchors.fill: parent
+            rightPadding: clearSearch.visible ? 32 : 12
+            placeholderText: "Search names, descriptions or provides…"
+            Keys.onEscapePressed: event => {
+                if (text !== "") {
+                    text = "";
+                    event.accepted = true;
+                } else {
+                    event.accepted = false;
+                }
+            }
+        }
+        Rectangle {
+            id: clearSearch
+            visible: search.text !== ""
+            anchors { right: parent.right; rightMargin: 6; verticalCenter: parent.verticalCenter }
+            width: 22
+            height: 22
+            radius: Theme.corner(11)
+            color: clearArea.containsMouse ? Theme.hover : "transparent"
+            Glyph { anchors.centerIn: parent; text: "󰅖"; size: 12; color: Theme.muted }
+            MouseArea {
+                id: clearArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: search.text = ""
+            }
+        }
+    }
+
+    Segmented {
+        Layout.fillWidth: true
+        current: root.source
+        options: [{value: "all", title: "All"}, {value: "pacman", title: "pacman"},
+                  {value: "aur", title: "AUR"}, {value: "flatpak", title: "Flatpak"},
+                  {value: "appimage", title: "AppImage"}]
+        onChosen: value => root.source = value
+    }
+
+    // Filter by install role + sort + quick actions (Flow wraps cleanly and never overflows).
+    Flow {
+        Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        Layout.preferredWidth: 0
+        spacing: 6
+        FilterChip {
+            text: "All"
+            active: root.roleFilter === "all"
+            onClicked: root.roleFilter = "all"
+        }
+        FilterChip {
+            text: "Explicit"
+            glyph: "󰄬"
+            active: root.roleFilter === "explicit"
+            onClicked: root.roleFilter = root.roleFilter === "explicit" ? "all" : "explicit"
+        }
+        FilterChip {
+            text: "Top-level"
+            glyph: "󰌪"
+            active: root.roleFilter === "leaves"
+            onClicked: root.roleFilter = root.roleFilter === "leaves" ? "all" : "leaves"
+        }
+        FilterChip {
+            text: root.sortBy === "size" ? "Size ↓" : "A–Z"
+            glyph: "󰒺"
+            active: root.sortBy === "size"
+            onClicked: root.sortBy = root.sortBy === "size" ? "name" : "size"
+        }
+        FilterChip {
+            text: "Refresh"
+            glyph: "󰑐"
+            onClicked: root.refresh()
+        }
+        FilterChip {
+            text: "Updates"
+            glyph: "󰚰"
+            onClicked: Ui.spawn([Ui.bin + "penumbra-updates", "open"])
+        }
+    }
+
+    // Breadcrumb trail when jumping across dependencies / reverse dependencies.
+    Rectangle {
+        Layout.fillWidth: true
+        visible: root.history.length > 0
+        implicitHeight: navRow.implicitHeight + 14
+        radius: Theme.radiusSmall
+        color: Theme.alpha(Theme.accent, 0.12)
+        border.color: Theme.alpha(Theme.accent, 0.35)
+
+        RowLayout {
+            id: navRow
+            anchors { left: parent.left; right: parent.right; top: parent.top; leftMargin: 10; rightMargin: 10; topMargin: 7 }
+            spacing: 8
+
+            Rectangle {
+                implicitWidth: Math.min(200, backRow.implicitWidth + 14)
+                implicitHeight: 24
+                radius: Theme.corner(12)
+                color: navBackArea.containsMouse ? Theme.accent : Theme.control
+                border.color: Theme.accent
+                RowLayout {
+                    id: backRow
+                    anchors.centerIn: parent
+                    spacing: 4
+                    Glyph {
+                        text: "󰁍"
+                        size: 11
+                        color: navBackArea.containsMouse ? Theme.accentInk : Theme.accentBright
+                    }
+                    Label {
+                        text: root.history.length > 0 ? `Back to ${root.history[root.history.length - 1].name}` : "Back"
+                        elide: Text.ElideRight
+                        Layout.maximumWidth: 165
+                        font.pixelSize: Theme.textTiny
+                        font.weight: Font.DemiBold
+                        color: navBackArea.containsMouse ? Theme.accentInk : Theme.accentBright
+                    }
+                }
+                MouseArea {
+                    id: navBackArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.goBack()
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                Layout.preferredWidth: 0
+                text: root.history.map(h => h.name).concat(root.byKey[root.selected] ? [root.byKey[root.selected].name] : []).join(" → ")
+                elide: Text.ElideLeft
+                font.pixelSize: Theme.textTiny
+                color: Theme.textSoft
+            }
+
+            Glyph {
+                text: "󰅖"
+                size: 12
+                color: clearHistoryArea.containsMouse ? Theme.text : Theme.muted
+                MouseArea {
+                    id: clearHistoryArea
+                    anchors.fill: parent
+                    anchors.margins: -5
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.history = []
+                }
+            }
+        }
+    }
+
+    ColumnLayout {
+        Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        Layout.preferredWidth: 0
+        visible: root.source === "appimage"
+        spacing: 6
+        Label {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            Layout.preferredWidth: 0
+            text: "Scanned folders: Applications, AppImages, Downloads, Desktop, ~/.local/bin, ~/.local/share/AppImage, /opt and /usr/local/bin."
+            wrapMode: Text.Wrap
+            color: Theme.muted
+            font.pixelSize: Theme.textSmall
+        }
+        Field {
+            id: imageFolder
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            Layout.preferredWidth: 0
+            placeholderText: "Additional AppImage folder (optional, press Enter to scan)"
+            onAccepted: root.refresh()
+        }
+    }
+
+    Label {
+        Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        Layout.preferredWidth: 0
+        visible: root.error !== ""
+        text: root.error
+        wrapMode: Text.Wrap
+        color: Theme.amber
+    }
+
+    Label {
+        Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        Layout.preferredWidth: 0
+        visible: !scan.running && root.matches.length === 0
+        text: "No installed packages match this filter."
+        wrapMode: Text.Wrap
+        color: Theme.muted
+    }
+
+    // Top pagination bar when there are multiple pages.
+    RowLayout {
+        Layout.fillWidth: true
+        visible: root.matches.length > root.pageSize
+        spacing: 8
+        PillButton {
+            text: "Previous"
+            available: root.page > 0
+            onClicked: { root.page--; root.selected = ""; }
+        }
+        Label {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            Layout.preferredWidth: 0
+            horizontalAlignment: Text.AlignHCenter
+            font.pixelSize: Theme.textSmall
+            color: Theme.muted
+            text: `Page ${root.page + 1} of ${Math.ceil(root.matches.length / root.pageSize)}`
+        }
+        PillButton {
+            text: "Next"
+            available: (root.page + 1) * root.pageSize < root.matches.length
+            onClicked: { root.page++; root.selected = ""; }
+        }
+    }
+
+    // Package list.
+    ColumnLayout {
+        Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        Layout.preferredWidth: 0
+        spacing: 4
+
+        Repeater {
+            model: root.shown
+            delegate: Rectangle {
+                id: packageCard
+                required property var modelData
+                readonly property bool expanded: root.selected === modelData.key
+                readonly property var depLinks: modelData.dependency_links ?? []
+                readonly property var reqLinks: modelData.required_by_links ?? []
+                readonly property var optDepLinks: modelData.optional_dependency_links ?? []
+                readonly property var optForLinks: modelData.optional_for_links ?? []
+
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                Layout.preferredWidth: 0
+                implicitHeight: cardColumn.implicitHeight + 18
+                radius: Theme.radiusSmall
+                color: expanded ? Theme.raised : headerMouse.containsMouse ? Theme.hover : "transparent"
+                border.color: expanded ? Theme.lineStrong : "transparent"
+                Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
+                Behavior on implicitHeight { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
+                clip: true
+
+                ColumnLayout {
+                    id: cardColumn
+                    anchors { left: parent.left; right: parent.right; top: parent.top; margins: 9; leftMargin: 10; rightMargin: 10 }
+                    spacing: 10
+
+                    // Clickable header row to expand/collapse the package.
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        Layout.preferredWidth: 0
+                        implicitHeight: headerRow.implicitHeight
+
+                        MouseArea {
+                            id: headerMouse
+                            anchors.fill: parent
+                            anchors.margins: -6
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                root.selected = packageCard.expanded ? "" : packageCard.modelData.key;
+                                root.confirmRemove = "";
+                                root.showRawDetails = "";
+                            }
+                        }
+
+                        RowLayout {
+                            id: headerRow
+                            width: parent.width
+                            spacing: 10
+
+                            Rectangle {
+                                implicitWidth: 32
+                                implicitHeight: 32
+                                radius: Theme.corner(10)
+                                color: packageCard.expanded ? Theme.alpha(Theme.accent, 0.2) : Theme.control
+                                border.color: packageCard.expanded ? Theme.alpha(Theme.accent, 0.5) : Theme.line
+                                Glyph {
+                                    anchors.centerIn: parent
+                                    text: root.sourceGlyph(packageCard.modelData.source)
+                                    size: 16
+                                    color: packageCard.expanded ? Theme.accentBright : Theme.textSoft
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 0
+                                spacing: 2
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+                                    Label {
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        Layout.preferredWidth: 0
+                                        text: packageCard.modelData.name
+                                        elide: Text.ElideRight
+                                        font.weight: packageCard.expanded ? Font.DemiBold : Font.Medium
+                                        color: packageCard.expanded ? Theme.accentBright : Theme.text
+                                    }
+                                    Rectangle {
+                                        visible: packageCard.modelData.explicit === false
+                                        implicitWidth: depBadgeLabel.implicitWidth + 10
+                                        implicitHeight: 18
+                                        radius: Theme.corner(9)
+                                        color: Theme.control
+                                        border.color: Theme.line
+                                        Label {
+                                            id: depBadgeLabel
+                                            anchors.centerIn: parent
+                                            text: "dep"
+                                            font.pixelSize: Theme.textTiny
+                                            color: Theme.muted
+                                        }
+                                    }
+                                    Label {
+                                        visible: (packageCard.modelData.size ?? "") !== ""
+                                        text: packageCard.modelData.size
+                                        font.pixelSize: Theme.textTiny
+                                        color: Theme.muted
+                                    }
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    Layout.preferredWidth: 0
+                                    visible: (packageCard.modelData.description ?? "") !== "" && !packageCard.expanded
+                                    text: packageCard.modelData.description
+                                    elide: Text.ElideRight
+                                    font.pixelSize: Theme.textSmall
+                                    color: Theme.textSoft
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    Layout.preferredWidth: 0
+                                    text: [
+                                        root.sourceName(packageCard.modelData.source),
+                                        packageCard.modelData.version,
+                                        root.relationshipSummary(packageCard.modelData)
+                                    ].filter(Boolean).join(" · ")
+                                    elide: Text.ElideRight
+                                    font.pixelSize: Theme.textTiny
+                                    color: Theme.muted
+                                }
+                            }
+
+                            Glyph {
+                                text: packageCard.expanded ? "󰅃" : "󰅀"
+                                size: 13
+                                color: packageCard.expanded ? Theme.accentBright : Theme.dim
+                            }
+                        }
+                    }
+
+                    // Expanded package view.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        Layout.preferredWidth: 0
+                        visible: packageCard.expanded
+                        spacing: 10
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            implicitHeight: 1
+                            color: Theme.line
+                        }
+
+                        // Full description.
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 0
+                            visible: (packageCard.modelData.description ?? "") !== ""
+                            text: packageCard.modelData.description
+                            wrapMode: Text.Wrap
+                            font.pixelSize: Theme.textBody
+                            color: Theme.text
+                        }
+
+                        // Structured metadata pills.
+                        Flow {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 0
+                            spacing: 6
+
+                            Repeater {
+                                model: [
+                                    { label: "Source", value: root.sourceName(packageCard.modelData.source) },
+                                    { label: "Version", value: packageCard.modelData.version },
+                                    { label: "Size", value: packageCard.modelData.size },
+                                    { label: "Role", value: packageCard.modelData.reason || (packageCard.modelData.explicit === false ? "Dependency" : "Explicitly installed") },
+                                    { label: "License", value: packageCard.modelData.licenses ?? "" },
+                                    { label: "Groups", value: packageCard.modelData.groups ?? "" },
+                                    { label: "Provides", value: packageCard.modelData.provides ?? "" }
+                                ].filter(item => !!item.value)
+                                delegate: Rectangle {
+                                    id: metaPill
+                                    required property var modelData
+                                    implicitWidth: Math.min(cardColumn.width, metaRow.implicitWidth + 16)
+                                    implicitHeight: 24
+                                    radius: Theme.corner(8)
+                                    color: Theme.control
+                                    border.color: Theme.line
+
+                                    RowLayout {
+                                        id: metaRow
+                                        anchors { fill: parent; leftMargin: 8; rightMargin: 8 }
+                                        spacing: 4
+                                        Label {
+                                            id: metaKeyLabel
+                                            text: metaPill.modelData.label + ":"
+                                            font.pixelSize: Theme.textTiny
+                                            color: Theme.muted
+                                        }
+                                        Label {
+                                            Layout.fillWidth: true
+                                            Layout.maximumWidth: Math.max(60, cardColumn.width - metaKeyLabel.implicitWidth - 24)
+                                            text: metaPill.modelData.value
+                                            elide: Text.ElideRight
+                                            font.pixelSize: Theme.textTiny
+                                            font.weight: Font.Medium
+                                            color: Theme.textSoft
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Dependencies (what this package needs) — clickable chips.
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 0
+                            spacing: 5
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                Glyph { text: "󰁔"; size: 12; color: Theme.accent }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    Layout.preferredWidth: 0
+                                    text: packageCard.depLinks.length > 0
+                                        ? `Dependencies · what this needs (${packageCard.depLinks.length})`
+                                        : "Dependencies · what this needs"
+                                    elide: Text.ElideRight
+                                    font.pixelSize: Theme.textSmall
+                                    font.weight: Font.DemiBold
+                                    color: Theme.textSoft
+                                }
+                            }
+
+                            Flow {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 0
+                                visible: packageCard.depLinks.length > 0
+                                spacing: 6
+                                Repeater {
+                                    model: packageCard.depLinks
+                                    delegate: PackageLinkChip {
+                                        required property var modelData
+                                        label: modelData.label
+                                        targetKey: modelData.key ?? ""
+                                        installed: modelData.installed ?? false
+                                        maxWidth: cardColumn.width
+                                        onActivated: key => root.jumpTo(key, packageCard.modelData)
+                                    }
+                                }
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 0
+                                visible: packageCard.depLinks.length === 0
+                                text: packageCard.modelData.source === "appimage"
+                                    ? packageCard.modelData.dependencies
+                                    : (packageCard.modelData.dependencies && packageCard.modelData.dependencies !== "None"
+                                        ? packageCard.modelData.dependencies
+                                        : "None — standalone package with no direct dependencies")
+                                wrapMode: Text.Wrap
+                                font.pixelSize: Theme.textSmall
+                                color: Theme.muted
+                            }
+                        }
+
+                        // Required by (what needs this package) — clickable chips.
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 0
+                            spacing: 5
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                Glyph { text: "󰁍"; size: 12; color: Theme.accent }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    Layout.preferredWidth: 0
+                                    text: packageCard.reqLinks.length > 0
+                                        ? `Required by · what needs this (${packageCard.reqLinks.length})`
+                                        : "Required by · what needs this"
+                                    elide: Text.ElideRight
+                                    font.pixelSize: Theme.textSmall
+                                    font.weight: Font.DemiBold
+                                    color: Theme.textSoft
+                                }
+                            }
+
+                            Flow {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 0
+                                visible: packageCard.reqLinks.length > 0
+                                spacing: 6
+                                Repeater {
+                                    model: packageCard.reqLinks
+                                    delegate: PackageLinkChip {
+                                        required property var modelData
+                                        label: modelData.label
+                                        targetKey: modelData.key ?? ""
+                                        installed: modelData.installed ?? true
+                                        maxWidth: cardColumn.width
+                                        onActivated: key => root.jumpTo(key, packageCard.modelData)
+                                    }
+                                }
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 0
+                                visible: packageCard.reqLinks.length === 0
+                                text: packageCard.modelData.source === "appimage"
+                                    ? packageCard.modelData.required_by
+                                    : "Nothing requires this package (top-level)"
+                                wrapMode: Text.Wrap
+                                font.pixelSize: Theme.textSmall
+                                color: Theme.muted
+                            }
+                        }
+
+                        // Optional dependencies (only shown when non-empty).
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 0
+                            visible: packageCard.optDepLinks.length > 0
+                            spacing: 5
+
+                            Label {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 0
+                                text: `Optional dependencies (${packageCard.optDepLinks.length})`
+                                elide: Text.ElideRight
+                                font.pixelSize: Theme.textSmall
+                                font.weight: Font.DemiBold
+                                color: Theme.textSoft
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 0
+                                spacing: 6
+                                Repeater {
+                                    model: packageCard.optDepLinks
+                                    delegate: ColumnLayout {
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        Layout.preferredWidth: 0
+                                        spacing: 2
+                                        PackageLinkChip {
+                                            label: modelData.label
+                                            targetKey: modelData.key ?? ""
+                                            installed: modelData.installed ?? false
+                                            sublabel: (modelData.installed ?? false) ? "installed" : "not installed"
+                                            maxWidth: cardColumn.width
+                                            onActivated: key => root.jumpTo(key, packageCard.modelData)
+                                        }
+                                        Label {
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            Layout.preferredWidth: 0
+                                            Layout.leftMargin: 6
+                                            visible: (modelData.description ?? "") !== ""
+                                            text: modelData.description ?? ""
+                                            wrapMode: Text.Wrap
+                                            font.pixelSize: Theme.textTiny
+                                            color: Theme.muted
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Optional for (only shown when non-empty) — clickable chips.
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 0
+                            visible: packageCard.optForLinks.length > 0
+                            spacing: 5
+
+                            Label {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 0
+                                text: `Optional for · enhances (${packageCard.optForLinks.length})`
+                                elide: Text.ElideRight
+                                font.pixelSize: Theme.textSmall
+                                font.weight: Font.DemiBold
+                                color: Theme.textSoft
+                            }
+
+                            Flow {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 0
+                                spacing: 6
+                                Repeater {
+                                    model: packageCard.optForLinks
+                                    delegate: PackageLinkChip {
+                                        required property var modelData
+                                        label: modelData.label
+                                        targetKey: modelData.key ?? ""
+                                        installed: modelData.installed ?? true
+                                        maxWidth: cardColumn.width
+                                        onActivated: key => root.jumpTo(key, packageCard.modelData)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Action buttons.
+                        Flow {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 0
+                            spacing: 8
+                            PillButton {
+                                text: packageCard.modelData.source === "flatpak" ? "Update" : "Upgrade system"
+                                visible: packageCard.modelData.source !== "appimage"
+                                onClicked: root.manage(packageCard.modelData, "update")
+                            }
+                            PillButton {
+                                text: "Website"
+                                visible: (packageCard.modelData.url ?? "") !== ""
+                                onClicked: Ui.spawn(["xdg-open", packageCard.modelData.url])
+                            }
+                            PillButton {
+                                text: "Open folder"
+                                visible: packageCard.modelData.source === "appimage"
+                                onClicked: root.manage(packageCard.modelData, "folder")
+                            }
+                            PillButton {
+                                text: root.showRawDetails === packageCard.modelData.key ? "Hide record" : "Full record"
+                                onClicked: root.showRawDetails = root.showRawDetails === packageCard.modelData.key ? "" : packageCard.modelData.key
+                            }
+                            PillButton {
+                                text: packageCard.modelData.source === "appimage" ? "Move to trash…" : "Uninstall…"
+                                danger: true
+                                onClicked: root.confirmRemove = packageCard.modelData.key
+                            }
+                        }
+
+                        // Collapsible full package record.
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 0
+                            visible: root.showRawDetails === packageCard.modelData.key
+                            implicitHeight: rawColumn.implicitHeight + 16
+                            radius: Theme.corner(8)
+                            color: Theme.control
+                            border.color: Theme.line
+
+                            ColumnLayout {
+                                id: rawColumn
+                                anchors { left: parent.left; right: parent.right; top: parent.top; margins: 8 }
+                                spacing: 6
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    Layout.preferredWidth: 0
+                                    text: packageCard.modelData.details
+                                    textFormat: Text.PlainText
+                                    wrapMode: Text.Wrap
+                                    font.family: Theme.mono
+                                    font.pixelSize: Theme.textTiny
+                                    color: Theme.textSoft
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    Layout.preferredWidth: 0
+                                    text: packageCard.modelData.dependency_note || ""
+                                    visible: text !== ""
+                                    wrapMode: Text.Wrap
+                                    font.pixelSize: Theme.textTiny
+                                    color: Theme.dim
+                                }
+                            }
+                        }
+
+                        // Uninstall confirmation.
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 0
+                            visible: root.confirmRemove === packageCard.modelData.key
+                            implicitHeight: confirmCol.implicitHeight + 16
+                            radius: Theme.corner(8)
+                            color: Theme.alpha(Theme.rose, 0.12)
+                            border.color: Theme.alpha(Theme.rose, 0.4)
+
+                            ColumnLayout {
+                                id: confirmCol
+                                anchors { left: parent.left; right: parent.right; top: parent.top; margins: 8 }
+                                spacing: 8
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    Layout.preferredWidth: 0
+                                    text: packageCard.modelData.source === "appimage"
+                                        ? "Move this file to the trash? App data and launcher entries stay in place."
+                                        : (packageCard.reqLinks.length > 0
+                                            ? `Warning: ${packageCard.reqLinks.length} installed ${packageCard.reqLinks.length === 1 ? "package requires" : "packages require"} ${packageCard.modelData.name}. Review in the terminal before confirming.`
+                                            : "Uninstall this package? Review and confirm in the terminal.")
+                                    wrapMode: Text.Wrap
+                                    font.pixelSize: Theme.textSmall
+                                    color: Theme.amber
+                                }
+                                Flow {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    Layout.preferredWidth: 0
+                                    spacing: 8
+                                    PillButton {
+                                        text: "Continue in terminal"
+                                        danger: true
+                                        onClicked: root.manage(packageCard.modelData, "remove")
+                                    }
+                                    PillButton {
+                                        text: "Cancel"
+                                        onClicked: root.confirmRemove = ""
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Bottom pagination bar so the user doesn't have to scroll back to the top.
+    RowLayout {
+        Layout.fillWidth: true
+        visible: root.matches.length > root.pageSize
+        spacing: 8
+        PillButton {
+            text: "Previous"
+            available: root.page > 0
+            onClicked: { root.page--; root.selected = ""; }
+        }
+        Label {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            Layout.preferredWidth: 0
+            horizontalAlignment: Text.AlignHCenter
+            font.pixelSize: Theme.textSmall
+            color: Theme.muted
+            text: `Page ${root.page + 1} of ${Math.ceil(root.matches.length / root.pageSize)}`
+        }
+        PillButton {
+            text: "Next"
+            available: (root.page + 1) * root.pageSize < root.matches.length
+            onClicked: { root.page++; root.selected = ""; }
+        }
+    }
+}
+```
+
 ## `config/quickshell/penumbra/PageHeader.qml`
 
 ```qml
@@ -18833,7 +20566,7 @@ PanelWindow {
     implicitWidth: sheetWidth + 2 * shadowRoom
     // A fixed-height surface; only the sheet takes input, so it can grow and shrink smoothly.
     implicitHeight: (screen?.height ?? 1080) - margins.top - Theme.edge
-    mask: Region { item: sheet }
+    mask: Region { item: inputBounds }
     margins.top: Theme.barHeight + 10 + (Settings.barStyle === "floating" ? Theme.gap : 0) - shadowRoom
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "penumbra-panel"
@@ -18843,6 +20576,15 @@ PanelWindow {
         windows: [panel]
         active: panel.open
         onCleared: panel.dismissed()
+    }
+
+    // Outside the scale transform so the Wayland input mask covers the full sheet from the first frame.
+    Item {
+        id: inputBounds
+        x: panel.shadowRoom
+        y: panel.shadowRoom
+        width: panel.sheetWidth
+        height: sheet.height
     }
 
     // The material, rim and shadow share one transform, so their edges never separate.
@@ -20128,6 +21870,7 @@ ColumnLayout {
 
     // What search finds: a page to open (page), or a row of this page (page: "settings").
     readonly property var index: [
+        { page: "packages", glyph: "󰏗", title: "Installed packages", words: "software pacman aur foreign flatpak appimage uninstall update manage" },
         { page: "notes", glyph: "󰎞", title: "Quick notes", words: "notes draft text writing local sidebar" },
         { page: "look", glyph: "󰏘", title: "Look", words: "theme dark light auto colours colors accent hue vividness corners rounded sharp harmonize depth clock audio aura screen frame bezel" },
         { page: "displays", glyph: "󰍹", title: "Displays", words: "monitors screens resolution refresh rate scale rotation arrangement" },
@@ -20238,6 +21981,7 @@ ColumnLayout {
             spacing: 2
             Repeater {
                 model: [
+                    { page: "packages", glyph: "󰏗", title: "Installed packages", subtitle: "pacman, AUR, Flatpak and AppImage" },
                     { page: "notes", glyph: "󰎞", title: "Quick notes", subtitle: "A local draft, saved as you type" },
                     { page: "look", glyph: "󰏘", title: "Look", subtitle: Look.summary },
                     { page: "displays", glyph: "󰍹", title: "Displays", subtitle: Quickshell.screens.length > 1 ? `${Quickshell.screens.length} screens · arrangement, resolution, scale` : "Resolution, refresh rate, scale" },

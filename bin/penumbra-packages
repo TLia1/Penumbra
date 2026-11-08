@@ -1,0 +1,404 @@
+#!/usr/bin/env python3
+"""Installed software inventory and interactive, argument-safe management actions."""
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+
+
+def query(command, empty=False):
+    result = subprocess.run(command, capture_output=True, text=True, timeout=60,
+                            env={**os.environ, "LC_ALL": "C"})
+    if result.returncode and not (empty and result.returncode == 1 and not result.stderr.strip()):
+        raise RuntimeError(result.stderr.strip() or f"{command[0]} exited with {result.returncode}")
+    return result.stdout
+
+
+def parse_size_bytes(text):
+    match = re.match(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*([A-Za-z]+)\s*$", text or "")
+    if not match:
+        return 0
+    value = float(match[1])
+    unit = match[2].lower()
+    factors = {
+        "b": 1,
+        "kib": 1024, "kb": 1000,
+        "mib": 1024 ** 2, "mb": 1000 ** 2,
+        "gib": 1024 ** 3, "gb": 1000 ** 3,
+        "tib": 1024 ** 4, "tb": 1000 ** 4,
+    }
+    return int(value * factors.get(unit, 1))
+
+
+def clean_field(value):
+    return "" if not value or value in ("None", "Unavailable") else value
+
+
+def split_tokens(value):
+    return [] if not value or value in ("None", "Unavailable") else value.split()
+
+
+def pacman_records():
+    foreign = set(query(["pacman", "-Qmq"], empty=True).splitlines())
+    records = []
+    raw_fields = []
+    for block in query(["pacman", "-Qi"], empty=True).strip().split("\n\n"):
+        fields = {}
+        last = None
+        for line in block.splitlines():
+            match = re.match(r"^([^ :][^:]*?)\s+: (.*)$", line)
+            if match:
+                last = match[1].strip()
+                fields[last] = match[2]
+            elif last and line.startswith(" "):
+                fields[last] += ("\n" if last == "Optional Deps" else " ") + line.strip()
+        name = fields.get("Name")
+        if not name:
+            continue
+        source = "aur" if name in foreign else "pacman"
+        relationships = {
+            "dependencies": fields.get("Depends On", "Unavailable"),
+            "required_by": fields.get("Required By", "Unavailable"),
+            "optional_dependencies": fields.get("Optional Deps", "Unavailable"),
+            "optional_for": fields.get("Optional For", "Unavailable"),
+        }
+        for key in ("dependencies", "required_by", "optional_for"):
+            if relationships[key] not in ("None", "Unavailable"):
+                relationships[key] = " · ".join(relationships[key].split())
+        reason_raw = fields.get("Install Reason", "")
+        explicit = not reason_raw.lower().startswith("installed as a dependency")
+        size_text = fields.get("Installed Size", "")
+        record = dict(
+            key=f"{source}:{name}",
+            source=source,
+            target=name,
+            name=name,
+            version=fields.get("Version", ""),
+            size=size_text,
+            size_bytes=parse_size_bytes(size_text),
+            description=fields.get("Description", ""),
+            explicit=explicit,
+            reason="Explicitly installed" if explicit else "Installed as dependency",
+            url=clean_field(fields.get("URL", "")),
+            licenses=clean_field(fields.get("Licenses", "")),
+            groups=" · ".join(split_tokens(fields.get("Groups", ""))),
+            provides=" · ".join(split_tokens(fields.get("Provides", ""))),
+            conflicts=" · ".join(split_tokens(fields.get("Conflicts With", ""))),
+            install_date=clean_field(fields.get("Install Date", "")),
+            build_date=clean_field(fields.get("Build Date", "")),
+            packager=clean_field(fields.get("Packager", "")),
+            **relationships,
+            dependency_note="Direct relationships from the installed pacman database, including version constraints and optional packages.",
+            details="\n".join(f"{k}: {v}" for k, v in fields.items()
+                              if k not in ("Depends On", "Required By", "Optional Deps", "Optional For")),
+        )
+        records.append(record)
+        raw_fields.append(fields)
+
+    by_name = {r["name"]: r for r in records}
+    by_provide = {}
+    for record, fields in zip(records, raw_fields):
+        for token in split_tokens(fields.get("Provides", "")):
+            bare = re.split(r"[<>=]", token, maxsplit=1)[0].strip()
+            if bare and bare not in by_provide:
+                by_provide[bare] = record
+            if token not in by_provide:
+                by_provide[token] = record
+
+    def resolve_token(token):
+        bare = re.split(r"[<>=]", token, maxsplit=1)[0].strip()
+        target = by_name.get(bare) or by_provide.get(token) or by_provide.get(bare)
+        if target is not None:
+            if target["name"] == bare:
+                label = token
+            elif ".so" in bare:
+                label = target["name"]
+            else:
+                label = f"{target['name']} ({bare})"
+            return {"name": target["name"], "label": label, "token": token, "key": target["key"], "installed": True}
+        return {"name": bare or token, "label": token, "token": token, "key": "", "installed": False}
+
+    def resolve_list(tokens):
+        links = []
+        seen_keys = set()
+        for token in tokens:
+            item = resolve_token(token)
+            dedup_id = item["key"] or item["label"]
+            if dedup_id in seen_keys:
+                continue
+            seen_keys.add(dedup_id)
+            links.append(item)
+        return links
+
+    for record, fields in zip(records, raw_fields):
+        record["dependency_links"] = resolve_list(split_tokens(fields.get("Depends On", "")))
+        record["required_by_links"] = resolve_list(split_tokens(fields.get("Required By", "")))
+        record["optional_for_links"] = resolve_list(split_tokens(fields.get("Optional For", "")))
+        opt_links = []
+        opt_raw = fields.get("Optional Deps", "")
+        if opt_raw and opt_raw not in ("None", "Unavailable"):
+            for line in opt_raw.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                pkg_part, _, desc_part = line.partition(":")
+                pkg_token = pkg_part.strip()
+                resolved = resolve_token(pkg_token)
+                clean_desc = re.sub(r"\s*\[(installed|pending)\]\s*$", "", desc_part).strip()
+                resolved["description"] = clean_desc
+                if "[installed]" in desc_part:
+                    resolved["installed"] = True
+                opt_links.append(resolved)
+        record["optional_dependency_links"] = opt_links
+    return records
+
+
+def flatpak_records():
+    records = []
+    for kind in ("app", "runtime"):
+        output = query(["flatpak", "list", f"--{kind}",
+                        "--columns=ref,name,version,origin,installation,size,runtime"])
+        for line in output.splitlines():
+            cells = line.split("\t")
+            # Flatpak omits an empty final runtime column.
+            if len(cells) == 6:
+                cells.append("")
+            if len(cells) != 7:
+                raise RuntimeError("Unexpected Flatpak inventory format")
+            ref, name, version, origin, scope, size, runtime = cells
+            target = f"{kind}/{ref}"
+            explicit = kind == "app"
+            records.append(dict(
+                key=f"flatpak:{scope}:{target}",
+                source="flatpak",
+                target=target,
+                scope=scope,
+                kind=kind,
+                origin=origin,
+                name=name or ref,
+                version=version,
+                size=size,
+                size_bytes=parse_size_bytes(size),
+                explicit=explicit,
+                reason=f"Flatpak {kind} ({scope})",
+                url="",
+                licenses="",
+                groups="",
+                provides="",
+                conflicts="",
+                install_date="",
+                build_date="",
+                packager=origin,
+                runtime=runtime,
+                dependencies=runtime or "No primary runtime reported",
+                required_by="No installed apps use this as their primary runtime",
+                optional_dependencies="None",
+                optional_for="None",
+                dependency_links=[],
+                required_by_links=[],
+                optional_dependency_links=[],
+                optional_for_links=[],
+                dependency_note="Flatpak shows primary runtime relationships only. Runtime extensions and bundled libraries are not included; this is not a safe-to-remove check.",
+                description=f"{kind} · {scope} · {origin}",
+                details=f"{target}\nInstallation: {scope}\nOrigin: {origin}\nSize: {size}",
+            ))
+    # A user app can use a system runtime; prefer a runtime in its own installation.
+    by_ref = {(r["scope"], r["target"]): r for r in records}
+    users = {}
+    user_links = {}
+    for record in records:
+        runtime = record["runtime"]
+        if not runtime:
+            continue
+        target = runtime if runtime.startswith("runtime/") else "runtime/" + runtime
+        dependency = by_ref.get((record["scope"], target))
+        if dependency is None and record["scope"] == "user":
+            dependency = by_ref.get(("system", target))
+        if dependency is not None:
+            record["dependencies"] = f"{runtime} ({dependency['scope']})"
+            record["dependency_links"] = [{
+                "name": dependency["name"],
+                "label": f"{dependency['name']} ({dependency['scope']})",
+                "detail": runtime,
+                "key": dependency["key"],
+                "installed": True,
+            }]
+            users.setdefault(dependency["key"], []).append(
+                f"{record['name']} · {record['target']} ({record['scope']})")
+            user_links.setdefault(dependency["key"], []).append({
+                "name": record["name"],
+                "label": f"{record['name']} ({record['scope']})",
+                "detail": record["target"],
+                "key": record["key"],
+                "installed": True,
+            })
+        else:
+            record["dependencies"] = f"{runtime} (installation not resolved)"
+            record["dependency_links"] = [{
+                "name": runtime,
+                "label": f"{runtime} (unresolved)",
+                "detail": "",
+                "key": "",
+                "installed": False,
+            }]
+    for record in records:
+        if record["key"] in users:
+            record["required_by"] = "\n".join(sorted(users[record["key"]]))
+            record["required_by_links"] = sorted(user_links[record["key"]], key=lambda item: (item["label"].lower(), item["key"]))
+    return records
+
+
+def appimage_roots(extra=""):
+    home = Path.home()
+    roots = [home / name for name in ("Applications", "AppImages", "Downloads", "Desktop", ".local/bin", ".local/share/AppImage")]
+    roots.extend((Path("/opt"), Path("/usr/local/bin")))
+    if extra.strip():
+        roots.append(Path(extra).expanduser().absolute())
+    return roots
+
+
+def appimage_records(extra=""):
+    records, seen, errors = [], set(), []
+    def failed(error):
+        errors.append(str(error))
+    for root in appimage_roots(extra):
+        if not root.is_dir():
+            if extra and root == Path(extra).expanduser().absolute():
+                errors.append(f"AppImage folder does not exist: {root}")
+            continue
+        for directory, dirs, files in os.walk(root, onerror=failed, followlinks=False):
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "__pycache__")]
+            for name in files:
+                if not name.lower().endswith(".appimage"):
+                    continue
+                path = Path(directory) / name
+                # Keep the directory entry: trashing a symlink must never remove its target.
+                key = str(path.absolute())
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    size_bytes = path.stat().st_size
+                    size = f"{size_bytes / (1024 * 1024):.1f} MiB"
+                except OSError as error:
+                    errors.append(str(error))
+                    continue
+                records.append(dict(
+                    key="appimage:" + key,
+                    source="appimage",
+                    target=key,
+                    name=name,
+                    version="",
+                    size=size,
+                    size_bytes=size_bytes,
+                    explicit=True,
+                    reason="Standalone AppImage",
+                    url="",
+                    licenses="",
+                    groups="",
+                    provides="",
+                    conflicts="",
+                    install_date="",
+                    build_date="",
+                    packager="",
+                    description=str(path.parent),
+                    dependencies="Unavailable — AppImages have no package-manager dependency database",
+                    required_by="Unavailable — reverse dependencies are not tracked",
+                    optional_dependencies="None",
+                    optional_for="None",
+                    dependency_links=[],
+                    required_by_links=[],
+                    optional_dependency_links=[],
+                    optional_for_links=[],
+                    dependency_note="Libraries may be bundled or supplied by the host. This file is not executed or inspected for dependencies.",
+                    details=f"{key}\nSize: {size}\nUpdate by replacing this file with a download from its publisher.",
+                ))
+    return records, errors
+
+
+def inventory(extra=""):
+    records, errors = [], []
+    for tool, reader in (("pacman", pacman_records), ("flatpak", flatpak_records)):
+        if not shutil.which(tool):
+            errors.append(f"{tool} is not installed")
+            continue
+        try:
+            records.extend(reader())
+        except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+            errors.append(f"{tool}: {error}")
+    images, image_errors = appimage_records(extra)
+    records.extend(images)
+    errors.extend(image_errors)
+    return {"packages": sorted(records, key=lambda p: (p["name"].lower(), p["key"])), "errors": errors}
+
+
+def action_command(record, action):
+    source, target = record["source"], record["target"]
+    if source in ("pacman", "aur"):
+        if action == "remove":
+            return ["sudo", "pacman", "-R", "--", target]
+        if action == "update":
+            helper = shutil.which("paru") or shutil.which("yay")
+            if source == "aur" and not helper:
+                raise RuntimeError("Install paru or yay to update AUR packages. Manually built foreign packages need their original build source.")
+            # Arch upgrades must update the whole system to avoid partial upgrades.
+            return [helper, "-Syu"] if helper else ["sudo", "pacman", "-Syu"]
+    if source == "flatpak":
+        scope = record["scope"]
+        flag = f"--{scope}" if scope in ("user", "system") else "--installation=" + scope
+        if action in ("remove", "update"):
+            return ["flatpak", "uninstall" if action == "remove" else "update", flag, "--", target]
+    if source == "appimage":
+        if action == "remove":
+            return ["gio", "trash", "--", target]
+        if action == "folder":
+            return ["xdg-open", str(Path(target).parent)]
+    raise RuntimeError("This action is not supported for this package")
+
+
+def manage(key, action, extra=""):
+    data = inventory(extra)
+    record = next((p for p in data["packages"] if p["key"] == key), None)
+    if record is None:
+        raise RuntimeError("Package is no longer available. Refresh the list. " + "; ".join(data["errors"]))
+    command = action_command(record, action)
+    print(f"\n{record['name']}\n{record['details']}\n", flush=True)
+    if record["source"] == "appimage" and action == "remove":
+        if input("Move this AppImage to the trash? [y/N] ").strip().lower() != "y":
+            return 0
+    if action == "update" and record["source"] in ("pacman", "aur"):
+        print("Starting a full system upgrade. Review the transaction below.\n", flush=True)
+    return subprocess.call(command)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("mode", choices=("list", "manage"))
+    parser.add_argument("action", nargs="?", choices=("remove", "update", "folder"))
+    parser.add_argument("key", nargs="?")
+    parser.add_argument("--appimage-directory", default="")
+    args = parser.parse_args()
+    if args.mode == "list":
+        print(json.dumps(inventory(args.appimage_directory)))
+        return 0
+    code = 1
+    try:
+        if not args.action or not args.key:
+            raise RuntimeError("Choose a package and action")
+        code = manage(args.key, args.action, args.appimage_directory)
+        print("\nFinished. Refresh Installed packages to see changes." if code == 0 else "\nOperation failed or was cancelled.")
+    except (OSError, RuntimeError, subprocess.TimeoutExpired, KeyboardInterrupt, EOFError) as error:
+        print(f"\n{error}", file=sys.stderr)
+    try:
+        input("\nPress Enter to close…")
+    except (EOFError, KeyboardInterrupt):
+        pass
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main())

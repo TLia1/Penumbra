@@ -577,6 +577,41 @@ performance benchmark. The image below is a separate offline component study, re
 
 ![Curated palettes and aesthetic controls, offline sample data](previews/aesthetics.png)
 
+## Installed packages
+
+Open **Settings → Installed packages** (or `penumbra-ipc panel page packages`) to
+search installed software and filter by pacman, AUR / foreign, Flatpak or AppImage.
+Expand a package for its **Dependencies** (what it needs), **Required by** (what
+needs it), details and management actions. Pacman and AUR/foreign packages also show
+optional dependencies and the packages that optionally use them. Version constraints
+are preserved. Flatpak shows primary runtime relationships, matched by branch,
+architecture and installation; runtime extensions and bundled libraries are not included.
+AppImages explicitly show dependency information as unavailable because it is not tracked.
+These are direct relationships, not a recursive dependency tree or a safe-to-remove check. Lists include dependencies
+and Flatpak runtimes, with each Flatpak installation and branch kept separate.
+
+Uninstall and update actions open your configured terminal, where the package manager
+shows the transaction, asks for confirmation and handles authentication. Pacman removal
+uses `-R`, retaining dependency checks and configuration backups. Arch updates are full
+system upgrades, using paru or yay when available. The AUR filter includes **all foreign
+packages**; locally built packages may need their original build source. **Update all**
+opens the existing system/AUR and user/system Flatpak update flow. Refresh the list after
+finishing; named Flatpak installations can be updated from their individual rows.
+
+AppImages are discovered recursively by `.AppImage` filename (case-insensitive) in
+`~/Applications`, `~/AppImages`, `~/Downloads`, `~/Desktop`, `~/.local/bin`,
+`~/.local/share/AppImage`, `/opt` and `/usr/local/bin`. The AppImage filter offers an
+additional folder for the current visit; press Refresh after entering it. Hidden
+subdirectories and symlinked directories are skipped. Files elsewhere or without the
+extension require moving them into a scanned folder or renaming them appropriately.
+AppImage actions open the containing folder or move the selected file to the trash;
+app data and desktop launchers stay in place. Download replacement versions from the
+publisher. Scanning never executes AppImages.
+
+The read-only inventory is also available as JSON with `penumbra-packages list`.
+Command behavior follows the [pacman manual](https://man.archlinux.org/man/pacman.8.en)
+and [Flatpak command reference](https://docs.flatpak.org/en/latest/flatpak-command-reference.html).
+
 ## Sources and licensing
 
 The Penumbra QML, wallpaper, configurations, and helper scripts were created for this setup. The icon overlay redistributes unmodified violet Papirus folder SVGs from the installed package, under GPL-3.0; see `licenses/Papirus-GPL-3.0.txt` and the [Papirus source](https://github.com/PapirusDevelopmentTeam/papirus-icon-theme). It inherits the remaining icons from the installed Papirus theme.

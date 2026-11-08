@@ -20,6 +20,7 @@ ColumnLayout {
 
     // What search finds: a page to open (page), or a row of this page (page: "settings").
     readonly property var index: [
+        { page: "packages", glyph: "󰏗", title: "Installed packages", words: "software pacman aur foreign flatpak appimage uninstall update manage" },
         { page: "notes", glyph: "󰎞", title: "Quick notes", words: "notes draft text writing local sidebar" },
         { page: "look", glyph: "󰏘", title: "Look", words: "theme dark light auto colours colors accent hue vividness corners rounded sharp harmonize depth clock audio aura screen frame bezel" },
         { page: "displays", glyph: "󰍹", title: "Displays", words: "monitors screens resolution refresh rate scale rotation arrangement" },
@@ -130,6 +131,7 @@ ColumnLayout {
             spacing: 2
             Repeater {
                 model: [
+                    { page: "packages", glyph: "󰏗", title: "Installed packages", subtitle: "pacman, AUR, Flatpak and AppImage" },
                     { page: "notes", glyph: "󰎞", title: "Quick notes", subtitle: "A local draft, saved as you type" },
                     { page: "look", glyph: "󰏘", title: "Look", subtitle: Look.summary },
                     { page: "displays", glyph: "󰍹", title: "Displays", subtitle: Quickshell.screens.length > 1 ? `${Quickshell.screens.length} screens · arrangement, resolution, scale` : "Resolution, refresh rate, scale" },
