@@ -6,10 +6,12 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 loader = importlib.machinery.SourceFileLoader('packages', str(ROOT / 'bin/penumbra-packages'))
 spec = importlib.util.spec_from_loader(loader.name, loader)

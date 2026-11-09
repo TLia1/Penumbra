@@ -71,3 +71,7 @@ class QmlLoad(unittest.TestCase):
             result = subprocess.run(['quickshell', '-p', temp, '--no-color'], env=env,
                                     capture_output=True, text=True, timeout=20)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+if __name__ == '__main__':
+    unittest.main()

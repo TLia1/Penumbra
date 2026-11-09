@@ -4,9 +4,11 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('preview', ROOT / 'tools/preview-widgets.py')
 preview = importlib.util.module_from_spec(SPEC)
@@ -55,3 +57,7 @@ ShellRoot {
             result = subprocess.run(['quickshell', '-p', temp, '--no-color'], env=env,
                                     capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+if __name__ == '__main__':
+    unittest.main()

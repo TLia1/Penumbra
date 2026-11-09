@@ -3534,6 +3534,19 @@ if __name__ == '__main__':
     sys.exit(main())
 ```
 
+## `tests/__main__.py`
+
+```python
+"""Run the Penumbra test suite: `python3 tests` or `python3 tests/`."""
+from pathlib import Path
+import sys
+import unittest
+
+sys.dont_write_bytecode = True
+suite = unittest.defaultTestLoader.discover(str(Path(__file__).resolve().parent))
+sys.exit(0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1)
+```
+
 ## `tests/test_artwork.py`
 
 ```python
@@ -3541,14 +3554,28 @@ if __name__ == '__main__':
 import json
 from pathlib import Path
 import re
+import struct
 import sys
 import unittest
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'share/penumbra'))
+sys.dont_write_bytecode = True
 import artwork
 import palette
+
+
+def png_size(path):
+    if Image is not None:
+        with Image.open(path) as image:
+            return image.size
+    data = path.read_bytes()
+    assert data[:8] == b'\x89PNG\r\n\x1a\n' and data[12:16] == b'IHDR'
+    return struct.unpack('>II', data[16:24])
 
 
 class Artwork(unittest.TestCase):
@@ -3566,8 +3593,7 @@ class Artwork(unittest.TestCase):
                 self.assertNotIn('<text', clean)
                 self.assertNotIn('id="wordmark"', clean)
                 for suffix in ['', '-clean']:
-                    with Image.open(ROOT / 'assets' / (name + suffix + '.png')) as image:
-                        self.assertEqual(image.size, (2560, 1600))
+                    self.assertEqual(png_size(ROOT / 'assets' / (name + suffix + '.png')), (2560, 1600))
                 meta = scenes[name]
                 if not meta['scene']:
                     continue
@@ -3577,13 +3603,22 @@ class Artwork(unittest.TestCase):
                 # QML uses the original scene geometry with each variant's textures.
                 self.assertEqual(layers(meta['folder']), layers(meta['scene']))
                 for layer in layers(meta['folder']):
-                    with Image.open(shell / meta['folder'] / (layer['name'] + '.png')) as image:
-                        self.assertEqual(image.size, (layer['width'], layer['height']))
+                    self.assertEqual(png_size(shell / meta['folder'] / (layer['name'] + '.png')),
+                                     (layer['width'], layer['height']))
 
     def test_starlight_is_a_light_scene(self):
-        with Image.open(ROOT / 'assets/wallpaper-starlight-clean.png') as image:
-            sky = '#%02x%02x%02x' % image.convert('RGB').getpixel((2400, 100))
+        path = ROOT / 'assets/wallpaper-starlight-clean.png'
+        if Image is not None:
+            with Image.open(path) as image:
+                rgb = image.convert('RGB').getpixel((2400, 100))
+        else:
+            rgb = palette.wallpaper_pixels(path)[6 * 96 + 90]
+        sky = '#%02x%02x%02x' % rgb
         self.assertGreater(palette.hex_to_oklch(sky)[0], .8)
+
+
+if __name__ == '__main__':
+    unittest.main()
 ```
 
 ## `tests/test_boot.py`
@@ -3594,10 +3629,12 @@ class Artwork(unittest.TestCase):
 import importlib.util
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
+sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location('boot', Path(__file__).resolve().parents[1] / 'tools/install-boot.py')
 boot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(boot)
@@ -4000,6 +4037,7 @@ import subprocess
 import sys
 import unittest
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -4034,9 +4072,11 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 DISTROS = sorted(p.parent.name for p in (ROOT / 'distro').glob('*/distro.sh'))
 SETTINGS = 'settings=([kb_layout]=us [kb_variant]= [kb_options]= [scale]=auto [numlock]=on [shell]=fish)'
@@ -4145,7 +4185,7 @@ git config --file ~/.gitconfig delta.features side-by-side
 BACKUP=$runs/20260101-000000; mkdir -p "$BACKUP"; install_app_colors >/dev/null
 find ~ -type f ! -path "$runs/*" ! -name calls ! -name first -exec md5sum {} + | sort > ~/first
 BACKUP=$runs/20260102-000000; mkdir -p "$BACKUP"; install_app_colors >/dev/null
-find ~ -type f ! -path "$runs/*" ! -name calls ! -name first -exec md5sum {} + | sort | diff ~/first - >&2
+[[ $(find ~ -type f ! -path "$runs/*" ! -name calls ! -name first -exec md5sum {} + | sort) = $(<~/first) ]]
 '''
 
 
@@ -4328,9 +4368,11 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 RUNNER = next((str(p) for p in [Path('/usr/lib/qt6/bin/qmltestrunner'),
                               Path('/usr/lib64/qt6/bin/qmltestrunner')]
@@ -4390,12 +4432,14 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 loader = importlib.machinery.SourceFileLoader('online', str(ROOT / 'bin/penumbra-online'))
 spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -4428,6 +4472,7 @@ class Online(unittest.TestCase):
 
     def test_missing_lyrics_and_instrumental(self):
         error = HTTPError('https://lrclib.net', 404, 'Not found', {}, None)
+        self.addCleanup(error.close)
         with patch.object(online, 'urlopen', side_effect=error) as request:
             self.assertEqual(online.main(['lyrics', 'missing', 'artist', '', '0'])['status'], 'missing')
             online.main(['lyrics', 'missing', 'artist', '', '0'])
@@ -4437,6 +4482,7 @@ class Online(unittest.TestCase):
 
     def test_rate_limit_applies_across_tracks(self):
         error = HTTPError('https://lrclib.net', 429, 'Slow down', {'Retry-After': '3600'}, None)
+        self.addCleanup(error.close)
         with patch.object(online.time, 'time', return_value=1000), patch.object(online, 'urlopen', side_effect=error) as request:
             online.main(['lyrics', 'one', 'artist', '', '0'])
             online.main(['lyrics', 'two', 'artist', '', '0'])
@@ -4471,6 +4517,10 @@ class Online(unittest.TestCase):
             p.write_text(text)
             self.assertEqual(online.read(p), {})
         self.assertEqual(online.retry_after('Tue, 03 Nov 2026 12:00:00 GMT', 0), 1793707200)
+
+
+if __name__ == '__main__':
+    unittest.main()
 ```
 
 ## `tests/test_packages.py`
@@ -4484,10 +4534,12 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 loader = importlib.machinery.SourceFileLoader('packages', str(ROOT / 'bin/penumbra-packages'))
 spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -4780,6 +4832,10 @@ class QmlLoad(unittest.TestCase):
             result = subprocess.run(['quickshell', '-p', temp, '--no-color'], env=env,
                                     capture_output=True, text=True, timeout=20)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+if __name__ == '__main__':
+    unittest.main()
 ```
 
 ## `tests/test_shell.py`
@@ -4796,6 +4852,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'share' / 'penumbra'))
+sys.dont_write_bytecode = True
 import palette  # noqa: E402
 
 NODE = shutil.which('node')
@@ -4835,10 +4892,12 @@ import importlib.util
 import json
 from pathlib import Path
 import re
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 loader = importlib.machinery.SourceFileLoader('showcase', str(ROOT / 'bin/penumbra-showcase'))
 spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -5360,9 +5419,11 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('preview', ROOT / 'tools/preview-widgets.py')
 preview = importlib.util.module_from_spec(SPEC)
@@ -5411,6 +5472,10 @@ ShellRoot {
             result = subprocess.run(['quickshell', '-p', temp, '--no-color'], env=env,
                                     capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+if __name__ == '__main__':
+    unittest.main()
 ```
 
 ## `tests/test_widgets.py`
@@ -5422,9 +5487,11 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location('preview', ROOT / 'tools/preview-widgets.py')
 preview = importlib.util.module_from_spec(spec)
@@ -5552,6 +5619,10 @@ ShellRoot {
             self.assertNotIn('TypeError', log)
             self.assertEqual((folder / 'calls').read_text().splitlines().count('weather'), 2)
             self.assertEqual((folder / 'calls').read_text().splitlines().count('lyrics'), 2)
+
+
+if __name__ == '__main__':
+    unittest.main()
 ```
 
 ## `bin/penumbra-calendar`
@@ -6650,11 +6721,14 @@ def fetch(kind, params):
         write(path, {'until': now + (30 * 86400 if kind == 'lyrics' else 1800), 'data': data})
         return data
     except HTTPError as error:
-        if error.code == 404 and kind == 'lyrics':
-            data = {'status': 'missing'}
-            write(path, {'until': now + 86400, 'data': data})
-            return data
-        write(folder / 'retry.json', {'until': now + retry_after(error.headers.get('Retry-After'), now)})
+        try:
+            if error.code == 404 and kind == 'lyrics':
+                data = {'status': 'missing'}
+                write(path, {'until': now + 86400, 'data': data})
+                return data
+            write(folder / 'retry.json', {'until': now + retry_after(error.headers.get('Retry-After'), now)})
+        finally:
+            error.close()
     except (OSError, URLError, ValueError, KeyError, TypeError):
         write(folder / 'retry.json', {'until': now + 60})
     return fallback(kind, cached, now)

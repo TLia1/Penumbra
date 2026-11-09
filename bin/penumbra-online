@@ -89,11 +89,14 @@ def fetch(kind, params):
         write(path, {'until': now + (30 * 86400 if kind == 'lyrics' else 1800), 'data': data})
         return data
     except HTTPError as error:
-        if error.code == 404 and kind == 'lyrics':
-            data = {'status': 'missing'}
-            write(path, {'until': now + 86400, 'data': data})
-            return data
-        write(folder / 'retry.json', {'until': now + retry_after(error.headers.get('Retry-After'), now)})
+        try:
+            if error.code == 404 and kind == 'lyrics':
+                data = {'status': 'missing'}
+                write(path, {'until': now + 86400, 'data': data})
+                return data
+            write(folder / 'retry.json', {'until': now + retry_after(error.headers.get('Retry-After'), now)})
+        finally:
+            error.close()
     except (OSError, URLError, ValueError, KeyError, TypeError):
         write(folder / 'retry.json', {'until': now + 60})
     return fallback(kind, cached, now)

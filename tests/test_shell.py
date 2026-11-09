@@ -9,6 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'share' / 'penumbra'))
+sys.dont_write_bytecode = True
 import palette  # noqa: E402
 
 NODE = shutil.which('node')

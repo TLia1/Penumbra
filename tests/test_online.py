@@ -4,12 +4,14 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 loader = importlib.machinery.SourceFileLoader('online', str(ROOT / 'bin/penumbra-online'))
 spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -42,6 +44,7 @@ class Online(unittest.TestCase):
 
     def test_missing_lyrics_and_instrumental(self):
         error = HTTPError('https://lrclib.net', 404, 'Not found', {}, None)
+        self.addCleanup(error.close)
         with patch.object(online, 'urlopen', side_effect=error) as request:
             self.assertEqual(online.main(['lyrics', 'missing', 'artist', '', '0'])['status'], 'missing')
             online.main(['lyrics', 'missing', 'artist', '', '0'])
@@ -51,6 +54,7 @@ class Online(unittest.TestCase):
 
     def test_rate_limit_applies_across_tracks(self):
         error = HTTPError('https://lrclib.net', 429, 'Slow down', {'Retry-After': '3600'}, None)
+        self.addCleanup(error.close)
         with patch.object(online.time, 'time', return_value=1000), patch.object(online, 'urlopen', side_effect=error) as request:
             online.main(['lyrics', 'one', 'artist', '', '0'])
             online.main(['lyrics', 'two', 'artist', '', '0'])
@@ -85,3 +89,7 @@ class Online(unittest.TestCase):
             p.write_text(text)
             self.assertEqual(online.read(p), {})
         self.assertEqual(online.retry_after('Tue, 03 Nov 2026 12:00:00 GMT', 0), 1793707200)
+
+
+if __name__ == '__main__':
+    unittest.main()

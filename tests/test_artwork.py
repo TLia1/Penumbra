@@ -2,14 +2,28 @@
 import json
 from pathlib import Path
 import re
+import struct
 import sys
 import unittest
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'share/penumbra'))
+sys.dont_write_bytecode = True
 import artwork
 import palette
+
+
+def png_size(path):
+    if Image is not None:
+        with Image.open(path) as image:
+            return image.size
+    data = path.read_bytes()
+    assert data[:8] == b'\x89PNG\r\n\x1a\n' and data[12:16] == b'IHDR'
+    return struct.unpack('>II', data[16:24])
 
 
 class Artwork(unittest.TestCase):
@@ -27,8 +41,7 @@ class Artwork(unittest.TestCase):
                 self.assertNotIn('<text', clean)
                 self.assertNotIn('id="wordmark"', clean)
                 for suffix in ['', '-clean']:
-                    with Image.open(ROOT / 'assets' / (name + suffix + '.png')) as image:
-                        self.assertEqual(image.size, (2560, 1600))
+                    self.assertEqual(png_size(ROOT / 'assets' / (name + suffix + '.png')), (2560, 1600))
                 meta = scenes[name]
                 if not meta['scene']:
                     continue
@@ -38,10 +51,19 @@ class Artwork(unittest.TestCase):
                 # QML uses the original scene geometry with each variant's textures.
                 self.assertEqual(layers(meta['folder']), layers(meta['scene']))
                 for layer in layers(meta['folder']):
-                    with Image.open(shell / meta['folder'] / (layer['name'] + '.png')) as image:
-                        self.assertEqual(image.size, (layer['width'], layer['height']))
+                    self.assertEqual(png_size(shell / meta['folder'] / (layer['name'] + '.png')),
+                                     (layer['width'], layer['height']))
 
     def test_starlight_is_a_light_scene(self):
-        with Image.open(ROOT / 'assets/wallpaper-starlight-clean.png') as image:
-            sky = '#%02x%02x%02x' % image.convert('RGB').getpixel((2400, 100))
+        path = ROOT / 'assets/wallpaper-starlight-clean.png'
+        if Image is not None:
+            with Image.open(path) as image:
+                rgb = image.convert('RGB').getpixel((2400, 100))
+        else:
+            rgb = palette.wallpaper_pixels(path)[6 * 96 + 90]
+        sky = '#%02x%02x%02x' % rgb
         self.assertGreater(palette.hex_to_oklch(sky)[0], .8)
+
+
+if __name__ == '__main__':
+    unittest.main()

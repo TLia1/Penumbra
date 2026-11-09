@@ -3,9 +3,11 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 RUNNER = next((str(p) for p in [Path('/usr/lib/qt6/bin/qmltestrunner'),
                               Path('/usr/lib64/qt6/bin/qmltestrunner')]

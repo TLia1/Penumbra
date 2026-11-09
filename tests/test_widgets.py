@@ -4,9 +4,11 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location('preview', ROOT / 'tools/preview-widgets.py')
 preview = importlib.util.module_from_spec(spec)
@@ -134,3 +136,7 @@ ShellRoot {
             self.assertNotIn('TypeError', log)
             self.assertEqual((folder / 'calls').read_text().splitlines().count('weather'), 2)
             self.assertEqual((folder / 'calls').read_text().splitlines().count('lyrics'), 2)
+
+
+if __name__ == '__main__':
+    unittest.main()

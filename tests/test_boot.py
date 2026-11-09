@@ -3,10 +3,12 @@
 import importlib.util
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
+sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location('boot', Path(__file__).resolve().parents[1] / 'tools/install-boot.py')
 boot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(boot)

@@ -4,10 +4,12 @@ import importlib.util
 import json
 from pathlib import Path
 import re
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 loader = importlib.machinery.SourceFileLoader('showcase', str(ROOT / 'bin/penumbra-showcase'))
 spec = importlib.util.spec_from_loader(loader.name, loader)

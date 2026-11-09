@@ -5,9 +5,11 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 DISTROS = sorted(p.parent.name for p in (ROOT / 'distro').glob('*/distro.sh'))
 SETTINGS = 'settings=([kb_layout]=us [kb_variant]= [kb_options]= [scale]=auto [numlock]=on [shell]=fish)'
@@ -116,7 +118,7 @@ git config --file ~/.gitconfig delta.features side-by-side
 BACKUP=$runs/20260101-000000; mkdir -p "$BACKUP"; install_app_colors >/dev/null
 find ~ -type f ! -path "$runs/*" ! -name calls ! -name first -exec md5sum {} + | sort > ~/first
 BACKUP=$runs/20260102-000000; mkdir -p "$BACKUP"; install_app_colors >/dev/null
-find ~ -type f ! -path "$runs/*" ! -name calls ! -name first -exec md5sum {} + | sort | diff ~/first - >&2
+[[ $(find ~ -type f ! -path "$runs/*" ! -name calls ! -name first -exec md5sum {} + | sort) = $(<~/first) ]]
 '''
 
 
