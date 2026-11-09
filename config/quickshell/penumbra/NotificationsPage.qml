@@ -21,7 +21,7 @@ ColumnLayout {
         title: "Notifications"
         status: Notifs.dnd ? "Do not disturb · " + Notifs.dndStatus.toLowerCase() : "Do not disturb is off"
         checked: Notifs.dnd
-        onBack: Ui.controlPage = "main"
+        onBack: Ui.controlPage = Ui.previousControlPage === "settings" ? "settings" : "main"
         onToggled: Notifs.toggleDnd()
     }
 

@@ -373,6 +373,27 @@ class IntegrationTests(unittest.TestCase):
                 boot.apply_plymouth()
         self.assertEqual(self.snapshot(), before)
 
+    def test_refind_detection_success_and_restore(self):
+        self.write('/sys/firmware/efi/efivars/LoaderInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f', '')
+        config = self.root / 'boot/EFI/refind/refind.conf'
+        self.write('/boot/EFI/refind/refind.conf', 'timeout 20\n\ninclude themes/penumbra/theme.conf\n')
+        self.write('/boot/EFI/refind/vars/PreviousBoot', 'Arch')
+        before = self.snapshot()
+        efi_out = subprocess.CompletedProcess([], 0, stdout='BootCurrent: 0000\nBoot0000* rEFInd Boot Manager\n')
+        with patch.object(boot.shutil, 'which', return_value='/bin/mock'), patch.object(boot.subprocess, 'run', return_value=efi_out), patch.object(boot, 'boot_volumes', return_value=[self.root / 'boot']), patch.object(boot, 'ask', return_value=True):
+            self.assertEqual(boot.refind_detected(), config)
+            boot.apply_refind(config)
+            first = config.read_text()
+            self.assertEqual(first.count('include themes/penumbra/theme.conf'), 1)
+            self.assertTrue((self.root / 'boot/EFI/refind/themes/penumbra/theme.conf').is_file())
+            self.assertTrue((self.root / 'boot/EFI/refind/themes/penumbra/icons/os_arch.png').is_file())
+            boot.apply_refind(config)
+            self.assertEqual(config.read_text(), first)
+        for backup in sorted((self.root / 'backups').iterdir(), key=lambda p: p.stat().st_mtime_ns, reverse=True):
+            boot.restore(backup)
+        self.assertEqual(self.snapshot(), before)
+        self.assertFalse((self.root / 'boot/EFI/refind/themes/penumbra').exists())
+
 
 if __name__ == '__main__':
     unittest.main()

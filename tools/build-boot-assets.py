@@ -7,8 +7,9 @@ import math
 import subprocess
 
 root = Path(__file__).resolve().parents[1]
-grub, ply, limine = root / 'boot/grub', root / 'boot/plymouth', root / 'boot/limine'
-limine.mkdir(exist_ok=True)
+grub, ply, limine, refind = root / 'boot/grub', root / 'boot/plymouth', root / 'boot/limine', root / 'boot/refind'
+for directory in (grub / 'icons', limine, refind / 'icons'):
+    directory.mkdir(parents=True, exist_ok=True)
 
 
 def render(svg, path):
@@ -68,29 +69,215 @@ def planet_defs(rx, ry, glow_blur):
             f'<filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="{glow_blur * 6}"/></filter>')
 
 
+# ── Minimal OS & Utility Glyphs (24x24 viewBox) ──────────────────────────────
+def icon_power(color='#f3eaff'):
+    return (f'<path d="M12 3.5v7.5" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round"/>'
+            f'<path d="M7.0 5.8a8 8 0 1 0 10.0 0" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round"/>')
+
+
+def icon_reboot(color='#f3eaff'):
+    return (f'<path d="M18.6 8.4A7.6 7.6 0 1 0 19.6 12" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round"/>'
+            f'<path d="M14.8 4.4h4.4v4.4" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>')
+
+
+def icon_firmware(color='#f3eaff'):
+    pins = ''.join(
+        f'<path d="M{p} 2.6v3.2M{p} 18.2v3.2M2.6 {p}h3.2M18.2 {p}h3.2" stroke="{color}" stroke-width="1.6" stroke-linecap="round"/>'
+        for p in (8.5, 12, 15.5)
+    )
+    return (pins
+            + f'<rect x="5.8" y="5.8" width="12.4" height="12.4" rx="2" fill="none" stroke="{color}" stroke-width="1.8"/>'
+            + f'<rect x="8.8" y="8.8" width="6.4" height="6.4" rx="1" fill="none" stroke="{color}" stroke-width="1.4" opacity=".85"/>')
+
+
+def icon_arch(color='#f3eaff'):
+    return (f'<path fill="{color}" d="M12 2C11.1 4.2 10.5 5.6 9.5 7.7C10.1 8.4 10.9 9.1 12.1 9.9'
+            'C10.8 9.4 9.9 8.8 9.2 8.2C7.9 10.9 5.9 14.9 2.2 21.6C5.3 19.8 7.7 18.7 10.0 18.3'
+            'C9.9 17.7 9.8 17.0 9.8 16.3C9.8 14.0 10.9 12.1 12.2 12.1C13.5 12.1 14.6 14.0 14.6 16.3'
+            'C14.6 17.0 14.5 17.7 14.4 18.3C16.7 18.7 19.1 19.8 21.8 21.6C21.2 20.5 20.6 19.3 20.0 18.3'
+            'C19.1 17.6 18.2 16.8 16.3 15.9C17.6 16.2 18.5 16.7 19.2 17.2C15.6 10.3 15.2 9.4 12 2Z"/>')
+
+
+def icon_windows(color='#f3eaff'):
+    return (f'<rect x="3" y="3" width="8.2" height="8.2" rx="1.1" fill="{color}"/>'
+            f'<rect x="12.8" y="3" width="8.2" height="8.2" rx="1.1" fill="{color}"/>'
+            f'<rect x="3" y="12.8" width="8.2" height="8.2" rx="1.1" fill="{color}"/>'
+            f'<rect x="12.8" y="12.8" width="8.2" height="8.2" rx="1.1" fill="{color}"/>')
+
+
+def icon_linux(color='#f3eaff'):
+    # Minimalist orbital planet glyph for generic Linux / kernel entries.
+    return (f'<circle cx="12" cy="12" r="5.6" fill="none" stroke="{color}" stroke-width="2"/>'
+            f'<ellipse cx="12" cy="12" rx="10.2" ry="3.4" transform="rotate(-26 12 12)" fill="none" stroke="{color}" stroke-width="1.8"/>')
+
+
+def icon_recovery(color='#f3eaff'):
+    return (f'<path d="M12 3l7.5 3.4v5.2c0 5-3.2 8.8-7.5 10.4C7.7 20.4 4.5 16.6 4.5 11.6V6.4L12 3z" '
+            f'fill="none" stroke="{color}" stroke-width="1.9" stroke-linejoin="round"/>'
+            f'<path d="M12 8.5v7M8.5 12h7" stroke="{color}" stroke-width="1.9" stroke-linecap="round"/>')
+
+
+def icon_terminal(color='#f3eaff'):
+    return (f'<rect x="3" y="4.5" width="18" height="15" rx="2.5" fill="none" stroke="{color}" stroke-width="1.9"/>'
+            f'<path d="M7 9.5l3.2 2.8L7 15.1M12.2 15.1h4.5" fill="none" stroke="{color}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>')
+
+
+def render_icon(glyph_body, size, path, pad=0.18):
+    inner = size * (1 - 2 * pad)
+    offset = size * pad
+    scale = inner / 24.0
+    body = f'<g transform="translate({offset:.2f} {offset:.2f}) scale({scale:.4f})">{glyph_body}</g>'
+    render(svg(size, size, body), path)
+
+
+def corner_controls(x, y_start, step=72, scale=1.45, color='#e4dced', opacity=0.78):
+    """Vertical trio of minimal Power, Reboot and UEFI Firmware icons in the bottom-left corner."""
+    items = [icon_power(color), icon_reboot(color), icon_firmware(color)]
+    return ''.join(
+        f'<g transform="translate({x} {y_start + i * step}) scale({scale})" opacity="{opacity}">{glyph}</g>'
+        for i, glyph in enumerate(items)
+    )
+
+
+def orbital_scene(width, height, cx, cy, r, with_corner_icons=True):
+    rx, ry = r * 615 / 370, r * 188 / 370
+    sx, sy = cx / width, cy / height
+    star_list = [
+        (int(width * .85), int(height * .28), 2, .55),
+        (int(width * .29), int(height * .76), 1.5, .4),
+        (int(width * .78), int(height * .80), 1.5, .3),
+        (int(width * .22), int(height * .23), 1.2, .3),
+        (int(width * .58), int(height * .21), 1.2, .25),
+    ]
+    controls = corner_controls(64, height - 248, step=72, scale=1.42) if with_corner_icons else ''
+    return svg(
+        width, height,
+        f'<rect width="{width}" height="{height}" fill="url(#sky)"/>'
+        f'<ellipse cx="{cx + 12}" cy="{cy + 18}" rx="{r * 1.5}" ry="{r * 1.3}" fill="#6e2cb9" opacity=".12" filter="url(#soft)"/>'
+        f'<g transform="translate({cx} {cy}) rotate(-28)" fill="none" stroke="#7e4ab4" stroke-width="1">'
+        f'<ellipse rx="{rx * 1.17}" ry="{ry * 1.3}" opacity=".14"/><ellipse rx="{rx * 1.27}" ry="{ry * 1.54}" opacity=".07"/></g>'
+        + planet(cx, cy, r, rx, ry, -28, ring_width=2.4)
+        + stars(star_list)
+        + controls,
+        sky(f'{sx:.2f}', f'{sy:.2f}') + planet_defs(rx, ry, 9),
+    )
+
+
+def selection_card_svg(size, radius, inset, bar_inset, bar_height):
+    """Frosted translucent rounded card with a glowing violet bottom underline."""
+    w = size - 2 * inset
+    bar_y = size - inset - bar_height / 2 - 1
+    defs = ('<filter id="barglow" x="-20%" y="-200%" width="140%" height="500%">'
+            '<feGaussianBlur stdDeviation="2.5"/></filter>')
+    body = (f'<rect x="{inset}" y="{inset}" width="{w}" height="{w}" rx="{radius}" '
+            'fill="#140f22" fill-opacity=".68" stroke="#b69af7" stroke-opacity=".16" stroke-width="1"/>'
+            f'<line x1="{bar_inset}" y1="{bar_y}" x2="{size - bar_inset}" y2="{bar_y}" '
+            f'stroke="#a66ce9" stroke-width="{bar_height * 1.8:.1f}" stroke-linecap="round" opacity=".55" filter="url(#barglow)"/>'
+            f'<line x1="{bar_inset}" y1="{bar_y}" x2="{size - bar_inset}" y2="{bar_y}" '
+            f'stroke="#b69af7" stroke-width="{bar_height}" stroke-linecap="round"/>')
+    return svg(size, size, body, defs)
+
+
 # ── GRUB ─────────────────────────────────────────────────────────────────────
-Image.open(root / 'assets/wallpaper.png').convert('RGB').resize((1600, 1000)).save(grub / 'background.png')
-# GRUB selected-entry nine-slice frame, entirely original artwork.
-for name, size in [('c', (8, 8)), ('n', (8, 3)), ('s', (8, 3)), ('e', (3, 8)), ('w', (3, 8)),
-                   ('nw', (3, 3)), ('ne', (3, 3)), ('sw', (3, 3)), ('se', (3, 3))]:
-    Image.new('RGBA', size, '#352348' if name == 'c' else '#78579b').save(grub / f'select_{name}.png')
+# Clean orbital background with the minimal bottom-left Power / Reboot / Firmware icons.
+render(orbital_scene(1920, 1080, 1180, 520, 175, with_corner_icons=True), grub / 'background.png')
+
+# Frosted rounded nine-slice selection box with glowing bottom underline.
+card_path = grub / '_select_card.png'
+render(selection_card_svg(size=64, radius=10, inset=1, bar_inset=10, bar_height=2.5), card_path)
+card = Image.open(card_path).convert('RGBA')
+card_path.unlink()
+slices = {
+    'nw': (0, 0, 12, 12),
+    'n': (12, 0, 52, 12),
+    'ne': (52, 0, 64, 12),
+    'w': (0, 12, 12, 52),
+    'c': (12, 12, 52, 52),
+    'e': (52, 12, 64, 52),
+    'sw': (0, 52, 12, 64),
+    's': (12, 52, 52, 64),
+    'se': (52, 52, 64, 64),
+}
+for name, box in slices.items():
+    card.crop(box).save(grub / f'select_{name}.png')
+
+# GRUB menu entry icons matched by `--class` (48x48 crisp white/lavender glyphs).
+GRUB_ICONS = {
+    'arch': icon_arch(),
+    'archlinux': icon_arch(),
+    'cachyos': icon_arch(),
+    'endeavouros': icon_arch(),
+    'manjaro': icon_arch(),
+    'windows': icon_windows(),
+    'windows11': icon_windows(),
+    'windows10': icon_windows(),
+    'gnu-linux': icon_linux(),
+    'linux': icon_linux(),
+    'os': icon_linux(),
+    'ubuntu': icon_linux(),
+    'debian': icon_linux(),
+    'fedora': icon_linux(),
+    'nixos': icon_linux(),
+    'recovery': icon_recovery(),
+    'memtest': icon_terminal(),
+    'shutdown': icon_power(),
+    'halt': icon_power(),
+    'poweroff': icon_power(),
+    'restart': icon_reboot(),
+    'reboot': icon_reboot(),
+    'uefi': icon_firmware(),
+    'efi': icon_firmware(),
+    'fwsetup': icon_firmware(),
+}
+for name, glyph in GRUB_ICONS.items():
+    render_icon(glyph, 48, grub / 'icons' / f'{name}.png', pad=0.14)
 
 # ── Limine ───────────────────────────────────────────────────────────────────
 # Shown with `wallpaper_style: centered` on an EDGE backdrop: never stretched, so the planet
-# stays round at any aspect ratio. The menu is drawn in the middle; the planet sits to its
-# right and stays inside the 1280x800 centre crop of smaller screens.
-W, H = 1920, 1080
-cx, cy, r = 1300, 560, 150
-rx, ry = r * 615 / 370, r * 188 / 370
-render(svg(W, H,
-           f'<rect width="{W}" height="{H}" fill="url(#sky)"/>'
-           f'<ellipse cx="{cx + 12}" cy="{cy + 18}" rx="{r * 1.5}" ry="{r * 1.3}" fill="#6e2cb9" opacity=".11" filter="url(#soft)"/>'
-           f'<g transform="translate({cx} {cy}) rotate(-28)" fill="none" stroke="#7e4ab4" stroke-width="1">'
-           f'<ellipse rx="{rx * 1.17}" ry="{ry * 1.3}" opacity=".14"/><ellipse rx="{rx * 1.27}" ry="{ry * 1.54}" opacity=".07"/></g>'
-           + planet(cx, cy, r, rx, ry, -28, ring_width=2.4)
-           + stars([(1640, 300, 2, .55), (560, 820, 1.5, .4), (1500, 860, 1.5, .3), (420, 250, 1.2, .3), (1120, 230, 1.2, .25)]),
-           sky(.62, .52) + planet_defs(rx, ry, 9)),
-       limine / 'background.png')
+# stays round at any aspect ratio. Includes the minimal bottom-left utility icon strip.
+render(orbital_scene(1920, 1080, 1300, 540, 155, with_corner_icons=True), limine / 'background.png')
+
+# ── rEFInd ───────────────────────────────────────────────────────────────────
+# Horizontal centered OS icon layout matching the reference screenshot:
+# - 128x128 crisp white OS badges
+# - 144x144 frosted rounded selection card with glowing violet underline
+# - 48x48 minimal Shutdown, Reboot and UEFI Firmware icons
+render(orbital_scene(1920, 1080, 960, 480, 180, with_corner_icons=False), refind / 'background.png')
+render(selection_card_svg(size=144, radius=16, inset=4, bar_inset=22, bar_height=3.0), refind / 'selection_big.png')
+render(selection_card_svg(size=64, radius=12, inset=4, bar_inset=14, bar_height=2.2), refind / 'selection_small.png')
+
+REFIND_OS_ICONS = {
+    'os_arch': icon_arch(),
+    'os_cachyos': icon_arch(),
+    'os_endeavouros': icon_arch(),
+    'os_manjaro': icon_arch(),
+    'os_win': icon_windows(),
+    'os_win8': icon_windows(),
+    'os_windows': icon_windows(),
+    'os_linux': icon_linux(),
+    'os_unknown': icon_linux(),
+    'os_ubuntu': icon_linux(),
+    'os_debian': icon_linux(),
+    'os_fedora': icon_linux(),
+    'os_nixos': icon_linux(),
+}
+for name, glyph in REFIND_OS_ICONS.items():
+    render_icon(glyph, 128, refind / 'icons' / f'{name}.png', pad=0.20)
+
+REFIND_TOOL_ICONS = {
+    'func_shutdown': icon_power('#e4dced'),
+    'func_reset': icon_reboot('#e4dced'),
+    'func_firmware': icon_firmware('#e4dced'),
+    'func_exit': icon_power('#e4dced'),
+    'func_shell': icon_terminal('#e4dced'),
+    'func_about': icon_linux('#e4dced'),
+    'func_hidden': icon_recovery('#e4dced'),
+    'tool_shell': icon_terminal('#e4dced'),
+    'tool_memtest': icon_recovery('#e4dced'),
+    'tool_fwupdate': icon_firmware('#e4dced'),
+}
+for name, glyph in REFIND_TOOL_ICONS.items():
+    render_icon(glyph, 48, refind / 'icons' / f'{name}.png', pad=0.16)
 
 # ── Plymouth ─────────────────────────────────────────────────────────────────
 # Throbber: the wallpaper's planet in miniature, with a moonlet riding the ring and a ring

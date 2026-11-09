@@ -17,8 +17,10 @@ RowLayout {
     property string label: Math.round(value) + "%"
     property int labelWidth: 34
     property bool muted: false
+    property bool hasMore: false
     signal moved(real value)
     signal glyphClicked()
+    signal more()
 
     spacing: 10
 
@@ -110,5 +112,21 @@ RowLayout {
         text: root.label
         font.pixelSize: Theme.textSmall
         color: Theme.muted
+    }
+
+    Rectangle {
+        visible: root.hasMore
+        implicitWidth: 26
+        implicitHeight: 32
+        radius: Theme.radiusSmall
+        color: moreArea.containsMouse ? Theme.hover : "transparent"
+        Glyph { anchors.centerIn: parent; text: "󰅂"; size: 14; color: Theme.muted }
+        MouseArea {
+            id: moreArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.more()
+        }
     }
 }

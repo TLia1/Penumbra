@@ -18,6 +18,8 @@ Singleton {
     readonly property bool updatesOpen: openPanel === "updates"
     readonly property bool wallpapersOpen: openPanel === "wallpapers"
     property string controlPage: "main" // main, wifi, bluetooth, mixer, night, cast, notifications, settings or a settings page
+    property string previousControlPage: "main"
+    property string lookTab: "theme" // theme or desktop
     property bool sessionOpen: false
     property bool launcherOpen: false
     property string launcherMode: "apps" // apps, windows, clipboard, emoji or symbols
@@ -63,11 +65,17 @@ Singleton {
     // Open panel `name`, or close it if it is open. The control center always opens on its main page.
     function toggle(name) {
         const reopen = openPanel !== name && Date.now() - closedAt > 250;
-        if (reopen && name === "control")
+        if (reopen && name === "control") {
             controlPage = "main";
+            previousControlPage = "main";
+        }
         openPanel = reopen ? name : "";
     }
-    function openControl(page) {
+    function openControl(page, tab) {
+        if (page !== controlPage)
+            previousControlPage = openPanel === "control" ? controlPage : "main";
+        if (tab)
+            lookTab = tab;
         controlPage = page;
         openPanel = "control";
     }

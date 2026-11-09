@@ -1488,8 +1488,9 @@ import math
 import subprocess
 
 root = Path(__file__).resolve().parents[1]
-grub, ply, limine = root / 'boot/grub', root / 'boot/plymouth', root / 'boot/limine'
-limine.mkdir(exist_ok=True)
+grub, ply, limine, refind = root / 'boot/grub', root / 'boot/plymouth', root / 'boot/limine', root / 'boot/refind'
+for directory in (grub / 'icons', limine, refind / 'icons'):
+    directory.mkdir(parents=True, exist_ok=True)
 
 
 def render(svg, path):
@@ -1549,29 +1550,215 @@ def planet_defs(rx, ry, glow_blur):
             f'<filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="{glow_blur * 6}"/></filter>')
 
 
+# ── Minimal OS & Utility Glyphs (24x24 viewBox) ──────────────────────────────
+def icon_power(color='#f3eaff'):
+    return (f'<path d="M12 3.5v7.5" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round"/>'
+            f'<path d="M7.0 5.8a8 8 0 1 0 10.0 0" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round"/>')
+
+
+def icon_reboot(color='#f3eaff'):
+    return (f'<path d="M18.6 8.4A7.6 7.6 0 1 0 19.6 12" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round"/>'
+            f'<path d="M14.8 4.4h4.4v4.4" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>')
+
+
+def icon_firmware(color='#f3eaff'):
+    pins = ''.join(
+        f'<path d="M{p} 2.6v3.2M{p} 18.2v3.2M2.6 {p}h3.2M18.2 {p}h3.2" stroke="{color}" stroke-width="1.6" stroke-linecap="round"/>'
+        for p in (8.5, 12, 15.5)
+    )
+    return (pins
+            + f'<rect x="5.8" y="5.8" width="12.4" height="12.4" rx="2" fill="none" stroke="{color}" stroke-width="1.8"/>'
+            + f'<rect x="8.8" y="8.8" width="6.4" height="6.4" rx="1" fill="none" stroke="{color}" stroke-width="1.4" opacity=".85"/>')
+
+
+def icon_arch(color='#f3eaff'):
+    return (f'<path fill="{color}" d="M12 2C11.1 4.2 10.5 5.6 9.5 7.7C10.1 8.4 10.9 9.1 12.1 9.9'
+            'C10.8 9.4 9.9 8.8 9.2 8.2C7.9 10.9 5.9 14.9 2.2 21.6C5.3 19.8 7.7 18.7 10.0 18.3'
+            'C9.9 17.7 9.8 17.0 9.8 16.3C9.8 14.0 10.9 12.1 12.2 12.1C13.5 12.1 14.6 14.0 14.6 16.3'
+            'C14.6 17.0 14.5 17.7 14.4 18.3C16.7 18.7 19.1 19.8 21.8 21.6C21.2 20.5 20.6 19.3 20.0 18.3'
+            'C19.1 17.6 18.2 16.8 16.3 15.9C17.6 16.2 18.5 16.7 19.2 17.2C15.6 10.3 15.2 9.4 12 2Z"/>')
+
+
+def icon_windows(color='#f3eaff'):
+    return (f'<rect x="3" y="3" width="8.2" height="8.2" rx="1.1" fill="{color}"/>'
+            f'<rect x="12.8" y="3" width="8.2" height="8.2" rx="1.1" fill="{color}"/>'
+            f'<rect x="3" y="12.8" width="8.2" height="8.2" rx="1.1" fill="{color}"/>'
+            f'<rect x="12.8" y="12.8" width="8.2" height="8.2" rx="1.1" fill="{color}"/>')
+
+
+def icon_linux(color='#f3eaff'):
+    # Minimalist orbital planet glyph for generic Linux / kernel entries.
+    return (f'<circle cx="12" cy="12" r="5.6" fill="none" stroke="{color}" stroke-width="2"/>'
+            f'<ellipse cx="12" cy="12" rx="10.2" ry="3.4" transform="rotate(-26 12 12)" fill="none" stroke="{color}" stroke-width="1.8"/>')
+
+
+def icon_recovery(color='#f3eaff'):
+    return (f'<path d="M12 3l7.5 3.4v5.2c0 5-3.2 8.8-7.5 10.4C7.7 20.4 4.5 16.6 4.5 11.6V6.4L12 3z" '
+            f'fill="none" stroke="{color}" stroke-width="1.9" stroke-linejoin="round"/>'
+            f'<path d="M12 8.5v7M8.5 12h7" stroke="{color}" stroke-width="1.9" stroke-linecap="round"/>')
+
+
+def icon_terminal(color='#f3eaff'):
+    return (f'<rect x="3" y="4.5" width="18" height="15" rx="2.5" fill="none" stroke="{color}" stroke-width="1.9"/>'
+            f'<path d="M7 9.5l3.2 2.8L7 15.1M12.2 15.1h4.5" fill="none" stroke="{color}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>')
+
+
+def render_icon(glyph_body, size, path, pad=0.18):
+    inner = size * (1 - 2 * pad)
+    offset = size * pad
+    scale = inner / 24.0
+    body = f'<g transform="translate({offset:.2f} {offset:.2f}) scale({scale:.4f})">{glyph_body}</g>'
+    render(svg(size, size, body), path)
+
+
+def corner_controls(x, y_start, step=72, scale=1.45, color='#e4dced', opacity=0.78):
+    """Vertical trio of minimal Power, Reboot and UEFI Firmware icons in the bottom-left corner."""
+    items = [icon_power(color), icon_reboot(color), icon_firmware(color)]
+    return ''.join(
+        f'<g transform="translate({x} {y_start + i * step}) scale({scale})" opacity="{opacity}">{glyph}</g>'
+        for i, glyph in enumerate(items)
+    )
+
+
+def orbital_scene(width, height, cx, cy, r, with_corner_icons=True):
+    rx, ry = r * 615 / 370, r * 188 / 370
+    sx, sy = cx / width, cy / height
+    star_list = [
+        (int(width * .85), int(height * .28), 2, .55),
+        (int(width * .29), int(height * .76), 1.5, .4),
+        (int(width * .78), int(height * .80), 1.5, .3),
+        (int(width * .22), int(height * .23), 1.2, .3),
+        (int(width * .58), int(height * .21), 1.2, .25),
+    ]
+    controls = corner_controls(64, height - 248, step=72, scale=1.42) if with_corner_icons else ''
+    return svg(
+        width, height,
+        f'<rect width="{width}" height="{height}" fill="url(#sky)"/>'
+        f'<ellipse cx="{cx + 12}" cy="{cy + 18}" rx="{r * 1.5}" ry="{r * 1.3}" fill="#6e2cb9" opacity=".12" filter="url(#soft)"/>'
+        f'<g transform="translate({cx} {cy}) rotate(-28)" fill="none" stroke="#7e4ab4" stroke-width="1">'
+        f'<ellipse rx="{rx * 1.17}" ry="{ry * 1.3}" opacity=".14"/><ellipse rx="{rx * 1.27}" ry="{ry * 1.54}" opacity=".07"/></g>'
+        + planet(cx, cy, r, rx, ry, -28, ring_width=2.4)
+        + stars(star_list)
+        + controls,
+        sky(f'{sx:.2f}', f'{sy:.2f}') + planet_defs(rx, ry, 9),
+    )
+
+
+def selection_card_svg(size, radius, inset, bar_inset, bar_height):
+    """Frosted translucent rounded card with a glowing violet bottom underline."""
+    w = size - 2 * inset
+    bar_y = size - inset - bar_height / 2 - 1
+    defs = ('<filter id="barglow" x="-20%" y="-200%" width="140%" height="500%">'
+            '<feGaussianBlur stdDeviation="2.5"/></filter>')
+    body = (f'<rect x="{inset}" y="{inset}" width="{w}" height="{w}" rx="{radius}" '
+            'fill="#140f22" fill-opacity=".68" stroke="#b69af7" stroke-opacity=".16" stroke-width="1"/>'
+            f'<line x1="{bar_inset}" y1="{bar_y}" x2="{size - bar_inset}" y2="{bar_y}" '
+            f'stroke="#a66ce9" stroke-width="{bar_height * 1.8:.1f}" stroke-linecap="round" opacity=".55" filter="url(#barglow)"/>'
+            f'<line x1="{bar_inset}" y1="{bar_y}" x2="{size - bar_inset}" y2="{bar_y}" '
+            f'stroke="#b69af7" stroke-width="{bar_height}" stroke-linecap="round"/>')
+    return svg(size, size, body, defs)
+
+
 # ── GRUB ─────────────────────────────────────────────────────────────────────
-Image.open(root / 'assets/wallpaper.png').convert('RGB').resize((1600, 1000)).save(grub / 'background.png')
-# GRUB selected-entry nine-slice frame, entirely original artwork.
-for name, size in [('c', (8, 8)), ('n', (8, 3)), ('s', (8, 3)), ('e', (3, 8)), ('w', (3, 8)),
-                   ('nw', (3, 3)), ('ne', (3, 3)), ('sw', (3, 3)), ('se', (3, 3))]:
-    Image.new('RGBA', size, '#352348' if name == 'c' else '#78579b').save(grub / f'select_{name}.png')
+# Clean orbital background with the minimal bottom-left Power / Reboot / Firmware icons.
+render(orbital_scene(1920, 1080, 1180, 520, 175, with_corner_icons=True), grub / 'background.png')
+
+# Frosted rounded nine-slice selection box with glowing bottom underline.
+card_path = grub / '_select_card.png'
+render(selection_card_svg(size=64, radius=10, inset=1, bar_inset=10, bar_height=2.5), card_path)
+card = Image.open(card_path).convert('RGBA')
+card_path.unlink()
+slices = {
+    'nw': (0, 0, 12, 12),
+    'n': (12, 0, 52, 12),
+    'ne': (52, 0, 64, 12),
+    'w': (0, 12, 12, 52),
+    'c': (12, 12, 52, 52),
+    'e': (52, 12, 64, 52),
+    'sw': (0, 52, 12, 64),
+    's': (12, 52, 52, 64),
+    'se': (52, 52, 64, 64),
+}
+for name, box in slices.items():
+    card.crop(box).save(grub / f'select_{name}.png')
+
+# GRUB menu entry icons matched by `--class` (48x48 crisp white/lavender glyphs).
+GRUB_ICONS = {
+    'arch': icon_arch(),
+    'archlinux': icon_arch(),
+    'cachyos': icon_arch(),
+    'endeavouros': icon_arch(),
+    'manjaro': icon_arch(),
+    'windows': icon_windows(),
+    'windows11': icon_windows(),
+    'windows10': icon_windows(),
+    'gnu-linux': icon_linux(),
+    'linux': icon_linux(),
+    'os': icon_linux(),
+    'ubuntu': icon_linux(),
+    'debian': icon_linux(),
+    'fedora': icon_linux(),
+    'nixos': icon_linux(),
+    'recovery': icon_recovery(),
+    'memtest': icon_terminal(),
+    'shutdown': icon_power(),
+    'halt': icon_power(),
+    'poweroff': icon_power(),
+    'restart': icon_reboot(),
+    'reboot': icon_reboot(),
+    'uefi': icon_firmware(),
+    'efi': icon_firmware(),
+    'fwsetup': icon_firmware(),
+}
+for name, glyph in GRUB_ICONS.items():
+    render_icon(glyph, 48, grub / 'icons' / f'{name}.png', pad=0.14)
 
 # ── Limine ───────────────────────────────────────────────────────────────────
 # Shown with `wallpaper_style: centered` on an EDGE backdrop: never stretched, so the planet
-# stays round at any aspect ratio. The menu is drawn in the middle; the planet sits to its
-# right and stays inside the 1280x800 centre crop of smaller screens.
-W, H = 1920, 1080
-cx, cy, r = 1300, 560, 150
-rx, ry = r * 615 / 370, r * 188 / 370
-render(svg(W, H,
-           f'<rect width="{W}" height="{H}" fill="url(#sky)"/>'
-           f'<ellipse cx="{cx + 12}" cy="{cy + 18}" rx="{r * 1.5}" ry="{r * 1.3}" fill="#6e2cb9" opacity=".11" filter="url(#soft)"/>'
-           f'<g transform="translate({cx} {cy}) rotate(-28)" fill="none" stroke="#7e4ab4" stroke-width="1">'
-           f'<ellipse rx="{rx * 1.17}" ry="{ry * 1.3}" opacity=".14"/><ellipse rx="{rx * 1.27}" ry="{ry * 1.54}" opacity=".07"/></g>'
-           + planet(cx, cy, r, rx, ry, -28, ring_width=2.4)
-           + stars([(1640, 300, 2, .55), (560, 820, 1.5, .4), (1500, 860, 1.5, .3), (420, 250, 1.2, .3), (1120, 230, 1.2, .25)]),
-           sky(.62, .52) + planet_defs(rx, ry, 9)),
-       limine / 'background.png')
+# stays round at any aspect ratio. Includes the minimal bottom-left utility icon strip.
+render(orbital_scene(1920, 1080, 1300, 540, 155, with_corner_icons=True), limine / 'background.png')
+
+# ── rEFInd ───────────────────────────────────────────────────────────────────
+# Horizontal centered OS icon layout matching the reference screenshot:
+# - 128x128 crisp white OS badges
+# - 144x144 frosted rounded selection card with glowing violet underline
+# - 48x48 minimal Shutdown, Reboot and UEFI Firmware icons
+render(orbital_scene(1920, 1080, 960, 480, 180, with_corner_icons=False), refind / 'background.png')
+render(selection_card_svg(size=144, radius=16, inset=4, bar_inset=22, bar_height=3.0), refind / 'selection_big.png')
+render(selection_card_svg(size=64, radius=12, inset=4, bar_inset=14, bar_height=2.2), refind / 'selection_small.png')
+
+REFIND_OS_ICONS = {
+    'os_arch': icon_arch(),
+    'os_cachyos': icon_arch(),
+    'os_endeavouros': icon_arch(),
+    'os_manjaro': icon_arch(),
+    'os_win': icon_windows(),
+    'os_win8': icon_windows(),
+    'os_windows': icon_windows(),
+    'os_linux': icon_linux(),
+    'os_unknown': icon_linux(),
+    'os_ubuntu': icon_linux(),
+    'os_debian': icon_linux(),
+    'os_fedora': icon_linux(),
+    'os_nixos': icon_linux(),
+}
+for name, glyph in REFIND_OS_ICONS.items():
+    render_icon(glyph, 128, refind / 'icons' / f'{name}.png', pad=0.20)
+
+REFIND_TOOL_ICONS = {
+    'func_shutdown': icon_power('#e4dced'),
+    'func_reset': icon_reboot('#e4dced'),
+    'func_firmware': icon_firmware('#e4dced'),
+    'func_exit': icon_power('#e4dced'),
+    'func_shell': icon_terminal('#e4dced'),
+    'func_about': icon_linux('#e4dced'),
+    'func_hidden': icon_recovery('#e4dced'),
+    'tool_shell': icon_terminal('#e4dced'),
+    'tool_memtest': icon_recovery('#e4dced'),
+    'tool_fwupdate': icon_firmware('#e4dced'),
+}
+for name, glyph in REFIND_TOOL_ICONS.items():
+    render_icon(glyph, 48, refind / 'icons' / f'{name}.png', pad=0.16)
 
 # ── Plymouth ─────────────────────────────────────────────────────────────────
 # Throbber: the wallpaper's planet in miniature, with a moonlet riding the ring and a ring
@@ -1680,7 +1867,7 @@ SECTIONS = [
     ['apps/**/*'],
     ['share/color-schemes/*', 'share/icons/*/index.theme', 'share/kio/servicemenus/*', 'share/lia-files/actions/*', 'share/gtksourceview-5/styles/*'],
     ['system/**/*'],
-    ['boot/grub/theme.txt', 'boot/plymouth/*.plymouth'],
+    ['boot/grub/theme.txt', 'boot/refind/theme.conf', 'boot/plymouth/*.plymouth'],
 ]
 # Generated data, binary assets and drawings (SVG), which stay files of their own.
 SKIP = [
@@ -2103,7 +2290,7 @@ for name in wallpapers[3:]:
 
 ```python
 #!/usr/bin/env python3
-"""Opt-in boot themes. Never installs GRUB or Limine, or writes boot sectors/EFI entries."""
+"""Opt-in boot themes. Never installs GRUB, Limine or rEFInd, or writes boot sectors/EFI entries."""
 import argparse
 import datetime
 import fcntl
@@ -2636,6 +2823,99 @@ def apply_limine(config):
         print('limine-entry-tool keeps global options; if an update drops the theme, run --boot-only again.')
 
 
+REFIND_BEGIN = '# BEGIN PENUMBRA REFIND'
+REFIND_END = '# END PENUMBRA REFIND'
+REFIND_CONFIGS = ('EFI/refind/refind.conf', 'EFI/BOOT/refind.conf', 'refind/refind.conf')
+
+
+def refind_booted(config):
+    if loader_info().startswith('rEFInd '):
+        return True
+    if shutil.which('efibootmgr'):
+        result = subprocess.run(['efibootmgr', '-v'], text=True, capture_output=True)
+        current = re.search(r'^BootCurrent: ([0-9A-Fa-f]{4})$', result.stdout, re.M)
+        if result.returncode == 0 and current:
+            entry = re.search(r'^Boot' + current[1] + r'\*?\s+(.+)$', result.stdout, re.M)
+            if entry and re.search(r'refind', entry[1], re.I):
+                return True
+    # rEFInd records its own PreviousBoot variable in vars/ (use_nvram false) or NVRAM.
+    return ((config.parent / 'vars/PreviousBoot').is_file()
+            or Path('/sys/firmware/efi/efivars/PreviousBoot-36d08fa7-cf0b-42f5-8f14-68df73ed3740').is_file())
+
+
+def refind_detected():
+    """Return the refind.conf of a confirmed rEFInd boot, else None."""
+    if not shutil.which('findmnt') or not Path('/sys/firmware/efi').exists():
+        return None
+    found = []
+    for volume in boot_volumes():
+        for name in REFIND_CONFIGS:
+            path = volume / name
+            if path.is_file() and not any(os.path.samefile(path, other) for other in found):
+                found.append(path)
+    if not found:
+        return None
+    if len(found) > 1:
+        print('Several refind.conf files found; which one rEFInd reads needs manual review: '
+              + ', '.join(map(str, found)))
+        return None
+    config = found[0]
+    if config.is_symlink() or not refind_booted(config):
+        return None
+    print(f'rEFInd configuration found: {config}')
+    if not ask(f'Confirm this machine boots with rEFInd and reads {config}'):
+        return None
+    return config
+
+
+def refind_theme(text):
+    """Append the managed rEFInd theme include while preserving existing configuration."""
+    if REFIND_BEGIN in text or REFIND_END in text:
+        pattern = r'\n' + re.escape(REFIND_BEGIN) + r'\n.*?\n' + re.escape(REFIND_END) + r'\n\Z'
+        if text.count(REFIND_BEGIN) != 1 or text.count(REFIND_END) != 1 or not re.search(pattern, text, re.S):
+            raise ValueError('Penumbra rEFInd block was edited/moved; review manually.')
+        text = re.sub(pattern, '', text, flags=re.S)
+    else:
+        text = re.sub(r'\n[ \t]*include[ \t]+themes/penumbra/theme\.conf[ \t]*\n\Z', '\n', text)
+    block = (f'\n{REFIND_BEGIN}\n'
+             '# Appearance only: boot entries, timeout and scanning settings are unchanged.\n'
+             'include themes/penumbra/theme.conf\n'
+             f'{REFIND_END}\n')
+    return text + block
+
+
+def refind_splash(text):
+    """Ensure the primary entry in refind_linux.conf includes splash."""
+    lines = text.splitlines(keepends=True)
+    updated_any = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            continue
+        match = re.match(r'^(\s*"[^"]+"\s+")([^"]*)("\s*\r?\n?)$', line)
+        if not match:
+            raise ValueError('Custom refind_linux.conf format requires manual setup.')
+        prefix, options, suffix = match.groups()
+        words = options.split()
+        if not updated_any:
+            if any(w in ('plymouth.enable=0', 'rd.plymouth=0', 'nosplash') for w in words):
+                raise ValueError('Plymouth is explicitly disabled in refind_linux.conf.')
+            if 'splash' not in words:
+                options = (options.rstrip() + ' splash').lstrip()
+                lines[index] = prefix + options + suffix
+            updated_any = True
+    if not updated_any:
+        raise ValueError('refind_linux.conf has no boot options.')
+    return ''.join(lines)
+
+
+def apply_refind(config):
+    with Transaction('refind') as tx:
+        deploy(tx, ROOT / 'boot/refind', config.parent / 'themes/penumbra')
+        replace_text(tx, config, refind_theme(config.read_text()))
+    print('Penumbra rEFInd theme applied. Entries, timeout and scanning settings were preserved.')
+
+
 def uki_section(image, section):
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / 'section'
@@ -2714,8 +2994,8 @@ def stock_splash_preset_updates(directory):
     return updates
 
 
-def apply_plymouth(limine=None):
-    """Install the splash; `limine` is the confirmed limine.conf, otherwise GRUB boots."""
+def apply_plymouth(limine=None, refind=None):
+    """Install the splash; `limine` or `refind` is the confirmed loader config, else GRUB boots."""
     if not shutil.which('mkinitcpio') or not Path('/usr/lib/initcpio/install/plymouth').is_file():
         raise ValueError('Supported mkinitcpio Plymouth hook is missing.')
     if not Path('/usr/lib/plymouth/two-step.so').is_file():
@@ -2726,7 +3006,7 @@ def apply_plymouth(limine=None):
         raise ValueError('mkinitcpio drop-ins require manual setup; no hooks changed.')
     config = Path('/etc/mkinitcpio.conf')
     # The boot loader's own copy of the kernel command line, which gains splash.
-    defaults = limine or Path('/etc/default/grub')
+    defaults = limine or (Path('/boot/refind_linux.conf') if refind else Path('/etc/default/grub'))
     hooks = plymouth_hooks(config.read_text())
     jobs = preset_jobs(Path('/etc/mkinitcpio.d'))
     uki_jobs = [job for job in jobs if job[1].suffix == '.efi']
@@ -2737,6 +3017,10 @@ def apply_plymouth(limine=None):
     source = Path('/etc/kernel/cmdline')
     if uki_jobs:
         cmdline = uki_splash_cmdline(source.read_text())
+    elif refind:
+        if not defaults.is_file():
+            raise ValueError('Missing /boot/refind_linux.conf for rEFInd Plymouth integration.')
+        entries = refind_splash(defaults.read_text())
     elif not limine:
         cmdline = splash_defaults(defaults.read_text())
     if limine:
@@ -2774,7 +3058,7 @@ def apply_plymouth(limine=None):
         if keymaps.is_file():
             shutil.copy2(keymaps, theme / 'keymap-render.png')
         config.write_text(hooks)
-        if limine:
+        if limine or (refind and not uki_jobs):
             if entries != defaults.read_text():
                 replace_text(tx, defaults, entries)
         elif not uki_jobs:
@@ -2800,8 +3084,8 @@ def apply_plymouth(limine=None):
             os.chmod(stage, image.stat().st_mode & 0o777)
             staged_images.append((stage, image))
         # UKIs carry their command line and initrd; keep their existing GRUB chainload entries.
-        # Limine entries name the images directly, so they need no regeneration.
-        if not uki_jobs and not limine:
+        # Limine and rEFInd entries name the images directly, so they need no regeneration.
+        if not uki_jobs and not limine and not refind:
             generate_grub(tx)
         for stage, image in staged_images:
             os.replace(stage, image)
@@ -2824,20 +3108,24 @@ def main():
             return
         limine = limine_detected()
         print('Limine: ' + ('verified/confirmed.' if limine else 'not verified; its theme will be skipped.'))
-        # A confirmed Limine boot settles which loader ran; GRUB files may still be installed.
-        available = not limine and grub_detected()
+        refind = None if limine else refind_detected()
+        print('rEFInd: ' + ('verified/confirmed.' if refind else 'not verified; its theme will be skipped.'))
+        # A confirmed Limine or rEFInd boot settles which loader ran; GRUB files may still be installed.
+        available = not (limine or refind) and grub_detected()
         print('GRUB: ' + ('verified/confirmed.' if available else 'not in use or not verified; its theme will be skipped.'))
         if limine and ask('Apply the Penumbra Limine theme (back up limine.conf; entries unchanged)'):
             apply_limine(limine)
+        if refind and ask('Apply the Penumbra rEFInd theme (back up refind.conf; entries unchanged)'):
+            apply_refind(refind)
         if available and ask('Apply the Penumbra GRUB theme (back up and preserve existing menu)'):
             apply_grub()
         # ./install.sh --boot-only offers to install it, with the distribution's package manager.
         installed = bool(shutil.which('plymouth-set-default-theme'))
         print('Plymouth: ' + ('installed.' if installed else 'not installed.'))
-        if installed and (available or limine) and ask('Apply Penumbra to Plymouth (add splash/hook and rebuild initramfs)'):
-            apply_plymouth(limine)
-        elif installed and not (available or limine):
-            print('Plymouth theme is in boot/plymouth; boot integration requires a verified GRUB or Limine setup.')
+        if installed and (available or limine or refind) and ask('Apply Penumbra to Plymouth (add splash/hook and rebuild initramfs)'):
+            apply_plymouth(limine, refind)
+        elif installed and not (available or limine or refind):
+            print('Plymouth theme is in boot/plymouth; boot integration requires a verified GRUB, Limine or rEFInd setup.')
 
 
 if __name__ == '__main__':
@@ -3676,6 +3964,27 @@ class IntegrationTests(unittest.TestCase):
                 boot.apply_plymouth()
         self.assertEqual(self.snapshot(), before)
 
+    def test_refind_detection_success_and_restore(self):
+        self.write('/sys/firmware/efi/efivars/LoaderInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f', '')
+        config = self.root / 'boot/EFI/refind/refind.conf'
+        self.write('/boot/EFI/refind/refind.conf', 'timeout 20\n\ninclude themes/penumbra/theme.conf\n')
+        self.write('/boot/EFI/refind/vars/PreviousBoot', 'Arch')
+        before = self.snapshot()
+        efi_out = subprocess.CompletedProcess([], 0, stdout='BootCurrent: 0000\nBoot0000* rEFInd Boot Manager\n')
+        with patch.object(boot.shutil, 'which', return_value='/bin/mock'), patch.object(boot.subprocess, 'run', return_value=efi_out), patch.object(boot, 'boot_volumes', return_value=[self.root / 'boot']), patch.object(boot, 'ask', return_value=True):
+            self.assertEqual(boot.refind_detected(), config)
+            boot.apply_refind(config)
+            first = config.read_text()
+            self.assertEqual(first.count('include themes/penumbra/theme.conf'), 1)
+            self.assertTrue((self.root / 'boot/EFI/refind/themes/penumbra/theme.conf').is_file())
+            self.assertTrue((self.root / 'boot/EFI/refind/themes/penumbra/icons/os_arch.png').is_file())
+            boot.apply_refind(config)
+            self.assertEqual(config.read_text(), first)
+        for backup in sorted((self.root / 'backups').iterdir(), key=lambda p: p.stat().st_mtime_ns, reverse=True):
+            boot.restore(backup)
+        self.assertEqual(self.snapshot(), before)
+        self.assertFalse((self.root / 'boot/EFI/refind/themes/penumbra').exists())
+
 
 if __name__ == '__main__':
     unittest.main()
@@ -4456,7 +4765,7 @@ class QmlLoad(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='penumbra-load-') as temp:
             stage = Path(temp)
             shutil.copytree(ROOT / 'config/quickshell/penumbra', stage, dirs_exist_ok=True)
-            names = ['Bar', 'LookPage', 'WeatherPage', 'PackagesPage', 'Osd', 'Overview', 'Wallpaper', 'ControlCenter',
+            names = ['Bar', 'SettingsPage', 'LookPage', 'WeatherPage', 'PackagesPage', 'Osd', 'Overview', 'Wallpaper', 'ControlCenter',
                      'MonitorPanel', 'WallpaperPicker', 'ScreenFrame', 'SessionMenu', 'Launcher']
             for path in stage.glob('*.qml'):
                 path.write_text(path.read_text().replace('PanelWindow {', 'TestPanelWindow {'))
@@ -11650,13 +11959,13 @@ Panel {
                 id: mainPage
                 Layout.fillWidth: true
                 visible: Ui.controlPage === "main"
-                spacing: 14
+                spacing: 12
 
                 // Header: who, how long, and session shortcuts.
                 RowLayout {
                     StaggerReveal { shown: root.open && mainPage.visible; order: 0 }
                     Layout.fillWidth: true
-                    spacing: 12
+                    spacing: 10
                     Avatar { size: 42 }
                     ColumnLayout {
                         Layout.fillWidth: true
@@ -11666,8 +11975,7 @@ Panel {
                     }
                     Repeater {
                         model: [
-                            { glyph: "󰒓", tip: "Settings", run: () => Ui.controlPage = "settings" },
-                            { glyph: "󰸉", tip: "Wallpaper", run: () => Ui.toggle("wallpapers") },
+                            { glyph: "󰒓", tip: "Settings", run: () => Ui.openControl("settings") },
                             { glyph: "󰌾", tip: "Lock", run: () => { Ui.close(); Ui.run("loginctl lock-session"); } },
                             { glyph: "󰐥", tip: "Session", run: () => Ui.openSession() }
                         ]
@@ -11690,6 +11998,7 @@ Panel {
                     }
                 }
 
+                // Six toggleable quick states in a symmetrical 2x3 grid.
                 GridLayout {
                     StaggerReveal { shown: root.open && mainPage.visible; order: 1 }
                     Layout.fillWidth: true
@@ -11703,8 +12012,8 @@ Panel {
                         subtitle: Devices.networkName
                         on: Devices.wifiDevice ? Networking.wifiEnabled : Devices.wired
                         hasMore: true
-                        onToggled: Devices.wifiDevice ? Networking.wifiEnabled = !Networking.wifiEnabled : Ui.controlPage = "wifi"
-                        onMore: Ui.controlPage = "wifi"
+                        onToggled: Devices.wifiDevice ? Networking.wifiEnabled = !Networking.wifiEnabled : Ui.openControl("wifi")
+                        onMore: Ui.openControl("wifi")
                     }
                     Tile {
                         Layout.fillWidth: true
@@ -11715,7 +12024,7 @@ Panel {
                         available: !!Devices.adapter
                         hasMore: true
                         onToggled: Devices.adapter.enabled = !Devices.adapter.enabled
-                        onMore: Ui.controlPage = "bluetooth"
+                        onMore: Ui.openControl("bluetooth")
                     }
                     Tile {
                         Layout.fillWidth: true
@@ -11725,7 +12034,18 @@ Panel {
                         on: Notifs.dnd
                         hasMore: true
                         onToggled: Notifs.toggleDnd()
-                        onMore: Ui.controlPage = "notifications"
+                        onMore: Ui.openControl("notifications")
+                    }
+                    Tile {
+                        Layout.fillWidth: true
+                        glyph: "󱩌"
+                        title: "Night light"
+                        subtitle: NightLight.status
+                        on: NightLight.on
+                        available: NightLight.available
+                        hasMore: true
+                        onToggled: NightLight.toggle()
+                        onMore: Ui.openControl("night")
                     }
                     Tile {
                         Layout.fillWidth: true
@@ -11737,113 +12057,129 @@ Panel {
                     }
                     Tile {
                         Layout.fillWidth: true
-                        glyph: "󱩌"
-                        title: "Night light"
-                        subtitle: NightLight.status
-                        on: NightLight.on
-                        available: NightLight.available
-                        hasMore: true
-                        onToggled: NightLight.toggle()
-                        onMore: Ui.controlPage = "night"
-                    }
-                    Tile {
-                        Layout.fillWidth: true
-                        glyph: "󰹑"
-                        title: "Screenshot"
-                        subtitle: "Picture or video"
-                        onToggled: Ui.openShot()
-                    }
-                    // The odd one out spans the row.
-                    Tile {
-                        Layout.fillWidth: true
-                        Layout.columnSpan: 2
                         glyph: Cast.casting ? "󰄙" : "󰄘"
                         title: "Cast screen"
-                        subtitle: Cast.connecting ? `Connecting to ${Cast.tvName}…` : Cast.casting ? `Casting to ${Cast.tvName}` : "Show this screen on a TV"
+                        subtitle: Cast.connecting ? "Connecting…" : Cast.casting ? Cast.tvName : "Off"
                         on: Cast.casting
                         hasMore: true
-                        onToggled: Cast.casting ? Cast.stop() : Ui.controlPage = "cast"
-                        onMore: Ui.controlPage = "cast"
+                        onToggled: Cast.casting ? Cast.stop() : Ui.openControl("cast")
+                        onMore: Ui.openControl("cast")
                     }
                 }
 
-                // Power profile, through power-profiles-daemon.
-                ColumnLayout {
+                // Quick actions strip for instant tools (Screenshot, Wallpaper, Quick notes).
+                RowLayout {
                     StaggerReveal { shown: root.open && mainPage.visible; order: 2 }
                     Layout.fillWidth: true
-                    visible: Ui.hasPowerProfiles
-                    spacing: 6
-                    Segmented {
-                        Layout.fillWidth: true
-                        current: PowerProfiles.profile
-                        options: [
-                            { value: PowerProfile.PowerSaver, glyph: "󰌪", title: "Power saver" },
-                            { value: PowerProfile.Balanced, glyph: "󰗑", title: "Balanced" },
-                            { value: PowerProfile.Performance, glyph: "󰓅", title: "Performance", available: PowerProfiles.hasPerformanceProfile }
+                    spacing: 8
+                    Repeater {
+                        model: [
+                            { glyph: "󰹑", title: "Screenshot", run: () => Ui.openShot() },
+                            { glyph: "󰸉", title: "Wallpaper", run: () => Ui.toggle("wallpapers") },
+                            { glyph: "󰎞", title: "Notes", run: () => Ui.openControl("notes") }
                         ]
-                        onChosen: value => PowerProfiles.profile = value
-                    }
-                    // Performance can be held back by the hardware; say why.
-                    Label {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: 4
-                        visible: PowerProfiles.profile === PowerProfile.Performance && PowerProfiles.degradationReason !== PerformanceDegradationReason.None
-                        text: PowerProfiles.degradationReason === PerformanceDegradationReason.LapDetected
-                            ? "Performance is limited while the laptop is on your lap"
-                            : "Performance is limited while the computer is hot"
-                        font.pixelSize: Theme.textSmall
-                        color: Theme.amber
+                        delegate: Rectangle {
+                            id: quickAction
+                            required property var modelData
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            implicitHeight: 38
+                            radius: Theme.radiusSmall
+                            color: actionArea.containsMouse ? Theme.hover : Theme.control
+                            border.color: Theme.line
+                            Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
+                            CardLight { radius: quickAction.radius; pointer: Qt.point(actionArea.mouseX, actionArea.mouseY); hovered: actionArea.containsMouse }
+                            RowLayout {
+                                anchors.centerIn: parent
+                                spacing: 7
+                                Glyph { text: quickAction.modelData.glyph; size: 15; color: Theme.accentBright }
+                                Label { text: quickAction.modelData.title; font.pixelSize: Theme.textSmall; font.weight: Font.Medium; color: Theme.textSoft }
+                            }
+                            MouseArea {
+                                id: actionArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: quickAction.modelData.run()
+                            }
+                        }
                     }
                 }
 
-                ColumnLayout {
+                // Audio, brightness and power profile grouped into a single clean surface.
+                Rectangle {
                     StaggerReveal { shown: root.open && mainPage.visible; order: 3 }
                     Layout.fillWidth: true
-                    spacing: 4
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
+                    implicitHeight: slidersColumn.implicitHeight + 20
+                    radius: Theme.radius
+                    color: Theme.alpha(Theme.control, 0.45)
+                    border.color: Theme.line
+
+                    ColumnLayout {
+                        id: slidersColumn
+                        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 10 }
+                        spacing: 6
+
                         SliderRow {
                             Layout.fillWidth: true
                             glyph: Devices.volumeGlyph
                             value: Devices.volume
                             muted: Devices.muted
+                            hasMore: true
                             onMoved: v => Devices.setVolume(v)
                             onGlyphClicked: if (Devices.sink) Devices.sink.muted = !Devices.sink.muted
+                            onMore: Ui.openControl("mixer")
                         }
-                        // Devices and per-app volume.
+                        SliderRow {
+                            Layout.fillWidth: true
+                            Layout.rightMargin: 36
+                            visible: !!Devices.source
+                            glyph: Devices.micMuted ? "󰍭" : "󰍬"
+                            value: Devices.source ? Math.round(Devices.source.volume * 100) : 0
+                            muted: Devices.micMuted
+                            onMoved: v => { Devices.source.muted = false; Devices.source.volume = v / 100; }
+                            onGlyphClicked: Devices.source.muted = !Devices.source.muted
+                        }
+                        SliderRow {
+                            Layout.fillWidth: true
+                            Layout.rightMargin: 36
+                            visible: Sys.brightness >= 0
+                            glyph: "󰃟"
+                            value: Sys.brightness
+                            onMoved: v => Sys.setBrightness(v)
+                        }
+
+                        // Power profile, through power-profiles-daemon.
                         Rectangle {
-                            implicitWidth: 26
-                            implicitHeight: 36
-                            radius: Theme.radiusSmall
-                            color: mixerArea.containsMouse ? Theme.hover : "transparent"
-                            Glyph { anchors.centerIn: parent; text: "󰅂"; color: Theme.muted }
-                            MouseArea {
-                                id: mixerArea
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: Ui.controlPage = "mixer"
-                            }
+                            Layout.fillWidth: true
+                            Layout.topMargin: 2
+                            Layout.bottomMargin: 2
+                            visible: Ui.hasPowerProfiles
+                            implicitHeight: 1
+                            color: Theme.line
                         }
-                    }
-                    SliderRow {
-                        Layout.fillWidth: true
-                        Layout.rightMargin: 28
-                        visible: !!Devices.source
-                        glyph: Devices.micMuted ? "󰍭" : "󰍬"
-                        value: Devices.source ? Math.round(Devices.source.volume * 100) : 0
-                        muted: Devices.micMuted
-                        onMoved: v => { Devices.source.muted = false; Devices.source.volume = v / 100; }
-                        onGlyphClicked: Devices.source.muted = !Devices.source.muted
-                    }
-                    SliderRow {
-                        Layout.fillWidth: true
-                        Layout.rightMargin: 28
-                        visible: Sys.brightness >= 0
-                        glyph: "󰃟"
-                        value: Sys.brightness
-                        onMoved: v => Sys.setBrightness(v)
+                        Segmented {
+                            Layout.fillWidth: true
+                            visible: Ui.hasPowerProfiles
+                            current: PowerProfiles.profile
+                            options: [
+                                { value: PowerProfile.PowerSaver, glyph: "󰌪", title: "Power saver" },
+                                { value: PowerProfile.Balanced, glyph: "󰗑", title: "Balanced" },
+                                { value: PowerProfile.Performance, glyph: "󰓅", title: "Performance", available: PowerProfiles.hasPerformanceProfile }
+                            ]
+                            onChosen: value => PowerProfiles.profile = value
+                        }
+                        // Performance can be held back by the hardware; say why.
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 4
+                            visible: Ui.hasPowerProfiles && PowerProfiles.profile === PowerProfile.Performance && PowerProfiles.degradationReason !== PerformanceDegradationReason.None
+                            text: PowerProfiles.degradationReason === PerformanceDegradationReason.LapDetected
+                                ? "Performance is limited while the laptop is on your lap"
+                                : "Performance is limited while the computer is hot"
+                            font.pixelSize: Theme.textSmall
+                            color: Theme.amber
+                        }
                     }
                 }
 
@@ -11875,7 +12211,7 @@ Panel {
                 // Grouped by app; each group shows its newest notification until expanded.
                 ListView {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Notifs.count ? Math.min(contentHeight, 360) : 0
+                    Layout.preferredHeight: Notifs.count ? Math.min(contentHeight, 340) : 0
                     visible: Notifs.count > 0
                     clip: true
                     spacing: 12
@@ -11971,14 +12307,20 @@ Panel {
                     displaced: Transition { NumberAnimation { property: "y"; duration: Theme.normal; easing.type: Easing.OutCubic } }
                 }
 
-                ColumnLayout {
+                Rectangle {
                     StaggerReveal { shown: root.open && mainPage.visible; order: 5 }
                     Layout.fillWidth: true
-                    Layout.bottomMargin: 6
                     visible: Notifs.count === 0
-                    spacing: 4
-                    Glyph { Layout.fillWidth: true; text: "󰂜"; size: 26; color: Theme.dim }
-                    Label { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: "All caught up"; color: Theme.muted }
+                    implicitHeight: 42
+                    radius: Theme.radiusSmall
+                    color: Theme.alpha(Theme.control, 0.35)
+                    border.color: Theme.line
+                    RowLayout {
+                        anchors.centerIn: parent
+                        spacing: 8
+                        Glyph { text: "󰂜"; size: 16; color: Theme.dim }
+                        Label { text: "All caught up"; font.pixelSize: Theme.textSmall; color: Theme.muted }
+                    }
                 }
             }
         }
@@ -15744,17 +16086,35 @@ import QtQuick
 import QtQuick.Layouts
 import "oklch.js" as Oklch
 
-// Look: dark, light or auto, the accent colours (Penumbra's, your own or the wallpaper's) and the corner
-// style, for the shell and the apps at once.
-// Look and penumbra-theme apply a change; the shell fades to it.
+// Look: organized into two clean views under a live desktop preview —
+// "Theme & colours" (mode, curated palettes, accents, corners & glass frost) and
+// "Bar, dock & desktop" (bar style, workspaces, OSD, screen frame, dock, depth & weather).
 ColumnLayout {
     id: root
 
-    spacing: 12
+    spacing: 10
 
     component Section: Overline {
         Layout.fillWidth: true
+        Layout.leftMargin: 4
         Layout.topMargin: 2
+    }
+
+    // A subtle grouped container for related controls.
+    component LookCard: Rectangle {
+        id: card
+        default property alias content: cardColumn.data
+        property int innerMargin: 8
+        Layout.fillWidth: true
+        implicitHeight: cardColumn.implicitHeight + 2 * innerMargin
+        radius: Theme.radius
+        color: Theme.alpha(Theme.control, 0.42)
+        border.color: Theme.line
+        ColumnLayout {
+            id: cardColumn
+            anchors { left: parent.left; right: parent.right; top: parent.top; margins: card.innerMargin }
+            spacing: 8
+        }
     }
 
     // A choice drawn as a card: its picture above, its name below, the current one outlined.
@@ -15767,7 +16127,7 @@ ColumnLayout {
 
         Layout.fillWidth: true
         Layout.preferredWidth: 1 // equal shares
-        implicitHeight: 118
+        implicitHeight: 98
         radius: Theme.radius
         color: current ? Theme.alpha(Theme.accent, 0.12) : choiceArea.containsMouse ? Theme.hover : Theme.raised
         border.width: current ? 2 : 1
@@ -15776,12 +16136,12 @@ ColumnLayout {
 
         Item {
             id: holder
-            anchors { top: parent.top; topMargin: 16; horizontalCenter: parent.horizontalCenter }
-            width: 116
-            height: 62
+            anchors { top: parent.top; topMargin: 12; horizontalCenter: parent.horizontalCenter }
+            width: 112
+            height: 50
         }
         RowLayout {
-            anchors { bottom: parent.bottom; bottomMargin: 12; horizontalCenter: parent.horizontalCenter }
+            anchors { bottom: parent.bottom; bottomMargin: 9; horizontalCenter: parent.horizontalCenter }
             spacing: 6
             Rectangle {
                 visible: choice.current
@@ -15792,6 +16152,7 @@ ColumnLayout {
             }
             Label {
                 text: choice.title
+                font.pixelSize: Theme.textSmall
                 font.weight: choice.current ? Font.DemiBold : Font.Normal
                 color: choice.current ? Theme.text : Theme.textSoft
             }
@@ -15814,7 +16175,7 @@ ColumnLayout {
     PageHeader {
         Layout.fillWidth: true
         title: "Look"
-        status: Look.error || "Mode, colours and corners"
+        status: Look.error || "Mode, colours and desktop layout"
         showSwitch: false
         onBack: Ui.controlPage = "settings"
     }
@@ -15824,7 +16185,7 @@ ColumnLayout {
     Rectangle {
         id: desktop
         Layout.fillWidth: true
-        implicitHeight: 150
+        implicitHeight: 136
         radius: Theme.radius
         color: Theme.base
         border.color: Theme.line
@@ -15844,17 +16205,17 @@ ColumnLayout {
         // The bar: workspaces, the clock, the status capsule.
         Rectangle {
             id: bar
-            x: 10
-            y: 10
-            width: parent.width - 20
+            x: Settings.barStyle === "island" ? 42 : Settings.barStyle === "framed" ? 0 : 10
+            y: Settings.barStyle === "island" || Settings.barStyle === "framed" ? 0 : 8
+            width: parent.width - 2 * x
             height: 18
-            radius: Theme.corner(9)
+            radius: Settings.barStyle === "framed" ? 0 : Theme.corner(9)
             color: Theme.glassStrong
             border.color: Theme.line
             Row {
                 anchors { left: parent.left; leftMargin: 7; verticalCenter: parent.verticalCenter }
                 spacing: 4
-                Line { width: 14; height: 6; color: Theme.accent }
+                Line { width: Settings.workspaceStyle === "dots" ? 6 : 14; height: 6; color: Theme.accent }
                 Line { width: 6; height: 6; color: Theme.dim }
                 Line { width: 6; height: 6; color: Theme.dim }
             }
@@ -15873,35 +16234,35 @@ ColumnLayout {
             x: 10
             y: bar.y + bar.height + 8
             width: parent.width - panel.width - 28
-            height: parent.height - y - 10
+            height: parent.height - y - (Settings.dockMode !== "off" ? 20 : 10)
             radius: Theme.corner(10)
             color: Theme.surface
             border.color: Theme.lineStrong
             Column {
-                anchors { left: parent.left; top: parent.top; margins: 11 }
-                spacing: 6
+                anchors { left: parent.left; top: parent.top; margins: 10 }
+                spacing: 5
                 Line { width: 64; height: 6; color: Theme.text }
                 Line { width: 120; color: Theme.textSoft }
                 Line { width: 96; color: Theme.muted }
                 Line { width: 108; color: Theme.dim }
             }
             Row {
-                anchors { left: parent.left; bottom: parent.bottom; margins: 11 }
+                anchors { left: parent.left; bottom: parent.bottom; margins: 10 }
                 spacing: 6
                 Rectangle {
-                    width: 46
-                    height: 16
-                    radius: Theme.corner(8)
+                    width: 44
+                    height: 15
+                    radius: Theme.corner(7.5)
                     color: Theme.accent
-                    Line { anchors.centerIn: parent; width: 24; color: Theme.accentInk }
+                    Line { anchors.centerIn: parent; width: 22; color: Theme.accentInk }
                 }
                 Rectangle {
-                    width: 40
-                    height: 16
-                    radius: Theme.corner(8)
+                    width: 38
+                    height: 15
+                    radius: Theme.corner(7.5)
                     color: Theme.raised
                     border.color: Theme.line
-                    Line { anchors.centerIn: parent; width: 20; color: Theme.textSoft }
+                    Line { anchors.centerIn: parent; width: 18; color: Theme.textSoft }
                 }
             }
         }
@@ -15911,31 +16272,31 @@ ColumnLayout {
             id: panel
             anchors { right: parent.right; rightMargin: 10 }
             y: bar.y + bar.height + 8
-            width: 128
-            height: parent.height - y - 10
-            radius: Theme.corner(12)
+            width: 124
+            height: parent.height - y - (Settings.dockMode !== "off" ? 20 : 10)
+            radius: Theme.corner(11)
             color: Theme.glassStrong
             border.color: Theme.line
             Row {
-                anchors { left: parent.left; right: parent.right; top: parent.top; margins: 9 }
+                anchors { left: parent.left; right: parent.right; top: parent.top; margins: 8 }
                 spacing: 6
                 Repeater {
                     model: [true, false]
                     delegate: Rectangle {
                         required property bool modelData
                         width: (parent.width - 6) / 2
-                        height: 34
-                        radius: Theme.corner(8)
+                        height: 30
+                        radius: Theme.corner(7)
                         color: modelData ? Theme.alpha(Theme.accent, 0.22) : Theme.raised
                         border.color: modelData ? Theme.alpha(Theme.accentBright, 0.55) : Theme.line
-                        Line { x: 7; y: 8; width: 8; height: 8; color: modelData ? Theme.accentBright : Theme.muted }
-                        Line { x: 7; y: 22; width: 30; color: modelData ? Theme.text : Theme.textSoft }
+                        Line { x: 6; y: 7; width: 8; height: 7; color: modelData ? Theme.accentBright : Theme.muted }
+                        Line { x: 6; y: 19; width: 28; color: modelData ? Theme.text : Theme.textSoft }
                     }
                 }
             }
             Line {
                 id: track
-                anchors { left: parent.left; right: parent.right; bottom: parent.bottom; margins: 12; bottomMargin: 16 }
+                anchors { left: parent.left; right: parent.right; bottom: parent.bottom; margins: 11; bottomMargin: 14 }
                 color: Theme.overlayStrong
                 Line { width: parent.width * 0.6; color: Theme.accent }
                 Rectangle {
@@ -15949,485 +16310,627 @@ ColumnLayout {
                 }
             }
         }
-    }
 
-    Section { text: "Curated palettes" }
-    GridLayout {
-        Layout.fillWidth: true
-        columns: 2
-        columnSpacing: 8
-        rowSpacing: 8
-        Repeater {
-            model: Look.presets
-            delegate: Choice {
-                required property var modelData
-                title: modelData.title
-                current: Look.choice.preset === modelData.id
-                onPicked: Look.set({ preset: modelData.id })
-                Rectangle {
-                    anchors.fill: parent
-                    color: modelData.base
-                    radius: Theme.radiusSmall
-                    Image {
-                        anchors.fill: parent
-                        source: Ui.fileUrl(Ui.wallpapers + modelData.wallpaper + "-clean.png")
-                        fillMode: Image.PreserveAspectCrop
-                    }
-                    Rectangle {
-                        anchors { right: parent.right; bottom: parent.bottom; margins: 6 }
-                        width: 50; height: 28
-                        radius: Theme.radiusSmall
-                        color: modelData.surface
-                        border.color: modelData.accent
-                        Label { anchors.centerIn: parent; text: "Aa"; color: modelData.accent; font.pixelSize: 16 }
+        // Mini dock preview when dock is enabled.
+        Rectangle {
+            visible: Settings.dockMode !== "off"
+            anchors { bottom: parent.bottom; bottomMargin: 4; horizontalCenter: parent.horizontalCenter }
+            width: 72
+            height: 12
+            radius: Theme.corner(6)
+            color: Theme.glassStrong
+            border.color: Theme.line
+            Row {
+                anchors.centerIn: parent
+                spacing: 5
+                Repeater {
+                    model: [Theme.accent, Theme.textSoft, Theme.muted, Theme.dim]
+                    delegate: Rectangle {
+                        required property color modelData
+                        width: 6; height: 6; radius: Theme.corner(3)
+                        color: modelData
                     }
                 }
             }
         }
     }
-    Label {
-        Layout.fillWidth: true
-        text: "A complete palette and matching wallpaper scene. Custom colours below clear the preset."
-        wrapMode: Text.Wrap
-        color: Theme.dim
-        font.pixelSize: Theme.textSmall
-    }
 
-    Section { text: "Desktop composition" }
-    Label {
-        Layout.fillWidth: true
-        text: "Signature: floating capsules, numbered workspaces and a clear desktop. Palette and text size stay yours."
-        wrapMode: Text.Wrap
-        color: Theme.textSoft
-        font.pixelSize: Theme.textSmall
-    }
-    PillButton { text: "Apply signature layout"; onClicked: Settings.signatureComposition() }
-
-    Section { text: "Bar style" }
+    // Two clean sub-tabs so theme colours and desktop layout don't crowd one giant list.
     Segmented {
         Layout.fillWidth: true
-        current: Settings.barStyle
-        options: [{ value: "floating", title: "Capsules" }, { value: "island", title: "Island" }, { value: "framed", title: "Framed" }]
-        onChosen: value => Settings.barStyle = value
-    }
-    Section { text: "Workspaces" }
-    Segmented {
-        Layout.fillWidth: true
-        current: Settings.workspaceStyle
-        options: [{ value: "pills", title: "Numbers" }, { value: "icons", title: "Numbers + icons" }, { value: "dots", title: "Dots" }]
-        onChosen: value => Settings.workspaceStyle = value
-    }
-    Section { text: "Volume and brightness" }
-    Segmented {
-        Layout.fillWidth: true
-        current: Settings.osdPosition
-        options: [{ value: "bottom", title: "Bottom" }, { value: "top", title: "Top island" }]
-        onChosen: value => Settings.osdPosition = value
-    }
-    Section { text: "Glass frost" }
-    SliderRow {
-        Layout.fillWidth: true
-        glyph: "󰂓"
-        from: -0.15; to: 0.28; stepSize: 0.01
-        value: Settings.glassFrost
-        label: Math.round((value + 0.15) / 0.43 * 100) + "%"
-        onMoved: value => Settings.glassFrost = value
-    }
-
-    Section { text: "Mode" }
-    Segmented {
-        Layout.fillWidth: true
-        current: Look.choice.mode
+        current: Ui.lookTab
         options: [
-            { value: "dark", title: "Dark", glyph: "󰖔" },
-            { value: "light", title: "Light", glyph: "󰖙" },
-            { value: "auto", title: "Auto", glyph: "󰔎" }
+            { value: "theme", glyph: "󰏘", title: "Theme & colours" },
+            { value: "desktop", glyph: "󰍹", title: "Bar, dock & desktop" }
         ]
-        // Auto starts from the time of day, so the screen changes now if it should.
-        onChosen: value => Look.set(value === "auto" ? { mode: value, auto: Look.daylight } : { mode: value })
-    }
-    Label {
-        Layout.fillWidth: true
-        visible: Look.choice.mode === "auto"
-        text: Look.autoStatus
-        wrapMode: Text.Wrap
-        font.pixelSize: Theme.textSmall
-        color: Theme.dim
+        onChosen: value => Ui.lookTab = value
     }
 
-    Section { text: "Colours" }
-    // Each card shows its accent family in the current mode.
-    RowLayout {
+    // ══════════════════════════════════════════════════════════════════
+    // TAB 1: THEME & COLOURS
+    // ══════════════════════════════════════════════════════════════════
+    ColumnLayout {
         Layout.fillWidth: true
-        spacing: 8
-        Repeater {
-            model: [
-                { name: "default", title: "Default" },
-                { name: "custom", title: "Custom" },
-                { name: "wallpaper", title: "Wallpaper" }
-            ]
-            delegate: Choice {
-                id: colours
-                required property var modelData
-                readonly property var swatches: Look.swatches(Look.mode, modelData.name, custom.hue, custom.vividness)
-                current: Look.choice.colors === modelData.name
-                title: modelData.title
-                onPicked: Look.set({ colors: modelData.name })
-                Row {
-                    anchors.centerIn: parent
-                    spacing: -10
-                    Repeater {
-                        model: colours.swatches
-                        delegate: Rectangle {
-                            required property color modelData
-                            width: 34
-                            height: 34
-                            radius: Theme.corner(17)
-                            color: modelData
-                            border.width: 2
-                            border.color: Theme.surface
-                            Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.slow } }
+        visible: Ui.lookTab !== "desktop"
+        spacing: 10
+
+        Section { text: "Mode" }
+        LookCard {
+            Segmented {
+                Layout.fillWidth: true
+                current: Look.choice.mode
+                options: [
+                    { value: "dark", title: "Dark", glyph: "󰖔" },
+                    { value: "light", title: "Light", glyph: "󰖙" },
+                    { value: "auto", title: "Auto", glyph: "󰔎" }
+                ]
+                // Auto starts from the time of day, so the screen changes now if it should.
+                onChosen: value => Look.set(value === "auto" ? { mode: value, auto: Look.daylight } : { mode: value })
+            }
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                visible: Look.choice.mode === "auto"
+                text: Look.autoStatus
+                wrapMode: Text.Wrap
+                font.pixelSize: Theme.textSmall
+                color: Theme.dim
+            }
+        }
+
+        Section { visible: Look.presets.length > 0; text: "Curated palettes" }
+        LookCard {
+            visible: Look.presets.length > 0
+            GridLayout {
+                Layout.fillWidth: true
+                columns: 2
+                columnSpacing: 8
+                rowSpacing: 8
+                Repeater {
+                    model: Look.presets
+                    delegate: Choice {
+                        required property var modelData
+                        title: modelData.title
+                        current: Look.choice.preset === modelData.id
+                        onPicked: Look.set({ preset: modelData.id })
+                        Rectangle {
+                            anchors.fill: parent
+                            color: modelData.base
+                            radius: Theme.radiusSmall
+                            Image {
+                                anchors.fill: parent
+                                source: Ui.fileUrl(Ui.wallpapers + modelData.wallpaper + "-clean.png")
+                                fillMode: Image.PreserveAspectCrop
+                            }
+                            Rectangle {
+                                anchors { right: parent.right; bottom: parent.bottom; margins: 5 }
+                                width: 44; height: 24
+                                radius: Theme.radiusSmall
+                                color: modelData.surface
+                                border.color: modelData.accent
+                                Label { anchors.centerIn: parent; text: "Aa"; color: modelData.accent; font.pixelSize: 14 }
+                            }
                         }
                     }
                 }
             }
-        }
-    }
-
-    // The custom accent: presets, the hue and vividness, an exact colour. A slider shows its colour in
-    // the shell while it moves; the choice is saved and given to the apps once it rests.
-    ColumnLayout {
-        id: custom
-        Layout.fillWidth: true
-        visible: Look.choice.colors === "custom"
-        spacing: 10
-
-        // As the controls have them: while a slider moves, ahead of Look.choice.
-        readonly property real hue: hueSlider.value
-        readonly property real vividness: vividSlider.value
-        // The accent a hue and vividness give in the current mode.
-        function accentAt(hue, vividness) { return Look.swatches(Look.mode, "custom", hue, vividness)[1]; }
-        readonly property color accent: accentAt(hue, vividness)
-
-        readonly property var presets: [
-            { hue: 297, vividness: 1 },    // violet
-            { hue: 272, vividness: 1 },    // indigo
-            { hue: 250, vividness: 1 },    // blue
-            { hue: 192, vividness: 0.9 },  // teal
-            { hue: 148, vividness: 0.85 }, // green
-            { hue: 75, vividness: 1 },     // amber
-            { hue: 12, vividness: 1 },     // rose
-            { hue: null, vividness: 0 }    // mono, at the current hue
-        ]
-        function isCurrent(preset) {
-            const turn = Math.abs(((hue - preset.hue) % 360 + 540) % 360 - 180);
-            return Math.abs(vividness - preset.vividness) < 0.005 && (preset.hue === null || turn < 0.5);
-        }
-
-        // A slider moved: show it now, apply it once both sliders rest (released, or no key pressed for a moment).
-        function moved() {
-            Look.preview({ hue: Math.round(hue), vividness: vividness.toFixed(2) });
-            settle.restart();
-        }
-        Timer {
-            id: settle
-            interval: 400
-            onTriggered: {
-                if (hueSlider.pressed || vividSlider.pressed)
-                    return; // the release starts it again
-                const changes = { hue: Math.round(custom.hue), vividness: Number(custom.vividness.toFixed(2)) };
-                if (changes.hue !== Math.round(Look.choice.hue) || changes.vividness !== Number(Look.choice.vividness.toFixed(2)))
-                    Look.set(changes);
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                text: "A complete palette and matching wallpaper scene. Custom colours below clear the preset."
+                wrapMode: Text.Wrap
+                color: Theme.dim
+                font.pixelSize: Theme.textSmall
             }
         }
 
-        // An exact colour's hue and vividness; the lightness stays the mode's, so text still reads on it.
-        function useHex(text) {
-            const lch = Oklch.fromHex(text);
-            if (!lch)
-                return false;
-            const chroma = Look.accents[Look.mode === "light" ? "light" : "dark"][1][1];
-            Look.set({
-                // A grey has no hue of its own; it keeps the current one.
-                hue: lch[1] < 0.01 ? Math.round(Look.choice.hue) : Math.round(lch[2]) % 360,
-                vividness: Number(Math.min(1.3, lch[1] / chroma).toFixed(2))
-            });
-            return true;
-        }
-
-        // Round chips spread from edge to edge.
-        Item {
-            Layout.fillWidth: true
-            implicitHeight: 34
-            Row {
-                spacing: (parent.width - custom.presets.length * 34) / (custom.presets.length - 1)
+        Section { text: "Colours" }
+        LookCard {
+            // Each card shows its accent family in the current mode.
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
                 Repeater {
-                    model: custom.presets
-                    delegate: Swatch {
+                    model: [
+                        { name: "default", title: "Default" },
+                        { name: "custom", title: "Custom" },
+                        { name: "wallpaper", title: "Wallpaper" }
+                    ]
+                    delegate: Choice {
+                        id: colours
                         required property var modelData
-                        readonly property real hue: modelData.hue ?? Math.round(custom.hue)
-                        width: 34
-                        height: 34
-                        color: custom.accentAt(hue, modelData.vividness)
-                        selected: custom.isCurrent(modelData)
-                        onPicked: Look.set({ hue: hue, vividness: modelData.vividness })
+                        readonly property var swatches: Look.swatches(Look.mode, modelData.name, custom.hue, custom.vividness)
+                        current: Look.choice.colors === modelData.name
+                        title: modelData.title
+                        onPicked: Look.set({ colors: modelData.name })
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: -10
+                            Repeater {
+                                model: colours.swatches
+                                delegate: Rectangle {
+                                    required property color modelData
+                                    width: 30
+                                    height: 30
+                                    radius: Theme.corner(15)
+                                    color: modelData
+                                    border.width: 2
+                                    border.color: Theme.surface
+                                    Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.slow } }
+                                }
+                            }
+                        }
                     }
                 }
             }
+
+            // The custom accent: presets, the hue and vividness, an exact colour. A slider shows its colour in
+            // the shell while it moves; the choice is saved and given to the apps once it rests.
+            ColumnLayout {
+                id: custom
+                Layout.fillWidth: true
+                visible: Look.choice.colors === "custom"
+                spacing: 10
+
+                // As the controls have them: while a slider moves, ahead of Look.choice.
+                readonly property real hue: hueSlider.value
+                readonly property real vividness: vividSlider.value
+                // The accent a hue and vividness give in the current mode.
+                function accentAt(hue, vividness) { return Look.swatches(Look.mode, "custom", hue, vividness)[1]; }
+                readonly property color accent: accentAt(hue, vividness)
+
+                readonly property var presets: [
+                    { hue: 297, vividness: 1 },    // violet
+                    { hue: 272, vividness: 1 },    // indigo
+                    { hue: 250, vividness: 1 },    // blue
+                    { hue: 192, vividness: 0.9 },  // teal
+                    { hue: 148, vividness: 0.85 }, // green
+                    { hue: 75, vividness: 1 },     // amber
+                    { hue: 12, vividness: 1 },     // rose
+                    { hue: null, vividness: 0 }    // mono, at the current hue
+                ]
+                function isCurrent(preset) {
+                    const turn = Math.abs(((hue - preset.hue) % 360 + 540) % 360 - 180);
+                    return Math.abs(vividness - preset.vividness) < 0.005 && (preset.hue === null || turn < 0.5);
+                }
+
+                // A slider moved: show it now, apply it once both sliders rest (released, or no key pressed for a moment).
+                function moved() {
+                    Look.preview({ hue: Math.round(hue), vividness: vividness.toFixed(2) });
+                    settle.restart();
+                }
+                Timer {
+                    id: settle
+                    interval: 400
+                    onTriggered: {
+                        if (hueSlider.pressed || vividSlider.pressed)
+                            return; // the release starts it again
+                        const changes = { hue: Math.round(custom.hue), vividness: Number(custom.vividness.toFixed(2)) };
+                        if (changes.hue !== Math.round(Look.choice.hue) || changes.vividness !== Number(Look.choice.vividness.toFixed(2)))
+                            Look.set(changes);
+                    }
+                }
+
+                // An exact colour's hue and vividness; the lightness stays the mode's, so text still reads on it.
+                function useHex(text) {
+                    const lch = Oklch.fromHex(text);
+                    if (!lch)
+                        return false;
+                    const chroma = Look.accents[Look.mode === "light" ? "light" : "dark"][1][1];
+                    Look.set({
+                        // A grey has no hue of its own; it keeps the current one.
+                        hue: lch[1] < 0.01 ? Math.round(Look.choice.hue) : Math.round(lch[2]) % 360,
+                        vividness: Number(Math.min(1.3, lch[1] / chroma).toFixed(2))
+                    });
+                    return true;
+                }
+
+                // Round chips spread from edge to edge.
+                Item {
+                    Layout.fillWidth: true
+                    implicitHeight: 34
+                    Row {
+                        spacing: (parent.width - custom.presets.length * 34) / (custom.presets.length - 1)
+                        Repeater {
+                            model: custom.presets
+                            delegate: Swatch {
+                                required property var modelData
+                                readonly property real hue: modelData.hue ?? Math.round(custom.hue)
+                                width: 34
+                                height: 34
+                                color: custom.accentAt(hue, modelData.vividness)
+                                selected: custom.isCurrent(modelData)
+                                onPicked: Look.set({ hue: hue, vividness: modelData.vividness })
+                            }
+                        }
+                    }
+                }
+
+                // Each slider with its name before it and its value after; then the exact colour.
+                GridLayout {
+                    Layout.fillWidth: true
+                    columns: 3
+                    columnSpacing: 10
+                    rowSpacing: 4
+
+                    Label {
+                        Layout.preferredWidth: 64
+                        text: "Hue"
+                        font.pixelSize: Theme.textSmall
+                        color: Theme.textSoft
+                    }
+                    ColorSlider {
+                        id: hueSlider
+                        Layout.fillWidth: true
+                        from: 0
+                        to: 360
+                        stepSize: 1
+                        value: Look.choice.hue
+                        // The rainbow stays readable even when the accent is nearly grey.
+                        colorAt: hue => custom.accentAt(hue, Math.max(custom.vividness, 0.5))
+                        onMoved: custom.moved()
+                        onPressedChanged: if (!pressed) settle.restart()
+                    }
+                    Label {
+                        Layout.preferredWidth: 38
+                        horizontalAlignment: Text.AlignRight
+                        text: Math.round(custom.hue) + "°"
+                        font.pixelSize: Theme.textSmall
+                        color: Theme.muted
+                    }
+
+                    Label {
+                        text: "Vividness"
+                        font.pixelSize: Theme.textSmall
+                        color: Theme.textSoft
+                    }
+                    ColorSlider {
+                        id: vividSlider
+                        Layout.fillWidth: true
+                        from: 0
+                        to: 1.3
+                        stepSize: 0.01
+                        value: Look.choice.vividness
+                        colorAt: vividness => custom.accentAt(custom.hue, vividness)
+                        onMoved: custom.moved()
+                        onPressedChanged: if (!pressed) settle.restart()
+                    }
+                    Label {
+                        Layout.preferredWidth: 38
+                        horizontalAlignment: Text.AlignRight
+                        text: Math.round(custom.vividness * 100) + " %"
+                        font.pixelSize: Theme.textSmall
+                        color: Theme.muted
+                    }
+
+                    Label {
+                        text: "Colour"
+                        font.pixelSize: Theme.textSmall
+                        color: Theme.textSoft
+                    }
+                    Field {
+                        id: hexField
+                        Layout.fillWidth: true
+                        Layout.columnSpan: 2
+                        placeholderText: "#rrggbb"
+                        font.family: Theme.mono
+                        invalid: text !== "" && !Oklch.fromHex(text)
+                        // Shows the accent unless you are typing one; Enter or leaving the box uses it.
+                        function reset() { text = custom.accent.toString(); }
+                        Component.onCompleted: reset()
+                        onAccepted: {
+                            if (invalid)
+                                return;
+                            apply();
+                            reset();
+                            focus = false;
+                        }
+                        onActiveFocusChanged: if (!activeFocus && !apply()) reset()
+                        // Uses the colour typed, if it is one and new; true if it did.
+                        function apply() { return text.toLowerCase() !== custom.accent.toString() && custom.useHex(text); }
+                        Connections {
+                            target: custom
+                            function onAccentChanged() { if (!hexField.activeFocus) hexField.reset(); }
+                        }
+                    }
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: "A colour you type gives its hue and vividness; the lightness stays the mode's, so text keeps reading on it"
+                    wrapMode: Text.Wrap
+                    font.pixelSize: Theme.textSmall
+                    color: Theme.dim
+                }
+            }
+
+            // The wallpaper's accents, the strongest first.
+            ColumnLayout {
+                Layout.fillWidth: true
+                visible: Look.choice.colors === "wallpaper"
+                spacing: 8
+
+                Row {
+                    visible: Look.candidates.length > 0
+                    spacing: 8
+                    Repeater {
+                        model: Look.candidates
+                        delegate: Swatch {
+                            required property var modelData
+                            required property int index
+                            width: 34
+                            height: 34
+                            color: Look.swatches(Look.mode, "custom", modelData.hue, modelData.vividness)[1]
+                            selected: index === Math.min(Look.choice.pick ?? 0, Look.candidates.length - 1)
+                            onPicked: Look.set({ pick: index })
+                        }
+                    }
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: Look.candidates.length
+                        ? "Found in " + Ui.wallpaperTitle(Ui.wallpaper) + (Look.candidates.length > 1 ? ", the strongest first" : "")
+                            + "; a new wallpaper brings its own colours as it grows in"
+                        : "No colours could be read from this wallpaper, so the default ones show"
+                    wrapMode: Text.Wrap
+                    font.pixelSize: Theme.textSmall
+                    color: Theme.dim
+                }
+            }
+
+            // Custom and wallpaper accents can pull the signal colours a little toward themselves.
+            SwitchRow {
+                visible: Look.choice.colors !== "default"
+                glyph: "󰢵"
+                title: "Blend signal colours"
+                subtitle: "Red, green, amber and blue lean a little toward the accent"
+                checked: Look.choice.harmonize === true
+                onToggled: Look.set({ harmonize: !(Look.choice.harmonize === true) })
+            }
         }
 
-        // Each slider with its name before it and its value after; then the exact colour.
-        GridLayout {
-            Layout.fillWidth: true
-            columns: 3
-            columnSpacing: 10
-            rowSpacing: 4
-
-            Label {
-                Layout.preferredWidth: 64
-                text: "Hue"
-                font.pixelSize: Theme.textSmall
-                color: Theme.textSoft
-            }
-            ColorSlider {
-                id: hueSlider
+        Section { text: "Surface & corners" }
+        LookCard {
+            // Each card draws a little bar and window in its own style.
+            RowLayout {
                 Layout.fillWidth: true
-                from: 0
-                to: 360
-                stepSize: 1
-                value: Look.choice.hue
-                // The rainbow stays readable even when the accent is nearly grey.
-                colorAt: hue => custom.accentAt(hue, Math.max(custom.vividness, 0.5))
-                onMoved: custom.moved()
-                onPressedChanged: if (!pressed) settle.restart()
-            }
-            Label {
-                Layout.preferredWidth: 38
-                horizontalAlignment: Text.AlignRight
-                text: Math.round(custom.hue) + "°"
-                font.pixelSize: Theme.textSmall
-                color: Theme.muted
-            }
-
-            Label {
-                text: "Vividness"
-                font.pixelSize: Theme.textSmall
-                color: Theme.textSoft
-            }
-            ColorSlider {
-                id: vividSlider
-                Layout.fillWidth: true
-                from: 0
-                to: 1.3
-                stepSize: 0.01
-                value: Look.choice.vividness
-                colorAt: vividness => custom.accentAt(custom.hue, vividness)
-                onMoved: custom.moved()
-                onPressedChanged: if (!pressed) settle.restart()
-            }
-            Label {
-                Layout.preferredWidth: 38
-                horizontalAlignment: Text.AlignRight
-                text: Math.round(custom.vividness * 100) + " %"
-                font.pixelSize: Theme.textSmall
-                color: Theme.muted
-            }
-
-            Label {
-                text: "Colour"
-                font.pixelSize: Theme.textSmall
-                color: Theme.textSoft
-            }
-            Field {
-                id: hexField
-                Layout.fillWidth: true
-                Layout.columnSpan: 2
-                placeholderText: "#rrggbb"
-                font.family: Theme.mono
-                invalid: text !== "" && !Oklch.fromHex(text)
-                // Shows the accent unless you are typing one; Enter or leaving the box uses it.
-                function reset() { text = custom.accent.toString(); }
-                Component.onCompleted: reset()
-                onAccepted: {
-                    if (invalid)
-                        return;
-                    apply();
-                    reset();
-                    focus = false;
-                }
-                onActiveFocusChanged: if (!activeFocus && !apply()) reset()
-                // Uses the colour typed, if it is one and new; true if it did.
-                function apply() { return text.toLowerCase() !== custom.accent.toString() && custom.useHex(text); }
-                Connections {
-                    target: custom
-                    function onAccentChanged() { if (!hexField.activeFocus) hexField.reset(); }
+                spacing: 8
+                Repeater {
+                    model: [
+                        { name: "rounded", title: "Rounded", round: true },
+                        { name: "sharp", title: "Sharp", round: false }
+                    ]
+                    delegate: Choice {
+                        id: corners
+                        required property var modelData
+                        readonly property color ink: current ? Theme.accent : Theme.lineStrong
+                        function r(px) { return modelData.round ? px : 0; }
+                        current: Theme.corners === modelData.name
+                        title: modelData.title
+                        onPicked: Ui.run(Ui.bin + "penumbra-corners " + modelData.name)
+                        Rectangle {
+                            width: parent.width
+                            height: 9
+                            radius: corners.r(4.5)
+                            color: Theme.glass
+                            border.color: corners.ink
+                            Rectangle { x: 4; y: 2.5; width: 14; height: 4; radius: corners.r(2); color: corners.ink }
+                        }
+                        Rectangle {
+                            y: 14
+                            width: parent.width
+                            height: parent.height - y
+                            radius: corners.r(8)
+                            color: Theme.surface
+                            border.color: corners.ink
+                            Rectangle { x: 8; y: 8; width: 40; height: 4; radius: corners.r(2); color: corners.ink }
+                            Rectangle { x: 8; y: 17; width: 64; height: 3; radius: corners.r(1.5); color: Theme.line }
+                            Rectangle { x: 8; y: 24; width: 50; height: 3; radius: corners.r(1.5); color: Theme.line }
+                        }
+                    }
                 }
             }
-        }
-        Label {
-            Layout.fillWidth: true
-            text: "A colour you type gives its hue and vividness; the lightness stays the mode's, so text keeps reading on it"
-            wrapMode: Text.Wrap
-            font.pixelSize: Theme.textSmall
-            color: Theme.dim
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+                Label {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 4
+                    text: "Glass frost"
+                    font.pixelSize: Theme.textSmall
+                    font.weight: Font.Medium
+                    color: Theme.textSoft
+                }
+                SliderRow {
+                    Layout.fillWidth: true
+                    glyph: "󰂓"
+                    from: -0.15; to: 0.28; stepSize: 0.01
+                    value: Settings.glassFrost
+                    label: Math.round((value + 0.15) / 0.43 * 100) + "%"
+                    onMoved: value => Settings.glassFrost = value
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                text: "The shell, windows, launcher and lock screen follow at once; open apps pick up some changes when they restart"
+                wrapMode: Text.Wrap
+                font.pixelSize: Theme.textSmall
+                color: Theme.dim
+            }
         }
     }
 
-    // The wallpaper's accents, the strongest first. penumbra-wallpaper hands a new wallpaper to
-    // penumbra-theme, which finds its own and fades the shell to the strongest as it grows in.
+    // ══════════════════════════════════════════════════════════════════
+    // TAB 2: BAR, DOCK & DESKTOP
+    // ══════════════════════════════════════════════════════════════════
     ColumnLayout {
         Layout.fillWidth: true
-        visible: Look.choice.colors === "wallpaper"
+        visible: Ui.lookTab === "desktop"
         spacing: 10
 
-        Row {
-            visible: Look.candidates.length > 0
-            spacing: 8
-            Repeater {
-                model: Look.candidates
-                delegate: Swatch {
-                    required property var modelData
-                    required property int index
-                    width: 34
-                    height: 34
-                    color: Look.swatches(Look.mode, "custom", modelData.hue, modelData.vividness)[1]
-                    selected: index === Math.min(Look.choice.pick ?? 0, Look.candidates.length - 1)
-                    onPicked: Look.set({ pick: index })
+        Section { text: "Bar & screen" }
+        LookCard {
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+                Label {
+                    Layout.leftMargin: 4
+                    text: "Bar style"
+                    font.pixelSize: Theme.textSmall
+                    font.weight: Font.Medium
+                    color: Theme.textSoft
+                }
+                Segmented {
+                    Layout.fillWidth: true
+                    current: Settings.barStyle
+                    options: [{ value: "floating", title: "Capsules" }, { value: "island", title: "Island" }, { value: "framed", title: "Framed" }]
+                    onChosen: value => Settings.barStyle = value
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+                Label {
+                    Layout.leftMargin: 4
+                    text: "Workspaces"
+                    font.pixelSize: Theme.textSmall
+                    font.weight: Font.Medium
+                    color: Theme.textSoft
+                }
+                Segmented {
+                    Layout.fillWidth: true
+                    current: Settings.workspaceStyle
+                    options: [{ value: "pills", title: "Numbers" }, { value: "icons", title: "Numbers + icons" }, { value: "dots", title: "Dots" }]
+                    onChosen: value => Settings.workspaceStyle = value
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+                Label {
+                    Layout.leftMargin: 4
+                    text: "Volume and brightness OSD"
+                    font.pixelSize: Theme.textSmall
+                    font.weight: Font.Medium
+                    color: Theme.textSoft
+                }
+                Segmented {
+                    Layout.fillWidth: true
+                    current: Settings.osdPosition
+                    options: [{ value: "bottom", title: "Bottom" }, { value: "top", title: "Top island" }]
+                    onChosen: value => Settings.osdPosition = value
+                }
+            }
+
+            SwitchRow {
+                title: "Join the bar to a screen frame"
+                subtitle: "Thin bezel with curved inner corners"
+                glyph: "󰍹"
+                checked: Settings.screenFrame
+                onToggled: Settings.screenFrame = !Settings.screenFrame
+            }
+        }
+
+        Section { text: "Floating dock" }
+        LookCard {
+            Segmented {
+                Layout.fillWidth: true
+                current: Settings.dockMode
+                options: [{ value: "off", title: "Off" }, { value: "auto", title: "Auto-hide" }, { value: "empty", title: "Empty workspace" }]
+                onChosen: value => Settings.dockMode = value
+            }
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                text: "Hover the bottom edge to reveal. Right-click an app to pin or unpin; middle-click to open another window."
+                wrapMode: Text.Wrap
+                color: Theme.dim
+                font.pixelSize: Theme.textSmall
+            }
+        }
+
+        Section { text: "Desktop depth & weather" }
+        LookCard {
+            innerMargin: 4
+            SwitchRow {
+                title: "Depth clock"
+                subtitle: "Time behind Dawn, Eclipse or a custom mask"
+                glyph: "󰥔"
+                checked: Settings.desktopClock
+                onToggled: Settings.desktopClock = !Settings.desktopClock
+            }
+            SwitchRow {
+                title: "Audio aura"
+                subtitle: "Dawn’s ring and Eclipse’s aurora react to music"
+                glyph: "󰝚"
+                checked: Settings.desktopAura
+                onToggled: Settings.desktopAura = !Settings.desktopAura
+            }
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: 10
+                Layout.rightMargin: 10
+                text: "Choose Dawn or Eclipse in Wallpaper. The aura rests when wallpaper motion is paused."
+                wrapMode: Text.Wrap
+                font.pixelSize: Theme.textSmall
+                color: Theme.dim
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.leftMargin: 8
+                Layout.rightMargin: 8
+                implicitHeight: 1
+                color: Theme.line
+            }
+
+            SwitchRow {
+                title: "Show weather"
+                subtitle: "Open-Meteo · " + (Weather.place?.name ?? "Choose a weather location")
+                glyph: "󰖐"
+                checked: Settings.weatherEnabled
+                onToggled: Settings.weatherEnabled = !Settings.weatherEnabled
+            }
+            SwitchRow {
+                visible: Settings.weatherEnabled
+                title: "Weather beside the clock"
+                subtitle: "Temperature and sky conditions in the bar"
+                glyph: "󰖐"
+                checked: Settings.weatherInBar
+                onToggled: Settings.weatherInBar = !Settings.weatherInBar
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: 10
+                Layout.rightMargin: 10
+                Layout.bottomMargin: 4
+                PillButton { text: "Choose location"; onClicked: Ui.openControl("weather") }
+                Item { Layout.fillWidth: true }
+            }
+        }
+
+        Section { text: "Desktop composition" }
+        LookCard {
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                Label {
+                    Layout.fillWidth: true
+                    text: "Signature: floating capsules, numbered workspaces and a clear desktop. Palette and text size stay yours."
+                    wrapMode: Text.Wrap
+                    color: Theme.textSoft
+                    font.pixelSize: Theme.textSmall
+                }
+                PillButton {
+                    text: "Apply signature layout"
+                    onClicked: Settings.signatureComposition()
                 }
             }
         }
-        Label {
-            Layout.fillWidth: true
-            text: Look.candidates.length
-                ? "Found in " + Ui.wallpaperTitle(Ui.wallpaper) + (Look.candidates.length > 1 ? ", the strongest first" : "")
-                    + "; a new wallpaper brings its own colours as it grows in"
-                : "No colours could be read from this wallpaper, so the default ones show"
-            wrapMode: Text.Wrap
-            font.pixelSize: Theme.textSmall
-            color: Theme.dim
-        }
-    }
-
-    // Custom and wallpaper accents can pull the signal colours (red, green, amber…) a little toward
-    // themselves, so they sit together; they keep their meaning.
-    SwitchRow {
-        visible: Look.choice.colors !== "default"
-        glyph: "󰢵"
-        title: "Blend signal colours"
-        subtitle: "Red, green, amber and blue lean a little toward the accent"
-        checked: Look.choice.harmonize === true
-        onToggled: Look.set({ harmonize: !(Look.choice.harmonize === true) })
-    }
-
-    Section { text: "Desktop depth" }
-    SwitchRow {
-        title: "Depth clock"
-        subtitle: "Time behind Dawn, Eclipse or a custom foreground mask"
-        glyph: "󰥔"
-        checked: Settings.desktopClock
-        onToggled: Settings.desktopClock = !Settings.desktopClock
-    }
-    SwitchRow {
-        title: "Audio aura"
-        subtitle: "Dawn’s ring and Eclipse’s horizon aurora react to music"
-        glyph: "󰝚"
-        checked: Settings.desktopAura
-        onToggled: Settings.desktopAura = !Settings.desktopAura
-    }
-    Label {
-        Layout.fillWidth: true
-        text: "Choose Dawn or Eclipse in Wallpaper. The aura rests when wallpaper motion is paused."
-        wrapMode: Text.Wrap
-        font.pixelSize: Theme.textSmall
-        color: Theme.dim
-    }
-    Section { text: "Calendar weather" }
-    SwitchRow {
-        title: "Show weather"
-        subtitle: "Open-Meteo · " + (Weather.place?.name ?? "Choose a weather location")
-        glyph: "󰖐"
-        checked: Settings.weatherEnabled
-        onToggled: Settings.weatherEnabled = !Settings.weatherEnabled
-    }
-    SwitchRow {
-        visible: Settings.weatherEnabled
-        title: "Weather beside the clock"
-        subtitle: "Temperature and sky conditions in the bar"
-        glyph: "󰖐"
-        checked: Settings.weatherInBar
-        onToggled: Settings.weatherInBar = !Settings.weatherInBar
-    }
-    PillButton { text: "Choose location"; onClicked: Ui.controlPage = "weather" }
-    Section { text: "Floating dock" }
-    Segmented {
-        Layout.fillWidth: true
-        current: Settings.dockMode
-        options: [{ value: "off", title: "Off" }, { value: "auto", title: "Auto-hide" }, { value: "empty", title: "Empty workspace" }]
-        onChosen: value => Settings.dockMode = value
-    }
-    Label {
-        Layout.fillWidth: true
-        text: "Hover the bottom edge to reveal. Right-click an app to pin or unpin; middle-click to open another window."
-        wrapMode: Text.Wrap
-        color: Theme.dim
-        font.pixelSize: Theme.textSmall
-    }
-    Section { text: "Screen frame" }
-    SwitchRow {
-        title: "Join the bar to a screen frame"
-        subtitle: "A thin bezel with curved inner corners around each display"
-        glyph: "󰍹"
-        checked: Settings.screenFrame
-        onToggled: Settings.screenFrame = !Settings.screenFrame
-    }
-
-    Section { text: "Corners" }
-    // Each card draws a little bar and window in its own style.
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: 8
-        Repeater {
-            model: [
-                { name: "rounded", title: "Rounded", round: true },
-                { name: "sharp", title: "Sharp", round: false }
-            ]
-            delegate: Choice {
-                id: corners
-                required property var modelData
-                readonly property color ink: current ? Theme.accent : Theme.lineStrong
-                function r(px) { return modelData.round ? px : 0; }
-                current: Theme.corners === modelData.name
-                title: modelData.title
-                onPicked: Ui.run(Ui.bin + "penumbra-corners " + modelData.name)
-                Rectangle {
-                    width: parent.width
-                    height: 10
-                    radius: corners.r(5)
-                    color: Theme.glass
-                    border.color: corners.ink
-                    Rectangle { x: 4; y: 3; width: 14; height: 4; radius: corners.r(2); color: corners.ink }
-                }
-                Rectangle {
-                    y: 16
-                    width: parent.width
-                    height: parent.height - y
-                    radius: corners.r(9)
-                    color: Theme.surface
-                    border.color: corners.ink
-                    Rectangle { x: 9; y: 10; width: 44; height: 5; radius: corners.r(2.5); color: corners.ink }
-                    Rectangle { x: 9; y: 21; width: 70; height: 4; radius: corners.r(2); color: Theme.line }
-                    Rectangle { x: 9; y: 30; width: 56; height: 4; radius: corners.r(2); color: Theme.line }
-                }
-            }
-        }
-    }
-
-    Label {
-        Layout.fillWidth: true
-        text: "The shell, windows, launcher and lock screen follow at once; open apps pick up some changes when they restart"
-        wrapMode: Text.Wrap
-        font.pixelSize: Theme.textSmall
-        color: Theme.dim
     }
 }
 ```
@@ -16928,7 +17431,7 @@ ColumnLayout {
         title: "Sound"
         status: Pipewire.defaultAudioSink ? root.deviceName(Pipewire.defaultAudioSink) : "No output"
         showSwitch: false
-        onBack: Ui.controlPage = "main"
+        onBack: Ui.controlPage = Ui.previousControlPage === "settings" ? "settings" : "main"
     }
 
     Overline {
@@ -18221,7 +18724,7 @@ ColumnLayout {
         title: "Quick notes"
         status: Notes.error || (Notes.dirty ? "Saving…" : "Saved on this computer")
         showSwitch: false
-        onBack: Ui.controlPage = "settings"
+        onBack: Ui.controlPage = Ui.previousControlPage === "main" ? "main" : "settings"
     }
     Rectangle {
         Layout.fillWidth: true
@@ -18606,7 +19109,7 @@ ColumnLayout {
         title: "Notifications"
         status: Notifs.dnd ? "Do not disturb · " + Notifs.dndStatus.toLowerCase() : "Do not disturb is off"
         checked: Notifs.dnd
-        onBack: Ui.controlPage = "main"
+        onBack: Ui.controlPage = Ui.previousControlPage === "settings" ? "settings" : "main"
         onToggled: Notifs.toggleDnd()
     }
 
@@ -21853,38 +22356,156 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 
-// Settings: the look, screens, keyboard, idle timings, default apps and notifications (each a page
-// of its own), the wallpaper, accessibility, battery care, the clipboard and a few shell
-// behaviours. Typing in the search field finds any of them, on this page or another.
+// Settings: organized into clean card groups for personalization, hardware, apps & tools,
+// accessibility, and backup. Typing in the search field finds any setting across all pages.
 ColumnLayout {
     id: root
 
-    spacing: 12
+    spacing: 10
     onVisibleChanged: if (visible) { Config.loadLayouts(); findExport.running = true; }
     Component.onCompleted: { Config.loadLayouts(); findExport.running = true; }
 
     component Section: Overline {
         Layout.fillWidth: true
+        Layout.leftMargin: 4
         Layout.topMargin: 2
     }
 
+    // A subtle grouped container for related rows.
+    component SettingsCard: Rectangle {
+        id: card
+        default property alias content: cardColumn.data
+        Layout.fillWidth: true
+        implicitHeight: cardColumn.implicitHeight + 8
+        radius: Theme.radius
+        color: Theme.alpha(Theme.control, 0.42)
+        border.color: Theme.line
+        ColumnLayout {
+            id: cardColumn
+            anchors { left: parent.left; right: parent.right; top: parent.top; margins: 4 }
+            spacing: 2
+        }
+    }
+
+    // A row with a Stepper on the right, matching ListRow and SwitchRow in height and hover style.
+    component StepperRow: Rectangle {
+        id: stepRow
+        property string glyph
+        property string title
+        property string subtitle: ""
+        property color subtitleColor: Theme.muted
+        property string valueText
+        property int textWidth: 92
+        property bool canDecrease: true
+        property bool canIncrease: true
+        signal decreased()
+        signal increased()
+
+        Layout.fillWidth: true
+        implicitHeight: Math.max(52, stepLabels.implicitHeight + 18)
+        radius: Theme.radiusSmall
+        color: stepHover.hovered ? Theme.raised : "transparent"
+        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
+        HoverHandler { id: stepHover }
+
+        RowLayout {
+            anchors { fill: parent; leftMargin: 10; rightMargin: 6 }
+            spacing: 11
+            Glyph { Layout.preferredWidth: 22; text: stepRow.glyph; size: 17; color: Theme.textSoft }
+            ColumnLayout {
+                id: stepLabels
+                Layout.fillWidth: true
+                spacing: 0
+                Label { Layout.fillWidth: true; text: stepRow.title }
+                Label {
+                    Layout.fillWidth: true
+                    visible: text !== ""
+                    text: stepRow.subtitle
+                    font.pixelSize: Theme.textSmall
+                    color: stepRow.subtitleColor
+                    wrapMode: Text.Wrap
+                }
+            }
+            Stepper {
+                text: stepRow.valueText
+                textWidth: stepRow.textWidth
+                canDecrease: stepRow.canDecrease
+                canIncrease: stepRow.canIncrease
+                onDecreased: stepRow.decreased()
+                onIncreased: stepRow.increased()
+            }
+        }
+    }
+
+    // Compact pill toggle for nested sub-options (e.g. animated wallpaper pause rules).
+    component SubToggle: Rectangle {
+        id: chip
+        property string glyph
+        property string title
+        property bool checked: false
+        signal toggled()
+
+        Layout.fillWidth: true
+        Layout.preferredWidth: 1
+        implicitHeight: 32
+        radius: Theme.corner(10)
+        color: checked ? Theme.alpha(Theme.accent, 0.18) : chipArea.containsMouse ? Theme.hover : Theme.raised
+        border.color: checked ? Theme.alpha(Theme.accentBright, 0.5) : Theme.line
+        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
+
+        RowLayout {
+            anchors { fill: parent; leftMargin: 10; rightMargin: 10 }
+            spacing: 6
+            Glyph {
+                text: chip.glyph
+                size: 13
+                color: chip.checked ? Theme.accentBright : Theme.muted
+            }
+            Label {
+                Layout.fillWidth: true
+                text: chip.title
+                elide: Text.ElideRight
+                font.pixelSize: Theme.textTiny
+                font.weight: chip.checked ? Font.DemiBold : Font.Normal
+                color: chip.checked ? Theme.text : Theme.textSoft
+            }
+            Glyph {
+                visible: chip.checked
+                text: "󰄬"
+                size: 11
+                color: Theme.accentBright
+            }
+        }
+        MouseArea {
+            id: chipArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: chip.toggled()
+        }
+    }
+
+    readonly property string barSummary: ({ floating: "Capsules", island: "Island", framed: "Framed" })[Settings.barStyle] ?? "Capsules"
+    readonly property string dockSummary: ({ off: "Dock off", auto: "Dock auto-hide", empty: "Dock on empty" })[Settings.dockMode] ?? "Dock off"
+
     // What search finds: a page to open (page), or a row of this page (page: "settings").
     readonly property var index: [
-        { page: "packages", glyph: "󰏗", title: "Installed packages", words: "software pacman aur foreign flatpak appimage uninstall update manage" },
-        { page: "notes", glyph: "󰎞", title: "Quick notes", words: "notes draft text writing local sidebar" },
-        { page: "look", glyph: "󰏘", title: "Look", words: "theme dark light auto colours colors accent hue vividness corners rounded sharp harmonize depth clock audio aura screen frame bezel" },
+        { page: "look", tab: "theme", glyph: "󰏘", title: "Look", words: "theme dark light auto colours colors accent hue vividness corners rounded sharp harmonize glass frost" },
+        { page: "look", tab: "desktop", glyph: "󰍹", title: "Bar, dock & desktop", words: "bar island capsules framed workspaces dock depth clock audio aura screen frame bezel signature layout osd" },
+        { page: "wallpapers", glyph: "󰸉", title: "Wallpaper", words: "background picture image video gif" },
         { page: "displays", glyph: "󰍹", title: "Displays", words: "monitors screens resolution refresh rate scale rotation arrangement" },
+        { page: "mixer", glyph: "󰕾", title: "Sound", words: "audio volume output input microphone speakers apps" },
         { page: "keyboard", glyph: "󰌌", title: "Keyboard", words: "layout variant options num lock xkb" },
         { page: "idle", glyph: "󰒲", title: "Idle and sleep", words: "dim lock screens off suspend timeout stay awake apps inhibit video calls" },
-        { page: "apps", glyph: "󰀻", title: "Default apps", words: "browser file manager terminal" },
         { page: "notifications", glyph: "󰂚", title: "Notifications", words: "do not disturb dnd schedule fullscreen sharing sounds lock screen count mute quiet keep rules" },
-        { page: "night", glyph: "󰖔", title: "Night light", words: "warmth temperature kelvin sunset sunrise schedule hyprsunset" },
+        { page: "apps", glyph: "󰀻", title: "Default apps", words: "browser file manager terminal" },
+        { page: "packages", glyph: "󰏗", title: "Installed packages", words: "software pacman aur foreign flatpak appimage uninstall update manage" },
         { page: "weather", glyph: "󰖐", title: "Weather", words: "location city coordinates forecast temperature calendar clock bar" },
+        { page: "notes", glyph: "󰎞", title: "Quick notes", words: "notes draft text writing local sidebar" },
+        { page: "night", glyph: "󰖔", title: "Night light", words: "warmth temperature kelvin sunset sunrise schedule hyprsunset" },
         { page: "wifi", glyph: "󰤨", title: "Wi-Fi", words: "wireless network internet" },
         { page: "bluetooth", glyph: "󰂯", title: "Bluetooth", words: "devices headphones mouse pair battery" },
-        { page: "mixer", glyph: "󰕾", title: "Sound", words: "audio volume output input microphone speakers apps" },
         { page: "cast", glyph: "󰄘", title: "Cast screen", words: "tv chromecast dlna firewall port" },
-        { page: "wallpapers", glyph: "󰸉", title: "Wallpaper", words: "background picture image video gif" },
         { page: "settings", glyph: "󰐊", title: "Animated wallpapers", words: "motion still battery power covered windows" },
         { page: "settings", glyph: "󰆾", title: "Hot corner", words: "corner control center" },
         { page: "settings", glyph: "󰘾", title: "Reduced motion", words: "animations accessibility" },
@@ -21901,7 +22522,7 @@ ColumnLayout {
         if (entry.page === "wallpapers")
             Ui.toggle("wallpapers");
         else if (entry.page !== "settings")
-            Ui.controlPage = entry.page;
+            Ui.openControl(entry.page, entry.tab);
     }
 
     // The newest export in the home folder, offered for import.
@@ -21933,7 +22554,7 @@ ColumnLayout {
     Field {
         id: search
         Layout.fillWidth: true
-        placeholderText: "Search settings"
+        placeholderText: "Search settings…"
         Keys.onReturnPressed: if (root.matches.length) root.open(root.matches[0])
         Keys.onEscapePressed: event => {
             if (text) {
@@ -21946,10 +22567,8 @@ ColumnLayout {
     }
 
     // Search results.
-    ColumnLayout {
-        Layout.fillWidth: true
+    SettingsCard {
         visible: root.query !== ""
-        spacing: 2
         Repeater {
             model: root.matches
             delegate: ListRow {
@@ -21964,7 +22583,7 @@ ColumnLayout {
         }
         Label {
             Layout.fillWidth: true
-            Layout.leftMargin: 4
+            Layout.margins: 8
             visible: root.matches.length === 0
             text: "No setting matches"
             color: Theme.muted
@@ -21974,39 +22593,27 @@ ColumnLayout {
     ColumnLayout {
         Layout.fillWidth: true
         visible: root.query === ""
-        spacing: 12
+        spacing: 10
 
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 2
-            Repeater {
-                model: [
-                    { page: "packages", glyph: "󰏗", title: "Installed packages", subtitle: "pacman, AUR, Flatpak and AppImage" },
-                    { page: "notes", glyph: "󰎞", title: "Quick notes", subtitle: "A local draft, saved as you type" },
-                    { page: "look", glyph: "󰏘", title: "Look", subtitle: Look.summary },
-                    { page: "displays", glyph: "󰍹", title: "Displays", subtitle: Quickshell.screens.length > 1 ? `${Quickshell.screens.length} screens · arrangement, resolution, scale` : "Resolution, refresh rate, scale" },
-                    { page: "keyboard", glyph: "󰌌", title: "Keyboard", subtitle: (Config.values.kb_layout ?? "").split(",").map(l => Config.layoutName(l)).join(", ") },
-                    { page: "idle", glyph: "󰒲", title: "Idle and sleep", subtitle: `Lock after ${Config.duration(Config.values.idle_lock).toLowerCase()}` },
-                    { page: "notifications", glyph: "󰂚", title: "Notifications", subtitle: "Do not disturb, sounds, app rules" },
-                    { page: "apps", glyph: "󰀻", title: "Default apps", subtitle: "Browser, file manager, terminal" }
-                ]
-                delegate: ListRow {
-                    required property var modelData
-                    Layout.fillWidth: true
-                    glyph: modelData.glyph
-                    title: modelData.title
-                    subtitle: modelData.subtitle
-                    trailing: "󰅂"
-                    onClicked: Ui.controlPage = modelData.page
-                }
+        // ── Personalization ─────────────────────────────────────────
+        Section { text: "Personalization" }
+        SettingsCard {
+            ListRow {
+                Layout.fillWidth: true
+                glyph: "󰏘"
+                title: "Look & colours"
+                subtitle: Look.summary
+                trailing: "󰅂"
+                onClicked: Ui.openControl("look", "theme")
             }
-        }
-
-        Section { text: "Desktop" }
-
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 2
+            ListRow {
+                Layout.fillWidth: true
+                glyph: "󰍹"
+                title: "Bar, dock & desktop"
+                subtitle: `${root.barSummary} · ${root.dockSummary}`
+                trailing: "󰅂"
+                onClicked: Ui.openControl("look", "desktop")
+            }
             ListRow {
                 Layout.fillWidth: true
                 glyph: "󰸉"
@@ -22022,21 +22629,25 @@ ColumnLayout {
                 checked: Settings.animatedWallpapers
                 onToggled: Settings.animatedWallpapers = !Settings.animatedWallpapers
             }
-            SwitchRow {
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: 10
+                Layout.rightMargin: 10
+                Layout.bottomMargin: 4
                 visible: Settings.animatedWallpapers
-                glyph: "󰖯"
-                title: "Hold still behind windows"
-                subtitle: "While tiled windows hide the wallpaper"
-                checked: Settings.stillWhenCovered
-                onToggled: Settings.stillWhenCovered = !Settings.stillWhenCovered
-            }
-            SwitchRow {
-                visible: Settings.animatedWallpapers
-                glyph: "󰌪"
-                title: "Hold still to save power"
-                subtitle: "On battery or in power saver"
-                checked: Settings.stillOnBattery
-                onToggled: Settings.stillOnBattery = !Settings.stillOnBattery
+                spacing: 6
+                SubToggle {
+                    glyph: "󰖯"
+                    title: "Behind windows"
+                    checked: Settings.stillWhenCovered
+                    onToggled: Settings.stillWhenCovered = !Settings.stillWhenCovered
+                }
+                SubToggle {
+                    glyph: "󰌪"
+                    title: "On battery"
+                    checked: Settings.stillOnBattery
+                    onToggled: Settings.stillOnBattery = !Settings.stillOnBattery
+                }
             }
             SwitchRow {
                 glyph: "󰆾"
@@ -22047,11 +22658,120 @@ ColumnLayout {
             }
         }
 
-        Section { text: "Accessibility" }
+        // ── System & hardware ───────────────────────────────────────
+        Section { text: "System & hardware" }
+        SettingsCard {
+            ListRow {
+                Layout.fillWidth: true
+                glyph: "󰍹"
+                title: "Displays"
+                subtitle: Quickshell.screens.length > 1 ? `${Quickshell.screens.length} screens · arrangement, resolution, scale` : "Resolution, refresh rate, scale"
+                trailing: "󰅂"
+                onClicked: Ui.openControl("displays")
+            }
+            ListRow {
+                Layout.fillWidth: true
+                glyph: "󰕾"
+                title: "Sound"
+                subtitle: "Output, input and per-app volume"
+                trailing: "󰅂"
+                onClicked: Ui.openControl("mixer")
+            }
+            ListRow {
+                Layout.fillWidth: true
+                glyph: "󰌌"
+                title: "Keyboard"
+                subtitle: (Config.values.kb_layout ?? "").split(",").map(l => Config.layoutName(l)).join(", ")
+                trailing: "󰅂"
+                onClicked: Ui.openControl("keyboard")
+            }
+            ListRow {
+                Layout.fillWidth: true
+                glyph: "󰒲"
+                title: "Idle and sleep"
+                subtitle: `Lock after ${Config.duration(Config.values.idle_lock).toLowerCase()}`
+                trailing: "󰅂"
+                onClicked: Ui.openControl("idle")
+            }
+            // Only where the battery's firmware can stop charging early.
+            StepperRow {
+                id: battery
+                readonly property var limits: [100, 90, 80, 60]
+                readonly property int current: Math.max(0, limits.indexOf(Settings.batteryLimit))
+                visible: Sys.chargeLimitFile !== ""
+                glyph: "󰂄"
+                title: "Battery care"
+                subtitle: !Sys.chargeLimitWritable ? "Run ./install.sh again to allow it" : Settings.batteryLimit < 100 ? "Stops charging early; the battery lasts more years" : "Charges to full"
+                subtitleColor: Sys.chargeLimitWritable ? Theme.muted : Theme.amber
+                valueText: Settings.batteryLimit < 100 ? `Up to ${Settings.batteryLimit}%` : "Full"
+                canDecrease: Sys.chargeLimitWritable && battery.current < battery.limits.length - 1
+                canIncrease: Sys.chargeLimitWritable && battery.current > 0
+                onDecreased: Settings.batteryLimit = battery.limits[battery.current + 1]
+                onIncreased: Settings.batteryLimit = battery.limits[battery.current - 1]
+            }
+        }
 
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 2
+        // ── Apps & tools ────────────────────────────────────────────
+        Section { text: "Apps & tools" }
+        SettingsCard {
+            ListRow {
+                Layout.fillWidth: true
+                glyph: "󰂚"
+                title: "Notifications"
+                subtitle: "Do not disturb, sounds, app rules"
+                trailing: "󰅂"
+                onClicked: Ui.openControl("notifications")
+            }
+            ListRow {
+                Layout.fillWidth: true
+                glyph: "󰀻"
+                title: "Default apps"
+                subtitle: "Browser, file manager, terminal"
+                trailing: "󰅂"
+                onClicked: Ui.openControl("apps")
+            }
+            ListRow {
+                Layout.fillWidth: true
+                glyph: "󰏗"
+                title: "Installed packages"
+                subtitle: "pacman, AUR, Flatpak and AppImage"
+                trailing: "󰅂"
+                onClicked: Ui.openControl("packages")
+            }
+            ListRow {
+                Layout.fillWidth: true
+                glyph: "󰖐"
+                title: "Weather"
+                subtitle: Settings.weatherEnabled ? (Weather.place?.name ?? "Enabled") : "Off · Open-Meteo forecast"
+                trailing: "󰅂"
+                onClicked: Ui.openControl("weather")
+            }
+            ListRow {
+                Layout.fillWidth: true
+                glyph: "󰎞"
+                title: "Quick notes"
+                subtitle: "A local draft, saved as you type"
+                trailing: "󰅂"
+                onClicked: Ui.openControl("notes")
+            }
+            StepperRow {
+                id: clipboard
+                readonly property var days: [0, 1, 7, 30]
+                readonly property int current: Math.max(0, days.indexOf(Settings.clipboardDays))
+                glyph: "󰅌"
+                title: "Clipboard history"
+                subtitle: "Pinned entries always stay"
+                valueText: ["Kept", "1 day", "7 days", "30 days"][clipboard.current]
+                canDecrease: clipboard.current > 0
+                canIncrease: clipboard.current < clipboard.days.length - 1
+                onDecreased: Settings.clipboardDays = clipboard.days[clipboard.current - 1]
+                onIncreased: Settings.clipboardDays = clipboard.days[clipboard.current + 1]
+            }
+        }
+
+        // ── Accessibility ───────────────────────────────────────────
+        Section { text: "Accessibility" }
+        SettingsCard {
             SwitchRow {
                 glyph: "󰘾"
                 title: "Reduced motion"
@@ -22059,100 +22779,24 @@ ColumnLayout {
                 checked: Settings.reducedMotion
                 onToggled: Settings.reducedMotion = !Settings.reducedMotion
             }
-            RowLayout {
+            StepperRow {
                 id: textSize
                 readonly property var sizes: [1, 1.1, 1.25, 1.4]
                 readonly property int current: Math.max(0, sizes.indexOf(Settings.textScale))
-                Layout.fillWidth: true
-                Layout.leftMargin: 10
-                Layout.rightMargin: 4
-                spacing: 11
-                Glyph { Layout.preferredWidth: 22; text: "󰛖"; size: 17 }
-                Label { Layout.fillWidth: true; text: "Text size" }
-                Stepper {
-                    text: ["Default", "Large", "Larger", "Largest"][textSize.current]
-                    textWidth: 92
-                    canDecrease: textSize.current > 0
-                    canIncrease: textSize.current < textSize.sizes.length - 1
-                    onDecreased: Settings.textScale = textSize.sizes[textSize.current - 1]
-                    onIncreased: Settings.textScale = textSize.sizes[textSize.current + 1]
-                }
+                glyph: "󰛖"
+                title: "Text size"
+                subtitle: "Scale labels across the shell"
+                valueText: ["Default", "Large", "Larger", "Largest"][textSize.current]
+                canDecrease: textSize.current > 0
+                canIncrease: textSize.current < textSize.sizes.length - 1
+                onDecreased: Settings.textScale = textSize.sizes[textSize.current - 1]
+                onIncreased: Settings.textScale = textSize.sizes[textSize.current + 1]
             }
         }
 
-        Section { text: "Battery and clipboard" }
-
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 2
-            // Only where the battery's firmware can stop charging early.
-            RowLayout {
-                id: battery
-                readonly property var limits: [100, 90, 80, 60]
-                readonly property int current: Math.max(0, limits.indexOf(Settings.batteryLimit))
-                Layout.fillWidth: true
-                Layout.leftMargin: 10
-                Layout.rightMargin: 4
-                visible: Sys.chargeLimitFile !== ""
-                spacing: 11
-                Glyph { Layout.preferredWidth: 22; text: "󰂄"; size: 17 }
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 0
-                    Label { Layout.fillWidth: true; text: "Battery care" }
-                    Label {
-                        Layout.fillWidth: true
-                        text: !Sys.chargeLimitWritable ? "Run ./install.sh again to allow it" : Settings.batteryLimit < 100 ? "Stops charging early; the battery lasts more years" : "Charges to full"
-                        font.pixelSize: Theme.textSmall
-                        color: Sys.chargeLimitWritable ? Theme.muted : Theme.amber
-                        wrapMode: Text.Wrap
-                    }
-                }
-                Stepper {
-                    text: Settings.batteryLimit < 100 ? `Up to ${Settings.batteryLimit}%` : "Full"
-                    textWidth: 92
-                    canDecrease: Sys.chargeLimitWritable && battery.current < battery.limits.length - 1
-                    canIncrease: Sys.chargeLimitWritable && battery.current > 0
-                    onDecreased: Settings.batteryLimit = battery.limits[battery.current + 1]
-                    onIncreased: Settings.batteryLimit = battery.limits[battery.current - 1]
-                }
-            }
-            RowLayout {
-                id: clipboard
-                readonly property var days: [0, 1, 7, 30]
-                readonly property int current: Math.max(0, days.indexOf(Settings.clipboardDays))
-                Layout.fillWidth: true
-                Layout.leftMargin: 10
-                Layout.rightMargin: 4
-                spacing: 11
-                Glyph { Layout.preferredWidth: 22; text: "󰅌"; size: 17 }
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 0
-                    Label { Layout.fillWidth: true; text: "Clipboard history" }
-                    Label {
-                        Layout.fillWidth: true
-                        text: "Pinned entries always stay"
-                        font.pixelSize: Theme.textSmall
-                        color: Theme.muted
-                    }
-                }
-                Stepper {
-                    text: ["Kept", "1 day", "7 days", "30 days"][clipboard.current]
-                    textWidth: 92
-                    canDecrease: clipboard.current > 0
-                    canIncrease: clipboard.current < clipboard.days.length - 1
-                    onDecreased: Settings.clipboardDays = clipboard.days[clipboard.current - 1]
-                    onIncreased: Settings.clipboardDays = clipboard.days[clipboard.current + 1]
-                }
-            }
-        }
-
-        Section { text: "Moving to another computer" }
-
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 2
+        // ── Backup & restore ────────────────────────────────────────
+        Section { text: "Backup & restore" }
+        SettingsCard {
             ListRow {
                 Layout.fillWidth: true
                 glyph: "󰈝"
@@ -22178,7 +22822,9 @@ ColumnLayout {
             }
             Label {
                 Layout.fillWidth: true
-                Layout.leftMargin: 4
+                Layout.leftMargin: 10
+                Layout.rightMargin: 10
+                Layout.bottomMargin: 4
                 visible: text !== ""
                 text: root.transferMessage
                 wrapMode: Text.Wrap
@@ -22187,7 +22833,9 @@ ColumnLayout {
             }
             Label {
                 Layout.fillWidth: true
-                Layout.leftMargin: 4
+                Layout.leftMargin: 10
+                Layout.rightMargin: 10
+                Layout.bottomMargin: 4
                 visible: root.exportFile === "" && root.transferMessage === ""
                 text: "To import, put a penumbra-settings-….json file from another computer in your home folder."
                 wrapMode: Text.Wrap
@@ -22243,8 +22891,10 @@ RowLayout {
     property string label: Math.round(value) + "%"
     property int labelWidth: 34
     property bool muted: false
+    property bool hasMore: false
     signal moved(real value)
     signal glyphClicked()
+    signal more()
 
     spacing: 10
 
@@ -22336,6 +22986,22 @@ RowLayout {
         text: root.label
         font.pixelSize: Theme.textSmall
         color: Theme.muted
+    }
+
+    Rectangle {
+        visible: root.hasMore
+        implicitWidth: 26
+        implicitHeight: 32
+        radius: Theme.radiusSmall
+        color: moreArea.containsMouse ? Theme.hover : "transparent"
+        Glyph { anchors.centerIn: parent; text: "󰅂"; size: 14; color: Theme.muted }
+        MouseArea {
+            id: moreArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.more()
+        }
     }
 }
 ```
@@ -23111,6 +23777,8 @@ Singleton {
     readonly property bool updatesOpen: openPanel === "updates"
     readonly property bool wallpapersOpen: openPanel === "wallpapers"
     property string controlPage: "main" // main, wifi, bluetooth, mixer, night, cast, notifications, settings or a settings page
+    property string previousControlPage: "main"
+    property string lookTab: "theme" // theme or desktop
     property bool sessionOpen: false
     property bool launcherOpen: false
     property string launcherMode: "apps" // apps, windows, clipboard, emoji or symbols
@@ -23156,11 +23824,17 @@ Singleton {
     // Open panel `name`, or close it if it is open. The control center always opens on its main page.
     function toggle(name) {
         const reopen = openPanel !== name && Date.now() - closedAt > 250;
-        if (reopen && name === "control")
+        if (reopen && name === "control") {
             controlPage = "main";
+            previousControlPage = "main";
+        }
         openPanel = reopen ? name : "";
     }
-    function openControl(page) {
+    function openControl(page, tab) {
+        if (page !== controlPage)
+            previousControlPage = openPanel === "control" ? controlPage : "main";
+        if (tab)
+            lookTab = tab;
         controlPage = page;
         openPanel = "control";
     }
@@ -24525,7 +25199,7 @@ ColumnLayout {
         status: Settings.weatherEnabled ? Weather.place?.name ?? "Choose a location" : "Off"
         checked: Settings.weatherEnabled
         onToggled: Settings.weatherEnabled = !Settings.weatherEnabled
-        onBack: Ui.controlPage = "look"
+        onBack: Ui.controlPage = Ui.previousControlPage === "look" ? "look" : "settings"
     }
 
     Overline { Layout.fillWidth: true; text: "Location" }
@@ -28657,55 +29331,42 @@ background=wallpaper.png
 ## `boot/grub/theme.txt`
 
 ```text
-# Penumbra — original orbital artwork, using GRUB's bundled Unicode font.
+# Penumbra — minimal orbital theme with OS/action icons and frosted selection card.
 desktop-image: "background.png"
 desktop-image-scale-method: "crop"
-desktop-color: "#0d0a12"
+desktop-color: "#07070b"
 title-text: ""
 message-color: "#e4dced"
 message-bg-color: "#100d18"
 terminal-font: "Unifont Regular 16"
-+ label {
-    left = 8%
-    top = 18%
-    width = 60%
-    height = 32
-    text = "P E N U M B R A"
-    font = "Unifont Regular 16"
-    color = "#b69af7"
-}
+
 + boot_menu {
-    left = 8%
-    top = 28%
-    width = 58%
-    height = 45%
+    left = 32%
+    top = 34%
+    width = 36%
+    height = 36%
     item_font = "Unifont Regular 16"
     item_color = "#b6a8c7"
     selected_item_color = "#f3eaff"
-    item_height = 36
-    item_padding = 10
-    item_spacing = 8
-    icon_width = 0
-    icon_height = 0
+    item_height = 48
+    item_padding = 14
+    item_spacing = 10
+    icon_width = 32
+    icon_height = 32
+    item_icon_space = 16
     selected_item_pixmap_style = "select_*.png"
+    scrollbar = false
 }
-+ label {
-    left = 8%
-    top = 78%
-    width = 84%
-    height = 24
-    text = "Arrow keys: select   Enter: boot   e: edit   c: console"
-    color = "#8f809f"
-    font = "Unifont Regular 16"
-}
+
 + label {
     id = "__timeout__"
-    left = 8%
-    top = 83%
-    width = 84%
+    left = 32%
+    top = 76%
+    width = 36%
     height = 24
-    text = "Booting selected entry in %d seconds"
-    color = "#b69af7"
+    align = "center"
+    text = "Booting in %d s"
+    color = "#8f809f"
     font = "Unifont Regular 16"
 }
 ```
@@ -28796,4 +29457,22 @@ UseEndAnimation=false
 UseFirmwareBackground=false
 Title=Resetting the system
 SubTitle=Do not turn off your computer
+```
+
+## `boot/refind/theme.conf`
+
+```ini
+# Penumbra — minimal horizontal icon theme for rEFInd.
+hideui singleuser,hints,arrows,badges
+use_graphics_for osx,linux,windows
+icons_dir themes/penumbra/icons
+banner themes/penumbra/background.png
+banner_scale fillscreen
+big_icon_size 128
+small_icon_size 36
+selection_big themes/penumbra/selection_big.png
+selection_small themes/penumbra/selection_small.png
+# Pad all 12 default ShowTools slots with csr_rotate (a no-op when csr_values is unset)
+# to work around rEFInd 0.14.2's broken SetMem call that otherwise leaves duplicate tools.
+showtools shutdown,reboot,firmware,csr_rotate,csr_rotate,csr_rotate,csr_rotate,csr_rotate,csr_rotate,csr_rotate,csr_rotate,csr_rotate
 ```

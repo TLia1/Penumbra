@@ -174,13 +174,13 @@ Panel {
                 id: mainPage
                 Layout.fillWidth: true
                 visible: Ui.controlPage === "main"
-                spacing: 14
+                spacing: 12
 
                 // Header: who, how long, and session shortcuts.
                 RowLayout {
                     StaggerReveal { shown: root.open && mainPage.visible; order: 0 }
                     Layout.fillWidth: true
-                    spacing: 12
+                    spacing: 10
                     Avatar { size: 42 }
                     ColumnLayout {
                         Layout.fillWidth: true
@@ -190,8 +190,7 @@ Panel {
                     }
                     Repeater {
                         model: [
-                            { glyph: "󰒓", tip: "Settings", run: () => Ui.controlPage = "settings" },
-                            { glyph: "󰸉", tip: "Wallpaper", run: () => Ui.toggle("wallpapers") },
+                            { glyph: "󰒓", tip: "Settings", run: () => Ui.openControl("settings") },
                             { glyph: "󰌾", tip: "Lock", run: () => { Ui.close(); Ui.run("loginctl lock-session"); } },
                             { glyph: "󰐥", tip: "Session", run: () => Ui.openSession() }
                         ]
@@ -214,6 +213,7 @@ Panel {
                     }
                 }
 
+                // Six toggleable quick states in a symmetrical 2x3 grid.
                 GridLayout {
                     StaggerReveal { shown: root.open && mainPage.visible; order: 1 }
                     Layout.fillWidth: true
@@ -227,8 +227,8 @@ Panel {
                         subtitle: Devices.networkName
                         on: Devices.wifiDevice ? Networking.wifiEnabled : Devices.wired
                         hasMore: true
-                        onToggled: Devices.wifiDevice ? Networking.wifiEnabled = !Networking.wifiEnabled : Ui.controlPage = "wifi"
-                        onMore: Ui.controlPage = "wifi"
+                        onToggled: Devices.wifiDevice ? Networking.wifiEnabled = !Networking.wifiEnabled : Ui.openControl("wifi")
+                        onMore: Ui.openControl("wifi")
                     }
                     Tile {
                         Layout.fillWidth: true
@@ -239,7 +239,7 @@ Panel {
                         available: !!Devices.adapter
                         hasMore: true
                         onToggled: Devices.adapter.enabled = !Devices.adapter.enabled
-                        onMore: Ui.controlPage = "bluetooth"
+                        onMore: Ui.openControl("bluetooth")
                     }
                     Tile {
                         Layout.fillWidth: true
@@ -249,7 +249,18 @@ Panel {
                         on: Notifs.dnd
                         hasMore: true
                         onToggled: Notifs.toggleDnd()
-                        onMore: Ui.controlPage = "notifications"
+                        onMore: Ui.openControl("notifications")
+                    }
+                    Tile {
+                        Layout.fillWidth: true
+                        glyph: "󱩌"
+                        title: "Night light"
+                        subtitle: NightLight.status
+                        on: NightLight.on
+                        available: NightLight.available
+                        hasMore: true
+                        onToggled: NightLight.toggle()
+                        onMore: Ui.openControl("night")
                     }
                     Tile {
                         Layout.fillWidth: true
@@ -261,113 +272,129 @@ Panel {
                     }
                     Tile {
                         Layout.fillWidth: true
-                        glyph: "󱩌"
-                        title: "Night light"
-                        subtitle: NightLight.status
-                        on: NightLight.on
-                        available: NightLight.available
-                        hasMore: true
-                        onToggled: NightLight.toggle()
-                        onMore: Ui.controlPage = "night"
-                    }
-                    Tile {
-                        Layout.fillWidth: true
-                        glyph: "󰹑"
-                        title: "Screenshot"
-                        subtitle: "Picture or video"
-                        onToggled: Ui.openShot()
-                    }
-                    // The odd one out spans the row.
-                    Tile {
-                        Layout.fillWidth: true
-                        Layout.columnSpan: 2
                         glyph: Cast.casting ? "󰄙" : "󰄘"
                         title: "Cast screen"
-                        subtitle: Cast.connecting ? `Connecting to ${Cast.tvName}…` : Cast.casting ? `Casting to ${Cast.tvName}` : "Show this screen on a TV"
+                        subtitle: Cast.connecting ? "Connecting…" : Cast.casting ? Cast.tvName : "Off"
                         on: Cast.casting
                         hasMore: true
-                        onToggled: Cast.casting ? Cast.stop() : Ui.controlPage = "cast"
-                        onMore: Ui.controlPage = "cast"
+                        onToggled: Cast.casting ? Cast.stop() : Ui.openControl("cast")
+                        onMore: Ui.openControl("cast")
                     }
                 }
 
-                // Power profile, through power-profiles-daemon.
-                ColumnLayout {
+                // Quick actions strip for instant tools (Screenshot, Wallpaper, Quick notes).
+                RowLayout {
                     StaggerReveal { shown: root.open && mainPage.visible; order: 2 }
                     Layout.fillWidth: true
-                    visible: Ui.hasPowerProfiles
-                    spacing: 6
-                    Segmented {
-                        Layout.fillWidth: true
-                        current: PowerProfiles.profile
-                        options: [
-                            { value: PowerProfile.PowerSaver, glyph: "󰌪", title: "Power saver" },
-                            { value: PowerProfile.Balanced, glyph: "󰗑", title: "Balanced" },
-                            { value: PowerProfile.Performance, glyph: "󰓅", title: "Performance", available: PowerProfiles.hasPerformanceProfile }
+                    spacing: 8
+                    Repeater {
+                        model: [
+                            { glyph: "󰹑", title: "Screenshot", run: () => Ui.openShot() },
+                            { glyph: "󰸉", title: "Wallpaper", run: () => Ui.toggle("wallpapers") },
+                            { glyph: "󰎞", title: "Notes", run: () => Ui.openControl("notes") }
                         ]
-                        onChosen: value => PowerProfiles.profile = value
-                    }
-                    // Performance can be held back by the hardware; say why.
-                    Label {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: 4
-                        visible: PowerProfiles.profile === PowerProfile.Performance && PowerProfiles.degradationReason !== PerformanceDegradationReason.None
-                        text: PowerProfiles.degradationReason === PerformanceDegradationReason.LapDetected
-                            ? "Performance is limited while the laptop is on your lap"
-                            : "Performance is limited while the computer is hot"
-                        font.pixelSize: Theme.textSmall
-                        color: Theme.amber
+                        delegate: Rectangle {
+                            id: quickAction
+                            required property var modelData
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            implicitHeight: 38
+                            radius: Theme.radiusSmall
+                            color: actionArea.containsMouse ? Theme.hover : Theme.control
+                            border.color: Theme.line
+                            Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
+                            CardLight { radius: quickAction.radius; pointer: Qt.point(actionArea.mouseX, actionArea.mouseY); hovered: actionArea.containsMouse }
+                            RowLayout {
+                                anchors.centerIn: parent
+                                spacing: 7
+                                Glyph { text: quickAction.modelData.glyph; size: 15; color: Theme.accentBright }
+                                Label { text: quickAction.modelData.title; font.pixelSize: Theme.textSmall; font.weight: Font.Medium; color: Theme.textSoft }
+                            }
+                            MouseArea {
+                                id: actionArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: quickAction.modelData.run()
+                            }
+                        }
                     }
                 }
 
-                ColumnLayout {
+                // Audio, brightness and power profile grouped into a single clean surface.
+                Rectangle {
                     StaggerReveal { shown: root.open && mainPage.visible; order: 3 }
                     Layout.fillWidth: true
-                    spacing: 4
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
+                    implicitHeight: slidersColumn.implicitHeight + 20
+                    radius: Theme.radius
+                    color: Theme.alpha(Theme.control, 0.45)
+                    border.color: Theme.line
+
+                    ColumnLayout {
+                        id: slidersColumn
+                        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 10 }
+                        spacing: 6
+
                         SliderRow {
                             Layout.fillWidth: true
                             glyph: Devices.volumeGlyph
                             value: Devices.volume
                             muted: Devices.muted
+                            hasMore: true
                             onMoved: v => Devices.setVolume(v)
                             onGlyphClicked: if (Devices.sink) Devices.sink.muted = !Devices.sink.muted
+                            onMore: Ui.openControl("mixer")
                         }
-                        // Devices and per-app volume.
+                        SliderRow {
+                            Layout.fillWidth: true
+                            Layout.rightMargin: 36
+                            visible: !!Devices.source
+                            glyph: Devices.micMuted ? "󰍭" : "󰍬"
+                            value: Devices.source ? Math.round(Devices.source.volume * 100) : 0
+                            muted: Devices.micMuted
+                            onMoved: v => { Devices.source.muted = false; Devices.source.volume = v / 100; }
+                            onGlyphClicked: Devices.source.muted = !Devices.source.muted
+                        }
+                        SliderRow {
+                            Layout.fillWidth: true
+                            Layout.rightMargin: 36
+                            visible: Sys.brightness >= 0
+                            glyph: "󰃟"
+                            value: Sys.brightness
+                            onMoved: v => Sys.setBrightness(v)
+                        }
+
+                        // Power profile, through power-profiles-daemon.
                         Rectangle {
-                            implicitWidth: 26
-                            implicitHeight: 36
-                            radius: Theme.radiusSmall
-                            color: mixerArea.containsMouse ? Theme.hover : "transparent"
-                            Glyph { anchors.centerIn: parent; text: "󰅂"; color: Theme.muted }
-                            MouseArea {
-                                id: mixerArea
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: Ui.controlPage = "mixer"
-                            }
+                            Layout.fillWidth: true
+                            Layout.topMargin: 2
+                            Layout.bottomMargin: 2
+                            visible: Ui.hasPowerProfiles
+                            implicitHeight: 1
+                            color: Theme.line
                         }
-                    }
-                    SliderRow {
-                        Layout.fillWidth: true
-                        Layout.rightMargin: 28
-                        visible: !!Devices.source
-                        glyph: Devices.micMuted ? "󰍭" : "󰍬"
-                        value: Devices.source ? Math.round(Devices.source.volume * 100) : 0
-                        muted: Devices.micMuted
-                        onMoved: v => { Devices.source.muted = false; Devices.source.volume = v / 100; }
-                        onGlyphClicked: Devices.source.muted = !Devices.source.muted
-                    }
-                    SliderRow {
-                        Layout.fillWidth: true
-                        Layout.rightMargin: 28
-                        visible: Sys.brightness >= 0
-                        glyph: "󰃟"
-                        value: Sys.brightness
-                        onMoved: v => Sys.setBrightness(v)
+                        Segmented {
+                            Layout.fillWidth: true
+                            visible: Ui.hasPowerProfiles
+                            current: PowerProfiles.profile
+                            options: [
+                                { value: PowerProfile.PowerSaver, glyph: "󰌪", title: "Power saver" },
+                                { value: PowerProfile.Balanced, glyph: "󰗑", title: "Balanced" },
+                                { value: PowerProfile.Performance, glyph: "󰓅", title: "Performance", available: PowerProfiles.hasPerformanceProfile }
+                            ]
+                            onChosen: value => PowerProfiles.profile = value
+                        }
+                        // Performance can be held back by the hardware; say why.
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 4
+                            visible: Ui.hasPowerProfiles && PowerProfiles.profile === PowerProfile.Performance && PowerProfiles.degradationReason !== PerformanceDegradationReason.None
+                            text: PowerProfiles.degradationReason === PerformanceDegradationReason.LapDetected
+                                ? "Performance is limited while the laptop is on your lap"
+                                : "Performance is limited while the computer is hot"
+                            font.pixelSize: Theme.textSmall
+                            color: Theme.amber
+                        }
                     }
                 }
 
@@ -399,7 +426,7 @@ Panel {
                 // Grouped by app; each group shows its newest notification until expanded.
                 ListView {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Notifs.count ? Math.min(contentHeight, 360) : 0
+                    Layout.preferredHeight: Notifs.count ? Math.min(contentHeight, 340) : 0
                     visible: Notifs.count > 0
                     clip: true
                     spacing: 12
@@ -495,14 +522,20 @@ Panel {
                     displaced: Transition { NumberAnimation { property: "y"; duration: Theme.normal; easing.type: Easing.OutCubic } }
                 }
 
-                ColumnLayout {
+                Rectangle {
                     StaggerReveal { shown: root.open && mainPage.visible; order: 5 }
                     Layout.fillWidth: true
-                    Layout.bottomMargin: 6
                     visible: Notifs.count === 0
-                    spacing: 4
-                    Glyph { Layout.fillWidth: true; text: "󰂜"; size: 26; color: Theme.dim }
-                    Label { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: "All caught up"; color: Theme.muted }
+                    implicitHeight: 42
+                    radius: Theme.radiusSmall
+                    color: Theme.alpha(Theme.control, 0.35)
+                    border.color: Theme.line
+                    RowLayout {
+                        anchors.centerIn: parent
+                        spacing: 8
+                        Glyph { text: "󰂜"; size: 16; color: Theme.dim }
+                        Label { text: "All caught up"; font.pixelSize: Theme.textSmall; color: Theme.muted }
+                    }
                 }
             }
         }

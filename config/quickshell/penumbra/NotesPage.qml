@@ -9,7 +9,7 @@ ColumnLayout {
         title: "Quick notes"
         status: Notes.error || (Notes.dirty ? "Saving…" : "Saved on this computer")
         showSwitch: false
-        onBack: Ui.controlPage = "settings"
+        onBack: Ui.controlPage = Ui.previousControlPage === "main" ? "main" : "settings"
     }
     Rectangle {
         Layout.fillWidth: true

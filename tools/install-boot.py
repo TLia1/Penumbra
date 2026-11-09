@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opt-in boot themes. Never installs GRUB or Limine, or writes boot sectors/EFI entries."""
+"""Opt-in boot themes. Never installs GRUB, Limine or rEFInd, or writes boot sectors/EFI entries."""
 import argparse
 import datetime
 import fcntl
@@ -532,6 +532,99 @@ def apply_limine(config):
         print('limine-entry-tool keeps global options; if an update drops the theme, run --boot-only again.')
 
 
+REFIND_BEGIN = '# BEGIN PENUMBRA REFIND'
+REFIND_END = '# END PENUMBRA REFIND'
+REFIND_CONFIGS = ('EFI/refind/refind.conf', 'EFI/BOOT/refind.conf', 'refind/refind.conf')
+
+
+def refind_booted(config):
+    if loader_info().startswith('rEFInd '):
+        return True
+    if shutil.which('efibootmgr'):
+        result = subprocess.run(['efibootmgr', '-v'], text=True, capture_output=True)
+        current = re.search(r'^BootCurrent: ([0-9A-Fa-f]{4})$', result.stdout, re.M)
+        if result.returncode == 0 and current:
+            entry = re.search(r'^Boot' + current[1] + r'\*?\s+(.+)$', result.stdout, re.M)
+            if entry and re.search(r'refind', entry[1], re.I):
+                return True
+    # rEFInd records its own PreviousBoot variable in vars/ (use_nvram false) or NVRAM.
+    return ((config.parent / 'vars/PreviousBoot').is_file()
+            or Path('/sys/firmware/efi/efivars/PreviousBoot-36d08fa7-cf0b-42f5-8f14-68df73ed3740').is_file())
+
+
+def refind_detected():
+    """Return the refind.conf of a confirmed rEFInd boot, else None."""
+    if not shutil.which('findmnt') or not Path('/sys/firmware/efi').exists():
+        return None
+    found = []
+    for volume in boot_volumes():
+        for name in REFIND_CONFIGS:
+            path = volume / name
+            if path.is_file() and not any(os.path.samefile(path, other) for other in found):
+                found.append(path)
+    if not found:
+        return None
+    if len(found) > 1:
+        print('Several refind.conf files found; which one rEFInd reads needs manual review: '
+              + ', '.join(map(str, found)))
+        return None
+    config = found[0]
+    if config.is_symlink() or not refind_booted(config):
+        return None
+    print(f'rEFInd configuration found: {config}')
+    if not ask(f'Confirm this machine boots with rEFInd and reads {config}'):
+        return None
+    return config
+
+
+def refind_theme(text):
+    """Append the managed rEFInd theme include while preserving existing configuration."""
+    if REFIND_BEGIN in text or REFIND_END in text:
+        pattern = r'\n' + re.escape(REFIND_BEGIN) + r'\n.*?\n' + re.escape(REFIND_END) + r'\n\Z'
+        if text.count(REFIND_BEGIN) != 1 or text.count(REFIND_END) != 1 or not re.search(pattern, text, re.S):
+            raise ValueError('Penumbra rEFInd block was edited/moved; review manually.')
+        text = re.sub(pattern, '', text, flags=re.S)
+    else:
+        text = re.sub(r'\n[ \t]*include[ \t]+themes/penumbra/theme\.conf[ \t]*\n\Z', '\n', text)
+    block = (f'\n{REFIND_BEGIN}\n'
+             '# Appearance only: boot entries, timeout and scanning settings are unchanged.\n'
+             'include themes/penumbra/theme.conf\n'
+             f'{REFIND_END}\n')
+    return text + block
+
+
+def refind_splash(text):
+    """Ensure the primary entry in refind_linux.conf includes splash."""
+    lines = text.splitlines(keepends=True)
+    updated_any = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            continue
+        match = re.match(r'^(\s*"[^"]+"\s+")([^"]*)("\s*\r?\n?)$', line)
+        if not match:
+            raise ValueError('Custom refind_linux.conf format requires manual setup.')
+        prefix, options, suffix = match.groups()
+        words = options.split()
+        if not updated_any:
+            if any(w in ('plymouth.enable=0', 'rd.plymouth=0', 'nosplash') for w in words):
+                raise ValueError('Plymouth is explicitly disabled in refind_linux.conf.')
+            if 'splash' not in words:
+                options = (options.rstrip() + ' splash').lstrip()
+                lines[index] = prefix + options + suffix
+            updated_any = True
+    if not updated_any:
+        raise ValueError('refind_linux.conf has no boot options.')
+    return ''.join(lines)
+
+
+def apply_refind(config):
+    with Transaction('refind') as tx:
+        deploy(tx, ROOT / 'boot/refind', config.parent / 'themes/penumbra')
+        replace_text(tx, config, refind_theme(config.read_text()))
+    print('Penumbra rEFInd theme applied. Entries, timeout and scanning settings were preserved.')
+
+
 def uki_section(image, section):
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / 'section'
@@ -610,8 +703,8 @@ def stock_splash_preset_updates(directory):
     return updates
 
 
-def apply_plymouth(limine=None):
-    """Install the splash; `limine` is the confirmed limine.conf, otherwise GRUB boots."""
+def apply_plymouth(limine=None, refind=None):
+    """Install the splash; `limine` or `refind` is the confirmed loader config, else GRUB boots."""
     if not shutil.which('mkinitcpio') or not Path('/usr/lib/initcpio/install/plymouth').is_file():
         raise ValueError('Supported mkinitcpio Plymouth hook is missing.')
     if not Path('/usr/lib/plymouth/two-step.so').is_file():
@@ -622,7 +715,7 @@ def apply_plymouth(limine=None):
         raise ValueError('mkinitcpio drop-ins require manual setup; no hooks changed.')
     config = Path('/etc/mkinitcpio.conf')
     # The boot loader's own copy of the kernel command line, which gains splash.
-    defaults = limine or Path('/etc/default/grub')
+    defaults = limine or (Path('/boot/refind_linux.conf') if refind else Path('/etc/default/grub'))
     hooks = plymouth_hooks(config.read_text())
     jobs = preset_jobs(Path('/etc/mkinitcpio.d'))
     uki_jobs = [job for job in jobs if job[1].suffix == '.efi']
@@ -633,6 +726,10 @@ def apply_plymouth(limine=None):
     source = Path('/etc/kernel/cmdline')
     if uki_jobs:
         cmdline = uki_splash_cmdline(source.read_text())
+    elif refind:
+        if not defaults.is_file():
+            raise ValueError('Missing /boot/refind_linux.conf for rEFInd Plymouth integration.')
+        entries = refind_splash(defaults.read_text())
     elif not limine:
         cmdline = splash_defaults(defaults.read_text())
     if limine:
@@ -670,7 +767,7 @@ def apply_plymouth(limine=None):
         if keymaps.is_file():
             shutil.copy2(keymaps, theme / 'keymap-render.png')
         config.write_text(hooks)
-        if limine:
+        if limine or (refind and not uki_jobs):
             if entries != defaults.read_text():
                 replace_text(tx, defaults, entries)
         elif not uki_jobs:
@@ -696,8 +793,8 @@ def apply_plymouth(limine=None):
             os.chmod(stage, image.stat().st_mode & 0o777)
             staged_images.append((stage, image))
         # UKIs carry their command line and initrd; keep their existing GRUB chainload entries.
-        # Limine entries name the images directly, so they need no regeneration.
-        if not uki_jobs and not limine:
+        # Limine and rEFInd entries name the images directly, so they need no regeneration.
+        if not uki_jobs and not limine and not refind:
             generate_grub(tx)
         for stage, image in staged_images:
             os.replace(stage, image)
@@ -720,20 +817,24 @@ def main():
             return
         limine = limine_detected()
         print('Limine: ' + ('verified/confirmed.' if limine else 'not verified; its theme will be skipped.'))
-        # A confirmed Limine boot settles which loader ran; GRUB files may still be installed.
-        available = not limine and grub_detected()
+        refind = None if limine else refind_detected()
+        print('rEFInd: ' + ('verified/confirmed.' if refind else 'not verified; its theme will be skipped.'))
+        # A confirmed Limine or rEFInd boot settles which loader ran; GRUB files may still be installed.
+        available = not (limine or refind) and grub_detected()
         print('GRUB: ' + ('verified/confirmed.' if available else 'not in use or not verified; its theme will be skipped.'))
         if limine and ask('Apply the Penumbra Limine theme (back up limine.conf; entries unchanged)'):
             apply_limine(limine)
+        if refind and ask('Apply the Penumbra rEFInd theme (back up refind.conf; entries unchanged)'):
+            apply_refind(refind)
         if available and ask('Apply the Penumbra GRUB theme (back up and preserve existing menu)'):
             apply_grub()
         # ./install.sh --boot-only offers to install it, with the distribution's package manager.
         installed = bool(shutil.which('plymouth-set-default-theme'))
         print('Plymouth: ' + ('installed.' if installed else 'not installed.'))
-        if installed and (available or limine) and ask('Apply Penumbra to Plymouth (add splash/hook and rebuild initramfs)'):
-            apply_plymouth(limine)
-        elif installed and not (available or limine):
-            print('Plymouth theme is in boot/plymouth; boot integration requires a verified GRUB or Limine setup.')
+        if installed and (available or limine or refind) and ask('Apply Penumbra to Plymouth (add splash/hook and rebuild initramfs)'):
+            apply_plymouth(limine, refind)
+        elif installed and not (available or limine or refind):
+            print('Plymouth theme is in boot/plymouth; boot integration requires a verified GRUB, Limine or rEFInd setup.')
 
 
 if __name__ == '__main__':

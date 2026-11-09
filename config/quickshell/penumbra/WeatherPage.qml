@@ -13,7 +13,7 @@ ColumnLayout {
         status: Settings.weatherEnabled ? Weather.place?.name ?? "Choose a location" : "Off"
         checked: Settings.weatherEnabled
         onToggled: Settings.weatherEnabled = !Settings.weatherEnabled
-        onBack: Ui.controlPage = "look"
+        onBack: Ui.controlPage = Ui.previousControlPage === "look" ? "look" : "settings"
     }
 
     Overline { Layout.fillWidth: true; text: "Location" }

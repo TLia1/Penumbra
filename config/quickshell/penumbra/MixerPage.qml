@@ -60,7 +60,7 @@ ColumnLayout {
         title: "Sound"
         status: Pipewire.defaultAudioSink ? root.deviceName(Pipewire.defaultAudioSink) : "No output"
         showSwitch: false
-        onBack: Ui.controlPage = "main"
+        onBack: Ui.controlPage = Ui.previousControlPage === "settings" ? "settings" : "main"
     }
 
     Overline {

@@ -23,7 +23,7 @@ SECTIONS = [
     ['apps/**/*'],
     ['share/color-schemes/*', 'share/icons/*/index.theme', 'share/kio/servicemenus/*', 'share/lia-files/actions/*', 'share/gtksourceview-5/styles/*'],
     ['system/**/*'],
-    ['boot/grub/theme.txt', 'boot/plymouth/*.plymouth'],
+    ['boot/grub/theme.txt', 'boot/refind/theme.conf', 'boot/plymouth/*.plymouth'],
 ]
 # Generated data, binary assets and drawings (SVG), which stay files of their own.
 SKIP = [
