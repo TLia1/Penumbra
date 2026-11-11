@@ -235,6 +235,22 @@ class AppColors(unittest.TestCase):
         ''')
         self.assertEqual(out.splitlines(), ['none', 'Folders open in org.example.Files.', 'org.example.Files.desktop'])
 
+    def test_stale_user_lia_overrides_are_removed(self):
+        out = self.run_install('''
+            XDG_DATA_HOME=~/data
+            mkdir -p ~/data/dbus-1/services ~/data/xdg-desktop-portal/portals ~/data/applications
+            printf '[D-BUS Service]\\nExec=/nonexistent/lia-files-portal --file-chooser-portal\\n' \\
+                > ~/data/dbus-1/services/org.freedesktop.impl.portal.desktop.lia.service
+            touch ~/data/xdg-desktop-portal/portals/lia.portal
+            printf '[Desktop Entry]\\nExec=/bin/sh %%U\\n' > ~/data/applications/io.github.lia.Files.desktop
+            clean_stale_lia_overrides && echo cleaned
+            test ! -e ~/data/dbus-1/services/org.freedesktop.impl.portal.desktop.lia.service
+            test ! -e ~/data/xdg-desktop-portal/portals/lia.portal
+            test -e ~/data/applications/io.github.lia.Files.desktop
+            clean_stale_lia_overrides || echo kept
+        ''')
+        self.assertEqual(out.splitlines(), ['cleaned', 'kept'])
+
     def test_flatpak_gets_theme_schemes_and_action(self):
         out = self.run_install('''
             flatpak() { [[ $1 = info ]]; }

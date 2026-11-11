@@ -601,9 +601,30 @@ configure_keyring() {
     systemctl --user enable gnome-keyring-daemon.socket 2>/dev/null || true
 }
 
+# User-level D-Bus services or desktop files from an uninstalled ~/.local build of Lia Files shadow
+# the system installation in /usr/local or /usr and break the file chooser portal when their binary
+# is gone. Remove only user overrides whose Exec= path no longer exists.
+clean_stale_lia_overrides() {
+    local data=${XDG_DATA_HOME:-$HOME/.local/share} file bin removed=0
+    for file in \
+        "$data/dbus-1/services/org.freedesktop.impl.portal.desktop.lia.service" \
+        "$data/dbus-1/services/io.github.lia.Files.FileManager1.service" \
+        "$data/applications/io.github.lia.Files.desktop"; do
+        [[ -f $file ]] || continue
+        bin=$(sed -n 's/^Exec=["'\'']*\([^"'\'' ]*\).*/\1/p' "$file")
+        if [[ $bin == /* && ! -x $bin ]]; then
+            rm -f "$file"
+            [[ $file == *portal.desktop.lia.service ]] && rm -f "$data/xdg-desktop-portal/portals/lia.portal"
+            removed=1
+        fi
+    done
+    (( removed ))
+}
+
 # Folders open in the chosen file manager, as when you choose it in Settings → Default apps. Only
 # once it is installed: its desktop file has to exist.
 set_folder_default() {
+    clean_stale_lia_overrides || true
     local app=${settings[file_manager]}.desktop dirs dir
     command -v xdg-mime >/dev/null || return 0
     [[ $(xdg-mime query default inode/directory 2>/dev/null) == "$app" ]] && return 0
@@ -618,11 +639,19 @@ set_folder_default() {
     done
 }
 
-# The portal reads portals.conf when it starts: restart it when that changed, so Open, Select
-# Folder and Save dialogs come from the chosen backend now. Apps keep working; it is started on demand.
+# The portal reads portals.conf when it starts: restart it when that changed or Lia Files is
+# installed, so Open, Select Folder and Save dialogs come from the chosen backend now. Apps keep
+# working; it is started on demand.
 restart_portal() {
-    local conf=.config/xdg-desktop-portal/portals.conf
-    cmp -s "$BACKUP/$conf" "$HOME/$conf" && return 0
+    local conf=.config/xdg-desktop-portal/portals.conf stale=0
+    clean_stale_lia_overrides && stale=1
+    if (( ! stale )) && cmp -s "$BACKUP/$conf" "$HOME/$conf" && ! command -v lia-files >/dev/null; then
+        return 0
+    fi
+    if (( stale )) && command -v gdbus >/dev/null; then
+        gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
+            --method org.freedesktop.DBus.ReloadConfig >/dev/null 2>&1 || true
+    fi
     systemctl --user try-restart xdg-desktop-portal.service 2>/dev/null || true
 }
 
