@@ -21,6 +21,9 @@ network labels are demonstration values. See [visual validation](validation/visu
 
 ## Install
 
+For a fresh Arch installation from a live ISO, use [the interactive Arch installer](docs/archiso.md),
+which also explains how to include it in an ArchISO image. It erases a whole disk after confirmation.
+
 Copy this whole folder to the target machine, open a terminal in it, and run:
 
 ```bash

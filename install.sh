@@ -48,6 +48,8 @@ The shell's Settings pages (Super+,) change all but the login shell, at once.
 Other options:
   -y, --yes            Don't ask about the settings; use the saved or detected ones.
   --skip-packages      Don't install packages (or PENUMBRA_SKIP_PACKAGES=1).
+  --offline            Configure an unbooted system (e.g. arch-chroot); enable
+                       services for next boot without starting them now.
   --remove-legacy yes|no|ask
                        Whether to remove the packages Penumbra replaced (Waybar,
                        Mako, swaybg, Dolphin, Qt 5 tools) if they are installed (or
@@ -194,6 +196,7 @@ save_settings() {
 
 # localectl_field "X11 Layout" → that line's value from `localectl status`.
 localectl_field() {
+    [[ ${OFFLINE:-0} == 1 ]] && return 0
     command -v localectl >/dev/null || return 0
     localectl status 2>/dev/null | sed -n "s/^ *$1: //p"
 }
@@ -421,7 +424,7 @@ install_system_files() {
     done
     configure_vm_greeter
     # The battery charge limit rule (Settings → Battery care) applies without a reboot.
-    if command -v udevadm >/dev/null; then
+    if [[ ${OFFLINE:-0} != 1 ]] && command -v udevadm >/dev/null; then
         udevadm control --reload 2>/dev/null || true
         udevadm trigger --subsystem-match=power_supply 2>/dev/null || true
     fi
@@ -453,6 +456,14 @@ set_login_shell() {
 set_login_keyboard() {
     [[ -v settings[kb_layout] ]] && command -v localectl >/dev/null || return 0
     local layout=${settings[kb_layout]} variant=${settings[kb_variant]:-} options=${settings[kb_options]:-}
+    if [[ ${OFFLINE:-0} == 1 ]]; then
+        local path=/etc/X11/xorg.conf.d/00-keyboard.conf
+        backup_file "$path" "${path#/}"
+        mkdir -p "${path%/*}"
+        printf 'Section "InputClass"\n    Identifier "system-keyboard"\n    MatchIsKeyboard "on"\n    Option "XkbLayout" "%s"\n    Option "XkbVariant" "%s"\n    Option "XkbOptions" "%s"\nEndSection\n' \
+            "$layout" "$variant" "$options" > "$path"
+        return 0
+    fi
     if [[ $(localectl_field 'X11 Layout') == "$layout" && $(localectl_field 'X11 Variant') == "$variant" ]]; then
         return 0
     fi
@@ -503,15 +514,21 @@ enable_fingerprint_polkit() {
 }
 
 enable_services() {
-    local unit units=()
+    local unit units=() start=(--now)
+    [[ ${OFFLINE:-0} == 1 ]] && start=()
     for unit in "${SERVICES[@]}" sddm; do
         systemctl is-enabled "$unit" > "$BACKUP/$unit.enabled" 2>&1 || true
     done
     # Only units that are installed: --skip-packages may have left one out.
     for unit in "${SERVICES[@]}"; do
-        if systemctl cat "$unit.service" >/dev/null 2>&1; then units+=("$unit"); else warn "$unit is not installed; not enabling it."; fi
+        if { [[ ${OFFLINE:-0} == 1 ]] && [[ -f /usr/lib/systemd/system/$unit.service || -f /etc/systemd/system/$unit.service ]]; } \
+            || { [[ ${OFFLINE:-0} != 1 ]] && systemctl cat "$unit.service" >/dev/null 2>&1; }; then
+            units+=("$unit")
+        else
+            warn "$unit is not installed; not enabling it."
+        fi
     done
-    (( ${#units[@]} == 0 )) || systemctl enable --now "${units[@]}"
+    (( ${#units[@]} == 0 )) || systemctl enable "${start[@]}" "${units[@]}"
     # Not started now: that would end the current session.
     systemctl enable sddm
 }
@@ -535,8 +552,10 @@ run_system_part() {
     enable_fingerprint_polkit
     enable_services
 
-    step 'Boot themes (optional)'
-    run_boot_part || warn 'Optional boot theming did not complete; see the messages above.'
+    if [[ ${OFFLINE:-0} != 1 ]]; then
+        step 'Boot themes (optional)'
+        run_boot_part || warn 'Optional boot theming did not complete; see the messages above.'
+    fi
 
     echo "System backup: $BACKUP"
 }
@@ -598,7 +617,11 @@ configure_keyring() {
         backup_file "$rc" .config/kwalletrc
         kwriteconfig6 --file "$rc" --group org.freedesktop.secrets --key apiEnabled false
     fi
-    systemctl --user enable gnome-keyring-daemon.socket 2>/dev/null || true
+    if [[ ${OFFLINE:-0} == 1 ]]; then
+        SYSTEMD_OFFLINE=1 systemctl --user --no-reload enable gnome-keyring-daemon.socket 2>/dev/null || true
+    else
+        systemctl --user enable gnome-keyring-daemon.socket 2>/dev/null || true
+    fi
 }
 
 # User-level D-Bus services or desktop files from an uninstalled ~/.local build of Lia Files shadow
@@ -922,7 +945,7 @@ run_user_part() {
     backup_file "$HOME/.config/hypr/hypridle.conf" .config/hypr/hypridle.conf
     "$HOME/.local/bin/penumbra-settings" apply
     install_wallpapers
-    retire_legacy_desktop
+    [[ ${OFFLINE:-0} == 1 ]] || retire_legacy_desktop
 
     step 'Applying themes and starting services'
     apply_gtk_settings
@@ -933,10 +956,14 @@ run_user_part() {
     "$HOME/.local/bin/penumbra-theme" restore
     configure_keyring
     set_folder_default
-    restart_portal
-    disable_dunst
-    systemctl --user daemon-reload
-    systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
+    if [[ ${OFFLINE:-0} == 1 ]]; then
+        SYSTEMD_OFFLINE=1 systemctl --user --no-reload enable pipewire.socket pipewire-pulse.socket wireplumber.service
+    else
+        restart_portal
+        disable_dunst
+        systemctl --user daemon-reload
+        systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
+    fi
     if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
         hyprctl reload
         hyprctl dispatch "hl.dsp.exec_cmd('~/.local/bin/penumbra-session restart')"
@@ -1079,6 +1106,7 @@ run_system_part_with_sudo() {
     local args=(--system-only --user "$USER" --distro "$DISTRO" --remove-legacy "$REMOVE_LEGACY") key
     for key in "${SETTING_KEYS[@]}"; do args+=("${SETTING_OPTIONS[$key]}" "${settings[$key]}"); done
     [[ $SKIP_PACKAGES == 1 ]] && args+=(--skip-packages)
+    [[ ${OFFLINE:-0} == 1 ]] && args+=(--offline)
     sudo "$ROOT/install.sh" "${args[@]}"
 }
 
@@ -1091,6 +1119,7 @@ PART=all
 UNINSTALL=0
 ASSUME_YES=0
 SKIP_PACKAGES=${PENUMBRA_SKIP_PACKAGES:-0}
+OFFLINE=0
 case ${PENUMBRA_REMOVE_LEGACY:-ask} in 1) REMOVE_LEGACY=yes ;; 0) REMOVE_LEGACY=no ;; *) REMOVE_LEGACY=ask ;; esac
 TARGET_USER=''
 DISTRO=''
@@ -1105,6 +1134,7 @@ while (( $# )); do
         --uninstall) UNINSTALL=1 ;;
         --distro) DISTRO=${2?--distro needs a name}; shift ;;
         --skip-packages) SKIP_PACKAGES=1 ;;
+        --offline) OFFLINE=1 ;;
         --remove-legacy) REMOVE_LEGACY=${2?--remove-legacy needs yes, no or ask}; shift ;;
         --user) TARGET_USER=${2?--user needs a name}; shift ;;
         -y|--yes) ASSUME_YES=1 ;;

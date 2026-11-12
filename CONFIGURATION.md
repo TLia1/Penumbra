@@ -9395,7 +9395,7 @@ hl.config({
  animations = {enabled = not still},
  dwindle = {preserve_split = true},
  input = {kb_layout = s.kb_layout, kb_variant = s.kb_variant, kb_options = s.kb_options, numlock_by_default = s.numlock == "on",
-  follow_mouse = 1, sensitivity = 0, touchpad = {natural_scroll = true}},
+  follow_mouse = 1, sensitivity = 0, touchpad = {natural_scroll = true, disable_while_typing = false}},
  -- A fresh lock screen (hyprlock from a TTY) can take over if the shell's ever dies while locked.
  misc = {disable_hyprland_logo = true, disable_splash_rendering = true, force_default_wallpaper = 0, allow_session_lock_restore = true},
 })
@@ -29154,6 +29154,9 @@ CursorSize=28
 Font=Inter,10,-1,5,50,0,0,0,0,0
 
 [General]
+# Run the greeter's X server as the sddm user so it stops once you sign in, instead of keeping a
+# root Xorg server in memory alongside the Wayland session.
+DisplayServer=x11-user
 # In a virtual machine the installer adds 91-penumbra-vm.conf, which renders in software at scale 1.
 GreeterEnvironment=QT_QUICK_CONTROLS_STYLE=Basic
 ```
