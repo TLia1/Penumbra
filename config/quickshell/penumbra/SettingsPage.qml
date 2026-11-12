@@ -147,6 +147,7 @@ ColumnLayout {
         { page: "notifications", glyph: "󰂚", title: "Notifications", words: "do not disturb dnd schedule fullscreen sharing sounds lock screen count mute quiet keep rules" },
         { page: "apps", glyph: "󰀻", title: "Default apps", words: "browser file manager terminal" },
         { page: "packages", glyph: "󰏗", title: "Installed packages", words: "software pacman aur foreign flatpak appimage uninstall update manage" },
+        { page: "downloads", glyph: "󰇚", title: "Download video or audio", words: "yt-dlp youtube video audio music mp4 mp3 mkv webm opus flac" },
         { page: "weather", glyph: "󰖐", title: "Weather", words: "location city coordinates forecast temperature calendar clock bar" },
         { page: "notes", glyph: "󰎞", title: "Quick notes", words: "notes draft text writing local sidebar" },
         { page: "night", glyph: "󰖔", title: "Night light", words: "warmth temperature kelvin sunset sunrise schedule hyprsunset" },
@@ -166,8 +167,8 @@ ColumnLayout {
     readonly property var matches: query === "" ? [] : index.filter(e => query.split(/\s+/).every(q => (e.title + " " + e.words).toLowerCase().includes(q)))
     function open(entry) {
         search.text = "";
-        if (entry.page === "wallpapers")
-            Ui.toggle("wallpapers");
+        if (entry.page === "wallpapers" || entry.page === "downloads")
+            Ui.toggle(entry.page);
         else if (entry.page !== "settings")
             Ui.openControl(entry.page, entry.tab);
     }
@@ -384,6 +385,14 @@ ColumnLayout {
                 subtitle: "pacman, AUR, Flatpak and AppImage"
                 trailing: "󰅂"
                 onClicked: Ui.openControl("packages")
+            }
+            ListRow {
+                Layout.fillWidth: true
+                glyph: "󰇚"
+                title: "Download video or audio"
+                subtitle: "Save a video or its sound with yt-dlp"
+                trailing: "󰅂"
+                onClicked: Ui.toggle("downloads")
             }
             ListRow {
                 Layout.fillWidth: true

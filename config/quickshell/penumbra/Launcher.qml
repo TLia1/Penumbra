@@ -4,12 +4,14 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Widgets
+import "downloads.js" as Downloads
 import "search.js" as Search
 import "symbols.js" as Symbols
 
 // Applications, open windows, clipboard history, emoji and symbols, over a dimmed screen. Type to
 // search; `>` runs a command, `?` searches the web, `/` finds files; a sum (or `=`), "10 km in mi"
-// or "100 usd in eur" is worked out and copied. Tab moves to the next mode.
+// or "100 usd in eur" is worked out and copied; an http(s) address offers to download it with
+// yt-dlp. Tab moves to the next mode.
 PanelWindow {
     id: root
     screen: Ui.screen
@@ -121,6 +123,9 @@ PanelWindow {
         } else if (text.startsWith("/")) {
             list = files; // findFiles fills them in as you type
         } else {
+            const url = Downloads.address(text, false);
+            if (url)
+                list.push({ kind: "download", url });
             const sum = Search.calculate(text);
             if (sum !== null)
                 list.push({ kind: "calc", value: sum });
@@ -172,6 +177,11 @@ PanelWindow {
             item.toplevel.activate();
         } else if (item.kind === "web") {
             Ui.spawn(["xdg-open", "https://duckduckgo.com/?q=" + encodeURIComponent(item.query)]);
+        } else if (item.kind === "download") {
+            if (alternate)
+                Ui.spawn(["xdg-open", item.url]);
+            else
+                Ui.openDownloads(item.url);
         } else if (item.kind === "file") {
             // Shift+Enter opens the folder it is in.
             Ui.spawn(["xdg-open", alternate ? item.path.replace(/\/[^/]*$/, "") || "/" : item.path]);
@@ -624,7 +634,7 @@ PanelWindow {
                                 Glyph {
                                     anchors.centerIn: parent
                                     visible: !parent.swatch
-                                    text: ({ run: "󰆍", calc: "󰃬", clip: "󰅍", pin: "󰐃", web: "󰖟", file: "󰈔", convert: "󰁔", currency: "󰄉" })[row.modelData.kind] ?? ""
+                                    text: ({ run: "󰆍", calc: "󰃬", clip: "󰅍", pin: "󰐃", web: "󰖟", download: "󰇚", file: "󰈔", convert: "󰁔", currency: "󰄉" })[row.modelData.kind] ?? ""
                                     size: 16
                                     color: Theme.accentBright
                                 }
@@ -681,6 +691,8 @@ PanelWindow {
                                         return m.toplevel.title || m.toplevel.appId;
                                     if (m.kind === "web")
                                         return m.query;
+                                    if (m.kind === "download")
+                                        return m.url;
                                     if (m.kind === "file")
                                         return m.path.replace(/^.*\//, "");
                                     if (m.kind === "pin")
@@ -713,6 +725,8 @@ PanelWindow {
                                         return (m.entry?.name || m.toplevel.appId) + (m.toplevel.activated ? " · focused" : "");
                                     if (m.kind === "web")
                                         return "Search the web · DuckDuckGo in your browser";
+                                    if (m.kind === "download")
+                                        return "Download video or audio with yt-dlp · Shift+Enter opens in your browser";
                                     if (m.kind === "file")
                                         return m.path.replace(Quickshell.env("HOME"), "~").replace(/\/[^/]*$/, "") + " · Shift+Enter opens the folder";
                                     if (m.kind === "pin")

@@ -59,6 +59,8 @@ The shell's Settings pages (Super+,) change all but the login shell, at once.
 Other options:
   -y, --yes            Don't ask about the settings; use the saved or detected ones.
   --skip-packages      Don't install packages (or PENUMBRA_SKIP_PACKAGES=1).
+  --offline            Configure an unbooted system (e.g. arch-chroot); enable
+                       services for next boot without starting them now.
   --remove-legacy yes|no|ask
                        Whether to remove the packages Penumbra replaced (Waybar,
                        Mako, swaybg, Dolphin, Qt 5 tools) if they are installed (or
@@ -205,6 +207,7 @@ save_settings() {
 
 # localectl_field "X11 Layout" → that line's value from `localectl status`.
 localectl_field() {
+    [[ ${OFFLINE:-0} == 1 ]] && return 0
     command -v localectl >/dev/null || return 0
     localectl status 2>/dev/null | sed -n "s/^ *$1: //p"
 }
@@ -432,7 +435,7 @@ install_system_files() {
     done
     configure_vm_greeter
     # The battery charge limit rule (Settings → Battery care) applies without a reboot.
-    if command -v udevadm >/dev/null; then
+    if [[ ${OFFLINE:-0} != 1 ]] && command -v udevadm >/dev/null; then
         udevadm control --reload 2>/dev/null || true
         udevadm trigger --subsystem-match=power_supply 2>/dev/null || true
     fi
@@ -464,6 +467,14 @@ set_login_shell() {
 set_login_keyboard() {
     [[ -v settings[kb_layout] ]] && command -v localectl >/dev/null || return 0
     local layout=${settings[kb_layout]} variant=${settings[kb_variant]:-} options=${settings[kb_options]:-}
+    if [[ ${OFFLINE:-0} == 1 ]]; then
+        local path=/etc/X11/xorg.conf.d/00-keyboard.conf
+        backup_file "$path" "${path#/}"
+        mkdir -p "${path%/*}"
+        printf 'Section "InputClass"\n    Identifier "system-keyboard"\n    MatchIsKeyboard "on"\n    Option "XkbLayout" "%s"\n    Option "XkbVariant" "%s"\n    Option "XkbOptions" "%s"\nEndSection\n' \
+            "$layout" "$variant" "$options" > "$path"
+        return 0
+    fi
     if [[ $(localectl_field 'X11 Layout') == "$layout" && $(localectl_field 'X11 Variant') == "$variant" ]]; then
         return 0
     fi
@@ -514,15 +525,21 @@ enable_fingerprint_polkit() {
 }
 
 enable_services() {
-    local unit units=()
+    local unit units=() start=(--now)
+    [[ ${OFFLINE:-0} == 1 ]] && start=()
     for unit in "${SERVICES[@]}" sddm; do
         systemctl is-enabled "$unit" > "$BACKUP/$unit.enabled" 2>&1 || true
     done
     # Only units that are installed: --skip-packages may have left one out.
     for unit in "${SERVICES[@]}"; do
-        if systemctl cat "$unit.service" >/dev/null 2>&1; then units+=("$unit"); else warn "$unit is not installed; not enabling it."; fi
+        if { [[ ${OFFLINE:-0} == 1 ]] && [[ -f /usr/lib/systemd/system/$unit.service || -f /etc/systemd/system/$unit.service ]]; } \
+            || { [[ ${OFFLINE:-0} != 1 ]] && systemctl cat "$unit.service" >/dev/null 2>&1; }; then
+            units+=("$unit")
+        else
+            warn "$unit is not installed; not enabling it."
+        fi
     done
-    (( ${#units[@]} == 0 )) || systemctl enable --now "${units[@]}"
+    (( ${#units[@]} == 0 )) || systemctl enable "${start[@]}" "${units[@]}"
     # Not started now: that would end the current session.
     systemctl enable sddm
 }
@@ -546,8 +563,10 @@ run_system_part() {
     enable_fingerprint_polkit
     enable_services
 
-    step 'Boot themes (optional)'
-    run_boot_part || warn 'Optional boot theming did not complete; see the messages above.'
+    if [[ ${OFFLINE:-0} != 1 ]]; then
+        step 'Boot themes (optional)'
+        run_boot_part || warn 'Optional boot theming did not complete; see the messages above.'
+    fi
 
     echo "System backup: $BACKUP"
 }
@@ -609,7 +628,11 @@ configure_keyring() {
         backup_file "$rc" .config/kwalletrc
         kwriteconfig6 --file "$rc" --group org.freedesktop.secrets --key apiEnabled false
     fi
-    systemctl --user enable gnome-keyring-daemon.socket 2>/dev/null || true
+    if [[ ${OFFLINE:-0} == 1 ]]; then
+        SYSTEMD_OFFLINE=1 systemctl --user --no-reload enable gnome-keyring-daemon.socket 2>/dev/null || true
+    else
+        systemctl --user enable gnome-keyring-daemon.socket 2>/dev/null || true
+    fi
 }
 
 # User-level D-Bus services or desktop files from an uninstalled ~/.local build of Lia Files shadow
@@ -933,7 +956,7 @@ run_user_part() {
     backup_file "$HOME/.config/hypr/hypridle.conf" .config/hypr/hypridle.conf
     "$HOME/.local/bin/penumbra-settings" apply
     install_wallpapers
-    retire_legacy_desktop
+    [[ ${OFFLINE:-0} == 1 ]] || retire_legacy_desktop
 
     step 'Applying themes and starting services'
     apply_gtk_settings
@@ -944,10 +967,14 @@ run_user_part() {
     "$HOME/.local/bin/penumbra-theme" restore
     configure_keyring
     set_folder_default
-    restart_portal
-    disable_dunst
-    systemctl --user daemon-reload
-    systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
+    if [[ ${OFFLINE:-0} == 1 ]]; then
+        SYSTEMD_OFFLINE=1 systemctl --user --no-reload enable pipewire.socket pipewire-pulse.socket wireplumber.service
+    else
+        restart_portal
+        disable_dunst
+        systemctl --user daemon-reload
+        systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
+    fi
     if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
         hyprctl reload
         hyprctl dispatch "hl.dsp.exec_cmd('~/.local/bin/penumbra-session restart')"
@@ -1090,6 +1117,7 @@ run_system_part_with_sudo() {
     local args=(--system-only --user "$USER" --distro "$DISTRO" --remove-legacy "$REMOVE_LEGACY") key
     for key in "${SETTING_KEYS[@]}"; do args+=("${SETTING_OPTIONS[$key]}" "${settings[$key]}"); done
     [[ $SKIP_PACKAGES == 1 ]] && args+=(--skip-packages)
+    [[ ${OFFLINE:-0} == 1 ]] && args+=(--offline)
     sudo "$ROOT/install.sh" "${args[@]}"
 }
 
@@ -1102,6 +1130,7 @@ PART=all
 UNINSTALL=0
 ASSUME_YES=0
 SKIP_PACKAGES=${PENUMBRA_SKIP_PACKAGES:-0}
+OFFLINE=0
 case ${PENUMBRA_REMOVE_LEGACY:-ask} in 1) REMOVE_LEGACY=yes ;; 0) REMOVE_LEGACY=no ;; *) REMOVE_LEGACY=ask ;; esac
 TARGET_USER=''
 DISTRO=''
@@ -1116,6 +1145,7 @@ while (( $# )); do
         --uninstall) UNINSTALL=1 ;;
         --distro) DISTRO=${2?--distro needs a name}; shift ;;
         --skip-packages) SKIP_PACKAGES=1 ;;
+        --offline) OFFLINE=1 ;;
         --remove-legacy) REMOVE_LEGACY=${2?--remove-legacy needs yes, no or ask}; shift ;;
         --user) TARGET_USER=${2?--user needs a name}; shift ;;
         -y|--yes) ASSUME_YES=1 ;;
@@ -1194,7 +1224,7 @@ PACKAGES=(
     # Terminal and editor
     kitty fish starship fastfetch btop neovim git ripgrep fd unzip nodejs npm tree-sitter-cli gcc
     # Applications
-    pavucontrol blueman network-manager-applet xdg-utils
+    pavucontrol blueman network-manager-applet xdg-utils firefox
     # Themes and fonts
     breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme
     qt6ct ttf-jetbrains-mono-nerd inter-font
@@ -1208,6 +1238,8 @@ PACKAGES=(
     grim slurp satty wf-recorder hyprpicker cliphist wl-clipboard wtype unicode-emoji noto-fonts-emoji
     # Your own GIF and video wallpapers: the shell plays them, ffmpeg takes their first frame
     qt6-multimedia qt6-multimedia-ffmpeg ffmpeg
+    # Video and audio downloads (the Downloads panel, Super+D)
+    yt-dlp
     # Casting the screen to a TV: Chromecast and Google TV (DLNA TVs need nothing more)
     python-pychromecast
     # Used by the helper scripts and build tools
@@ -2313,6 +2345,596 @@ accents = json.loads((root / 'share/penumbra/wallpaper-colors.json').read_text()
 for name in wallpapers[3:]:
     accents[name] = palette.wallpaper_accents(palette.wallpaper_pixels(assets / (name + '.png')))
 (root / 'share/penumbra/wallpaper-colors.json').write_text(json.dumps(accents, indent=2) + '\n')
+```
+
+## `tools/install-arch.sh`
+
+```bash
+#!/usr/bin/env bash
+# Run from a UEFI-booted Arch ISO. This script ERASES ONE WHOLE DISK after confirmation.
+set -Eeuo pipefail
+
+PENUMBRA_URL=https://github.com/TLia1/Panumbra.git
+LIA_URL=https://github.com/TLia1/Lia-s-file-linux.git
+TARGET=/mnt/penumbra
+WORK=''
+MOUNTED=0
+SWAP_ACTIVE=0
+PHASE=preflight
+
+say() { printf '\n==> %s\n' "$*"; }
+die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
+ask() {
+    local reply
+    read -r -p "$1 [y/N] " reply || return 1
+    [[ ${reply,,} == y || ${reply,,} == yes ]]
+}
+prompt() {
+    local reply
+    read -r -p "$2 [$3]: " reply || die 'Input closed.'
+    printf -v "$1" '%s' "${reply:-$3}"
+}
+usage() {
+    cat <<'EOF'
+Usage: install-arch [--penumbra-ref BRANCH_OR_TAG] [--lia-ref BRANCH_OR_TAG]
+
+Interactive x86_64 UEFI installation from ArchISO. Erases a whole disk and creates:
+  1 GiB FAT32 EFI /boot, configurable swap, remaining space ext4 /.
+Installs Arch, rEFInd, Plymouth, Lia Files and Penumbra. Prompts for networking,
+disk, locale, timezone, keyboard, hostname, user, passwords and sudo membership.
+Detects Intel/AMD/NVIDIA graphics; asks which NVIDIA driver to use before erasure.
+GitHub default branches are used unless a branch/tag is supplied. Sources are
+downloaded and checked before disk erasure. No unattended or erase-confirmation bypass.
+See docs/archiso.md for ISO building, limitations and recovery instructions.
+EOF
+}
+
+cleanup() {
+    local status=$?
+    trap - EXIT
+    if (( SWAP_ACTIVE )); then swapoff "$SWAP_PART" || true; fi
+    if (( status != 0 )); then
+        printf '\nStopped during %s. No reboot will occur.\n' "$PHASE" >&2
+        if (( MOUNTED )); then
+            printf 'The partial installation remains mounted at %s for inspection.\nDo not rerun this installer to resume: it repartitions the disk. See docs/archiso.md.\n' "$TARGET" >&2
+        fi
+    fi
+    [[ -z $WORK ]] || rm -rf -- "$WORK"
+    exit "$status"
+}
+
+online() { curl -fsSL --connect-timeout 8 --max-time 20 https://archlinux.org/ -o /dev/null; }
+connect_network() {
+    local choice
+    until online; do
+        cat <<'EOF'
+No working HTTPS connection to archlinux.org (DNS, clock or network may be wrong).
+Plug in Ethernet, or choose:
+  1) Open iwctl for Wi-Fi
+  2) Open a shell for network/clock repair (exit to retry)
+  3) Retry
+  q) Quit
+In iwctl: device list; station wlan0 scan; station wlan0 get-networks;
+          station wlan0 connect YOUR_SSID; exit
+Replace wlan0 with your device. iwctl asks for the Wi-Fi password itself.
+EOF
+        read -r -p '> ' choice || die 'Input closed.'
+        case $choice in
+            1) systemctl start iwd; iwctl || true ;;
+            2) bash --noprofile --norc || true ;;
+            3) ;;
+            q|Q) exit 0 ;;
+        esac
+    done
+    say 'Internet connection verified'
+    timedatectl set-ntp true
+    # Pacman signatures and HTTPS need a sensible clock before source/package downloads.
+    until [[ $(timedatectl show -p NTPSynchronized --value) == yes ]]; do
+        say 'Waiting for time synchronization'
+        sleep 2
+        if [[ $(timedatectl show -p NTPSynchronized --value) != yes ]]; then
+            date -u
+            ask 'Is this UTC time correct? Continue without waiting for NTP?' && break
+        fi
+    done
+}
+
+partition_path() {
+    if [[ $1 =~ [0-9]$ ]]; then printf '%sp%s\n' "$1" "$2"; else printf '%s%s\n' "$1" "$2"; fi
+}
+
+validate_disk() {
+    [[ -b $DISK && $(lsblk -dnro TYPE "$DISK") == disk ]] || die 'Select a whole disk, not a partition or mapped device.'
+    [[ $(lsblk -dnro RO "$DISK") == 0 ]] || die 'This disk is read-only.'
+    check_disk_usage
+}
+
+check_disk_usage() {
+    local node kind swap backing source mounts nodes swaps loops holders
+    # Includes the ISO USB, root/home mounts, mounted children and active swap partitions.
+    mounts=$(lsblk -nrpo MOUNTPOINTS "$DISK") || die 'Could not inspect disk mounts.'
+    [[ -z $(tr -d '[:space:]' <<< "$mounts") ]] || die 'Disk or one of its children is mounted/in use (possibly the installer USB).'
+    nodes=$(lsblk -nrpo NAME,TYPE "$DISK") || die 'Could not inspect disk children.'
+    [[ -n $nodes ]] || die 'Disk disappeared during inspection.'
+    swaps=$(swapon --noheadings --raw --show=NAME) || die 'Could not inspect active swap.'
+    loops=$(losetup --list --noheadings --output BACK-FILE) || die 'Could not inspect loop devices.'
+    while read -r node kind; do
+        [[ $kind == disk || $kind == part ]] || die "Active mapped device on disk: $node ($kind)."
+        holders=$(find "/sys/class/block/${node##*/}/holders" -mindepth 1 -maxdepth 1 -print -quit) \
+            || die "Could not inspect holders of $node."
+        [[ -z $holders ]] || die "Device has active holders: $node."
+        while read -r swap; do
+            [[ -n $swap ]] || continue
+            source=$(findmnt -nro SOURCE -T "$swap" 2>/dev/null || true)
+            [[ $swap != "$node" && $source != "$node" ]] || die 'Disk contains active swap.'
+        done <<< "$swaps"
+        # A live ISO can also be backed by a file on this disk.
+        while IFS= read -r backing; do
+            [[ -n $backing ]] || continue
+            source=$(findmnt -nro SOURCE -T "$backing" 2>/dev/null || true)
+            [[ $source != "$node" ]] || die 'Disk backs an active loop device.'
+        done <<< "$loops"
+    done <<< "$nodes"
+}
+
+collect_settings() {
+    say 'Installation disk (all existing partitions will be erased)'
+    lsblk -dpo NAME,SIZE,MODEL,TRAN,RM,RO
+    read -r -p 'Whole disk path (for example /dev/nvme0n1): ' DISK
+    DISK=$(readlink -f -- "$DISK")
+    validate_disk
+    local bytes
+    bytes=$(blockdev --getsize64 "$DISK")
+    while true; do
+        prompt SWAP_GIB 'Swap size in whole GiB' 8
+        [[ $SWAP_GIB =~ ^[1-9][0-9]{0,3}$ ]] || { echo 'Use a positive integer (1–9999).'; continue; }
+        (( bytes > (SWAP_GIB + 33) * 1024 * 1024 * 1024 )) && break
+        echo 'Leave at least 32 GiB for root, plus the 1 GiB EFI partition.'
+    done
+    while true; do
+        prompt HOSTNAME 'Hostname' penumbra
+        [[ $HOSTNAME =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]] && break
+        echo 'Use 1–63 letters/digits/hyphens; no leading or trailing hyphen.'
+    done
+    while true; do
+        prompt TIMEZONE 'Timezone (for example Europe/Paris)' UTC
+        [[ $TIMEZONE != /* && $TIMEZONE != *..* && -f /usr/share/zoneinfo/$TIMEZONE ]] && break
+        echo 'Use a name from /usr/share/zoneinfo.'
+    done
+    while true; do
+        prompt LOCALE 'UTF-8 locale (for example fr_FR.UTF-8)' en_US.UTF-8
+        [[ $LOCALE =~ ^[a-z]{2,3}_[A-Z]{2}\.UTF-8$ ]] \
+            && grep -Eq "^#?${LOCALE//./\\.}[[:space:]]+UTF-8" /etc/locale.gen && break
+        echo 'Choose a UTF-8 locale listed in /etc/locale.gen.'
+    done
+    while true; do
+        prompt KEYMAP 'Console keymap (for example fr)' us
+        [[ $KEYMAP =~ ^[a-zA-Z0-9_-]+$ ]] && loadkeys "$KEYMAP" && break
+    done
+    while true; do
+        prompt LAYOUT 'Desktop XKB layout (for example fr or us,fr)' us
+        [[ $LAYOUT =~ ^[a-z0-9_]+(,[a-z0-9_]+)*$ ]] && break
+    done
+    while true; do
+        prompt DESKTOP_USER 'Create desktop user' lia
+        [[ $DESKTOP_USER =~ ^[a-z_][a-z0-9_-]{0,30}$ && $DESKTOP_USER != root ]] && break
+        echo 'Use a lowercase username, other than root, up to 31 characters.'
+    done
+    SUDO_USER_ENABLED=no
+    if ask "Allow $DESKTOP_USER to use sudo (password required)?"; then SUDO_USER_ENABLED=yes; fi
+}
+
+detect_graphics() {
+    local devices=${1:-/sys/bus/pci/devices} device class vendor driver
+    GPU_INTEL=0 GPU_AMD=0 GPU_NVIDIA=0 GPU_NVIDIA_DRIVER=none
+    GPU_EARLY_MODULES=''
+    for device in "$devices"/*; do
+        [[ -r $device/class && -r $device/vendor ]] || continue
+        class=$(<"$device/class")
+        [[ $class == 0x03* ]] || continue # VGA, 3D and other display controllers only.
+        vendor=$(<"$device/vendor")
+        case $vendor in
+            0x8086) GPU_INTEL=1 ;;
+            0x1002) GPU_AMD=1 ;;
+            0x10de) GPU_NVIDIA=1 ;;
+        esac
+        # Preserve the iGPU driver actually selected by the live kernel (including Intel xe).
+        driver=$(readlink "$device/driver" 2>/dev/null || true)
+        driver=${driver##*/}
+        case $driver in
+            i915|xe|amdgpu|radeon)
+                [[ " $GPU_EARLY_MODULES " == *" $driver "* ]] || GPU_EARLY_MODULES+=" $driver" ;;
+        esac
+    done
+}
+
+select_graphics() {
+    say 'Graphics hardware'
+    detect_graphics
+    lspci -nn -d ::03xx
+    if (( GPU_NVIDIA )); then
+        cat <<'EOF'
+NVIDIA driver choice (applies to ALL detected NVIDIA GPUs):
+  1) NVIDIA open kernel driver — Turing or newer ONLY
+     GTX 16 / RTX 20, 30, 40, 50 series and supported newer/workstation models.
+     Installs nvidia-open-dkms, Linux headers, NVIDIA utilities and PRIME support.
+  2) Nouveau — open-source kernel/Mesa driver, also for older NVIDIA cards.
+     Older cards can have limited performance or Wayland support.
+  q) Stop to check your GPU model/driver requirements.
+Maxwell/Pascal (such as GTX 900/1000) cannot use nvidia-open. Their proprietary
+legacy drivers need a separate AUR setup; this installer does not build those.
+EOF
+        local answer
+        while true; do
+            read -r -p 'NVIDIA driver [1/2/q, no default]: ' answer || die 'Input closed.'
+            case $answer in
+                1)
+                    if ask 'Are ALL your NVIDIA cards Turing or newer, supported by nvidia-open?'; then
+                        GPU_NVIDIA_DRIVER=open
+                        break
+                    fi ;;
+                2) GPU_NVIDIA_DRIVER=nouveau; break ;;
+                q|Q) die 'Stopped before partitioning. Check the NVIDIA GPU model before installing.' ;;
+            esac
+        done
+    fi
+    graphics_packages
+    printf 'Graphics packages: %s\n' "${GPU_PACKAGES[*]}"
+}
+
+graphics_packages() {
+    GPU_PACKAGES=(mesa lib32-mesa vulkan-icd-loader lib32-vulkan-icd-loader mesa-utils vulkan-tools)
+    if (( GPU_INTEL )); then GPU_PACKAGES+=(vulkan-intel lib32-vulkan-intel); fi
+    if (( GPU_AMD )); then GPU_PACKAGES+=(vulkan-radeon lib32-vulkan-radeon); fi
+    case $GPU_NVIDIA_DRIVER in
+        open)
+            (( GPU_NVIDIA )) || die 'NVIDIA driver selected without a detected NVIDIA GPU.'
+            GPU_PACKAGES+=(linux-headers nvidia-open-dkms nvidia-utils lib32-nvidia-utils
+                           nvidia-settings egl-wayland nvidia-prime) ;;
+        nouveau) GPU_PACKAGES+=(vulkan-nouveau lib32-vulkan-nouveau) ;;
+        none) (( ! GPU_NVIDIA )) || die 'No driver selected for the detected NVIDIA GPU.' ;;
+        *) die 'Invalid NVIDIA driver selection.' ;;
+    esac
+}
+
+graphics_initramfs_config() {
+    # Append to MODULES after the main config, so configure_boot's MODULES=() cannot erase it.
+    printf '# Written by the Penumbra Arch installer.\nMODULES+=('
+    local module
+    for module in $GPU_EARLY_MODULES; do
+        case $module in
+            i915|xe|amdgpu|radeon) printf '%s ' "$module" ;;
+            *) die "Unexpected graphics kernel module: $module" ;;
+        esac
+    done
+    if [[ $GPU_NVIDIA_DRIVER == open ]]; then printf 'nvidia nvidia_modeset nvidia_uvm nvidia_drm'; fi
+    printf ')\n'
+}
+
+install_graphics() {
+    PHASE='installing graphics drivers'
+    graphics_packages
+    pacman -S --needed --noconfirm -- "${GPU_PACKAGES[@]}"
+    install -d /etc/mkinitcpio.conf.d /etc/modprobe.d
+    graphics_initramfs_config > /etc/mkinitcpio.conf.d/20-penumbra-graphics.conf
+    if [[ $GPU_NVIDIA_DRIVER == open ]]; then
+        printf 'options nvidia_drm modeset=1 fbdev=1\n' > /etc/modprobe.d/penumbra-nvidia.conf
+        # The ISO's uname -r can differ from the installed kernel. Check the target kernel.
+        local base kernel found=0
+        for base in /usr/lib/modules/*/pkgbase; do
+            [[ -f $base && $(<"$base") == linux ]] || continue
+            kernel=${base%/pkgbase}; kernel=${kernel##*/}
+            dkms autoinstall -k "$kernel"
+            modinfo -k "$kernel" nvidia_drm >/dev/null
+            found=1
+        done
+        (( found )) || die 'Cannot find the installed Linux kernel for NVIDIA DKMS.'
+    fi
+    printf 'Intel=%s\nAMD=%s\nNVIDIA=%s\nNVIDIA_DRIVER=%s\nPackages=%s\n' \
+        "$GPU_INTEL" "$GPU_AMD" "$GPU_NVIDIA" "$GPU_NVIDIA_DRIVER" "${GPU_PACKAGES[*]}" \
+        > /root/penumbra-install/graphics.txt
+}
+
+fetch_sources() {
+    PHASE='GitHub source preflight'
+    WORK=$(mktemp -d /tmp/penumbra-arch.XXXXXXXX)
+    chmod 755 "$WORK"
+    local args=()
+    [[ -z $PENUMBRA_REF ]] || args=(--branch "$PENUMBRA_REF")
+    git clone --depth 1 "${args[@]}" "$PENUMBRA_URL" "$WORK/Penumbra"
+    args=()
+    [[ -z $LIA_REF ]] || args=(--branch "$LIA_REF")
+    git clone --depth 1 "${args[@]}" "$LIA_URL" "$WORK/Lia-s-file-linux"
+    [[ -f $WORK/Penumbra/install.sh && -f $WORK/Lia-s-file-linux/build-aux/PKGBUILD ]] || die 'GitHub checkout is missing an installer or PKGBUILD.'
+    grep -q -- '--offline)' "$WORK/Penumbra/install.sh" \
+        || die 'Publish the Penumbra install.sh --offline change to GitHub first, or use --penumbra-ref with a branch containing it. No disk has been erased.'
+    PENUMBRA_COMMIT=$(git -C "$WORK/Penumbra" rev-parse HEAD)
+    LIA_COMMIT=$(git -C "$WORK/Lia-s-file-linux" rev-parse HEAD)
+    mkdir "$WORK/lia-build"
+    cp "$WORK/Lia-s-file-linux/build-aux/PKGBUILD" "$WORK/lia-build/PKGBUILD.upstream"
+    cp "$WORK/lia-build/PKGBUILD.upstream" "$WORK/lia-build/PKGBUILD"
+    # The published recipe currently references a nonexistent v1.0.0 tag. Build its matching
+    # fetched source instead, without executing a GitHub PKGBUILD as root or trusting SKIP.
+    git -C "$WORK/Lia-s-file-linux" archive --format=tar.gz --prefix="Lia-s-file-linux-$LIA_COMMIT/" \
+        -o "$WORK/lia-build/lia-files-$LIA_COMMIT.tar.gz" HEAD
+    local checksum
+    checksum=$(sha256sum "$WORK/lia-build/lia-files-$LIA_COMMIT.tar.gz")
+    cat >> "$WORK/lia-build/PKGBUILD" <<EOF
+
+# install-arch: use a verified local snapshot of the same GitHub commit as this recipe.
+source=('lia-files-$LIA_COMMIT.tar.gz')
+sha256sums=('${checksum%% *}')
+_srcdir='Lia-s-file-linux-$LIA_COMMIT'
+EOF
+    say "Penumbra commit: $PENUMBRA_COMMIT"
+    say "Lia Files commit: $LIA_COMMIT"
+    echo 'The GitHub installer and PKGBUILD execute code during installation.'
+    if ask 'Review the Lia Files build recipe and Penumbra installer?'; then
+        less "$WORK/lia-build/PKGBUILD" "$WORK/Penumbra/install.sh"
+    fi
+}
+
+partition_disk() {
+    PHASE=partitioning
+    validate_disk
+    [[ ! -L $TARGET ]] || die 'Target mount path is a symlink.'
+    [[ -z $(findmnt -rn -o TARGET | awk -v p="$TARGET" '$0 == p || index($0, p "/") == 1') ]] \
+        || die "$TARGET or a child is already mounted."
+    if [[ -d $TARGET ]]; then
+        [[ -z $(find "$TARGET" -mindepth 1 -maxdepth 1 -print -quit) ]] || die "$TARGET is not empty."
+    fi
+    say 'Final disk-erasure confirmation'
+    lsblk -po NAME,SIZE,MODEL,FSTYPE,MOUNTPOINTS "$DISK"
+    printf 'ERASE %s → GPT: 1 GiB EFI /boot + %s GiB swap + ext4 root\n' "$DISK" "$SWAP_GIB"
+    printf 'Host: %s | User: %s | Sudo: %s | Locale: %s | Zone: %s\n' \
+        "$HOSTNAME" "$DESKTOP_USER" "$SUDO_USER_ENABLED" "$LOCALE" "$TIMEZONE"
+    local confirmation
+    read -r -p "Type ERASE $DISK exactly to continue: " confirmation
+    [[ $confirmation == "ERASE $DISK" ]] || die 'Erasure cancelled.'
+    validate_disk
+    wipefs --all "$DISK"
+    sfdisk --wipe always "$DISK" <<EOF
+label: gpt
+size=1GiB, type=U, name="EFI System"
+size=${SWAP_GIB}GiB, type=S, name="Linux swap"
+type=L, name="Arch Linux"
+EOF
+    partprobe "$DISK"
+    udevadm settle
+    BOOT_PART=$(partition_path "$DISK" 1)
+    SWAP_PART=$(partition_path "$DISK" 2)
+    ROOT_PART=$(partition_path "$DISK" 3)
+    [[ -b $BOOT_PART && -b $SWAP_PART && -b $ROOT_PART ]] || die 'New partition devices did not appear.'
+    mkfs.fat -F 32 -n PENUMBRAEFI "$BOOT_PART"
+    mkswap -L penumbra-swap "$SWAP_PART"
+    mkfs.ext4 -F -L penumbra-root "$ROOT_PART"
+    mkdir -p "$TARGET"
+    mount "$ROOT_PART" "$TARGET"
+    MOUNTED=1
+    mkdir -p "$TARGET/boot"
+    mount -o umask=0077 "$BOOT_PART" "$TARGET/boot"
+    swapon "$SWAP_PART"
+    SWAP_ACTIVE=1
+}
+
+install_base() {
+    PHASE='base installation'
+    pacstrap -K "$TARGET" base base-devel linux linux-firmware mkinitcpio intel-ucode amd-ucode \
+        networkmanager sudo git curl nano man-db man-pages refind efibootmgr plymouth \
+        dosfstools e2fsprogs python dbus pciutils
+    # Generate only our mounts and our swap, never unrelated live-environment swap entries.
+    genfstab -U "$TARGET" | awk '$3 != "swap"' > "$TARGET/etc/fstab"
+    printf 'UUID=%s none swap defaults 0 0\n' "$(blkid -s UUID -o value "$SWAP_PART")" >> "$TARGET/etc/fstab"
+    install -d -m 700 "$TARGET/root/penumbra-install"
+    cp -a "$WORK/lia-build" "$TARGET/root/penumbra-install/"
+    cp -a "$WORK/Penumbra" "$TARGET/root/penumbra-install/"
+    # Configuration contains no passwords, and is shell-escaped before being sourced in chroot.
+    local key
+    for key in TIMEZONE LOCALE KEYMAP LAYOUT HOSTNAME DESKTOP_USER SUDO_USER_ENABLED PENUMBRA_COMMIT LIA_COMMIT \
+        GPU_INTEL GPU_AMD GPU_NVIDIA GPU_NVIDIA_DRIVER GPU_EARLY_MODULES; do
+        printf '%s=%q\n' "$key" "${!key}"
+    done > "$TARGET/root/penumbra-install/settings"
+    install -m 700 "${BASH_SOURCE[0]}" "$TARGET/root/penumbra-install/install-arch.sh"
+    PHASE='system configuration and desktop installation'
+    arch-chroot "$TARGET" /bin/bash /root/penumbra-install/install-arch.sh --inside-chroot
+}
+
+refind_config() {
+    local root_uuid=$1
+    cat <<'EOF'
+timeout 5
+scanfor manual
+include themes/penumbra/theme.conf
+menuentry "Arch Linux — Penumbra" {
+    icon themes/penumbra/icons/os_arch.png
+    loader /vmlinuz-linux
+    initrd /initramfs-linux.img
+EOF
+    printf '    options "root=UUID=%s rw quiet splash"\n}\n' "$root_uuid"
+    cat <<'EOF'
+menuentry "Arch Linux — console recovery" {
+    icon themes/penumbra/icons/os_arch.png
+    loader /vmlinuz-linux
+    initrd /initramfs-linux.img
+EOF
+    printf '    options "root=UUID=%s rw systemd.unit=multi-user.target"\n}\n' "$root_uuid"
+}
+
+copy_boot_tree() {
+    # The ESP is FAT32: it cannot preserve Unix ownership/modes. Copy contents into an
+    # explicit destination so retrying a partial copy cannot nest another theme folder.
+    mkdir -p -- "$2"
+    cp -r --no-preserve=ownership,mode -- "$1/." "$2/"
+}
+
+load_target_settings() {
+    [[ $EUID == 0 && -f /root/penumbra-install/settings ]] || die 'Internal chroot stage only.'
+    systemd-detect-virt --chroot --quiet || die 'Refusing to run the target stage outside a chroot.'
+    # shellcheck disable=SC1091
+    source /root/penumbra-install/settings
+}
+
+configure_target() {
+    load_target_settings
+    PHASE='target configuration'
+    ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
+    hwclock --systohc || echo 'No writable hardware clock; NTP will set time at boot.'
+    printf '%s UTF-8\nen_US.UTF-8 UTF-8\n' "$LOCALE" | sort -u > /etc/locale.gen
+    locale-gen
+    printf 'LANG=%s\n' "$LOCALE" > /etc/locale.conf
+    printf 'KEYMAP=%s\n' "$KEYMAP" > /etc/vconsole.conf
+    printf '%s\n' "$HOSTNAME" > /etc/hostname
+    printf '127.0.0.1 localhost\n::1 localhost\n127.0.1.1 %s.localdomain %s\n' "$HOSTNAME" "$HOSTNAME" > /etc/hosts
+    if ! grep -q '^\[multilib\]' /etc/pacman.conf; then
+        printf '\n[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >> /etc/pacman.conf
+    fi
+    pacman -Syu --noconfirm
+    install_graphics
+    useradd -m -U -s /bin/bash "$DESKTOP_USER"
+    if [[ $SUDO_USER_ENABLED == yes ]]; then
+        usermod -aG wheel "$DESKTOP_USER"
+        printf '%%wheel ALL=(ALL:ALL) ALL\n' > /etc/sudoers.d/10-wheel
+        chmod 440 /etc/sudoers.d/10-wheel
+        visudo -cf /etc/sudoers
+    fi
+    say 'Set the root password (also provides administration when sudo is disabled)'
+    until passwd root; do echo 'Please retry.'; done
+    say "Set the password for $DESKTOP_USER"
+    until passwd "$DESKTOP_USER"; do echo 'Please retry.'; done
+    systemctl enable NetworkManager systemd-timesyncd
+
+    local home=/home/$DESKTOP_USER build repo
+    build=$home/.cache/lia-files-build
+    repo=$home/Penumbra
+    install -d -o "$DESKTOP_USER" -g "$DESKTOP_USER" "$home/.cache"
+    mv /root/penumbra-install/lia-build "$build"
+    mv /root/penumbra-install/Penumbra "$repo"
+    chown -R "$DESKTOP_USER:$DESKTOP_USER" "$build" "$repo"
+    # A PKGBUILD is shell code: only makepkg as the unprivileged user evaluates it.
+    # shellcheck disable=SC2016 # Expanded by the unprivileged inner shell.
+    runuser -u "$DESKTOP_USER" -- bash -c 'cd "$1" && makepkg --printsrcinfo' _ "$build" > /root/penumbra-install/lia.SRCINFO
+    local deps=() packages=()
+    mapfile -t deps < <(awk '$1 ~ /^(depends|makedepends|checkdepends)(_x86_64)?$/ && $2 == "=" {print $3}' \
+        /root/penumbra-install/lia.SRCINFO | sort -u)
+    (( ${#deps[@]} )) || die 'No Lia Files dependencies found in the fetched recipe.'
+    pacman -S --needed --noconfirm -- "${deps[@]}" gvfs gvfs-mtp gvfs-smb udisks2
+    PHASE='building Lia Files'
+    # shellcheck disable=SC2016 # Expanded by the unprivileged inner shell.
+    runuser -u "$DESKTOP_USER" -- bash -c 'cd "$1" && makepkg --cleanbuild --noconfirm' _ "$build"
+    mapfile -t packages < <(find "$build" -maxdepth 1 -type f -name '*.pkg.tar.*' ! -name '*.sig')
+    (( ${#packages[@]} )) || die 'Lia Files build produced no package.'
+    pacman -U --noconfirm -- "${packages[@]}"
+    command -v lia-files >/dev/null || die 'The built package did not install lia-files.'
+
+    PHASE='installing Penumbra'
+    bash "$repo/install.sh" --system-only --offline --user "$DESKTOP_USER" --distro arch \
+        --layout "$LAYOUT" --shell fish --remove-legacy no --yes < /dev/null
+    # A private D-Bus session lets gsettings/dconf save settings without a desktop login.
+    runuser -u "$DESKTOP_USER" -- env -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME \
+        -u XDG_CACHE_HOME -u XDG_RUNTIME_DIR -u HYPRLAND_INSTANCE_SIGNATURE \
+        HOME="$home" USER="$DESKTOP_USER" LOGNAME="$DESKTOP_USER" \
+        dbus-run-session -- bash "$repo/install.sh" --user-only --offline --distro arch \
+        --layout "$LAYOUT" --shell fish --file-manager io.github.lia.Files --yes < /dev/null
+
+    configure_boot "$repo"
+}
+
+configure_boot() {
+    local repo=$1
+    PHASE='configuring rEFInd and Plymouth'
+    [[ $(findmnt -nro FSTYPE -M /boot) == vfat ]] || die 'Mount the installation EFI partition at /boot first.'
+    [[ -d $repo/boot/refind && -d $repo/boot/plymouth && -s /boot/vmlinuz-linux ]] \
+        || die 'The desktop checkout or installed kernel is missing; boot repair cannot continue.'
+    # Write a fresh known configuration: do not inherit the ISO's root= or archisodevice=.
+    local root_uuid
+    root_uuid=$(findmnt -nro UUID /)
+    [[ -n $root_uuid ]] || die 'Cannot determine installed root UUID.'
+    cat > /etc/mkinitcpio.conf <<'EOF'
+MODULES=()
+BINARIES=()
+FILES=()
+HOOKS=(base systemd plymouth autodetect microcode modconf kms keyboard sd-vconsole block filesystems fsck)
+EOF
+    copy_boot_tree "$repo/boot/plymouth" /usr/share/plymouth/themes/penumbra
+    if [[ -f /usr/share/plymouth/themes/spinner/keymap-render.png ]]; then
+        cp /usr/share/plymouth/themes/spinner/keymap-render.png /usr/share/plymouth/themes/penumbra/
+    fi
+    plymouth-set-default-theme penumbra
+    mkinitcpio -P
+    # All kernels/initramfs live on FAT32 /boot; no EFI filesystem driver is needed.
+    install -Dm644 /usr/share/refind/refind_x64.efi /boot/EFI/refind/refind_x64.efi
+    copy_boot_tree "$repo/boot/refind" /boot/EFI/refind/themes/penumbra
+    refind_config "$root_uuid" > /boot/EFI/refind/refind.conf
+    printf '"Boot with splash" "root=UUID=%s rw quiet splash initrd=\\initramfs-linux.img"\n' \
+        "$root_uuid" > /boot/refind_linux.conf
+    # The fallback path works even when firmware rejects/forgets an NVRAM boot entry.
+    mkdir -p /boot/EFI/BOOT
+    cp /boot/EFI/refind/refind_x64.efi /boot/EFI/BOOT/BOOTX64.EFI
+    cp /boot/EFI/refind/refind.conf /boot/EFI/BOOT/refind.conf
+    copy_boot_tree /boot/EFI/refind/themes /boot/EFI/BOOT/themes
+    [[ -s /boot/vmlinuz-linux && -s /boot/initramfs-linux.img ]] || die 'Kernel or initramfs missing.'
+    lsinitcpio /boot/initramfs-linux.img > /root/penumbra-install/initramfs-contents.txt
+    grep -q 'penumbra.plymouth' /root/penumbra-install/initramfs-contents.txt || die 'Plymouth theme missing from initramfs.'
+    if [[ ${GPU_NVIDIA_DRIVER:-none} == open ]]; then
+        grep -Eq '/nvidia[-_]drm\.ko(\.|$)' /root/penumbra-install/initramfs-contents.txt \
+            || die 'NVIDIA DRM module missing from initramfs.'
+    fi
+    printf 'Penumbra %s\nLia Files %s\n' "$PENUMBRA_COMMIT" "$LIA_COMMIT" > /root/penumbra-install/sources.txt
+}
+
+main() {
+    PENUMBRA_REF='' LIA_REF=''
+    while (( $# )); do
+        case $1 in
+            -h|--help) usage; return ;;
+            --penumbra-ref) PENUMBRA_REF=${2:?Missing branch/tag}; shift ;;
+            --lia-ref) LIA_REF=${2:?Missing branch/tag}; shift ;;
+            --inside-chroot) configure_target; return ;;
+            *) die "Unknown option: $1" ;;
+        esac
+        shift
+    done
+    [[ $EUID == 0 ]] || die 'Run as root from the Arch ISO.'
+    [[ -t 0 && -t 1 ]] || die 'An interactive terminal is required.'
+    [[ $(uname -m) == x86_64 && -d /run/archiso ]] || die 'Boot the x86_64 Arch ISO first.'
+    [[ -d /sys/firmware/efi && $(cat /sys/firmware/efi/fw_platform_size) == 64 ]] \
+        || die 'Boot the ISO in 64-bit UEFI mode; rEFInd requires UEFI.'
+    local command secureboot
+    for command in curl git less iwctl timedatectl pacstrap arch-chroot genfstab sfdisk wipefs \
+        partprobe udevadm mkfs.fat mkfs.ext4 mkswap swapon swapoff lsblk findmnt blockdev \
+        losetup loadkeys efibootmgr python3 lspci; do
+        command -v "$command" >/dev/null || die "Missing ISO tool: $command (see docs/archiso.md)."
+    done
+    for secureboot in /sys/firmware/efi/efivars/SecureBoot-*; do
+        [[ -f $secureboot ]] || continue
+        [[ $(od -An -j4 -N1 -tu1 "$secureboot" | tr -d ' ') == 0 ]] \
+            || die 'Disable Secure Boot in firmware first; this installer does not sign boot binaries.'
+    done
+    trap cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    connect_network
+    collect_settings
+    select_graphics
+    fetch_sources
+    partition_disk
+    install_base
+    PHASE='registering firmware boot entry'
+    if ! efibootmgr --create --disk "$DISK" --part 1 --label 'Penumbra (rEFInd)' \
+        --loader '\EFI\refind\refind_x64.efi'; then
+        echo 'NVRAM entry could not be created. Use the firmware disk/fallback boot option.'
+    fi
+    sync
+    swapoff "$SWAP_PART"
+    SWAP_ACTIVE=0
+    umount -R "$TARGET"
+    MOUNTED=0
+    say 'Installation complete. Remove the ISO/USB and reboot when ready.'
+    echo 'Log in to Penumbra with your new account. Reconnect Wi-Fi in the desktop if needed.'
+    echo 'The installer does not copy live-ISO Wi-Fi credentials. Source checkout: ~/Penumbra.'
+}
+
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then main "$@"; fi
 ```
 
 ## `tools/install-boot.py`
@@ -3576,6 +4198,248 @@ suite = unittest.defaultTestLoader.discover(str(Path(__file__).resolve().parent)
 sys.exit(0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1)
 ```
 
+## `tests/test_arch_install.py`
+
+```python
+"""Exercise installer guards and offline setup without mounting or modifying disks."""
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+INSTALLER = ROOT / 'tools/install-arch.sh'
+
+
+def bash(script, *, stdin='', env=None, installer=INSTALLER):
+    return subprocess.run(['bash', '-c', 'source "$1"; ' + script, '_', str(installer)],
+                          input=stdin, text=True, capture_output=True,
+                          env=env, timeout=30)
+
+
+# Only inventories are mocked. Never create block devices or call partitioning tools.
+INVENTORY = '''
+DISK=/dev/testdisk
+lsblk() {
+    case $* in
+        *MOUNTPOINTS*) printf '%s' "${TEST_MOUNTS:-}" ;;
+        *NAME,TYPE*) printf '/dev/testdisk disk\\n/dev/testdisk1 %s\\n' "${TEST_KIND:-part}" ;;
+    esac
+}
+find() { printf '%s' "${TEST_HOLDERS:-}"; }
+swapon() { printf '%s\\n' "${TEST_SWAP:-}"; }
+losetup() { printf '%s\\n' "${TEST_LOOP:-}"; }
+findmnt() { printf '%s' "${TEST_SOURCE:-}"; }
+'''
+
+
+class ArchInstaller(unittest.TestCase):
+    def test_graphics_detects_hybrid_gpus_but_ignores_nvidia_audio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            devices = Path(directory)
+            for slot, vendor, pci_class, driver in [
+                ('00:02.0', '0x8086', '0x030000', 'xe'),
+                ('01:00.0', '0x10de', '0x030200', 'nouveau'),
+                ('01:00.1', '0x10de', '0x040300', 'snd_hda_intel'),
+                ('02:00.0', '0x1002', '0x030000', 'amdgpu'),
+            ]:
+                path = devices / slot
+                path.mkdir()
+                (path / 'vendor').write_text(vendor)
+                (path / 'class').write_text(pci_class)
+                (path / 'driver').symlink_to('/fake/drivers/' + driver)
+            result = bash('detect_graphics "$TEST_DEVICES"; echo "$GPU_INTEL $GPU_AMD $GPU_NVIDIA"; echo "$GPU_EARLY_MODULES"',
+                          env={**os.environ, 'TEST_DEVICES': directory})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines(), ['1 1 1', ' xe amdgpu'])
+            shutil.rmtree(devices / '01:00.0')
+            result = bash('detect_graphics "$TEST_DEVICES"; echo "$GPU_NVIDIA"',
+                          env={**os.environ, 'TEST_DEVICES': directory})
+            self.assertEqual(result.stdout.strip(), '0')
+
+    def test_graphics_package_selection(self):
+        cases = [
+            ('1 0 0 none', {'vulkan-intel', 'lib32-vulkan-intel'}, {'nvidia-utils', 'vulkan-radeon'}),
+            ('0 1 0 none', {'vulkan-radeon', 'lib32-vulkan-radeon'}, {'nvidia-utils', 'vulkan-intel'}),
+            ('1 0 1 open', {'nvidia-open-dkms', 'linux-headers', 'lib32-nvidia-utils', 'nvidia-prime',
+                            'vulkan-intel', 'lib32-vulkan-intel', 'egl-wayland'}, {'vulkan-nouveau'}),
+            ('0 0 1 nouveau', {'vulkan-nouveau', 'lib32-vulkan-nouveau'}, {'nvidia-utils', 'nvidia-open-dkms'}),
+            ('0 0 0 none', {'mesa', 'lib32-mesa'}, {'nvidia-utils', 'vulkan-intel', 'vulkan-radeon'}),
+        ]
+        for values, included, excluded in cases:
+            with self.subTest(values=values):
+                result = bash('read -r GPU_INTEL GPU_AMD GPU_NVIDIA GPU_NVIDIA_DRIVER <<< "' + values +
+                              '"; graphics_packages; printf "%s\\n" "${GPU_PACKAGES[@]}"')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                packages = set(result.stdout.splitlines())
+                self.assertTrue(included <= packages)
+                self.assertFalse(excluded & packages)
+
+    def test_nvidia_choice_requires_confirmation_or_can_cancel(self):
+        setup = '''
+detect_graphics() { GPU_INTEL=1 GPU_AMD=0 GPU_NVIDIA=1 GPU_NVIDIA_DRIVER=none; }
+lspci() { echo 'NVIDIA test GPU'; }
+select_graphics
+echo "SELECTED=$GPU_NVIDIA_DRIVER"
+'''
+        for answer, selected in [('1\ny\n', 'open'), ('1\nn\n2\n', 'nouveau')]:
+            result = bash(setup, stdin=answer)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('SELECTED=' + selected, result.stdout)
+        for answer in ('', 'q\n'):
+            result = bash(setup, stdin=answer)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn('SELECTED=', result.stdout)
+
+    def test_nvidia_early_modules_survive_base_config_and_keep_igpu_first(self):
+        result = bash('''
+GPU_EARLY_MODULES=' xe amdgpu' GPU_NVIDIA_DRIVER=open
+config=$(graphics_initramfs_config)
+MODULES=()
+eval "$config"
+printf '%s\\n' "${MODULES[@]}"
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ['xe', 'amdgpu', 'nvidia', 'nvidia_modeset', 'nvidia_uvm', 'nvidia_drm'])
+        result = bash("GPU_EARLY_MODULES='' GPU_NVIDIA_DRIVER=nouveau; graphics_initramfs_config")
+        self.assertNotIn('nvidia', result.stdout)
+
+    def test_help_and_bash_syntax(self):
+        for path in (INSTALLER, ROOT / 'install.sh'):
+            result = subprocess.run(['bash', '-n', str(path)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        result = subprocess.run(['bash', str(INSTALLER), '--help'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Erases a whole disk', result.stdout)
+
+    def test_partition_paths(self):
+        result = bash('for disk in /dev/sda /dev/vda /dev/nvme0n1 /dev/mmcblk0; do partition_path "$disk" 3; done')
+        self.assertEqual(result.stdout.splitlines(), ['/dev/sda3', '/dev/vda3', '/dev/nvme0n1p3', '/dev/mmcblk0p3'])
+
+    def test_rejects_non_block_disk(self):
+        result = bash('DISK=/dev/null; validate_disk')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('whole disk', result.stderr)
+
+    def test_empty_disk_is_accepted(self):
+        result = bash(INVENTORY + 'check_disk_usage')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_disk_in_use_is_rejected(self):
+        cases = [
+            ('TEST_MOUNTS=/run/archiso/bootmnt', 'mounted/in use'),
+            ('TEST_MOUNTS="[SWAP]"', 'mounted/in use'),
+            ('TEST_KIND=crypt', 'mapped device'),
+            ('TEST_HOLDERS=/sys/class/block/testdisk/holders/dm-0', 'active holders'),
+            ('TEST_SWAP=/dev/testdisk1', 'active swap'),
+            ('TEST_SWAP=/swapfile; TEST_SOURCE=/dev/testdisk1', 'active swap'),
+            ('TEST_LOOP=/images/arch.iso; TEST_SOURCE=/dev/testdisk1', 'loop device'),
+        ]
+        for setup, message in cases:
+            with self.subTest(setup=setup):
+                result = bash(INVENTORY + setup + '; check_disk_usage')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+
+    def test_other_disks_swap_is_allowed(self):
+        result = bash(INVENTORY + 'TEST_SWAP=/dev/other1; TEST_SOURCE=/dev/other1; check_disk_usage')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_inventory_failure_does_not_allow_erasure(self):
+        for command in ('lsblk', 'swapon', 'losetup', 'find'):
+            with self.subTest(command=command):
+                result = bash(INVENTORY + command + '() { return 1; }; check_disk_usage')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('Could not inspect', result.stderr)
+
+    def test_confirmation_must_match_exactly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = {**os.environ, 'TEST_TARGET': directory}
+            script = '''
+TARGET=$TEST_TARGET DISK=/dev/testdisk SWAP_GIB=8
+HOSTNAME=pc DESKTOP_USER=lia SUDO_USER_ENABLED=no LOCALE=en_US.UTF-8 TIMEZONE=UTC
+validate_disk() { :; }
+findmnt() { :; }
+lsblk() { :; }
+# Even a regression must never invoke the real destructive tools.
+wipefs() { echo DESTRUCTIVE_COMMAND; exit 99; }
+sfdisk() { echo DESTRUCTIVE_COMMAND; exit 99; }
+partition_disk
+'''
+            for response in ('', 'yes\n', 'ERASE /dev/other\n', 'erase /dev/testdisk\n'):
+                with self.subTest(response=response):
+                    result = bash(script, stdin=response, env=env)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn('DESTRUCTIVE_COMMAND', result.stdout)
+
+    def test_boot_entries_use_target_uuid_and_offer_console(self):
+        result = bash('refind_config 1234-abcd')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count('root=UUID=1234-abcd'), 2)
+        self.assertIn('rw quiet splash', result.stdout)
+        self.assertIn('rw systemd.unit=multi-user.target', result.stdout)
+        self.assertNotIn('archisodevice', result.stdout)
+        self.assertNotIn('root=/dev/', result.stdout)
+
+    def test_boot_tree_copy_is_metadata_free_and_retryable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source'
+            source.mkdir()
+            (source / 'icons').mkdir()
+            (source / 'icons/os_arch.png').write_bytes(b'icon')
+            (source / 'theme.conf').write_text('theme')
+            destination = root / 'esp/themes/penumbra'
+            destination.mkdir(parents=True)
+            (destination / 'theme.conf').write_text('incomplete')
+            result = bash('''
+cp() {
+    # Model the ownership/mode restriction that the ext4-only tests missed.
+    [[ " $* " == *" --no-preserve=ownership,mode "* ]] || return 1
+    [[ " $* " != *" -a "* && " $* " != *" --preserve"* ]] || return 1
+    command cp "$@"
+}
+copy_boot_tree "$TEST_SOURCE" "$TEST_DEST"
+copy_boot_tree "$TEST_SOURCE" "$TEST_DEST"
+''', env={**os.environ, 'TEST_SOURCE': str(source), 'TEST_DEST': str(destination)})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((destination / 'theme.conf').read_text(), 'theme')
+            self.assertEqual((destination / 'icons/os_arch.png').read_bytes(), b'icon')
+            self.assertFalse((destination / 'source').exists())
+
+    def test_offline_system_services_are_never_started(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = bash('''
+OFFLINE=1 BACKUP=$HOME SERVICES=()
+systemctl() { printf '%s\\n' "$*" >> "$HOME/calls"; }
+enable_services
+cat "$HOME/calls"
+''', env={**os.environ, 'HOME': directory}, installer=ROOT / 'install.sh')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('enable sddm', result.stdout)
+            self.assertNotIn('--now', result.stdout)
+            self.assertNotIn('daemon-reload', result.stdout)
+
+    @unittest.skipUnless(shutil.which('systemctl') and Path('/usr/lib/systemd/user/gnome-keyring-daemon.socket').exists(),
+                         'needs systemd and the keyring socket for offline integration')
+    def test_offline_user_service_enable_without_a_bus(self):
+        # Real systemctl, isolated HOME, no D-Bus or XDG paths: detect accidental manager calls.
+        with tempfile.TemporaryDirectory() as directory:
+            env = {k: v for k, v in os.environ.items()
+                   if not k.startswith('XDG_') and k != 'DBUS_SESSION_BUS_ADDRESS'}
+            env['HOME'] = directory
+            result = bash('OFFLINE=1; BACKUP=$HOME/backup; mkdir -p "$BACKUP"; configure_keyring',
+                          env=env, installer=ROOT / 'install.sh')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((Path(directory) / '.config/systemd/user/sockets.target.wants/gnome-keyring-daemon.socket').is_symlink())
+
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
 ## `tests/test_artwork.py`
 
 ```python
@@ -4050,6 +4914,153 @@ class IntegrationTests(unittest.TestCase):
             boot.restore(backup)
         self.assertEqual(self.snapshot(), before)
         self.assertFalse((self.root / 'boot/EFI/refind/themes/penumbra').exists())
+
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
+## `tests/test_downloads.py`
+
+```python
+"""Video and audio downloads (bin/penumbra-download and the Downloads panel)."""
+import importlib.machinery
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import unittest
+
+sys.dont_write_bytecode = True
+ROOT = Path(__file__).resolve().parents[1]
+loader = importlib.machinery.SourceFileLoader('downloads', str(ROOT / 'bin/penumbra-download'))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+dl = importlib.util.module_from_spec(spec)
+loader.exec_module(dl)
+
+
+class Downloads(unittest.TestCase):
+    def test_video_and_audio_options(self):
+        files = Path('/tmp/files')
+        mp4 = dl.ytdlp_options(False, 'mp4', '1080', Path('/v'), False, files)
+        self.assertIn('--no-playlist', mp4)
+        self.assertIn('--embed-thumbnail', mp4)
+        self.assertEqual(mp4[mp4.index('-S') + 1], 'res:1080,ext:mp4:m4a')
+        self.assertEqual(mp4[mp4.index('--merge-output-format') + 1], 'mp4')
+
+        mkv = dl.ytdlp_options(False, 'mkv', 'best', Path('/v'), True, files)
+        self.assertIn('--yes-playlist', mkv)
+        self.assertNotIn('-S', mkv)
+        self.assertEqual(mkv[mkv.index('--merge-output-format') + 1], 'mkv')
+
+        webm = dl.ytdlp_options(False, 'webm', '720', Path('/v'), False, files)
+        self.assertNotIn('--embed-thumbnail', webm)
+        self.assertEqual(webm[webm.index('--recode-video') + 1], 'webm')
+
+        mp3 = dl.ytdlp_options(True, 'mp3', '192', Path('/m'), False, files)
+        self.assertIn('-x', mp3)
+        self.assertIn('--embed-thumbnail', mp3)
+        self.assertEqual(mp3[mp3.index('--audio-format') + 1], 'mp3')
+        self.assertEqual(mp3[mp3.index('--audio-quality') + 1], '192K')
+
+        flac = dl.ytdlp_options(True, 'flac', '192', Path('/m'), False, files)
+        self.assertNotIn('--audio-quality', flac)
+        self.assertNotIn('--embed-thumbnail', flac)
+
+        with self.assertRaises(ValueError):
+            dl.ytdlp_options(False, 'avi', 'best', Path('/v'), False, files)
+        with self.assertRaises(ValueError):
+            dl.ytdlp_options(False, 'mp4', '999', Path('/v'), False, files)
+        with self.assertRaises(ValueError):
+            dl.ytdlp_options(True, 'mp3', '64', Path('/m'), False, files)
+
+    def test_progress_and_errors(self):
+        progress = dl.parse_progress('@@ downloading 500000 1000000 NA 250000 2 1 3 A video title\n')
+        self.assertEqual(progress, {
+            'status': 'downloading', 'done': 500000.0, 'size': 1000000.0, 'percent': 50.0,
+            'speed': 250000.0, 'eta': 2, 'item': 1, 'items': 3, 'title': 'A video title',
+        })
+        unknown = dl.parse_progress('@@ downloading 1024 NA NA NA NA NA NA NA\n')
+        self.assertEqual(unknown['percent'], -1)
+        self.assertEqual(unknown['title'], '')
+        self.assertIsNone(dl.parse_progress('[download] 50% of 1.00MiB\n'))
+        self.assertEqual(dl.error_line('WARNING: x\nERROR: [youtube] abc: Private video\n'), 'Private video')
+
+    def test_summarize_video_portrait_and_playlist(self):
+        video = dl.summarize({
+            'title': 'Vertical', 'uploader': 'Channel', 'duration': 90, 'thumbnail': 'https://img/1.jpg',
+            'formats': [
+                {'height': 1920, 'width': 1080, 'vcodec': 'avc1'},
+                {'height': 1280, 'width': 720, 'vcodec': 'avc1'},
+                {'height': 1080, 'vcodec': 'none'},
+            ],
+        })
+        self.assertEqual(video['heights'], [1080, 720])
+        self.assertFalse(video['audioOnly'])
+
+        playlist = dl.summarize({
+            '_type': 'playlist', 'title': 'Mix', 'entries': [{'duration': 60}, {'duration': 120}],
+            'thumbnails': [{'url': 'https://img/p.jpg'}],
+        })
+        self.assertEqual(playlist['kind'], 'playlist')
+        self.assertEqual(playlist['entries'], 2)
+        self.assertEqual(playlist['duration'], 180)
+
+    def test_download_lifecycle_with_fake_ytdlp(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            bindir = root / 'bin'
+            runtime = root / 'run'
+            videos = root / 'Videos'
+            bindir.mkdir()
+            ytdlp = bindir / 'yt-dlp'
+            ytdlp.write_text(
+                '#!/usr/bin/env python3\n'
+                'import json, pathlib, sys\n'
+                'args = sys.argv[1:]\n'
+                'if "--version" in args:\n'
+                '    print("2026.11.01"); sys.exit(0)\n'
+                'if "-J" in args:\n'
+                '    print(json.dumps({"title": "Sample", "channel": "Penumbra", "duration": 42,\n'
+                '                      "formats": [{"height": 1080, "width": 1920, "vcodec": "avc1"}]}))\n'
+                '    sys.exit(0)\n'
+                'folder = pathlib.Path(args[args.index("-P") + 1])\n'
+                'files = pathlib.Path(args[args.index("--print-to-file") + 2])\n'
+                'out = folder / "Sample.mp4"\n'
+                'print("@@ downloading 500 1000 NA 500 1 NA NA Sample", flush=True)\n'
+                'print("[Merger] Merging formats into \\"" + str(out) + "\\"", flush=True)\n'
+                'out.write_bytes(b"video")\n'
+                'files.write_text(str(out) + "\\n")\n'
+            )
+            ytdlp.chmod(ytdlp.stat().st_mode | stat.S_IEXEC)
+            env = {**os.environ, 'PATH': f'{bindir}:{os.environ["PATH"]}',
+                   'XDG_RUNTIME_DIR': str(runtime), 'HOME': str(root)}
+
+            probed = json.loads(subprocess.check_output([str(ROOT / 'bin/penumbra-download'), 'probe'], env=env, text=True))
+            self.assertEqual(probed['ytdlp'], '2026.11.01')
+            self.assertEqual(probed['videos'], str(videos))
+
+            looked = json.loads(subprocess.check_output([str(ROOT / 'bin/penumbra-download'), 'info', 'https://example.com/v'],
+                                                        env=env, text=True))
+            self.assertEqual(looked['title'], 'Sample')
+            self.assertEqual(looked['heights'], [1080])
+
+            subprocess.run([str(ROOT / 'bin/penumbra-download'), 'start', 'https://example.com/v',
+                            '--format', 'mp4', '--quality', '1080', '--folder', str(videos), '--title', 'Sample'],
+                           env=env, check=True)
+            jobs = json.loads((runtime / 'penumbra/downloads').read_text())
+            self.assertEqual(len(jobs), 1)
+            self.assertEqual(jobs[0]['status'], 'done')
+            self.assertEqual(jobs[0]['file'], str(videos / 'Sample.mp4'))
+            self.assertTrue((videos / 'Sample.mp4').is_file())
+
+            subprocess.run([str(ROOT / 'bin/penumbra-download'), 'forget'], env=env, check=True)
+            self.assertEqual(json.loads((runtime / 'penumbra/downloads').read_text()), [])
 
 
 if __name__ == '__main__':
@@ -4863,7 +5874,7 @@ class QmlLoad(unittest.TestCase):
             stage = Path(temp)
             shutil.copytree(ROOT / 'config/quickshell/penumbra', stage, dirs_exist_ok=True)
             names = ['Bar', 'SettingsPage', 'LookPage', 'WeatherPage', 'PackagesPage', 'Osd', 'Overview', 'Wallpaper', 'ControlCenter',
-                     'MonitorPanel', 'WallpaperPicker', 'ScreenFrame', 'SessionMenu', 'Launcher']
+                     'MonitorPanel', 'WallpaperPicker', 'DownloadsPanel', 'ScreenFrame', 'SessionMenu', 'Launcher']
             for path in stage.glob('*.qml'):
                 path.write_text(path.read_text().replace('PanelWindow {', 'TestPanelWindow {'))
             (stage / 'TestPanelWindow.qml').write_text(WINDOW)
@@ -6455,6 +7466,528 @@ edit() { [[ -f $1 ]] && sed -i "$2" "$1" || true; }
 edit "$config/hypr/hyprlock.conf" "s/^\(\s*rounding = \).*/\1$lock/"
 edit "$config/satty/config.toml" "s/^corner-roundness = .*/corner-roundness = $annotate/"
 edit "$config/fastfetch/config.jsonc" "$boxes"
+```
+
+## `bin/penumbra-download`
+
+```python
+#!/usr/bin/env python3
+"""Download a video, or only its sound, with yt-dlp: the shell's Downloads panel (Super+D).
+
+    penumbra-download probe            JSON: yt-dlp's version (null when missing), ffmpeg, default folders
+    penumbra-download info URL         JSON: kind (video or playlist), title, channel, duration,
+                                       thumbnail, heights (the video's resolutions), entries
+    penumbra-download start URL [--audio] [--format EXT] [--quality Q] [--folder DIR] [--playlist]
+                                [--title TITLE]
+    penumbra-download cancel ID
+    penumbra-download forget [ID]      drop a download from the list (without ID, every finished one)
+    penumbra-download folder [START]   ask for a folder with the portal's Select Folder dialog; prints it
+
+`start` runs yt-dlp until the download is over and keeps every download in
+$XDG_RUNTIME_DIR/penumbra/downloads as JSON, which the panel shows while it is open. Nothing runs
+when nothing downloads: the panel is only loaded while it is open, and this script only lives as
+long as a download does. A notification says when it is saved, or why it failed.
+
+Video formats are mp4, mkv and webm, with a quality of best or a height (2160, 1440, 1080, 720, 480,
+360): the largest that is not taller. Audio formats are mp3, m4a, opus, flac and wav, with a quality
+of best or a bitrate in kbit/s (320, 192, 128); flac and wav are always the best the source has.
+yt-dlp's own configuration (~/.config/yt-dlp/config) still applies, for cookies or a proxy.
+"""
+import argparse
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import urllib.parse
+
+RUNTIME = Path(os.environ.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}') / 'penumbra'
+STATE = RUNTIME / 'downloads'
+LOCK = RUNTIME / 'downloads.lock'
+HOME = Path.home()
+
+VIDEO_FORMATS = ('mp4', 'mkv', 'webm')
+AUDIO_FORMATS = ('mp3', 'm4a', 'opus', 'flac', 'wav')
+LOSSLESS = ('flac', 'wav')
+HEIGHTS = (2160, 1440, 1080, 720, 480, 360)
+BITRATES = (320, 192, 128)
+# Containers ffmpeg can put a cover into without extra Python modules.
+COVERS = ('mp4', 'mkv', 'mp3', 'm4a')
+ACTIVE = ('starting', 'downloading', 'processing')
+KEEP = 30  # finished downloads the list remembers
+WRITE_EVERY = 0.5  # seconds between progress writes
+
+# One line per progress step; the title goes last since it may hold spaces.
+PROGRESS = ('download:@@ %(progress.status)s %(progress.downloaded_bytes)s %(progress.total_bytes)s '
+            '%(progress.total_bytes_estimate)s %(progress.speed)s %(progress.eta)s '
+            '%(info.playlist_index)s %(info.n_entries)s %(info.title)s')
+# What yt-dlp prints while it merges, converts or tags the downloaded files.
+PROCESSING = ('[Merger]', '[ExtractAudio]', '[VideoRemuxer]', '[VideoConvertor]', '[EmbedThumbnail]',
+              '[Metadata]', '[FixupM3u8]', '[FixupM4a]', '[FixupStretched]', '[FixupDuplicateMoov]',
+              '[ThumbnailsConvertor]', '[MoveFiles]')
+
+
+# ── Choices into yt-dlp's options ────────────────────────────────────────────
+
+def ytdlp_options(audio, fmt, quality, folder, playlist, files):
+    """yt-dlp's options for one download (the URL follows them). `quality` is 'best', a height
+    (video) or a bitrate (audio); `files` is where yt-dlp writes each finished file's path."""
+    options = ['--newline', '--no-colors', '--progress', '--progress-template', PROGRESS,
+               '--no-mtime', '--embed-metadata', '-P', str(folder),
+               '--print-to-file', 'after_move:%(filepath)s', str(files)]
+    if playlist:
+        options += ['--yes-playlist', '-o',
+                    '%(playlist_title,playlist_id|Playlist).120B/%(playlist_index|0)03d %(title).150B.%(ext)s']
+    else:
+        options += ['--no-playlist', '-o', '%(title).200B.%(ext)s']
+    if fmt in COVERS:
+        options.append('--embed-thumbnail')
+
+    if audio:
+        if fmt not in AUDIO_FORMATS:
+            raise ValueError(f'audio format must be one of {", ".join(AUDIO_FORMATS)}')
+        options += ['-f', 'ba/b', '-x', '--audio-format', fmt]
+        if fmt not in LOSSLESS:
+            options += ['--audio-quality', '0' if quality == 'best' else f'{bitrate(quality)}K']
+        return options
+
+    if fmt not in VIDEO_FORMATS:
+        raise ValueError(f'video format must be one of {", ".join(VIDEO_FORMATS)}')
+    sort = [] if quality == 'best' else [f'res:{height(quality)}']
+    if fmt == 'mp4':
+        # H.264 or AV1 with AAC, which every player opens; anything else is put into MP4 as it is.
+        sort.append('ext:mp4:m4a')
+        options += ['--merge-output-format', 'mp4', '--remux-video', 'mp4']
+    elif fmt == 'webm':
+        # VP9 or AV1 with Opus; a source with neither is converted, which takes a while.
+        sort.append('ext:webm:webm')
+        options += ['--merge-output-format', 'webm/mkv', '--recode-video', 'webm']
+    else:
+        options += ['--merge-output-format', 'mkv', '--remux-video', 'mkv']
+    options += ['-f', 'bv*+ba/b']
+    if sort:
+        options += ['-S', ','.join(sort)]
+    return options
+
+
+def height(quality):
+    value = int(quality)
+    if value not in HEIGHTS:
+        raise ValueError(f'video quality must be best or one of {", ".join(map(str, HEIGHTS))}')
+    return value
+
+
+def bitrate(quality):
+    value = int(quality)
+    if value not in BITRATES:
+        raise ValueError(f'audio quality must be best or one of {", ".join(map(str, BITRATES))}')
+    return value
+
+
+def number(text):
+    """A number from a progress line, or None for yt-dlp's NA."""
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def parse_progress(line):
+    """The fields of a PROGRESS line (after its @@), or None for any other line."""
+    if not line.startswith('@@ '):
+        return None
+    parts = line[3:].rstrip('\n').split(' ', 8)
+    if len(parts) < 8:
+        return None
+    status, done, total, estimate, speed, eta, item, items = parts[:8]
+    title = parts[8] if len(parts) > 8 and parts[8] != 'NA' else ''
+    done, total, estimate = number(done), number(total), number(estimate)
+    size = total or estimate
+    return {
+        'status': status,
+        'done': done or 0,
+        'size': size or 0,
+        'percent': round(100 * done / size, 1) if done is not None and size else -1,
+        'speed': number(speed) or 0,
+        'eta': int(number(eta)) if number(eta) is not None else -1,
+        'item': int(number(item) or 0),
+        'items': int(number(items) or 0),
+        'title': title,
+    }
+
+
+# ── The list of downloads ────────────────────────────────────────────────────
+
+class Locked:
+    """The list, read and written under a lock: several downloads update it at once."""
+
+    def __enter__(self):
+        RUNTIME.mkdir(parents=True, exist_ok=True)
+        self.lock = open(LOCK, 'w')
+        fcntl.flock(self.lock, fcntl.LOCK_EX)
+        self.jobs = read_jobs()
+        return self
+
+    def __exit__(self, *exc):
+        # Written in place, not renamed over: the panel watches this file.
+        STATE.write_text(json.dumps(self.jobs))
+        self.lock.close()
+
+    def find(self, job_id):
+        return next((j for j in self.jobs if j['id'] == job_id), None)
+
+
+def read_jobs():
+    try:
+        jobs = json.loads(STATE.read_text())
+        return jobs if isinstance(jobs, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, TypeError):
+        return False
+
+
+def tidy(jobs):
+    """Mark downloads whose process is gone (killed, or the computer slept through it) as failed,
+    and forget the oldest finished ones."""
+    for job in jobs:
+        if job.get('status') in ACTIVE and not alive(job.get('pid')):
+            job.update(status='failed', error='Stopped unexpectedly', speed=0, eta=-1)
+    finished = [j for j in jobs if j.get('status') not in ACTIVE]
+    for job in finished[:-KEEP] if len(finished) > KEEP else []:
+        jobs.remove(job)
+
+
+def update(job_id, **fields):
+    with Locked() as state:
+        job = state.find(job_id)
+        if job:
+            job.update(fields)
+
+
+# ── Commands ─────────────────────────────────────────────────────────────────
+
+def user_dir(name, fallback):
+    """A folder from ~/.config/user-dirs.dirs (XDG_VIDEOS_DIR…), or ~/fallback."""
+    config = Path(os.environ.get('XDG_CONFIG_HOME') or HOME / '.config') / 'user-dirs.dirs'
+    try:
+        for line in config.read_text().splitlines():
+            match = re.match(rf'\s*XDG_{name}_DIR="(.*)"', line)
+            if match:
+                path = match.group(1).replace('$HOME', str(HOME))
+                if path.rstrip('/') != str(HOME):
+                    return path
+    except OSError:
+        pass
+    return str(HOME / fallback)
+
+
+def probe(_args):
+    version = None
+    if shutil.which('yt-dlp'):
+        result = subprocess.run(['yt-dlp', '--version'], capture_output=True, text=True, check=False)
+        version = result.stdout.strip() or None
+    with Locked() as state:
+        tidy(state.jobs)
+    print(json.dumps({
+        'ytdlp': version,
+        'ffmpeg': bool(shutil.which('ffmpeg')),
+        'videos': user_dir('VIDEOS', 'Videos'),
+        'music': user_dir('MUSIC', 'Music'),
+        'downloads': user_dir('DOWNLOAD', 'Downloads'),
+    }))
+
+
+def summarize(data):
+    """What the panel shows of yt-dlp's JSON for a URL."""
+    if data.get('_type') == 'playlist':
+        entries = [e for e in data.get('entries') or [] if e]
+        thumbs = data.get('thumbnails') or (entries[0].get('thumbnails') if entries else None) or []
+        return {
+            'kind': 'playlist',
+            'title': data.get('title') or data.get('id') or '',
+            'channel': data.get('channel') or data.get('uploader') or '',
+            'duration': sum(e.get('duration') or 0 for e in entries),
+            'thumbnail': thumbs[-1].get('url', '') if thumbs else '',
+            'heights': [],
+            'entries': data.get('playlist_count') or len(entries),
+        }
+    # The smaller side, as yt-dlp's res sort counts it: a portrait 1080×1920 video is 1080p.
+    heights = sorted({min(f['height'], f.get('width') or f['height']) for f in data.get('formats') or []
+                      if f.get('height') and f.get('vcodec') != 'none'}, reverse=True)
+    return {
+        'kind': 'video',
+        'title': data.get('title') or data.get('id') or '',
+        'channel': data.get('channel') or data.get('uploader') or '',
+        'duration': data.get('duration') or 0,
+        'thumbnail': data.get('thumbnail') or '',
+        'heights': heights or ([data['height']] if data.get('height') else []),
+        'audioOnly': bool(data.get('formats')) and not heights and not data.get('height'),
+        'entries': 0,
+    }
+
+
+def info(args):
+    # A video in a playlist is looked up alone (the panel offers the whole playlist); a playlist is
+    # listed without opening each video.
+    result = subprocess.run(['yt-dlp', '-J', '--no-warnings', '--flat-playlist', '--no-playlist', '--', args.url],
+                            capture_output=True, text=True, check=False)
+    # The address goes back with the answer, so the panel can drop one for an address since changed.
+    if result.returncode != 0:
+        print(json.dumps({'url': args.url, 'error': error_line(result.stderr) or 'yt-dlp could not read this address'}))
+        return 1
+    try:
+        print(json.dumps({'url': args.url, **summarize(json.loads(result.stdout))}))
+    except ValueError:
+        print(json.dumps({'url': args.url, 'error': 'yt-dlp gave an unexpected answer'}))
+        return 1
+    return 0
+
+
+def error_line(text):
+    """The last ERROR line yt-dlp printed, without its prefix and extractor tag."""
+    errors = [line for line in text.splitlines() if line.startswith('ERROR:')]
+    if not errors:
+        return ''
+    message = errors[-1][len('ERROR:'):].strip()
+    return re.sub(r'^\[[^\]]+\]\s*(\S+:\s*)?', '', message)
+
+
+def notify(title, body, icon, urgency='normal'):
+    if shutil.which('notify-send'):
+        subprocess.run(['notify-send', '-a', 'Penumbra', '-u', urgency, '-i', icon, title, body],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+def home_path(path):
+    path = str(path)
+    return '~' + path[len(str(HOME)):] if path == str(HOME) or path.startswith(str(HOME) + '/') else path
+
+
+def start(args):
+    if not shutil.which('yt-dlp'):
+        notify('Download failed', 'yt-dlp is not installed', 'dialog-error', 'critical')
+        return 1
+    fmt = args.format or ('mp3' if args.audio else 'mp4')
+    folder = Path(os.path.expanduser(args.folder or user_dir('MUSIC' if args.audio else 'VIDEOS',
+                                                             'Music' if args.audio else 'Videos')))
+    job_id = secrets.token_hex(4)
+    files = RUNTIME / f'download-{job_id}.files'
+    try:
+        options = ytdlp_options(args.audio, fmt, args.quality, folder, args.playlist, files)
+        folder.mkdir(parents=True, exist_ok=True)
+    except (ValueError, OSError) as error:
+        notify('Download failed', str(error), 'dialog-error', 'critical')
+        return 2
+
+    job = {'id': job_id, 'url': args.url, 'title': args.title or '', 'kind': 'audio' if args.audio else 'video',
+           'format': fmt, 'quality': args.quality, 'folder': str(folder), 'playlist': args.playlist,
+           'status': 'starting', 'percent': -1, 'done': 0, 'size': 0, 'speed': 0, 'eta': -1,
+           'item': 0, 'items': 0, 'file': '', 'error': '', 'pid': os.getpid(), 'started': int(time.time())}
+    with Locked() as state:
+        tidy(state.jobs)
+        state.jobs.append(job)
+
+    process = subprocess.Popen(['yt-dlp', *options, '--', args.url], stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, text=True, errors='replace', bufsize=1,
+                               start_new_session=True,
+                               env={k: v for k, v in os.environ.items() if k != 'MALLOC_CONF'})
+    cancelled = False
+
+    def signal_group(signum):
+        try:
+            os.killpg(process.pid, signum)
+        except OSError:
+            pass
+
+    def cancel(_signum, _frame):
+        nonlocal cancelled
+        cancelled = True
+        # yt-dlp stops cleanly on Ctrl+C; if it hasn't within five seconds, it is killed.
+        signal_group(signal.SIGINT)
+        signal.alarm(5)
+    signal.signal(signal.SIGTERM, cancel)
+    signal.signal(signal.SIGINT, cancel)
+    signal.signal(signal.SIGALRM, lambda *_: signal_group(signal.SIGKILL))
+
+    partial, errors, last_write, title = [], [], 0.0, args.title or ''
+    current = {}
+    for line in process.stdout:
+        progress = parse_progress(line)
+        if progress:
+            title = title or progress['title']
+            del progress['title']
+            status = 'processing' if progress.pop('status') == 'finished' else 'downloading'
+            current = dict(progress, status=status, title=title)
+            now = time.monotonic()
+            if now - last_write >= WRITE_EVERY or status == 'processing':
+                update(job_id, **current)
+                last_write = now
+            continue
+        line = line.rstrip('\n')
+        if line.startswith('[download] Destination: '):
+            partial.append(line[len('[download] Destination: '):])
+        elif line.startswith('ERROR:'):
+            errors.append(line)
+        elif line.startswith(PROCESSING) and current.get('status') != 'processing':
+            current['status'] = 'processing'
+            update(job_id, status='processing', speed=0, eta=-1)
+    code = process.wait()
+
+    try:
+        saved = [p for p in files.read_text().splitlines() if p]
+    except OSError:
+        saved = []
+    files.unlink(missing_ok=True)
+    icon = 'audio-x-generic' if args.audio else 'video-x-generic'
+    name = title or args.url
+
+    if cancelled:
+        # What yt-dlp leaves half done: .part and .ytdl files, and streams not yet merged.
+        for path in partial:
+            for leftover in (path, path + '.part', path + '.ytdl'):
+                if leftover not in saved:
+                    Path(leftover).unlink(missing_ok=True)
+        update(job_id, status='cancelled', speed=0, eta=-1)
+        return 0
+    if code == 0 or saved:
+        file = saved[-1] if saved else ''
+        error = error_line('\n'.join(errors)) if code != 0 else ''
+        update(job_id, status='done', percent=100, speed=0, eta=-1, file=file, items=max(len(saved), 1),
+               error=error, finished=int(time.time()))
+        where = home_path(Path(file).parent if file else folder)
+        count = f'{len(saved)} files · ' if len(saved) > 1 else ''
+        notify('Download finished', f'{name}\n{count}{where}', icon)
+        return 0
+    error = error_line('\n'.join(errors)) or f'yt-dlp stopped with code {code}'
+    update(job_id, status='failed', speed=0, eta=-1, error=error, finished=int(time.time()))
+    notify('Download failed', f'{name}\n{error}', 'dialog-error', 'critical')
+    return 1
+
+
+def cancel(args):
+    with Locked() as state:
+        job = state.find(args.id)
+    if job and job.get('status') in ACTIVE and alive(job.get('pid')):
+        os.kill(job['pid'], signal.SIGTERM)
+    return 0
+
+
+def forget(args):
+    with Locked() as state:
+        tidy(state.jobs)
+        state.jobs = [j for j in state.jobs
+                      if j.get('status') in ACTIVE or (args.id and j['id'] != args.id)]
+    return 0
+
+
+def choose_folder(args):
+    start_folder = os.path.expanduser(args.start or str(HOME))
+    path = portal_folder(start_folder)
+    if path is None:
+        path = dialog_folder(start_folder)
+    if not path:
+        return 1
+    print(path)
+    return 0
+
+
+def portal_folder(start_folder):
+    """The folder picked in the file chooser portal's dialog (Lia Files' or GTK's); '' when
+    cancelled, None when there is no portal to ask."""
+    try:
+        import gi
+        gi.require_version('Gio', '2.0')
+        from gi.repository import Gio, GLib
+    except (ImportError, ValueError):
+        return None
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        token = 'penumbra' + secrets.token_hex(4)
+        sender = bus.get_unique_name()[1:].replace('.', '_')
+        handle = f'/org/freedesktop/portal/desktop/request/{sender}/{token}'
+        loop = GLib.MainLoop()
+        answer = {'path': ''}
+
+        def response(_bus, _sender, _path, _interface, _signal, parameters):
+            code, results = parameters.unpack()
+            uris = results.get('uris') or []
+            if code == 0 and uris:
+                answer['path'] = urllib.parse.unquote(urllib.parse.urlparse(uris[0]).path)
+            loop.quit()
+        # Subscribed before asking, so a quick answer isn't missed.
+        bus.signal_subscribe('org.freedesktop.portal.Desktop', 'org.freedesktop.portal.Request', 'Response',
+                             handle, None, Gio.DBusSignalFlags.NONE, response)
+        options = {
+            'handle_token': GLib.Variant('s', token),
+            'directory': GLib.Variant('b', True),
+            'modal': GLib.Variant('b', True),
+            'current_folder': GLib.Variant('ay', os.fsencode(start_folder) + b'\0'),
+            'accept_label': GLib.Variant('s', 'Choose'),
+        }
+        bus.call_sync('org.freedesktop.portal.Desktop', '/org/freedesktop/portal/desktop',
+                      'org.freedesktop.portal.FileChooser', 'OpenFile',
+                      GLib.Variant('(ssa{sv})', ('', 'Save downloads in', options)),
+                      GLib.VariantType('(o)'), Gio.DBusCallFlags.NONE, -1, None)
+        loop.run()
+        return answer['path']
+    except GLib.Error:
+        return None
+
+
+def dialog_folder(start_folder):
+    for command in (['zenity', '--file-selection', '--directory', '--title=Save downloads in',
+                     f'--filename={start_folder.rstrip("/")}/'],
+                    ['kdialog', '--getexistingdirectory', start_folder, '--title', 'Save downloads in']):
+        if shutil.which(command[0]):
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            return result.stdout.strip()
+    return ''
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog='penumbra-download', description='Download videos and audio with yt-dlp.')
+    commands = parser.add_subparsers(dest='command', required=True)
+    commands.add_parser('probe').set_defaults(run=probe)
+    command = commands.add_parser('info')
+    command.add_argument('url')
+    command.set_defaults(run=info)
+    command = commands.add_parser('start')
+    command.add_argument('url')
+    command.add_argument('--audio', action='store_true')
+    command.add_argument('--format')
+    command.add_argument('--quality', default='best')
+    command.add_argument('--folder')
+    command.add_argument('--playlist', action='store_true')
+    command.add_argument('--title')
+    command.set_defaults(run=start)
+    command = commands.add_parser('cancel')
+    command.add_argument('id')
+    command.set_defaults(run=cancel)
+    command = commands.add_parser('forget')
+    command.add_argument('id', nargs='?')
+    command.set_defaults(run=forget)
+    command = commands.add_parser('folder')
+    command.add_argument('start', nargs='?')
+    command.set_defaults(run=choose_folder)
+    args = parser.parse_args(argv)
+    return args.run(args) or 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
 ```
 
 ## `bin/penumbra-exit`
@@ -9433,6 +10966,7 @@ exec("ALT + Tab", "quickshell -c penumbra ipc call launcher windows")
 exec("SUPER + SHIFT + C", "~/.local/bin/penumbra-picker")
 exec("SUPER + W", "~/.local/bin/penumbra-wallpaper next")
 exec("SUPER + SHIFT + W", "quickshell -c penumbra ipc call panel wallpapers")
+exec("SUPER + D", "quickshell -c penumbra ipc call panel downloads")
 exec("SUPER + SHIFT + R", "~/.local/bin/penumbra-session restart")
 -- Every workspace at a glance: Super and the key left of 1 (` on QWERTY, ² on AZERTY), or four
 -- fingers up on a touchpad.
@@ -10451,7 +11985,8 @@ PanelWindow {
         control: margins.left + content.x + rightSide.x + controls.x + controls.width / 2,
         monitor: margins.left + content.x + rightSide.x + monitor.x + monitor.width / 2,
         updates: margins.left + content.x + rightSide.x + updatesCapsule.x + updatesCapsule.width / 2,
-        wallpapers: margins.left + content.x + rightSide.x + controls.x + controls.width / 2
+        wallpapers: margins.left + content.x + rightSide.x + controls.x + controls.width / 2,
+        downloads: margins.left + content.x + rightSide.x + controls.x + controls.width / 2
     })
     onPanelOriginsChanged: if (screen) Ui.setPanelOrigins(screen.name, panelOrigins)
     Component.onCompleted: if (screen) Ui.setPanelOrigins(screen.name, panelOrigins)
@@ -12186,7 +13721,7 @@ Panel {
                     }
                 }
 
-                // Quick actions strip for instant tools (Screenshot, Wallpaper, Quick notes).
+                // Quick actions strip for instant tools (Screenshot, Wallpaper, Download, Quick notes).
                 RowLayout {
                     StaggerReveal { shown: root.open && mainPage.visible; order: 2 }
                     Layout.fillWidth: true
@@ -12195,6 +13730,7 @@ Panel {
                         model: [
                             { glyph: "󰹑", title: "Screenshot", run: () => Ui.openShot() },
                             { glyph: "󰸉", title: "Wallpaper", run: () => Ui.toggle("wallpapers") },
+                            { glyph: "󰇚", title: "Download", run: () => Ui.toggle("downloads") },
                             { glyph: "󰎞", title: "Notes", run: () => Ui.openControl("notes") }
                         ]
                         delegate: Rectangle {
@@ -12210,9 +13746,10 @@ Panel {
                             CardLight { radius: quickAction.radius; pointer: Qt.point(actionArea.mouseX, actionArea.mouseY); hovered: actionArea.containsMouse }
                             RowLayout {
                                 anchors.centerIn: parent
-                                spacing: 7
+                                width: Math.min(implicitWidth, parent.width - 10)
+                                spacing: 6
                                 Glyph { text: quickAction.modelData.glyph; size: 15; color: Theme.accentBright }
-                                Label { text: quickAction.modelData.title; font.pixelSize: Theme.textSmall; font.weight: Font.Medium; color: Theme.textSoft }
+                                Label { Layout.fillWidth: true; text: quickAction.modelData.title; font.pixelSize: Theme.textSmall; font.weight: Font.Medium; color: Theme.textSoft }
                             }
                             MouseArea {
                                 id: actionArea
@@ -13562,6 +15099,612 @@ Item {
 }
 ```
 
+## `config/quickshell/penumbra/DownloadsPanel.qml`
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Io
+import Quickshell.Widgets
+import "downloads.js" as Downloads
+
+// Download a video, or only its sound, with yt-dlp: paste an address, choose video or audio, its
+// format and quality and the folder it goes in. bin/penumbra-download does the downloading, so a
+// download carries on when the panel closes or the shell restarts, and keeps the list of downloads
+// in $XDG_RUNTIME_DIR/penumbra/downloads, shown below the form. shell.qml loads this panel only
+// while it is open: closed, nothing of it runs. Super+D, the launcher (paste an address) or
+// `panel downloads` / `panel download URL` open it.
+Panel {
+    id: root
+    originKey: "downloads"
+    anchors { top: true; right: true }
+    margins.right: edgeMargin - shadowRoom
+    preferredSheetWidth: 440
+    // Opened a moment after it is made, so it springs open like the panels that always exist.
+    property bool ready: false
+    open: Ui.downloadsOpen && ready
+    grabFocus: !choosingFolder
+    onDismissed: if (!choosingFolder) Ui.dismiss()
+    Timer { interval: 1; running: true; onTriggered: root.ready = true }
+    onOpenChanged: if (open) Qt.callLater(() => urlField.forceActiveFocus())
+
+    readonly property string home: Quickshell.env("HOME")
+    readonly property string helper: Ui.bin + "penumbra-download"
+
+    // What penumbra-download probe found: { ytdlp (version or null), ffmpeg, videos, music }.
+    property var tools: null
+    readonly property bool missing: tools !== null && !tools.ytdlp
+    // The looked-up address: { kind (video or playlist), title, channel, duration, thumbnail,
+    // heights, audioOnly, entries }, or { error }.
+    property var info: null
+    readonly property bool looking: lookup.running || lookupDelay.running
+    property bool wholePlaylist: false
+    property var jobs: [] // newest first
+    readonly property bool choosingFolder: chooser.running
+
+    readonly property string url: Downloads.address(urlField.text, true)
+    readonly property var choice: Settings.downloads ?? {}
+    readonly property bool audio: choice.kind === "audio" || !!info?.audioOnly
+    readonly property string format: Downloads.format(audio, audio ? choice.audioFormat : choice.videoFormat)
+    readonly property var qualities: Downloads.qualities(audio, format, info?.heights)
+    readonly property string quality: Downloads.quality(qualities, audio ? choice.audioQuality : choice.videoQuality)
+    readonly property string folder: (audio ? choice.audioFolder : choice.videoFolder) || (audio ? tools?.music : tools?.videos) || ""
+    readonly property bool playlist: info?.kind === "playlist" || wholePlaylist && Downloads.inPlaylist(url)
+    readonly property bool canDownload: url !== "" && folder !== "" && !!tools?.ytdlp && !info?.error
+
+    function remember(key, value) {
+        Settings.downloads = Object.assign({}, choice, { [key]: value });
+    }
+    function download() {
+        if (!canDownload)
+            return;
+        Ui.spawn(Downloads.command(helper, {
+            url, audio, format, quality, folder, playlist,
+            // A playlist's own title, not that of the video its address points at.
+            title: !playlist || info?.kind === "playlist" ? info?.title ?? "" : ""
+        }));
+        urlField.text = "";
+        urlField.forceActiveFocus();
+    }
+    function lookUp() {
+        if (!url || !tools?.ytdlp)
+            return;
+        lookup.command = [helper, "info", url];
+        lookup.running = true;
+    }
+    // An address from the launcher or IPC, else one on the clipboard.
+    function takeAddress() {
+        if (Ui.downloadUrl) {
+            urlField.text = Ui.downloadUrl;
+            Ui.downloadUrl = "";
+        } else if (!urlField.text) {
+            paste.running = true;
+        }
+    }
+
+    onUrlChanged: {
+        info = null;
+        wholePlaylist = false;
+        lookup.running = false;
+        if (url && tools?.ytdlp)
+            lookupDelay.restart();
+        else
+            lookupDelay.stop();
+    }
+    onToolsChanged: if (url && !info) lookupDelay.restart()
+    Component.onCompleted: takeAddress()
+    Connections {
+        target: Ui
+        function onDownloadUrlChanged() { if (Ui.downloadUrl) root.takeAddress(); }
+    }
+
+    // ── Helpers, each running only for a moment ─────────────────────
+    Process {
+        running: true
+        command: [root.helper, "probe"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    root.tools = JSON.parse(text);
+                } catch (e) {
+                    root.tools = { ytdlp: null, ffmpeg: false };
+                }
+                state.reload(); // the probe makes the file the first time
+            }
+        }
+    }
+    Timer {
+        id: lookupDelay
+        interval: 450
+        onTriggered: root.lookUp()
+    }
+    Process {
+        id: lookup
+        stdout: StdioCollector {
+            onStreamFinished: {
+                let answer;
+                try {
+                    answer = JSON.parse(text);
+                } catch (e) {
+                    return; // stopped for an address since changed
+                }
+                if (answer.url === root.url)
+                    root.info = answer;
+            }
+        }
+    }
+    Process {
+        id: paste
+        command: ["wl-paste", "--no-newline", "--type", "text"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const address = Downloads.address(text, false);
+                if (address && !urlField.text)
+                    urlField.text = address;
+            }
+        }
+    }
+    Process {
+        id: chooser
+        command: [root.helper, "folder", root.folder]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const path = text.trim();
+                if (path)
+                    root.remember(root.audio ? "audioFolder" : "videoFolder", path);
+            }
+        }
+        onExited: urlField.forceActiveFocus()
+    }
+    FileView {
+        id: state
+        path: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/penumbra/downloads"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: {
+            try {
+                const list = JSON.parse(text());
+                if (Array.isArray(list))
+                    root.jobs = list.slice().reverse();
+            } catch (e) {
+                // Caught mid-write; the next change brings the rest.
+            }
+        }
+    }
+
+    component IconButton: Rectangle {
+        id: button
+        property string glyph
+        property color tint: Theme.textSoft
+        signal clicked()
+        implicitWidth: 30
+        implicitHeight: 30
+        radius: Theme.corner(15)
+        color: buttonArea.containsMouse ? Theme.hover : "transparent"
+        Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
+        Glyph {
+            anchors.centerIn: parent
+            text: button.glyph
+            size: 14
+            color: buttonArea.containsMouse ? Theme.text : button.tint
+        }
+        MouseArea {
+            id: buttonArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: button.clicked()
+        }
+    }
+
+    ColumnLayout {
+        x: 18
+        y: 18
+        width: root.sheetWidth - 36
+        spacing: 12
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 12
+            Rectangle {
+                implicitWidth: 42
+                implicitHeight: 42
+                radius: Theme.corner(21)
+                gradient: Gradient {
+                    GradientStop { position: 0; color: Theme.accent }
+                    GradientStop { position: 1; color: Theme.accentDeep }
+                }
+                Glyph { anchors.centerIn: parent; text: "󰇚"; size: 19; color: Theme.accentInk }
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 1
+                Label {
+                    text: "Download"
+                    font.pixelSize: Theme.textLarge
+                    font.weight: Font.DemiBold
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: root.tools?.ytdlp ? "Video or audio · yt-dlp " + root.tools.ytdlp : "Video or audio, with yt-dlp"
+                    font.pixelSize: Theme.textSmall
+                    color: Theme.muted
+                }
+            }
+        }
+
+        // yt-dlp, or ffmpeg, missing.
+        Rectangle {
+            Layout.fillWidth: true
+            visible: root.missing || root.tools !== null && !root.tools.ffmpeg
+            implicitHeight: missingRow.implicitHeight + 20
+            radius: Theme.radiusSmall
+            color: Theme.alpha(Theme.amber, 0.12)
+            border.color: Theme.alpha(Theme.amber, 0.4)
+            RowLayout {
+                id: missingRow
+                anchors { fill: parent; margins: 10 }
+                spacing: 10
+                Glyph { text: "󰀦"; size: 17; color: Theme.amber }
+                Label {
+                    Layout.fillWidth: true
+                    text: root.missing ? "yt-dlp is not installed. Install the yt-dlp package (or run ./install.sh again) to download videos and audio."
+                        : "ffmpeg is not installed: audio can't be converted, and the best video qualities can't be put together."
+                    wrapMode: Text.Wrap
+                    font.pixelSize: Theme.textSmall
+                }
+            }
+        }
+
+        // The address.
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+            Field {
+                id: urlField
+                Layout.fillWidth: true
+                enabled: !root.missing
+                placeholderText: "Paste a video or playlist address"
+                invalid: text.trim() !== "" && root.url === "" || !!root.info?.error
+                onAccepted: root.download()
+            }
+            IconButton {
+                glyph: urlField.text ? "󰅖" : "󰅇"
+                onClicked: {
+                    if (urlField.text)
+                        urlField.text = "";
+                    else
+                        paste.running = true;
+                    urlField.forceActiveFocus();
+                }
+            }
+        }
+
+        // What the address is: looking it up, its title and length, or why yt-dlp can't read it.
+        Rectangle {
+            Layout.fillWidth: true
+            visible: root.url !== ""
+            implicitHeight: preview.implicitHeight + 16
+            radius: Theme.radiusSmall
+            color: Theme.raised
+            border.color: Theme.line
+            RowLayout {
+                id: preview
+                anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: 8 }
+                spacing: 12
+                ClippingRectangle {
+                    visible: !!root.info?.thumbnail
+                    implicitWidth: 96
+                    implicitHeight: 54
+                    radius: Theme.corner(8)
+                    color: Theme.control
+                    Image {
+                        anchors.fill: parent
+                        source: root.info?.thumbnail ?? ""
+                        sourceSize: Qt.size(192, 108)
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                    }
+                }
+                Glyph {
+                    visible: !root.info?.thumbnail
+                    Layout.preferredWidth: 22
+                    Layout.leftMargin: 4
+                    text: root.looking ? "󰔟" : root.info?.error ? "󰅚" : root.audio ? "󰎈" : "󰕧"
+                    size: 16
+                    color: root.info?.error ? Theme.rose : Theme.accent
+                    RotationAnimation on rotation {
+                        running: root.looking && !Theme.reducedMotion
+                        from: 0; to: 360; duration: 1200; loops: Animation.Infinite
+                        onRunningChanged: if (!running) parent.rotation = 0
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    Label {
+                        Layout.fillWidth: true
+                        text: root.info?.error ? "yt-dlp can't download this" : root.info?.title || (root.looking ? "Looking it up…" : root.url)
+                        font.weight: root.info?.title ? Font.DemiBold : Font.Normal
+                        wrapMode: Text.Wrap
+                        maximumLineCount: 2
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        visible: text !== ""
+                        text: {
+                            const i = root.info;
+                            if (!i)
+                                return "";
+                            if (i.error)
+                                return i.error;
+                            const parts = [];
+                            if (i.kind === "playlist")
+                                parts.push(i.entries === 1 ? "Playlist · 1 video" : `Playlist · ${i.entries} videos`);
+                            if (i.channel)
+                                parts.push(i.channel);
+                            if (i.duration > 0)
+                                parts.push(Downloads.clock(i.duration));
+                            if (i.kind === "video" && i.heights?.length)
+                                parts.push(`up to ${i.heights[0]}p`);
+                            return parts.join(" · ");
+                        }
+                        font.pixelSize: Theme.textSmall
+                        color: root.info?.error ? Theme.rose : Theme.muted
+                        wrapMode: root.info?.error ? Text.Wrap : Text.NoWrap
+                        maximumLineCount: 3
+                    }
+                }
+            }
+        }
+
+        SwitchRow {
+            visible: Downloads.inPlaylist(root.url) && root.info?.kind !== "playlist" && !root.info?.error
+            glyph: "󰲸"
+            title: "Whole playlist"
+            subtitle: "Every video in it, in a folder of its own"
+            checked: root.wholePlaylist
+            onToggled: root.wholePlaylist = !root.wholePlaylist
+        }
+
+        // Video or audio, format, quality.
+        ColumnLayout {
+            Layout.fillWidth: true
+            enabled: !root.missing
+            opacity: enabled ? 1 : 0.5
+            spacing: 8
+
+            Segmented {
+                Layout.fillWidth: true
+                options: [
+                    { value: "video", title: "Video", glyph: "󰕧", available: !root.info?.audioOnly },
+                    { value: "audio", title: "Audio only", glyph: "󰎈" }
+                ]
+                current: root.audio ? "audio" : "video"
+                onChosen: value => root.remember("kind", value)
+            }
+
+            Overline { Layout.fillWidth: true; Layout.topMargin: 4; text: "Format" }
+            Segmented {
+                Layout.fillWidth: true
+                options: Downloads.formats(root.audio)
+                current: root.format
+                onChosen: value => root.remember(root.audio ? "audioFormat" : "videoFormat", value)
+            }
+
+            Overline { Layout.fillWidth: true; Layout.topMargin: 4; text: "Quality" }
+            Segmented {
+                Layout.fillWidth: true
+                visible: root.qualities.length > 0
+                options: root.qualities
+                current: root.quality
+                onChosen: value => root.remember(root.audio ? "audioQuality" : "videoQuality", value)
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: root.qualities.length === 0
+                text: "Lossless: the best sound the source has"
+                font.pixelSize: Theme.textSmall
+                color: Theme.textSoft
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: !root.audio && root.quality !== "best"
+                text: "The largest that isn't taller, when the video has no " + (root.quality === "2160" ? "4K" : root.quality + "p")
+                font.pixelSize: Theme.textTiny
+                color: Theme.dim
+            }
+
+            Overline { Layout.fillWidth: true; Layout.topMargin: 4; text: "Save in" }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Field {
+                    id: folderField
+                    Layout.fillWidth: true
+                    text: Downloads.home(root.folder, root.home)
+                    placeholderText: "Folder"
+                    onEditingFinished: {
+                        const path = Downloads.expand(text, root.home);
+                        if (path && path !== root.folder)
+                            root.remember(root.audio ? "audioFolder" : "videoFolder", path.replace(/(.)\/+$/, "$1"));
+                        text = Qt.binding(() => Downloads.home(root.folder, root.home));
+                    }
+                }
+                PillButton {
+                    text: root.choosingFolder ? "Choosing…" : "Browse…"
+                    available: !root.choosingFolder
+                    onClicked: chooser.running = true
+                }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: 4
+            spacing: 8
+            Label {
+                Layout.fillWidth: true
+                text: root.playlist ? "The whole playlist" : ""
+                font.pixelSize: Theme.textSmall
+                color: Theme.muted
+            }
+            PillButton {
+                text: root.audio ? "Download audio" : "Download video"
+                primary: true
+                implicitHeight: 34
+                available: root.canDownload
+                onClicked: root.download()
+            }
+        }
+
+        // Downloads in progress and finished ones, newest first.
+        ColumnLayout {
+            Layout.fillWidth: true
+            visible: root.jobs.length > 0
+            spacing: 4
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 6
+                Overline { Layout.fillWidth: true; text: "Downloads" }
+                Label {
+                    visible: root.jobs.some(j => !Downloads.active(j))
+                    text: "Clear finished"
+                    font.pixelSize: Theme.textSmall
+                    color: clearArea.containsMouse ? Theme.accentBright : Theme.accent
+                    MouseArea {
+                        id: clearArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: Quickshell.execDetached([root.helper, "forget"])
+                    }
+                }
+            }
+
+            Flickable {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(contentHeight, 250)
+                contentHeight: list.implicitHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                ColumnLayout {
+                    id: list
+                    width: parent.width
+                    spacing: 2
+
+                    Repeater {
+                        model: root.jobs
+                        delegate: Rectangle {
+                            id: job
+                            required property var modelData
+                            readonly property bool running: Downloads.active(modelData)
+                            readonly property bool failed: modelData.status === "failed"
+                            readonly property bool done: modelData.status === "done"
+                            Layout.fillWidth: true
+                            implicitHeight: jobColumn.implicitHeight + 14
+                            radius: Theme.radiusSmall
+                            color: jobArea.containsMouse ? Theme.raised : "transparent"
+                            Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
+
+                            MouseArea {
+                                id: jobArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.NoButton
+                            }
+
+                            ColumnLayout {
+                                id: jobColumn
+                                anchors { left: parent.left; right: parent.right; top: parent.top; margins: 7; leftMargin: 10; rightMargin: 4 }
+                                spacing: 6
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 10
+                                    Glyph {
+                                        Layout.preferredWidth: 22
+                                        text: job.failed ? "󰅚" : job.done ? "󰄬" : job.modelData.kind === "audio" ? "󰎈" : "󰕧"
+                                        size: 16
+                                        color: job.failed ? Theme.rose : job.done ? Theme.green : job.running ? Theme.accent : Theme.dim
+                                    }
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 0
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: Downloads.title(job.modelData)
+                                        }
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: Downloads.describe(job.modelData, root.home)
+                                            font.pixelSize: Theme.textSmall
+                                            color: job.failed ? Theme.rose : Theme.muted
+                                        }
+                                    }
+                                    IconButton {
+                                        visible: job.done && !!job.modelData.file && !(job.modelData.items > 1)
+                                        glyph: "󰐊"
+                                        onClicked: { Ui.close(); Ui.spawn(["xdg-open", job.modelData.file]); }
+                                    }
+                                    IconButton {
+                                        visible: job.done
+                                        glyph: "󰉋"
+                                        onClicked: {
+                                            Ui.close();
+                                            Ui.spawn(["xdg-open", job.modelData.file ? job.modelData.file.replace(/\/[^\/]*$/, "") : job.modelData.folder]);
+                                        }
+                                    }
+                                    IconButton {
+                                        glyph: "󰅖"
+                                        tint: job.running ? Theme.rose : Theme.dim
+                                        onClicked: Quickshell.execDetached([root.helper, job.running ? "cancel" : "forget", job.modelData.id])
+                                    }
+                                }
+
+                                // Progress; sliding while the size isn't known yet, or while it converts.
+                                Rectangle {
+                                    id: track
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 32
+                                    Layout.rightMargin: 6
+                                    Layout.bottomMargin: 2
+                                    visible: job.running
+                                    readonly property bool known: job.modelData.status === "downloading" && job.modelData.percent >= 0
+                                    implicitHeight: 4
+                                    radius: Theme.corner(2)
+                                    color: Theme.line
+                                    clip: true
+                                    Rectangle {
+                                        height: parent.height
+                                        radius: parent.radius
+                                        color: Theme.accent
+                                        width: track.known ? parent.width * Math.min(100, job.modelData.percent) / 100 : parent.width * 0.3
+                                        Behavior on width { enabled: track.known && !Theme.reducedMotion; NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
+                                        NumberAnimation on x {
+                                            running: !track.known && job.running && track.visible && !Theme.reducedMotion
+                                            from: -track.width * 0.3
+                                            to: track.width
+                                            duration: 1300
+                                            loops: Animation.Infinite
+                                            onRunningChanged: if (!running) parent.x = 0
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
 ## `config/quickshell/penumbra/EclipseScene.qml`
 
 ```qml
@@ -14395,12 +16538,14 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Widgets
+import "downloads.js" as Downloads
 import "search.js" as Search
 import "symbols.js" as Symbols
 
 // Applications, open windows, clipboard history, emoji and symbols, over a dimmed screen. Type to
 // search; `>` runs a command, `?` searches the web, `/` finds files; a sum (or `=`), "10 km in mi"
-// or "100 usd in eur" is worked out and copied. Tab moves to the next mode.
+// or "100 usd in eur" is worked out and copied; an http(s) address offers to download it with
+// yt-dlp. Tab moves to the next mode.
 PanelWindow {
     id: root
     screen: Ui.screen
@@ -14512,6 +16657,9 @@ PanelWindow {
         } else if (text.startsWith("/")) {
             list = files; // findFiles fills them in as you type
         } else {
+            const url = Downloads.address(text, false);
+            if (url)
+                list.push({ kind: "download", url });
             const sum = Search.calculate(text);
             if (sum !== null)
                 list.push({ kind: "calc", value: sum });
@@ -14563,6 +16711,11 @@ PanelWindow {
             item.toplevel.activate();
         } else if (item.kind === "web") {
             Ui.spawn(["xdg-open", "https://duckduckgo.com/?q=" + encodeURIComponent(item.query)]);
+        } else if (item.kind === "download") {
+            if (alternate)
+                Ui.spawn(["xdg-open", item.url]);
+            else
+                Ui.openDownloads(item.url);
         } else if (item.kind === "file") {
             // Shift+Enter opens the folder it is in.
             Ui.spawn(["xdg-open", alternate ? item.path.replace(/\/[^/]*$/, "") || "/" : item.path]);
@@ -15015,7 +17168,7 @@ PanelWindow {
                                 Glyph {
                                     anchors.centerIn: parent
                                     visible: !parent.swatch
-                                    text: ({ run: "󰆍", calc: "󰃬", clip: "󰅍", pin: "󰐃", web: "󰖟", file: "󰈔", convert: "󰁔", currency: "󰄉" })[row.modelData.kind] ?? ""
+                                    text: ({ run: "󰆍", calc: "󰃬", clip: "󰅍", pin: "󰐃", web: "󰖟", download: "󰇚", file: "󰈔", convert: "󰁔", currency: "󰄉" })[row.modelData.kind] ?? ""
                                     size: 16
                                     color: Theme.accentBright
                                 }
@@ -15072,6 +17225,8 @@ PanelWindow {
                                         return m.toplevel.title || m.toplevel.appId;
                                     if (m.kind === "web")
                                         return m.query;
+                                    if (m.kind === "download")
+                                        return m.url;
                                     if (m.kind === "file")
                                         return m.path.replace(/^.*\//, "");
                                     if (m.kind === "pin")
@@ -15104,6 +17259,8 @@ PanelWindow {
                                         return (m.entry?.name || m.toplevel.appId) + (m.toplevel.activated ? " · focused" : "");
                                     if (m.kind === "web")
                                         return "Search the web · DuckDuckGo in your browser";
+                                    if (m.kind === "download")
+                                        return "Download video or audio with yt-dlp · Shift+Enter opens in your browser";
                                     if (m.kind === "file")
                                         return m.path.replace(Quickshell.env("HOME"), "~").replace(/\/[^/]*$/, "") + " · Shift+Enter opens the folder";
                                     if (m.kind === "pin")
@@ -21175,6 +23332,9 @@ PanelWindow {
     property alias sheet: sheet
     // Items that see key presses before the sheet does (which closes on Escape).
     property list<Item> keyTargets
+    // False while a dialog of the panel's own is up (a folder chooser), so clicking it doesn't
+    // close the panel.
+    property bool grabFocus: true
     signal dismissed()
 
     // Room around the sheet for its shadow; panels anchor with Theme.edge - shadowRoom, so the
@@ -21196,7 +23356,7 @@ PanelWindow {
 
     HyprlandFocusGrab {
         windows: [panel]
-        active: panel.open
+        active: panel.open && panel.grabFocus
         onCleared: panel.dismissed()
     }
 
@@ -22381,6 +24541,9 @@ Singleton {
     property alias calendarWeekNumbers: adapter.calendarWeekNumbers
     // Stop charging at this percentage where the battery supports it (100: off).
     property alias batteryLimit: adapter.batteryLimit
+    // The Downloads panel's last choices: kind (video or audio), videoFormat, videoQuality,
+    // audioFormat, audioQuality, videoFolder, audioFolder.
+    property alias downloads: adapter.downloads
 
     // hyprland.lua reads it at start; a change applies to the running Hyprland at once.
     onReducedMotionChanged: Quickshell.execDetached(["hyprctl", "eval", `hl.config({animations = {enabled = ${!reducedMotion}}})`])
@@ -22462,6 +24625,7 @@ Singleton {
             property var idleInhibitApps: []
             property bool calendarWeekNumbers: false
             property int batteryLimit: 100
+            property var downloads: ({})
         }
     }
 }
@@ -22619,6 +24783,7 @@ ColumnLayout {
         { page: "notifications", glyph: "󰂚", title: "Notifications", words: "do not disturb dnd schedule fullscreen sharing sounds lock screen count mute quiet keep rules" },
         { page: "apps", glyph: "󰀻", title: "Default apps", words: "browser file manager terminal" },
         { page: "packages", glyph: "󰏗", title: "Installed packages", words: "software pacman aur foreign flatpak appimage uninstall update manage" },
+        { page: "downloads", glyph: "󰇚", title: "Download video or audio", words: "yt-dlp youtube video audio music mp4 mp3 mkv webm opus flac" },
         { page: "weather", glyph: "󰖐", title: "Weather", words: "location city coordinates forecast temperature calendar clock bar" },
         { page: "notes", glyph: "󰎞", title: "Quick notes", words: "notes draft text writing local sidebar" },
         { page: "night", glyph: "󰖔", title: "Night light", words: "warmth temperature kelvin sunset sunrise schedule hyprsunset" },
@@ -22638,8 +24803,8 @@ ColumnLayout {
     readonly property var matches: query === "" ? [] : index.filter(e => query.split(/\s+/).every(q => (e.title + " " + e.words).toLowerCase().includes(q)))
     function open(entry) {
         search.text = "";
-        if (entry.page === "wallpapers")
-            Ui.toggle("wallpapers");
+        if (entry.page === "wallpapers" || entry.page === "downloads")
+            Ui.toggle(entry.page);
         else if (entry.page !== "settings")
             Ui.openControl(entry.page, entry.tab);
     }
@@ -22856,6 +25021,14 @@ ColumnLayout {
                 subtitle: "pacman, AUR, Flatpak and AppImage"
                 trailing: "󰅂"
                 onClicked: Ui.openControl("packages")
+            }
+            ListRow {
+                Layout.fillWidth: true
+                glyph: "󰇚"
+                title: "Download video or audio"
+                subtitle: "Save a video or its sound with yt-dlp"
+                trailing: "󰅂"
+                onClicked: Ui.toggle("downloads")
             }
             ListRow {
                 Layout.fillWidth: true
@@ -23888,13 +26061,16 @@ import Quickshell.Wayland
 Singleton {
     id: root
 
-    // At most one panel is open: control, calendar, monitor, updates, wallpapers, or "".
+    // At most one panel is open: control, calendar, monitor, updates, wallpapers, downloads, or "".
     property string openPanel: ""
     readonly property bool controlOpen: openPanel === "control"
     readonly property bool calendarOpen: openPanel === "calendar"
     readonly property bool monitorOpen: openPanel === "monitor"
     readonly property bool updatesOpen: openPanel === "updates"
     readonly property bool wallpapersOpen: openPanel === "wallpapers"
+    readonly property bool downloadsOpen: openPanel === "downloads"
+    // The address the Downloads panel opens with (from the launcher or IPC); it takes it and clears it.
+    property string downloadUrl: ""
     property string controlPage: "main" // main, wifi, bluetooth, mixer, night, cast, notifications, settings or a settings page
     property string previousControlPage: "main"
     property string lookTab: "theme" // theme or desktop
@@ -23960,6 +26136,12 @@ Singleton {
     function openSession() {
         closeOverlays();
         sessionOpen = true;
+    }
+    // The Downloads panel, with `url` in its address field when there is one.
+    function openDownloads(url) {
+        closeOverlays();
+        downloadUrl = url ?? "";
+        openPanel = "downloads";
     }
     function toggleLauncher(mode) {
         const reopen = !(launcherOpen && launcherMode === mode);
@@ -25760,6 +27942,161 @@ Rectangle {
 }
 ```
 
+## `config/quickshell/penumbra/downloads.js`
+
+```javascript
+.pragma library
+// The Downloads panel's logic (DownloadsPanel.qml, and the launcher's download result): which text
+// is an address, the choices offered for video and audio, the command that starts a download, and
+// how a download's progress reads. bin/penumbra-download checks the same choices.
+
+const videoFormats = [
+    { value: "mp4", title: "MP4" },
+    { value: "mkv", title: "MKV" },
+    { value: "webm", title: "WebM" }
+];
+const audioFormats = [
+    { value: "mp3", title: "MP3" },
+    { value: "m4a", title: "M4A" },
+    { value: "opus", title: "Opus" },
+    { value: "flac", title: "FLAC" },
+    { value: "wav", title: "WAV" }
+];
+const lossless = ["flac", "wav"];
+const heights = [2160, 1440, 1080, 720, 480];
+const bitrates = [320, 192, 128];
+
+// The address in `text`, or "" when it isn't one. Only http(s) addresses count, unless `loose`
+// (the panel's own field), where "youtube.com/watch?v=…" gets https:// in front.
+function address(text, loose) {
+    const t = String(text ?? "").trim();
+    if (!t || /\s/.test(t))
+        return "";
+    if (/^https?:\/\/[^\/\s.]+\.[^\/\s]+/i.test(t) || /^https?:\/\/localhost[:\/]/i.test(t))
+        return t;
+    if (loose && /^([a-z0-9-]+\.)+[a-z]{2,}(:\d+)?\/\S*$/i.test(t))
+        return "https://" + t;
+    return "";
+}
+
+// A video in a playlist (YouTube's watch?v=…&list=…): the panel offers the whole playlist.
+function inPlaylist(url) {
+    return /[?&]list=[^&#]+/.test(url ?? "");
+}
+
+function formats(audio) {
+    return audio ? audioFormats : videoFormats;
+}
+function defaultFormat(audio) {
+    return audio ? "mp3" : "mp4";
+}
+// The format chosen before, when it is one this kind offers.
+function format(audio, saved) {
+    return formats(audio).some(f => f.value === saved) ? saved : defaultFormat(audio);
+}
+
+// Video: best, then each height up to the tallest the video has (all of them before it is looked
+// up). Audio: best and bitrates, none for lossless formats. A height is the smaller side, as
+// yt-dlp counts it, so a portrait 1080×1920 video is 1080p.
+function qualities(audio, fmt, available) {
+    if (audio)
+        return lossless.includes(fmt) ? [] : [{ value: "best", title: "Best" }].concat(bitrates.map(b => ({ value: String(b), title: b + "k" })));
+    const tallest = Math.max(0, ...(available ?? []));
+    const offered = tallest > 0 ? heights.filter(h => h <= tallest * 1.1) : heights;
+    return [{ value: "best", title: "Best" }].concat(offered.map(h => ({ value: String(h), title: h === 2160 ? "4K" : h + "p" })));
+}
+// The chosen quality when it is offered, else best.
+function quality(options, saved) {
+    return options.some(q => q.value === saved) ? saved : "best";
+}
+
+// penumbra-download's arguments for a download. `choice`: { url, audio, format, quality, folder,
+// playlist, title }.
+function command(helper, choice) {
+    const args = [helper, "start", choice.url, "--format", choice.format, "--quality", choice.quality || "best"];
+    if (choice.audio)
+        args.push("--audio");
+    if (choice.folder)
+        args.push("--folder", choice.folder);
+    if (choice.playlist)
+        args.push("--playlist");
+    if (choice.title)
+        args.push("--title", choice.title);
+    return args;
+}
+
+function active(job) {
+    return ["starting", "downloading", "processing"].includes(job?.status);
+}
+
+function bytes(n) {
+    if (!(n > 0))
+        return "";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let i = 0;
+    while (n >= 1000 && i < units.length - 1) {
+        n /= 1000;
+        i++;
+    }
+    return (i === 0 || n >= 100 ? Math.round(n) : n.toFixed(1)) + " " + units[i];
+}
+
+// 75 → "1:15", 3725 → "1:02:05".
+function clock(seconds) {
+    if (!(seconds >= 0))
+        return "";
+    const s = Math.round(seconds), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+    const ss = String(s % 60).padStart(2, "0");
+    return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
+
+function home(path, homeDir) {
+    if (!path || !homeDir)
+        return path ?? "";
+    return path === homeDir ? "~" : path.startsWith(homeDir + "/") ? "~" + path.slice(homeDir.length) : path;
+}
+function expand(path, homeDir) {
+    const p = String(path ?? "").trim();
+    return p === "~" ? homeDir : p.startsWith("~/") ? homeDir + p.slice(1) : p;
+}
+
+// The line under a download's title.
+function describe(job, homeDir) {
+    const items = job.items > 1 ? `${job.item || 1} of ${job.items} · ` : "";
+    switch (job.status) {
+    case "starting":
+        return "Starting…";
+    case "downloading": {
+        const parts = [];
+        if (job.percent >= 0)
+            parts.push(Math.floor(job.percent) + "%" + (job.size > 0 ? " of " + bytes(job.size) : ""));
+        else if (job.done > 0)
+            parts.push(bytes(job.done));
+        if (job.speed > 0)
+            parts.push(bytes(job.speed) + "/s");
+        if (job.eta > 0)
+            parts.push(clock(job.eta) + " left");
+        return items + (parts.join(" · ") || "Downloading…");
+    }
+    case "processing":
+        return items + (job.kind === "audio" ? "Converting…" : "Finishing…");
+    case "done": {
+        const folder = job.file ? job.file.replace(/\/[^\/]*$/, "") : job.folder;
+        return (job.items > 1 ? job.items + " files · " : "") + "Saved in " + home(folder, homeDir);
+    }
+    case "cancelled":
+        return "Cancelled";
+    default:
+        return job.error || "Failed";
+    }
+}
+
+// What to call a download: its title, else its file's name, else the address.
+function title(job) {
+    return job.title || (job.file ? job.file.replace(/^.*\//, "") : "") || job.url;
+}
+```
+
 ## `config/quickshell/penumbra/eclipse/aurora.frag`
 
 ```glsl
@@ -26443,6 +28780,17 @@ ShellRoot {
     MonitorPanel {}
     UpdatesPanel {}
     WallpaperPicker {}
+    // Made only while it is open, and while it fades out: closed, the Downloads panel costs nothing
+    // (downloads carry on in penumbra-download).
+    LazyLoader {
+        id: downloads
+        property bool fading: false
+        active: Ui.downloadsOpen || fading
+        DownloadsPanel {
+            onOpenChanged: if (!open && visible) downloads.fading = true
+            onVisibleChanged: if (!visible) downloads.fading = false
+        }
+    }
     NotificationPopups {}
     Osd {}
     SessionMenu {}
@@ -26489,6 +28837,9 @@ ShellRoot {
         function session(): void { Ui.openSession(); }
         function updates(): void { Ui.toggle("updates"); }
         function wallpapers(): void { Ui.toggle("wallpapers"); }
+        // Download a video or its sound with yt-dlp; `download URL` opens with the address filled in.
+        function downloads(): void { Ui.toggle("downloads"); }
+        function download(url: string): void { Ui.openDownloads(url); }
         function close(): void { Ui.closeOverlays(); }
     }
 

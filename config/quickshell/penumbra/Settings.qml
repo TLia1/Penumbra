@@ -60,6 +60,9 @@ Singleton {
     property alias calendarWeekNumbers: adapter.calendarWeekNumbers
     // Stop charging at this percentage where the battery supports it (100: off).
     property alias batteryLimit: adapter.batteryLimit
+    // The Downloads panel's last choices: kind (video or audio), videoFormat, videoQuality,
+    // audioFormat, audioQuality, videoFolder, audioFolder.
+    property alias downloads: adapter.downloads
 
     // hyprland.lua reads it at start; a change applies to the running Hyprland at once.
     onReducedMotionChanged: Quickshell.execDetached(["hyprctl", "eval", `hl.config({animations = {enabled = ${!reducedMotion}}})`])
@@ -141,6 +144,7 @@ Singleton {
             property var idleInhibitApps: []
             property bool calendarWeekNumbers: false
             property int batteryLimit: 100
+            property var downloads: ({})
         }
     }
 }

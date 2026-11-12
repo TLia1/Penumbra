@@ -96,6 +96,7 @@ exec("ALT + Tab", "quickshell -c penumbra ipc call launcher windows")
 exec("SUPER + SHIFT + C", "~/.local/bin/penumbra-picker")
 exec("SUPER + W", "~/.local/bin/penumbra-wallpaper next")
 exec("SUPER + SHIFT + W", "quickshell -c penumbra ipc call panel wallpapers")
+exec("SUPER + D", "quickshell -c penumbra ipc call panel downloads")
 exec("SUPER + SHIFT + R", "~/.local/bin/penumbra-session restart")
 -- Every workspace at a glance: Super and the key left of 1 (` on QWERTY, ² on AZERTY), or four
 -- fingers up on a touchpad.

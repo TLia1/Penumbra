@@ -10,13 +10,16 @@ import Quickshell.Wayland
 Singleton {
     id: root
 
-    // At most one panel is open: control, calendar, monitor, updates, wallpapers, or "".
+    // At most one panel is open: control, calendar, monitor, updates, wallpapers, downloads, or "".
     property string openPanel: ""
     readonly property bool controlOpen: openPanel === "control"
     readonly property bool calendarOpen: openPanel === "calendar"
     readonly property bool monitorOpen: openPanel === "monitor"
     readonly property bool updatesOpen: openPanel === "updates"
     readonly property bool wallpapersOpen: openPanel === "wallpapers"
+    readonly property bool downloadsOpen: openPanel === "downloads"
+    // The address the Downloads panel opens with (from the launcher or IPC); it takes it and clears it.
+    property string downloadUrl: ""
     property string controlPage: "main" // main, wifi, bluetooth, mixer, night, cast, notifications, settings or a settings page
     property string previousControlPage: "main"
     property string lookTab: "theme" // theme or desktop
@@ -82,6 +85,12 @@ Singleton {
     function openSession() {
         closeOverlays();
         sessionOpen = true;
+    }
+    // The Downloads panel, with `url` in its address field when there is one.
+    function openDownloads(url) {
+        closeOverlays();
+        downloadUrl = url ?? "";
+        openPanel = "downloads";
     }
     function toggleLauncher(mode) {
         const reopen = !(launcherOpen && launcherMode === mode);

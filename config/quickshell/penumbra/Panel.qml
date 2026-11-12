@@ -30,6 +30,9 @@ PanelWindow {
     property alias sheet: sheet
     // Items that see key presses before the sheet does (which closes on Escape).
     property list<Item> keyTargets
+    // False while a dialog of the panel's own is up (a folder chooser), so clicking it doesn't
+    // close the panel.
+    property bool grabFocus: true
     signal dismissed()
 
     // Room around the sheet for its shadow; panels anchor with Theme.edge - shadowRoom, so the
@@ -51,7 +54,7 @@ PanelWindow {
 
     HyprlandFocusGrab {
         windows: [panel]
-        active: panel.open
+        active: panel.open && panel.grabFocus
         onCleared: panel.dismissed()
     }
 

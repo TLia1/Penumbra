@@ -29,6 +29,17 @@ ShellRoot {
     MonitorPanel {}
     UpdatesPanel {}
     WallpaperPicker {}
+    // Made only while it is open, and while it fades out: closed, the Downloads panel costs nothing
+    // (downloads carry on in penumbra-download).
+    LazyLoader {
+        id: downloads
+        property bool fading: false
+        active: Ui.downloadsOpen || fading
+        DownloadsPanel {
+            onOpenChanged: if (!open && visible) downloads.fading = true
+            onVisibleChanged: if (!visible) downloads.fading = false
+        }
+    }
     NotificationPopups {}
     Osd {}
     SessionMenu {}
@@ -75,6 +86,9 @@ ShellRoot {
         function session(): void { Ui.openSession(); }
         function updates(): void { Ui.toggle("updates"); }
         function wallpapers(): void { Ui.toggle("wallpapers"); }
+        // Download a video or its sound with yt-dlp; `download URL` opens with the address filled in.
+        function downloads(): void { Ui.toggle("downloads"); }
+        function download(url: string): void { Ui.openDownloads(url); }
         function close(): void { Ui.closeOverlays(); }
     }
 

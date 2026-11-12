@@ -1,0 +1,517 @@
+#!/usr/bin/env python3
+"""Download a video, or only its sound, with yt-dlp: the shell's Downloads panel (Super+D).
+
+    penumbra-download probe            JSON: yt-dlp's version (null when missing), ffmpeg, default folders
+    penumbra-download info URL         JSON: kind (video or playlist), title, channel, duration,
+                                       thumbnail, heights (the video's resolutions), entries
+    penumbra-download start URL [--audio] [--format EXT] [--quality Q] [--folder DIR] [--playlist]
+                                [--title TITLE]
+    penumbra-download cancel ID
+    penumbra-download forget [ID]      drop a download from the list (without ID, every finished one)
+    penumbra-download folder [START]   ask for a folder with the portal's Select Folder dialog; prints it
+
+`start` runs yt-dlp until the download is over and keeps every download in
+$XDG_RUNTIME_DIR/penumbra/downloads as JSON, which the panel shows while it is open. Nothing runs
+when nothing downloads: the panel is only loaded while it is open, and this script only lives as
+long as a download does. A notification says when it is saved, or why it failed.
+
+Video formats are mp4, mkv and webm, with a quality of best or a height (2160, 1440, 1080, 720, 480,
+360): the largest that is not taller. Audio formats are mp3, m4a, opus, flac and wav, with a quality
+of best or a bitrate in kbit/s (320, 192, 128); flac and wav are always the best the source has.
+yt-dlp's own configuration (~/.config/yt-dlp/config) still applies, for cookies or a proxy.
+"""
+import argparse
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import urllib.parse
+
+RUNTIME = Path(os.environ.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}') / 'penumbra'
+STATE = RUNTIME / 'downloads'
+LOCK = RUNTIME / 'downloads.lock'
+HOME = Path.home()
+
+VIDEO_FORMATS = ('mp4', 'mkv', 'webm')
+AUDIO_FORMATS = ('mp3', 'm4a', 'opus', 'flac', 'wav')
+LOSSLESS = ('flac', 'wav')
+HEIGHTS = (2160, 1440, 1080, 720, 480, 360)
+BITRATES = (320, 192, 128)
+# Containers ffmpeg can put a cover into without extra Python modules.
+COVERS = ('mp4', 'mkv', 'mp3', 'm4a')
+ACTIVE = ('starting', 'downloading', 'processing')
+KEEP = 30  # finished downloads the list remembers
+WRITE_EVERY = 0.5  # seconds between progress writes
+
+# One line per progress step; the title goes last since it may hold spaces.
+PROGRESS = ('download:@@ %(progress.status)s %(progress.downloaded_bytes)s %(progress.total_bytes)s '
+            '%(progress.total_bytes_estimate)s %(progress.speed)s %(progress.eta)s '
+            '%(info.playlist_index)s %(info.n_entries)s %(info.title)s')
+# What yt-dlp prints while it merges, converts or tags the downloaded files.
+PROCESSING = ('[Merger]', '[ExtractAudio]', '[VideoRemuxer]', '[VideoConvertor]', '[EmbedThumbnail]',
+              '[Metadata]', '[FixupM3u8]', '[FixupM4a]', '[FixupStretched]', '[FixupDuplicateMoov]',
+              '[ThumbnailsConvertor]', '[MoveFiles]')
+
+
+# ── Choices into yt-dlp's options ────────────────────────────────────────────
+
+def ytdlp_options(audio, fmt, quality, folder, playlist, files):
+    """yt-dlp's options for one download (the URL follows them). `quality` is 'best', a height
+    (video) or a bitrate (audio); `files` is where yt-dlp writes each finished file's path."""
+    options = ['--newline', '--no-colors', '--progress', '--progress-template', PROGRESS,
+               '--no-mtime', '--embed-metadata', '-P', str(folder),
+               '--print-to-file', 'after_move:%(filepath)s', str(files)]
+    if playlist:
+        options += ['--yes-playlist', '-o',
+                    '%(playlist_title,playlist_id|Playlist).120B/%(playlist_index|0)03d %(title).150B.%(ext)s']
+    else:
+        options += ['--no-playlist', '-o', '%(title).200B.%(ext)s']
+    if fmt in COVERS:
+        options.append('--embed-thumbnail')
+
+    if audio:
+        if fmt not in AUDIO_FORMATS:
+            raise ValueError(f'audio format must be one of {", ".join(AUDIO_FORMATS)}')
+        options += ['-f', 'ba/b', '-x', '--audio-format', fmt]
+        if fmt not in LOSSLESS:
+            options += ['--audio-quality', '0' if quality == 'best' else f'{bitrate(quality)}K']
+        return options
+
+    if fmt not in VIDEO_FORMATS:
+        raise ValueError(f'video format must be one of {", ".join(VIDEO_FORMATS)}')
+    sort = [] if quality == 'best' else [f'res:{height(quality)}']
+    if fmt == 'mp4':
+        # H.264 or AV1 with AAC, which every player opens; anything else is put into MP4 as it is.
+        sort.append('ext:mp4:m4a')
+        options += ['--merge-output-format', 'mp4', '--remux-video', 'mp4']
+    elif fmt == 'webm':
+        # VP9 or AV1 with Opus; a source with neither is converted, which takes a while.
+        sort.append('ext:webm:webm')
+        options += ['--merge-output-format', 'webm/mkv', '--recode-video', 'webm']
+    else:
+        options += ['--merge-output-format', 'mkv', '--remux-video', 'mkv']
+    options += ['-f', 'bv*+ba/b']
+    if sort:
+        options += ['-S', ','.join(sort)]
+    return options
+
+
+def height(quality):
+    value = int(quality)
+    if value not in HEIGHTS:
+        raise ValueError(f'video quality must be best or one of {", ".join(map(str, HEIGHTS))}')
+    return value
+
+
+def bitrate(quality):
+    value = int(quality)
+    if value not in BITRATES:
+        raise ValueError(f'audio quality must be best or one of {", ".join(map(str, BITRATES))}')
+    return value
+
+
+def number(text):
+    """A number from a progress line, or None for yt-dlp's NA."""
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def parse_progress(line):
+    """The fields of a PROGRESS line (after its @@), or None for any other line."""
+    if not line.startswith('@@ '):
+        return None
+    parts = line[3:].rstrip('\n').split(' ', 8)
+    if len(parts) < 8:
+        return None
+    status, done, total, estimate, speed, eta, item, items = parts[:8]
+    title = parts[8] if len(parts) > 8 and parts[8] != 'NA' else ''
+    done, total, estimate = number(done), number(total), number(estimate)
+    size = total or estimate
+    return {
+        'status': status,
+        'done': done or 0,
+        'size': size or 0,
+        'percent': round(100 * done / size, 1) if done is not None and size else -1,
+        'speed': number(speed) or 0,
+        'eta': int(number(eta)) if number(eta) is not None else -1,
+        'item': int(number(item) or 0),
+        'items': int(number(items) or 0),
+        'title': title,
+    }
+
+
+# ── The list of downloads ────────────────────────────────────────────────────
+
+class Locked:
+    """The list, read and written under a lock: several downloads update it at once."""
+
+    def __enter__(self):
+        RUNTIME.mkdir(parents=True, exist_ok=True)
+        self.lock = open(LOCK, 'w')
+        fcntl.flock(self.lock, fcntl.LOCK_EX)
+        self.jobs = read_jobs()
+        return self
+
+    def __exit__(self, *exc):
+        # Written in place, not renamed over: the panel watches this file.
+        STATE.write_text(json.dumps(self.jobs))
+        self.lock.close()
+
+    def find(self, job_id):
+        return next((j for j in self.jobs if j['id'] == job_id), None)
+
+
+def read_jobs():
+    try:
+        jobs = json.loads(STATE.read_text())
+        return jobs if isinstance(jobs, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, TypeError):
+        return False
+
+
+def tidy(jobs):
+    """Mark downloads whose process is gone (killed, or the computer slept through it) as failed,
+    and forget the oldest finished ones."""
+    for job in jobs:
+        if job.get('status') in ACTIVE and not alive(job.get('pid')):
+            job.update(status='failed', error='Stopped unexpectedly', speed=0, eta=-1)
+    finished = [j for j in jobs if j.get('status') not in ACTIVE]
+    for job in finished[:-KEEP] if len(finished) > KEEP else []:
+        jobs.remove(job)
+
+
+def update(job_id, **fields):
+    with Locked() as state:
+        job = state.find(job_id)
+        if job:
+            job.update(fields)
+
+
+# ── Commands ─────────────────────────────────────────────────────────────────
+
+def user_dir(name, fallback):
+    """A folder from ~/.config/user-dirs.dirs (XDG_VIDEOS_DIR…), or ~/fallback."""
+    config = Path(os.environ.get('XDG_CONFIG_HOME') or HOME / '.config') / 'user-dirs.dirs'
+    try:
+        for line in config.read_text().splitlines():
+            match = re.match(rf'\s*XDG_{name}_DIR="(.*)"', line)
+            if match:
+                path = match.group(1).replace('$HOME', str(HOME))
+                if path.rstrip('/') != str(HOME):
+                    return path
+    except OSError:
+        pass
+    return str(HOME / fallback)
+
+
+def probe(_args):
+    version = None
+    if shutil.which('yt-dlp'):
+        result = subprocess.run(['yt-dlp', '--version'], capture_output=True, text=True, check=False)
+        version = result.stdout.strip() or None
+    with Locked() as state:
+        tidy(state.jobs)
+    print(json.dumps({
+        'ytdlp': version,
+        'ffmpeg': bool(shutil.which('ffmpeg')),
+        'videos': user_dir('VIDEOS', 'Videos'),
+        'music': user_dir('MUSIC', 'Music'),
+        'downloads': user_dir('DOWNLOAD', 'Downloads'),
+    }))
+
+
+def summarize(data):
+    """What the panel shows of yt-dlp's JSON for a URL."""
+    if data.get('_type') == 'playlist':
+        entries = [e for e in data.get('entries') or [] if e]
+        thumbs = data.get('thumbnails') or (entries[0].get('thumbnails') if entries else None) or []
+        return {
+            'kind': 'playlist',
+            'title': data.get('title') or data.get('id') or '',
+            'channel': data.get('channel') or data.get('uploader') or '',
+            'duration': sum(e.get('duration') or 0 for e in entries),
+            'thumbnail': thumbs[-1].get('url', '') if thumbs else '',
+            'heights': [],
+            'entries': data.get('playlist_count') or len(entries),
+        }
+    # The smaller side, as yt-dlp's res sort counts it: a portrait 1080×1920 video is 1080p.
+    heights = sorted({min(f['height'], f.get('width') or f['height']) for f in data.get('formats') or []
+                      if f.get('height') and f.get('vcodec') != 'none'}, reverse=True)
+    return {
+        'kind': 'video',
+        'title': data.get('title') or data.get('id') or '',
+        'channel': data.get('channel') or data.get('uploader') or '',
+        'duration': data.get('duration') or 0,
+        'thumbnail': data.get('thumbnail') or '',
+        'heights': heights or ([data['height']] if data.get('height') else []),
+        'audioOnly': bool(data.get('formats')) and not heights and not data.get('height'),
+        'entries': 0,
+    }
+
+
+def info(args):
+    # A video in a playlist is looked up alone (the panel offers the whole playlist); a playlist is
+    # listed without opening each video.
+    result = subprocess.run(['yt-dlp', '-J', '--no-warnings', '--flat-playlist', '--no-playlist', '--', args.url],
+                            capture_output=True, text=True, check=False)
+    # The address goes back with the answer, so the panel can drop one for an address since changed.
+    if result.returncode != 0:
+        print(json.dumps({'url': args.url, 'error': error_line(result.stderr) or 'yt-dlp could not read this address'}))
+        return 1
+    try:
+        print(json.dumps({'url': args.url, **summarize(json.loads(result.stdout))}))
+    except ValueError:
+        print(json.dumps({'url': args.url, 'error': 'yt-dlp gave an unexpected answer'}))
+        return 1
+    return 0
+
+
+def error_line(text):
+    """The last ERROR line yt-dlp printed, without its prefix and extractor tag."""
+    errors = [line for line in text.splitlines() if line.startswith('ERROR:')]
+    if not errors:
+        return ''
+    message = errors[-1][len('ERROR:'):].strip()
+    return re.sub(r'^\[[^\]]+\]\s*(\S+:\s*)?', '', message)
+
+
+def notify(title, body, icon, urgency='normal'):
+    if shutil.which('notify-send'):
+        subprocess.run(['notify-send', '-a', 'Penumbra', '-u', urgency, '-i', icon, title, body],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+def home_path(path):
+    path = str(path)
+    return '~' + path[len(str(HOME)):] if path == str(HOME) or path.startswith(str(HOME) + '/') else path
+
+
+def start(args):
+    if not shutil.which('yt-dlp'):
+        notify('Download failed', 'yt-dlp is not installed', 'dialog-error', 'critical')
+        return 1
+    fmt = args.format or ('mp3' if args.audio else 'mp4')
+    folder = Path(os.path.expanduser(args.folder or user_dir('MUSIC' if args.audio else 'VIDEOS',
+                                                             'Music' if args.audio else 'Videos')))
+    job_id = secrets.token_hex(4)
+    files = RUNTIME / f'download-{job_id}.files'
+    try:
+        options = ytdlp_options(args.audio, fmt, args.quality, folder, args.playlist, files)
+        folder.mkdir(parents=True, exist_ok=True)
+    except (ValueError, OSError) as error:
+        notify('Download failed', str(error), 'dialog-error', 'critical')
+        return 2
+
+    job = {'id': job_id, 'url': args.url, 'title': args.title or '', 'kind': 'audio' if args.audio else 'video',
+           'format': fmt, 'quality': args.quality, 'folder': str(folder), 'playlist': args.playlist,
+           'status': 'starting', 'percent': -1, 'done': 0, 'size': 0, 'speed': 0, 'eta': -1,
+           'item': 0, 'items': 0, 'file': '', 'error': '', 'pid': os.getpid(), 'started': int(time.time())}
+    with Locked() as state:
+        tidy(state.jobs)
+        state.jobs.append(job)
+
+    process = subprocess.Popen(['yt-dlp', *options, '--', args.url], stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, text=True, errors='replace', bufsize=1,
+                               start_new_session=True,
+                               env={k: v for k, v in os.environ.items() if k != 'MALLOC_CONF'})
+    cancelled = False
+
+    def signal_group(signum):
+        try:
+            os.killpg(process.pid, signum)
+        except OSError:
+            pass
+
+    def cancel(_signum, _frame):
+        nonlocal cancelled
+        cancelled = True
+        # yt-dlp stops cleanly on Ctrl+C; if it hasn't within five seconds, it is killed.
+        signal_group(signal.SIGINT)
+        signal.alarm(5)
+    signal.signal(signal.SIGTERM, cancel)
+    signal.signal(signal.SIGINT, cancel)
+    signal.signal(signal.SIGALRM, lambda *_: signal_group(signal.SIGKILL))
+
+    partial, errors, last_write, title = [], [], 0.0, args.title or ''
+    current = {}
+    for line in process.stdout:
+        progress = parse_progress(line)
+        if progress:
+            title = title or progress['title']
+            del progress['title']
+            status = 'processing' if progress.pop('status') == 'finished' else 'downloading'
+            current = dict(progress, status=status, title=title)
+            now = time.monotonic()
+            if now - last_write >= WRITE_EVERY or status == 'processing':
+                update(job_id, **current)
+                last_write = now
+            continue
+        line = line.rstrip('\n')
+        if line.startswith('[download] Destination: '):
+            partial.append(line[len('[download] Destination: '):])
+        elif line.startswith('ERROR:'):
+            errors.append(line)
+        elif line.startswith(PROCESSING) and current.get('status') != 'processing':
+            current['status'] = 'processing'
+            update(job_id, status='processing', speed=0, eta=-1)
+    code = process.wait()
+
+    try:
+        saved = [p for p in files.read_text().splitlines() if p]
+    except OSError:
+        saved = []
+    files.unlink(missing_ok=True)
+    icon = 'audio-x-generic' if args.audio else 'video-x-generic'
+    name = title or args.url
+
+    if cancelled:
+        # What yt-dlp leaves half done: .part and .ytdl files, and streams not yet merged.
+        for path in partial:
+            for leftover in (path, path + '.part', path + '.ytdl'):
+                if leftover not in saved:
+                    Path(leftover).unlink(missing_ok=True)
+        update(job_id, status='cancelled', speed=0, eta=-1)
+        return 0
+    if code == 0 or saved:
+        file = saved[-1] if saved else ''
+        error = error_line('\n'.join(errors)) if code != 0 else ''
+        update(job_id, status='done', percent=100, speed=0, eta=-1, file=file, items=max(len(saved), 1),
+               error=error, finished=int(time.time()))
+        where = home_path(Path(file).parent if file else folder)
+        count = f'{len(saved)} files · ' if len(saved) > 1 else ''
+        notify('Download finished', f'{name}\n{count}{where}', icon)
+        return 0
+    error = error_line('\n'.join(errors)) or f'yt-dlp stopped with code {code}'
+    update(job_id, status='failed', speed=0, eta=-1, error=error, finished=int(time.time()))
+    notify('Download failed', f'{name}\n{error}', 'dialog-error', 'critical')
+    return 1
+
+
+def cancel(args):
+    with Locked() as state:
+        job = state.find(args.id)
+    if job and job.get('status') in ACTIVE and alive(job.get('pid')):
+        os.kill(job['pid'], signal.SIGTERM)
+    return 0
+
+
+def forget(args):
+    with Locked() as state:
+        tidy(state.jobs)
+        state.jobs = [j for j in state.jobs
+                      if j.get('status') in ACTIVE or (args.id and j['id'] != args.id)]
+    return 0
+
+
+def choose_folder(args):
+    start_folder = os.path.expanduser(args.start or str(HOME))
+    path = portal_folder(start_folder)
+    if path is None:
+        path = dialog_folder(start_folder)
+    if not path:
+        return 1
+    print(path)
+    return 0
+
+
+def portal_folder(start_folder):
+    """The folder picked in the file chooser portal's dialog (Lia Files' or GTK's); '' when
+    cancelled, None when there is no portal to ask."""
+    try:
+        import gi
+        gi.require_version('Gio', '2.0')
+        from gi.repository import Gio, GLib
+    except (ImportError, ValueError):
+        return None
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        token = 'penumbra' + secrets.token_hex(4)
+        sender = bus.get_unique_name()[1:].replace('.', '_')
+        handle = f'/org/freedesktop/portal/desktop/request/{sender}/{token}'
+        loop = GLib.MainLoop()
+        answer = {'path': ''}
+
+        def response(_bus, _sender, _path, _interface, _signal, parameters):
+            code, results = parameters.unpack()
+            uris = results.get('uris') or []
+            if code == 0 and uris:
+                answer['path'] = urllib.parse.unquote(urllib.parse.urlparse(uris[0]).path)
+            loop.quit()
+        # Subscribed before asking, so a quick answer isn't missed.
+        bus.signal_subscribe('org.freedesktop.portal.Desktop', 'org.freedesktop.portal.Request', 'Response',
+                             handle, None, Gio.DBusSignalFlags.NONE, response)
+        options = {
+            'handle_token': GLib.Variant('s', token),
+            'directory': GLib.Variant('b', True),
+            'modal': GLib.Variant('b', True),
+            'current_folder': GLib.Variant('ay', os.fsencode(start_folder) + b'\0'),
+            'accept_label': GLib.Variant('s', 'Choose'),
+        }
+        bus.call_sync('org.freedesktop.portal.Desktop', '/org/freedesktop/portal/desktop',
+                      'org.freedesktop.portal.FileChooser', 'OpenFile',
+                      GLib.Variant('(ssa{sv})', ('', 'Save downloads in', options)),
+                      GLib.VariantType('(o)'), Gio.DBusCallFlags.NONE, -1, None)
+        loop.run()
+        return answer['path']
+    except GLib.Error:
+        return None
+
+
+def dialog_folder(start_folder):
+    for command in (['zenity', '--file-selection', '--directory', '--title=Save downloads in',
+                     f'--filename={start_folder.rstrip("/")}/'],
+                    ['kdialog', '--getexistingdirectory', start_folder, '--title', 'Save downloads in']):
+        if shutil.which(command[0]):
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            return result.stdout.strip()
+    return ''
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog='penumbra-download', description='Download videos and audio with yt-dlp.')
+    commands = parser.add_subparsers(dest='command', required=True)
+    commands.add_parser('probe').set_defaults(run=probe)
+    command = commands.add_parser('info')
+    command.add_argument('url')
+    command.set_defaults(run=info)
+    command = commands.add_parser('start')
+    command.add_argument('url')
+    command.add_argument('--audio', action='store_true')
+    command.add_argument('--format')
+    command.add_argument('--quality', default='best')
+    command.add_argument('--folder')
+    command.add_argument('--playlist', action='store_true')
+    command.add_argument('--title')
+    command.set_defaults(run=start)
+    command = commands.add_parser('cancel')
+    command.add_argument('id')
+    command.set_defaults(run=cancel)
+    command = commands.add_parser('forget')
+    command.add_argument('id', nargs='?')
+    command.set_defaults(run=forget)
+    command = commands.add_parser('folder')
+    command.add_argument('start', nargs='?')
+    command.set_defaults(run=choose_folder)
+    args = parser.parse_args(argv)
+    return args.run(args) or 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

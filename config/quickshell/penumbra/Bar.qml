@@ -27,7 +27,8 @@ PanelWindow {
         control: margins.left + content.x + rightSide.x + controls.x + controls.width / 2,
         monitor: margins.left + content.x + rightSide.x + monitor.x + monitor.width / 2,
         updates: margins.left + content.x + rightSide.x + updatesCapsule.x + updatesCapsule.width / 2,
-        wallpapers: margins.left + content.x + rightSide.x + controls.x + controls.width / 2
+        wallpapers: margins.left + content.x + rightSide.x + controls.x + controls.width / 2,
+        downloads: margins.left + content.x + rightSide.x + controls.x + controls.width / 2
     })
     onPanelOriginsChanged: if (screen) Ui.setPanelOrigins(screen.name, panelOrigins)
     Component.onCompleted: if (screen) Ui.setPanelOrigins(screen.name, panelOrigins)

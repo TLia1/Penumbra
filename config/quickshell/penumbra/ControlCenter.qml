@@ -282,7 +282,7 @@ Panel {
                     }
                 }
 
-                // Quick actions strip for instant tools (Screenshot, Wallpaper, Quick notes).
+                // Quick actions strip for instant tools (Screenshot, Wallpaper, Download, Quick notes).
                 RowLayout {
                     StaggerReveal { shown: root.open && mainPage.visible; order: 2 }
                     Layout.fillWidth: true
@@ -291,6 +291,7 @@ Panel {
                         model: [
                             { glyph: "󰹑", title: "Screenshot", run: () => Ui.openShot() },
                             { glyph: "󰸉", title: "Wallpaper", run: () => Ui.toggle("wallpapers") },
+                            { glyph: "󰇚", title: "Download", run: () => Ui.toggle("downloads") },
                             { glyph: "󰎞", title: "Notes", run: () => Ui.openControl("notes") }
                         ]
                         delegate: Rectangle {
@@ -306,9 +307,10 @@ Panel {
                             CardLight { radius: quickAction.radius; pointer: Qt.point(actionArea.mouseX, actionArea.mouseY); hovered: actionArea.containsMouse }
                             RowLayout {
                                 anchors.centerIn: parent
-                                spacing: 7
+                                width: Math.min(implicitWidth, parent.width - 10)
+                                spacing: 6
                                 Glyph { text: quickAction.modelData.glyph; size: 15; color: Theme.accentBright }
-                                Label { text: quickAction.modelData.title; font.pixelSize: Theme.textSmall; font.weight: Font.Medium; color: Theme.textSoft }
+                                Label { Layout.fillWidth: true; text: quickAction.modelData.title; font.pixelSize: Theme.textSmall; font.weight: Font.Medium; color: Theme.textSoft }
                             }
                             MouseArea {
                                 id: actionArea
