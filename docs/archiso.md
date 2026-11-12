@@ -163,6 +163,13 @@ rejects it, choose the disk's fallback boot option or the EFI file in firmware.
 Future rEFInd binary upgrades require refreshing both installed EFI copies from
 `/usr/share/refind/refind_x64.efi`.
 
+Manual-entry icons use paths from the EFI partition root, with separate paths
+for the main and fallback copies. Menu labels use ASCII for rEFInd's built-in
+font. The relative paths inside the shared theme remain relative to rEFInd's
+directory. See [rEFInd's manual stanza documentation](https://www.rodsbooks.com/refind/configfile.html#stanzas).
+
+### Plymouth
+
 Plymouth uses Penumbra's theme and a `systemd` mkinitcpio configuration with
 `plymouth`, `microcode` and `kms` hooks. `mkinitcpio -P` regenerates the initramfs;
 the installer checks that it contains the theme. CPU microcode is included in

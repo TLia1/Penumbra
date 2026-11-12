@@ -388,20 +388,22 @@ install_base() {
 }
 
 refind_config() {
-    local root_uuid=$1
-    cat <<'EOF'
+    local root_uuid=$1 efi_dir=${2:-/EFI/refind}
+    # Manual-entry icons are relative to the ESP root, unlike theme.conf assets.
+    # Keep labels ASCII: rEFInd's default font/parser cannot display a UTF-8 em dash.
+    cat <<EOF
 timeout 5
 scanfor manual
 include themes/penumbra/theme.conf
-menuentry "Arch Linux — Penumbra" {
-    icon themes/penumbra/icons/os_arch.png
+menuentry "Arch Linux - Penumbra" {
+    icon $efi_dir/themes/penumbra/icons/os_arch.png
     loader /vmlinuz-linux
     initrd /initramfs-linux.img
 EOF
     printf '    options "root=UUID=%s rw quiet splash"\n}\n' "$root_uuid"
-    cat <<'EOF'
-menuentry "Arch Linux — console recovery" {
-    icon themes/penumbra/icons/os_arch.png
+    cat <<EOF
+menuentry "Arch Linux - console recovery" {
+    icon $efi_dir/themes/penumbra/icons/os_arch.png
     loader /vmlinuz-linux
     initrd /initramfs-linux.img
 EOF
@@ -518,7 +520,7 @@ EOF
     # The fallback path works even when firmware rejects/forgets an NVRAM boot entry.
     mkdir -p /boot/EFI/BOOT
     cp /boot/EFI/refind/refind_x64.efi /boot/EFI/BOOT/BOOTX64.EFI
-    cp /boot/EFI/refind/refind.conf /boot/EFI/BOOT/refind.conf
+    refind_config "$root_uuid" /EFI/BOOT > /boot/EFI/BOOT/refind.conf
     copy_boot_tree /boot/EFI/refind/themes /boot/EFI/BOOT/themes
     [[ -s /boot/vmlinuz-linux && -s /boot/initramfs-linux.img ]] || die 'Kernel or initramfs missing.'
     lsinitcpio /boot/initramfs-linux.img > /root/penumbra-install/initramfs-contents.txt

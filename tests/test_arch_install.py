@@ -1,6 +1,7 @@
 """Exercise installer guards and offline setup without mounting or modifying disks."""
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -179,6 +180,28 @@ partition_disk
         self.assertIn('rw systemd.unit=multi-user.target', result.stdout)
         self.assertNotIn('archisodevice', result.stdout)
         self.assertNotIn('root=/dev/', result.stdout)
+
+    def test_manual_entry_icons_resolve_from_esp_root_for_both_loaders(self):
+        for efi_dir in ('/EFI/refind', '/EFI/BOOT'):
+            with self.subTest(efi_dir=efi_dir), tempfile.TemporaryDirectory() as directory:
+                esp = Path(directory)
+                loader_dir = esp / efi_dir.lstrip('/')
+                result = bash('''
+copy_boot_tree "$TEST_THEME" "$TEST_LOADER/themes/penumbra"
+refind_config 1234-abcd "$TEST_EFI_DIR"
+''', env={**os.environ, 'TEST_THEME': str(ROOT / 'boot/refind'),
+          'TEST_LOADER': str(loader_dir), 'TEST_EFI_DIR': efi_dir})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(result.stdout.isascii(), 'Use firmware-safe menu labels')
+                icons = re.findall(r'^\s+icon (.+)$', result.stdout, re.M)
+                self.assertEqual(len(icons), 2)
+                for icon in icons:
+                    # rEFInd resolves manual icons from the volume, not the config directory.
+                    self.assertTrue(icon.startswith(efi_dir + '/'))
+                    self.assertEqual((esp / icon.lstrip('/')).read_bytes(),
+                                     (ROOT / 'boot/refind/icons/os_arch.png').read_bytes())
+                include = re.search(r'^include (.+)$', result.stdout, re.M).group(1)
+                self.assertTrue((loader_dir / include).is_file())
 
     def test_boot_tree_copy_is_metadata_free_and_retryable(self):
         with tempfile.TemporaryDirectory() as directory:

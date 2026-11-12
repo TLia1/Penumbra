@@ -282,7 +282,7 @@ Panel {
                     }
                 }
 
-                // Quick actions strip for instant tools (Screenshot, Wallpaper, Download, Quick notes).
+                // Quick actions strip for instant tools (Screenshot, Wallpaper, Quick notes).
                 RowLayout {
                     StaggerReveal { shown: root.open && mainPage.visible; order: 2 }
                     Layout.fillWidth: true
@@ -291,7 +291,6 @@ Panel {
                         model: [
                             { glyph: "󰹑", title: "Screenshot", run: () => Ui.openShot() },
                             { glyph: "󰸉", title: "Wallpaper", run: () => Ui.toggle("wallpapers") },
-                            { glyph: "󰇚", title: "Download", run: () => Ui.toggle("downloads") },
                             { glyph: "󰎞", title: "Notes", run: () => Ui.openControl("notes") }
                         ]
                         delegate: Rectangle {
