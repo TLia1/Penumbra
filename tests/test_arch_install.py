@@ -110,6 +110,32 @@ partition_disk
         self.assertNotIn('archisodevice', result.stdout)
         self.assertNotIn('root=/dev/', result.stdout)
 
+    def test_boot_tree_copy_is_metadata_free_and_retryable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source'
+            source.mkdir()
+            (source / 'icons').mkdir()
+            (source / 'icons/os_arch.png').write_bytes(b'icon')
+            (source / 'theme.conf').write_text('theme')
+            destination = root / 'esp/themes/penumbra'
+            destination.mkdir(parents=True)
+            (destination / 'theme.conf').write_text('incomplete')
+            result = bash('''
+cp() {
+    # Model the ownership/mode restriction that the ext4-only tests missed.
+    [[ " $* " == *" --no-preserve=ownership,mode "* ]] || return 1
+    [[ " $* " != *" -a "* && " $* " != *" --preserve"* ]] || return 1
+    command cp "$@"
+}
+copy_boot_tree "$TEST_SOURCE" "$TEST_DEST"
+copy_boot_tree "$TEST_SOURCE" "$TEST_DEST"
+''', env={**os.environ, 'TEST_SOURCE': str(source), 'TEST_DEST': str(destination)})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((destination / 'theme.conf').read_text(), 'theme')
+            self.assertEqual((destination / 'icons/os_arch.png').read_bytes(), b'icon')
+            self.assertFalse((destination / 'source').exists())
+
     def test_offline_system_services_are_never_started(self):
         with tempfile.TemporaryDirectory() as directory:
             result = bash('''

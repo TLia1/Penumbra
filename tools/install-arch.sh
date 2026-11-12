@@ -295,11 +295,22 @@ EOF
     printf '    options "root=UUID=%s rw systemd.unit=multi-user.target"\n}\n' "$root_uuid"
 }
 
-configure_target() {
+copy_boot_tree() {
+    # The ESP is FAT32: it cannot preserve Unix ownership/modes. Copy contents into an
+    # explicit destination so retrying a partial copy cannot nest another theme folder.
+    mkdir -p -- "$2"
+    cp -r --no-preserve=ownership,mode -- "$1/." "$2/"
+}
+
+load_target_settings() {
     [[ $EUID == 0 && -f /root/penumbra-install/settings ]] || die 'Internal chroot stage only.'
     systemd-detect-virt --chroot --quiet || die 'Refusing to run the target stage outside a chroot.'
     # shellcheck disable=SC1091
     source /root/penumbra-install/settings
+}
+
+configure_target() {
+    load_target_settings
     PHASE='target configuration'
     ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
     hwclock --systohc || echo 'No writable hardware clock; NTP will set time at boot.'
@@ -359,7 +370,15 @@ configure_target() {
         dbus-run-session -- bash "$repo/install.sh" --user-only --offline --distro arch \
         --layout "$LAYOUT" --shell fish --file-manager io.github.lia.Files --yes < /dev/null
 
+    configure_boot "$repo"
+}
+
+configure_boot() {
+    local repo=$1
     PHASE='configuring rEFInd and Plymouth'
+    [[ $(findmnt -nro FSTYPE -M /boot) == vfat ]] || die 'Mount the installation EFI partition at /boot first.'
+    [[ -d $repo/boot/refind && -d $repo/boot/plymouth && -s /boot/vmlinuz-linux ]] \
+        || die 'The desktop checkout or installed kernel is missing; boot repair cannot continue.'
     # Write a fresh known configuration: do not inherit the ISO's root= or archisodevice=.
     local root_uuid
     root_uuid=$(findmnt -nro UUID /)
@@ -370,7 +389,7 @@ BINARIES=()
 FILES=()
 HOOKS=(base systemd plymouth autodetect microcode modconf kms keyboard sd-vconsole block filesystems fsck)
 EOF
-    cp -a "$repo/boot/plymouth" /usr/share/plymouth/themes/penumbra
+    copy_boot_tree "$repo/boot/plymouth" /usr/share/plymouth/themes/penumbra
     if [[ -f /usr/share/plymouth/themes/spinner/keymap-render.png ]]; then
         cp /usr/share/plymouth/themes/spinner/keymap-render.png /usr/share/plymouth/themes/penumbra/
     fi
@@ -378,8 +397,7 @@ EOF
     mkinitcpio -P
     # All kernels/initramfs live on FAT32 /boot; no EFI filesystem driver is needed.
     install -Dm644 /usr/share/refind/refind_x64.efi /boot/EFI/refind/refind_x64.efi
-    mkdir -p /boot/EFI/refind/themes
-    cp -a "$repo/boot/refind" /boot/EFI/refind/themes/penumbra
+    copy_boot_tree "$repo/boot/refind" /boot/EFI/refind/themes/penumbra
     refind_config "$root_uuid" > /boot/EFI/refind/refind.conf
     printf '"Boot with splash" "root=UUID=%s rw quiet splash initrd=\\initramfs-linux.img"\n' \
         "$root_uuid" > /boot/refind_linux.conf
@@ -387,7 +405,7 @@ EOF
     mkdir -p /boot/EFI/BOOT
     cp /boot/EFI/refind/refind_x64.efi /boot/EFI/BOOT/BOOTX64.EFI
     cp /boot/EFI/refind/refind.conf /boot/EFI/BOOT/refind.conf
-    cp -a /boot/EFI/refind/themes /boot/EFI/BOOT/
+    copy_boot_tree /boot/EFI/refind/themes /boot/EFI/BOOT/themes
     [[ -s /boot/vmlinuz-linux && -s /boot/initramfs-linux.img ]] || die 'Kernel or initramfs missing.'
     lsinitcpio /boot/initramfs-linux.img > /root/penumbra-install/initramfs-contents.txt
     grep -q 'penumbra.plymouth' /root/penumbra-install/initramfs-contents.txt || die 'Plymouth theme missing from initramfs.'
