@@ -19,15 +19,57 @@ The resulting GPT layout is:
 | Root | Remaining space; at least 32 GiB | ext4 | `/` |
 
 It installs the standard `linux` kernel, firmware, CPU microcode, NetworkManager,
-Mesa Intel/AMD graphics support, multilib, rEFInd, Plymouth, Lia Files and
+detected GPU drivers, multilib, rEFInd, Plymouth, Lia Files and
 Penumbra. SDDM and the network/audio services are enabled for the next boot.
 Lia Files builds as the new user; root installs its dependencies and resulting
 package. Choosing **no sudo** never grants that user temporary sudo privileges.
 
-Encryption, dual boot, BIOS boot, proprietary NVIDIA drivers and hibernation
+Encryption, dual boot, BIOS boot, legacy proprietary NVIDIA drivers and hibernation
 configuration are outside this installer's scope. Swap is enabled, but it does
 not add a `resume=` configuration. Allow time and disk space for the Rust build.
 The ISO's Wi-Fi credentials are not copied: reconnect in the installed desktop.
+
+## Graphics drivers
+
+Before disk erasure, the installer lists PCI display controllers and detects
+Intel, AMD and NVIDIA GPUs, including hybrid laptops. Intel/AMD get Mesa and
+their Vulkan drivers, including the 32-bit libraries for Steam/Wine. Other
+devices, such as virtual GPUs, get Mesa and the kernel's built-in drivers.
+Only hardware visible to the ISO is detected: a VM needs GPU passthrough to
+detect a physical NVIDIA card.
+
+If NVIDIA is present, you must choose a driver; there is no automatic default:
+
+- **NVIDIA open kernel modules:** for **Turing and newer** (GTX 16, RTX 20/30/40/50
+  and supported newer/workstation models). You confirm that **all** NVIDIA cards
+  in the machine support this driver. The installer detects vendors, not GPU
+  generations. It installs `nvidia-open-dkms`, `linux-headers`, `nvidia-utils`,
+  `lib32-nvidia-utils`, `nvidia-settings`, `egl-wayland` and `nvidia-prime`.
+- **Nouveau:** the open-source kernel/Mesa driver, including NVK Vulkan packages.
+  This also covers older NVIDIA hardware, although acceleration, Vulkan and
+  Hyprland compatibility depend on the card. It does not promise that old
+  hardware can run the desktop. Legacy proprietary branches such as
+  `nvidia-580xx-dkms` require separate AUR setup and are not installed here.
+
+For the NVIDIA option, the installer enables DRM modesetting/framebuffer support,
+builds DKMS modules against the **installed** kernel (not the ISO kernel), and
+adds NVIDIA modules to the initramfs. Detected Intel/AMD modules load first on
+hybrid systems. The `mkinitcpio` configuration lives in
+`/etc/mkinitcpio.conf.d/20-penumbra-graphics.conf`, so the subsequent Plymouth
+setup does not erase it. The final boot image is checked for `nvidia_drm`.
+DKMS handles driver rebuilding on later kernel upgrades while headers remain
+installed. NVIDIA's package supplies the Nouveau/Nova blacklist.
+
+Both GPUs stay available on hybrid systems; no global setting forces every
+application to use NVIDIA. After reboot, launch an application on NVIDIA with
+`prime-run APPLICATION`. Check the installed driver with `nvidia-smi` and
+`cat /sys/module/nvidia_drm/parameters/modeset` (expected `Y`). The selected
+packages are recorded in `/root/penumbra-install/graphics.txt`.
+
+References: [NVIDIA's supported GPUs](https://github.com/NVIDIA/open-gpu-kernel-modules#compatible-gpus),
+[Arch NVIDIA driver selection](https://wiki.archlinux.org/title/NVIDIA),
+[Hyprland's NVIDIA setup](https://wiki.hypr.land/0.55.0/nvidia/), and
+[mkinitcpio configuration](https://man.archlinux.org/man/mkinitcpio.conf.5.en).
 
 ## Publish the chroot support first
 
@@ -80,7 +122,7 @@ EOF
 
 # releng already provides most of these; ensure every installer tool is included.
 for pkg in arch-install-scripts curl git less iwd parted gptfdisk dosfstools \
-           e2fsprogs util-linux kbd efibootmgr python; do
+           e2fsprogs util-linux kbd efibootmgr python pciutils; do
   grep -qxF "$pkg" ~/penumbra-iso/profile/packages.x86_64 || \
     printf '%s\n' "$pkg" >> ~/penumbra-iso/profile/packages.x86_64
 done

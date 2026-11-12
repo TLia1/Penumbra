@@ -14,7 +14,7 @@ PACKAGES=(
     # Terminal and editor
     kitty fish starship fastfetch btop neovim git ripgrep fd unzip nodejs npm tree-sitter-cli gcc
     # Applications
-    pavucontrol blueman network-manager-applet xdg-utils
+    pavucontrol blueman network-manager-applet xdg-utils firefox
     # Themes and fonts
     breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme
     qt6ct ttf-jetbrains-mono-nerd inter-font

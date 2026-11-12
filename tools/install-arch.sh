@@ -30,6 +30,7 @@ Interactive x86_64 UEFI installation from ArchISO. Erases a whole disk and creat
   1 GiB FAT32 EFI /boot, configurable swap, remaining space ext4 /.
 Installs Arch, rEFInd, Plymouth, Lia Files and Penumbra. Prompts for networking,
 disk, locale, timezone, keyboard, hostname, user, passwords and sudo membership.
+Detects Intel/AMD/NVIDIA graphics; asks which NVIDIA driver to use before erasure.
 GitHub default branches are used unless a branch/tag is supplied. Sources are
 downloaded and checked before disk erasure. No unattended or erase-confirmation bypass.
 See docs/archiso.md for ISO building, limitations and recovery instructions.
@@ -171,6 +172,117 @@ collect_settings() {
     if ask "Allow $DESKTOP_USER to use sudo (password required)?"; then SUDO_USER_ENABLED=yes; fi
 }
 
+detect_graphics() {
+    local devices=${1:-/sys/bus/pci/devices} device class vendor driver
+    GPU_INTEL=0 GPU_AMD=0 GPU_NVIDIA=0 GPU_NVIDIA_DRIVER=none
+    GPU_EARLY_MODULES=''
+    for device in "$devices"/*; do
+        [[ -r $device/class && -r $device/vendor ]] || continue
+        class=$(<"$device/class")
+        [[ $class == 0x03* ]] || continue # VGA, 3D and other display controllers only.
+        vendor=$(<"$device/vendor")
+        case $vendor in
+            0x8086) GPU_INTEL=1 ;;
+            0x1002) GPU_AMD=1 ;;
+            0x10de) GPU_NVIDIA=1 ;;
+        esac
+        # Preserve the iGPU driver actually selected by the live kernel (including Intel xe).
+        driver=$(readlink "$device/driver" 2>/dev/null || true)
+        driver=${driver##*/}
+        case $driver in
+            i915|xe|amdgpu|radeon)
+                [[ " $GPU_EARLY_MODULES " == *" $driver "* ]] || GPU_EARLY_MODULES+=" $driver" ;;
+        esac
+    done
+}
+
+select_graphics() {
+    say 'Graphics hardware'
+    detect_graphics
+    lspci -nn -d ::03xx
+    if (( GPU_NVIDIA )); then
+        cat <<'EOF'
+NVIDIA driver choice (applies to ALL detected NVIDIA GPUs):
+  1) NVIDIA open kernel driver — Turing or newer ONLY
+     GTX 16 / RTX 20, 30, 40, 50 series and supported newer/workstation models.
+     Installs nvidia-open-dkms, Linux headers, NVIDIA utilities and PRIME support.
+  2) Nouveau — open-source kernel/Mesa driver, also for older NVIDIA cards.
+     Older cards can have limited performance or Wayland support.
+  q) Stop to check your GPU model/driver requirements.
+Maxwell/Pascal (such as GTX 900/1000) cannot use nvidia-open. Their proprietary
+legacy drivers need a separate AUR setup; this installer does not build those.
+EOF
+        local answer
+        while true; do
+            read -r -p 'NVIDIA driver [1/2/q, no default]: ' answer || die 'Input closed.'
+            case $answer in
+                1)
+                    if ask 'Are ALL your NVIDIA cards Turing or newer, supported by nvidia-open?'; then
+                        GPU_NVIDIA_DRIVER=open
+                        break
+                    fi ;;
+                2) GPU_NVIDIA_DRIVER=nouveau; break ;;
+                q|Q) die 'Stopped before partitioning. Check the NVIDIA GPU model before installing.' ;;
+            esac
+        done
+    fi
+    graphics_packages
+    printf 'Graphics packages: %s\n' "${GPU_PACKAGES[*]}"
+}
+
+graphics_packages() {
+    GPU_PACKAGES=(mesa lib32-mesa vulkan-icd-loader lib32-vulkan-icd-loader mesa-utils vulkan-tools)
+    if (( GPU_INTEL )); then GPU_PACKAGES+=(vulkan-intel lib32-vulkan-intel); fi
+    if (( GPU_AMD )); then GPU_PACKAGES+=(vulkan-radeon lib32-vulkan-radeon); fi
+    case $GPU_NVIDIA_DRIVER in
+        open)
+            (( GPU_NVIDIA )) || die 'NVIDIA driver selected without a detected NVIDIA GPU.'
+            GPU_PACKAGES+=(linux-headers nvidia-open-dkms nvidia-utils lib32-nvidia-utils
+                           nvidia-settings egl-wayland nvidia-prime) ;;
+        nouveau) GPU_PACKAGES+=(vulkan-nouveau lib32-vulkan-nouveau) ;;
+        none) (( ! GPU_NVIDIA )) || die 'No driver selected for the detected NVIDIA GPU.' ;;
+        *) die 'Invalid NVIDIA driver selection.' ;;
+    esac
+}
+
+graphics_initramfs_config() {
+    # Append to MODULES after the main config, so configure_boot's MODULES=() cannot erase it.
+    printf '# Written by the Penumbra Arch installer.\nMODULES+=('
+    local module
+    for module in $GPU_EARLY_MODULES; do
+        case $module in
+            i915|xe|amdgpu|radeon) printf '%s ' "$module" ;;
+            *) die "Unexpected graphics kernel module: $module" ;;
+        esac
+    done
+    if [[ $GPU_NVIDIA_DRIVER == open ]]; then printf 'nvidia nvidia_modeset nvidia_uvm nvidia_drm'; fi
+    printf ')\n'
+}
+
+install_graphics() {
+    PHASE='installing graphics drivers'
+    graphics_packages
+    pacman -S --needed --noconfirm -- "${GPU_PACKAGES[@]}"
+    install -d /etc/mkinitcpio.conf.d /etc/modprobe.d
+    graphics_initramfs_config > /etc/mkinitcpio.conf.d/20-penumbra-graphics.conf
+    if [[ $GPU_NVIDIA_DRIVER == open ]]; then
+        printf 'options nvidia_drm modeset=1 fbdev=1\n' > /etc/modprobe.d/penumbra-nvidia.conf
+        # The ISO's uname -r can differ from the installed kernel. Check the target kernel.
+        local base kernel found=0
+        for base in /usr/lib/modules/*/pkgbase; do
+            [[ -f $base && $(<"$base") == linux ]] || continue
+            kernel=${base%/pkgbase}; kernel=${kernel##*/}
+            dkms autoinstall -k "$kernel"
+            modinfo -k "$kernel" nvidia_drm >/dev/null
+            found=1
+        done
+        (( found )) || die 'Cannot find the installed Linux kernel for NVIDIA DKMS.'
+    fi
+    printf 'Intel=%s\nAMD=%s\nNVIDIA=%s\nNVIDIA_DRIVER=%s\nPackages=%s\n' \
+        "$GPU_INTEL" "$GPU_AMD" "$GPU_NVIDIA" "$GPU_NVIDIA_DRIVER" "${GPU_PACKAGES[*]}" \
+        > /root/penumbra-install/graphics.txt
+}
+
 fetch_sources() {
     PHASE='GitHub source preflight'
     WORK=$(mktemp -d /tmp/penumbra-arch.XXXXXXXX)
@@ -257,7 +369,7 @@ install_base() {
     PHASE='base installation'
     pacstrap -K "$TARGET" base base-devel linux linux-firmware mkinitcpio intel-ucode amd-ucode \
         networkmanager sudo git curl nano man-db man-pages refind efibootmgr plymouth \
-        dosfstools e2fsprogs python dbus mesa vulkan-intel vulkan-radeon
+        dosfstools e2fsprogs python dbus pciutils
     # Generate only our mounts and our swap, never unrelated live-environment swap entries.
     genfstab -U "$TARGET" | awk '$3 != "swap"' > "$TARGET/etc/fstab"
     printf 'UUID=%s none swap defaults 0 0\n' "$(blkid -s UUID -o value "$SWAP_PART")" >> "$TARGET/etc/fstab"
@@ -266,7 +378,8 @@ install_base() {
     cp -a "$WORK/Penumbra" "$TARGET/root/penumbra-install/"
     # Configuration contains no passwords, and is shell-escaped before being sourced in chroot.
     local key
-    for key in TIMEZONE LOCALE KEYMAP LAYOUT HOSTNAME DESKTOP_USER SUDO_USER_ENABLED PENUMBRA_COMMIT LIA_COMMIT; do
+    for key in TIMEZONE LOCALE KEYMAP LAYOUT HOSTNAME DESKTOP_USER SUDO_USER_ENABLED PENUMBRA_COMMIT LIA_COMMIT \
+        GPU_INTEL GPU_AMD GPU_NVIDIA GPU_NVIDIA_DRIVER GPU_EARLY_MODULES; do
         printf '%s=%q\n' "$key" "${!key}"
     done > "$TARGET/root/penumbra-install/settings"
     install -m 700 "${BASH_SOURCE[0]}" "$TARGET/root/penumbra-install/install-arch.sh"
@@ -324,6 +437,7 @@ configure_target() {
         printf '\n[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >> /etc/pacman.conf
     fi
     pacman -Syu --noconfirm
+    install_graphics
     useradd -m -U -s /bin/bash "$DESKTOP_USER"
     if [[ $SUDO_USER_ENABLED == yes ]]; then
         usermod -aG wheel "$DESKTOP_USER"
@@ -409,6 +523,10 @@ EOF
     [[ -s /boot/vmlinuz-linux && -s /boot/initramfs-linux.img ]] || die 'Kernel or initramfs missing.'
     lsinitcpio /boot/initramfs-linux.img > /root/penumbra-install/initramfs-contents.txt
     grep -q 'penumbra.plymouth' /root/penumbra-install/initramfs-contents.txt || die 'Plymouth theme missing from initramfs.'
+    if [[ ${GPU_NVIDIA_DRIVER:-none} == open ]]; then
+        grep -Eq '/nvidia[-_]drm\.ko(\.|$)' /root/penumbra-install/initramfs-contents.txt \
+            || die 'NVIDIA DRM module missing from initramfs.'
+    fi
     printf 'Penumbra %s\nLia Files %s\n' "$PENUMBRA_COMMIT" "$LIA_COMMIT" > /root/penumbra-install/sources.txt
 }
 
@@ -432,7 +550,7 @@ main() {
     local command secureboot
     for command in curl git less iwctl timedatectl pacstrap arch-chroot genfstab sfdisk wipefs \
         partprobe udevadm mkfs.fat mkfs.ext4 mkswap swapon swapoff lsblk findmnt blockdev \
-        losetup loadkeys efibootmgr python3; do
+        losetup loadkeys efibootmgr python3 lspci; do
         command -v "$command" >/dev/null || die "Missing ISO tool: $command (see docs/archiso.md)."
     done
     for secureboot in /sys/firmware/efi/efivars/SecureBoot-*; do
@@ -445,6 +563,7 @@ main() {
     trap 'exit 143' TERM
     connect_network
     collect_settings
+    select_graphics
     fetch_sources
     partition_disk
     install_base

@@ -33,6 +33,76 @@ findmnt() { printf '%s' "${TEST_SOURCE:-}"; }
 
 
 class ArchInstaller(unittest.TestCase):
+    def test_graphics_detects_hybrid_gpus_but_ignores_nvidia_audio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            devices = Path(directory)
+            for slot, vendor, pci_class, driver in [
+                ('00:02.0', '0x8086', '0x030000', 'xe'),
+                ('01:00.0', '0x10de', '0x030200', 'nouveau'),
+                ('01:00.1', '0x10de', '0x040300', 'snd_hda_intel'),
+                ('02:00.0', '0x1002', '0x030000', 'amdgpu'),
+            ]:
+                path = devices / slot
+                path.mkdir()
+                (path / 'vendor').write_text(vendor)
+                (path / 'class').write_text(pci_class)
+                (path / 'driver').symlink_to('/fake/drivers/' + driver)
+            result = bash('detect_graphics "$TEST_DEVICES"; echo "$GPU_INTEL $GPU_AMD $GPU_NVIDIA"; echo "$GPU_EARLY_MODULES"',
+                          env={**os.environ, 'TEST_DEVICES': directory})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines(), ['1 1 1', ' xe amdgpu'])
+            shutil.rmtree(devices / '01:00.0')
+            result = bash('detect_graphics "$TEST_DEVICES"; echo "$GPU_NVIDIA"',
+                          env={**os.environ, 'TEST_DEVICES': directory})
+            self.assertEqual(result.stdout.strip(), '0')
+
+    def test_graphics_package_selection(self):
+        cases = [
+            ('1 0 0 none', {'vulkan-intel', 'lib32-vulkan-intel'}, {'nvidia-utils', 'vulkan-radeon'}),
+            ('0 1 0 none', {'vulkan-radeon', 'lib32-vulkan-radeon'}, {'nvidia-utils', 'vulkan-intel'}),
+            ('1 0 1 open', {'nvidia-open-dkms', 'linux-headers', 'lib32-nvidia-utils', 'nvidia-prime',
+                            'vulkan-intel', 'lib32-vulkan-intel', 'egl-wayland'}, {'vulkan-nouveau'}),
+            ('0 0 1 nouveau', {'vulkan-nouveau', 'lib32-vulkan-nouveau'}, {'nvidia-utils', 'nvidia-open-dkms'}),
+            ('0 0 0 none', {'mesa', 'lib32-mesa'}, {'nvidia-utils', 'vulkan-intel', 'vulkan-radeon'}),
+        ]
+        for values, included, excluded in cases:
+            with self.subTest(values=values):
+                result = bash('read -r GPU_INTEL GPU_AMD GPU_NVIDIA GPU_NVIDIA_DRIVER <<< "' + values +
+                              '"; graphics_packages; printf "%s\\n" "${GPU_PACKAGES[@]}"')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                packages = set(result.stdout.splitlines())
+                self.assertTrue(included <= packages)
+                self.assertFalse(excluded & packages)
+
+    def test_nvidia_choice_requires_confirmation_or_can_cancel(self):
+        setup = '''
+detect_graphics() { GPU_INTEL=1 GPU_AMD=0 GPU_NVIDIA=1 GPU_NVIDIA_DRIVER=none; }
+lspci() { echo 'NVIDIA test GPU'; }
+select_graphics
+echo "SELECTED=$GPU_NVIDIA_DRIVER"
+'''
+        for answer, selected in [('1\ny\n', 'open'), ('1\nn\n2\n', 'nouveau')]:
+            result = bash(setup, stdin=answer)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('SELECTED=' + selected, result.stdout)
+        for answer in ('', 'q\n'):
+            result = bash(setup, stdin=answer)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn('SELECTED=', result.stdout)
+
+    def test_nvidia_early_modules_survive_base_config_and_keep_igpu_first(self):
+        result = bash('''
+GPU_EARLY_MODULES=' xe amdgpu' GPU_NVIDIA_DRIVER=open
+config=$(graphics_initramfs_config)
+MODULES=()
+eval "$config"
+printf '%s\\n' "${MODULES[@]}"
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ['xe', 'amdgpu', 'nvidia', 'nvidia_modeset', 'nvidia_uvm', 'nvidia_drm'])
+        result = bash("GPU_EARLY_MODULES='' GPU_NVIDIA_DRIVER=nouveau; graphics_initramfs_config")
+        self.assertNotIn('nvidia', result.stdout)
+
     def test_help_and_bash_syntax(self):
         for path in (INSTALLER, ROOT / 'install.sh'):
             result = subprocess.run(['bash', '-n', str(path)], capture_output=True, text=True)
