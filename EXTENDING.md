@@ -119,7 +119,6 @@ For an app Penumbra doesn't install, put the template under `palette/templates/a
 ```bash
 python tools/build-palette.py
 python tools/build-shaders.py   # after editing config/quickshell/penumbra/shaders/*.frag (needs qt6-shadertools)
-python tools/build-configuration.py
 python -m unittest discover -s tests -v
 ./install.sh --user-only
 ```

@@ -2,10 +2,10 @@
 // and palette/palette.toml; edit those.
 {
   "logo": {
-    "type": "kitty-direct",
-    "source": "~/.config/fastfetch/penumbra-logo.png",
-    "width": 26,
-    "height": 13,
+    "type": "builtin",
+    "color": {
+      "1": "#c4a5ff"
+    },
     "padding": {
       "top": 1,
       "left": 0,

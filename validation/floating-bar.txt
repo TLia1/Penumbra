@@ -1,3 +1,0 @@
-JSON parsed. Both source files match installed copies.
-Visual checks passed: individual pills; clock left; occupied workspaces and active title center; empty workspace/title suppressed; workspace and title appeared for a temporary Kitty window and disappeared on its close.
-No Hyprland configuration errors. Waybar reloaded with no CSS parsing errors.

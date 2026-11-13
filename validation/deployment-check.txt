@@ -1,2 +1,0 @@
-Source/install differences (application-managed runtime changes may appear):
-
