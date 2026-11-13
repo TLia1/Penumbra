@@ -2740,20 +2740,22 @@ install_base() {
 }
 
 refind_config() {
-    local root_uuid=$1
-    cat <<'EOF'
+    local root_uuid=$1 efi_dir=${2:-/EFI/refind}
+    # Manual-entry icons are relative to the ESP root, unlike theme.conf assets.
+    # Keep labels ASCII: rEFInd's default font/parser cannot display a UTF-8 em dash.
+    cat <<EOF
 timeout 5
 scanfor manual
 include themes/penumbra/theme.conf
-menuentry "Arch Linux — Penumbra" {
-    icon themes/penumbra/icons/os_arch.png
+menuentry "Arch Linux - Penumbra" {
+    icon $efi_dir/themes/penumbra/icons/os_arch.png
     loader /vmlinuz-linux
     initrd /initramfs-linux.img
 EOF
     printf '    options "root=UUID=%s rw quiet splash"\n}\n' "$root_uuid"
-    cat <<'EOF'
-menuentry "Arch Linux — console recovery" {
-    icon themes/penumbra/icons/os_arch.png
+    cat <<EOF
+menuentry "Arch Linux - console recovery" {
+    icon $efi_dir/themes/penumbra/icons/os_arch.png
     loader /vmlinuz-linux
     initrd /initramfs-linux.img
 EOF
@@ -2870,7 +2872,7 @@ EOF
     # The fallback path works even when firmware rejects/forgets an NVRAM boot entry.
     mkdir -p /boot/EFI/BOOT
     cp /boot/EFI/refind/refind_x64.efi /boot/EFI/BOOT/BOOTX64.EFI
-    cp /boot/EFI/refind/refind.conf /boot/EFI/BOOT/refind.conf
+    refind_config "$root_uuid" /EFI/BOOT > /boot/EFI/BOOT/refind.conf
     copy_boot_tree /boot/EFI/refind/themes /boot/EFI/BOOT/themes
     [[ -s /boot/vmlinuz-linux && -s /boot/initramfs-linux.img ]] || die 'Kernel or initramfs missing.'
     lsinitcpio /boot/initramfs-linux.img > /root/penumbra-install/initramfs-contents.txt
@@ -4204,6 +4206,7 @@ sys.exit(0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() el
 """Exercise installer guards and offline setup without mounting or modifying disks."""
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -4382,6 +4385,28 @@ partition_disk
         self.assertIn('rw systemd.unit=multi-user.target', result.stdout)
         self.assertNotIn('archisodevice', result.stdout)
         self.assertNotIn('root=/dev/', result.stdout)
+
+    def test_manual_entry_icons_resolve_from_esp_root_for_both_loaders(self):
+        for efi_dir in ('/EFI/refind', '/EFI/BOOT'):
+            with self.subTest(efi_dir=efi_dir), tempfile.TemporaryDirectory() as directory:
+                esp = Path(directory)
+                loader_dir = esp / efi_dir.lstrip('/')
+                result = bash('''
+copy_boot_tree "$TEST_THEME" "$TEST_LOADER/themes/penumbra"
+refind_config 1234-abcd "$TEST_EFI_DIR"
+''', env={**os.environ, 'TEST_THEME': str(ROOT / 'boot/refind'),
+          'TEST_LOADER': str(loader_dir), 'TEST_EFI_DIR': efi_dir})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(result.stdout.isascii(), 'Use firmware-safe menu labels')
+                icons = re.findall(r'^\s+icon (.+)$', result.stdout, re.M)
+                self.assertEqual(len(icons), 2)
+                for icon in icons:
+                    # rEFInd resolves manual icons from the volume, not the config directory.
+                    self.assertTrue(icon.startswith(efi_dir + '/'))
+                    self.assertEqual((esp / icon.lstrip('/')).read_bytes(),
+                                     (ROOT / 'boot/refind/icons/os_arch.png').read_bytes())
+                include = re.search(r'^include (.+)$', result.stdout, re.M).group(1)
+                self.assertTrue((loader_dir / include).is_file())
 
     def test_boot_tree_copy_is_metadata_free_and_retryable(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -13721,7 +13746,7 @@ Panel {
                     }
                 }
 
-                // Quick actions strip for instant tools (Screenshot, Wallpaper, Download, Quick notes).
+                // Quick actions strip for instant tools (Screenshot, Wallpaper, Quick notes).
                 RowLayout {
                     StaggerReveal { shown: root.open && mainPage.visible; order: 2 }
                     Layout.fillWidth: true
@@ -13730,7 +13755,6 @@ Panel {
                         model: [
                             { glyph: "󰹑", title: "Screenshot", run: () => Ui.openShot() },
                             { glyph: "󰸉", title: "Wallpaper", run: () => Ui.toggle("wallpapers") },
-                            { glyph: "󰇚", title: "Download", run: () => Ui.toggle("downloads") },
                             { glyph: "󰎞", title: "Notes", run: () => Ui.openControl("notes") }
                         ]
                         delegate: Rectangle {
@@ -15598,13 +15622,16 @@ Panel {
                     spacing: 2
 
                     Repeater {
-                        model: root.jobs
+                        // Keyed by id: a progress update rewrites the list, but the ids stay, so
+                        // each row (and its progress bar) is kept and moves on from where it was.
+                        model: ScriptModel { values: root.jobs.map(j => j.id) }
                         delegate: Rectangle {
                             id: job
-                            required property var modelData
-                            readonly property bool running: Downloads.active(modelData)
-                            readonly property bool failed: modelData.status === "failed"
-                            readonly property bool done: modelData.status === "done"
+                            required property string modelData // the download's id
+                            readonly property var entry: root.jobs.find(j => j.id === modelData) ?? ({})
+                            readonly property bool running: Downloads.active(entry)
+                            readonly property bool failed: entry.status === "failed"
+                            readonly property bool done: entry.status === "done"
                             Layout.fillWidth: true
                             implicitHeight: jobColumn.implicitHeight + 14
                             radius: Theme.radiusSmall
@@ -15628,7 +15655,7 @@ Panel {
                                     spacing: 10
                                     Glyph {
                                         Layout.preferredWidth: 22
-                                        text: job.failed ? "󰅚" : job.done ? "󰄬" : job.modelData.kind === "audio" ? "󰎈" : "󰕧"
+                                        text: job.failed ? "󰅚" : job.done ? "󰄬" : job.entry.kind === "audio" ? "󰎈" : "󰕧"
                                         size: 16
                                         color: job.failed ? Theme.rose : job.done ? Theme.green : job.running ? Theme.accent : Theme.dim
                                     }
@@ -15637,32 +15664,32 @@ Panel {
                                         spacing: 0
                                         Label {
                                             Layout.fillWidth: true
-                                            text: Downloads.title(job.modelData)
+                                            text: Downloads.title(job.entry)
                                         }
                                         Label {
                                             Layout.fillWidth: true
-                                            text: Downloads.describe(job.modelData, root.home)
+                                            text: Downloads.describe(job.entry, root.home)
                                             font.pixelSize: Theme.textSmall
                                             color: job.failed ? Theme.rose : Theme.muted
                                         }
                                     }
                                     IconButton {
-                                        visible: job.done && !!job.modelData.file && !(job.modelData.items > 1)
+                                        visible: job.done && !!job.entry.file && !(job.entry.items > 1)
                                         glyph: "󰐊"
-                                        onClicked: { Ui.close(); Ui.spawn(["xdg-open", job.modelData.file]); }
+                                        onClicked: { Ui.close(); Ui.spawn(["xdg-open", job.entry.file]); }
                                     }
                                     IconButton {
                                         visible: job.done
                                         glyph: "󰉋"
                                         onClicked: {
                                             Ui.close();
-                                            Ui.spawn(["xdg-open", job.modelData.file ? job.modelData.file.replace(/\/[^\/]*$/, "") : job.modelData.folder]);
+                                            Ui.spawn(["xdg-open", job.entry.file ? job.entry.file.replace(/\/[^\/]*$/, "") : job.entry.folder]);
                                         }
                                     }
                                     IconButton {
                                         glyph: "󰅖"
                                         tint: job.running ? Theme.rose : Theme.dim
-                                        onClicked: Quickshell.execDetached([root.helper, job.running ? "cancel" : "forget", job.modelData.id])
+                                        onClicked: Quickshell.execDetached([root.helper, job.running ? "cancel" : "forget", job.entry.id])
                                     }
                                 }
 
@@ -15674,7 +15701,7 @@ Panel {
                                     Layout.rightMargin: 6
                                     Layout.bottomMargin: 2
                                     visible: job.running
-                                    readonly property bool known: job.modelData.status === "downloading" && job.modelData.percent >= 0
+                                    readonly property bool known: job.entry.status === "downloading" && job.entry.percent >= 0
                                     implicitHeight: 4
                                     radius: Theme.corner(2)
                                     color: Theme.line
@@ -15683,7 +15710,7 @@ Panel {
                                         height: parent.height
                                         radius: parent.radius
                                         color: Theme.accent
-                                        width: track.known ? parent.width * Math.min(100, job.modelData.percent) / 100 : parent.width * 0.3
+                                        width: track.known ? parent.width * Math.min(100, job.entry.percent) / 100 : parent.width * 0.3
                                         Behavior on width { enabled: track.known && !Theme.reducedMotion; NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
                                         NumberAnimation on x {
                                             running: !track.known && job.running && track.visible && !Theme.reducedMotion

@@ -494,13 +494,16 @@ Panel {
                     spacing: 2
 
                     Repeater {
-                        model: root.jobs
+                        // Keyed by id: a progress update rewrites the list, but the ids stay, so
+                        // each row (and its progress bar) is kept and moves on from where it was.
+                        model: ScriptModel { values: root.jobs.map(j => j.id) }
                         delegate: Rectangle {
                             id: job
-                            required property var modelData
-                            readonly property bool running: Downloads.active(modelData)
-                            readonly property bool failed: modelData.status === "failed"
-                            readonly property bool done: modelData.status === "done"
+                            required property string modelData // the download's id
+                            readonly property var entry: root.jobs.find(j => j.id === modelData) ?? ({})
+                            readonly property bool running: Downloads.active(entry)
+                            readonly property bool failed: entry.status === "failed"
+                            readonly property bool done: entry.status === "done"
                             Layout.fillWidth: true
                             implicitHeight: jobColumn.implicitHeight + 14
                             radius: Theme.radiusSmall
@@ -524,7 +527,7 @@ Panel {
                                     spacing: 10
                                     Glyph {
                                         Layout.preferredWidth: 22
-                                        text: job.failed ? "󰅚" : job.done ? "󰄬" : job.modelData.kind === "audio" ? "󰎈" : "󰕧"
+                                        text: job.failed ? "󰅚" : job.done ? "󰄬" : job.entry.kind === "audio" ? "󰎈" : "󰕧"
                                         size: 16
                                         color: job.failed ? Theme.rose : job.done ? Theme.green : job.running ? Theme.accent : Theme.dim
                                     }
@@ -533,32 +536,32 @@ Panel {
                                         spacing: 0
                                         Label {
                                             Layout.fillWidth: true
-                                            text: Downloads.title(job.modelData)
+                                            text: Downloads.title(job.entry)
                                         }
                                         Label {
                                             Layout.fillWidth: true
-                                            text: Downloads.describe(job.modelData, root.home)
+                                            text: Downloads.describe(job.entry, root.home)
                                             font.pixelSize: Theme.textSmall
                                             color: job.failed ? Theme.rose : Theme.muted
                                         }
                                     }
                                     IconButton {
-                                        visible: job.done && !!job.modelData.file && !(job.modelData.items > 1)
+                                        visible: job.done && !!job.entry.file && !(job.entry.items > 1)
                                         glyph: "󰐊"
-                                        onClicked: { Ui.close(); Ui.spawn(["xdg-open", job.modelData.file]); }
+                                        onClicked: { Ui.close(); Ui.spawn(["xdg-open", job.entry.file]); }
                                     }
                                     IconButton {
                                         visible: job.done
                                         glyph: "󰉋"
                                         onClicked: {
                                             Ui.close();
-                                            Ui.spawn(["xdg-open", job.modelData.file ? job.modelData.file.replace(/\/[^\/]*$/, "") : job.modelData.folder]);
+                                            Ui.spawn(["xdg-open", job.entry.file ? job.entry.file.replace(/\/[^\/]*$/, "") : job.entry.folder]);
                                         }
                                     }
                                     IconButton {
                                         glyph: "󰅖"
                                         tint: job.running ? Theme.rose : Theme.dim
-                                        onClicked: Quickshell.execDetached([root.helper, job.running ? "cancel" : "forget", job.modelData.id])
+                                        onClicked: Quickshell.execDetached([root.helper, job.running ? "cancel" : "forget", job.entry.id])
                                     }
                                 }
 
@@ -570,7 +573,7 @@ Panel {
                                     Layout.rightMargin: 6
                                     Layout.bottomMargin: 2
                                     visible: job.running
-                                    readonly property bool known: job.modelData.status === "downloading" && job.modelData.percent >= 0
+                                    readonly property bool known: job.entry.status === "downloading" && job.entry.percent >= 0
                                     implicitHeight: 4
                                     radius: Theme.corner(2)
                                     color: Theme.line
@@ -579,7 +582,7 @@ Panel {
                                         height: parent.height
                                         radius: parent.radius
                                         color: Theme.accent
-                                        width: track.known ? parent.width * Math.min(100, job.modelData.percent) / 100 : parent.width * 0.3
+                                        width: track.known ? parent.width * Math.min(100, job.entry.percent) / 100 : parent.width * 0.3
                                         Behavior on width { enabled: track.known && !Theme.reducedMotion; NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
                                         NumberAnimation on x {
                                             running: !track.known && job.running && track.visible && !Theme.reducedMotion
