@@ -122,9 +122,18 @@ Fonts: Inter, with Inter Display for large text (the lock and greeter clocks, pa
 
 ## Controls
 
+Press **Super+F1** for a searchable list of active desktop keybinds (also in
+Settings → Keyboard → Keyboard shortcuts). Search by key or action, scroll to
+browse, and press Escape or Super+F1 to close. The list refreshes from Hyprland
+each time it opens, including your `~/.config/hypr/user.lua` bindings and submaps.
+Give custom Lua bindings a `{description="…"}` option for a readable action;
+callbacks without one appear as undescribed custom bindings. App-specific keys
+and touchpad gestures are separate from this compositor list.
+
 | Shortcut | Action |
 |---|---|
-| Super+Enter / Super+Q | Kitty with Fish |
+| Super+F1 | Show or hide the searchable keyboard shortcuts panel |
+| Super+Enter / Super+Q | Chosen terminal (Kitty by default) |
 | Super+Space / Super+R | App launcher (`>` runs a command, `?` searches the web, `/` finds files; sums, units and currencies are worked out) |
 | Alt+Tab | Jump to an open window (the launcher's Windows mode) |
 | Super+E | Chosen file manager (Lia Files, or Dolphin if only that is installed) |
@@ -140,10 +149,12 @@ Fonts: Inter, with Inter Display for large text (the lock and greeter clocks, pa
 | Super+Alt+physical number-row key | Send window to workspace without following it |
 | Super+S / Super+Shift+S | Show or hide the scratchpad / send the window there |
 | Super+G | Group windows into tabs (Super+Tab and Super+Shift+Tab step through them) |
+| Super+Tab / Super+Shift+Tab | Next / previous tab in a window group |
 | Super+P | Pin a floating window to every workspace |
 | Three-finger swipe | Previous / next workspace (touchpad) |
 | Super+\` (the key left of 1) / four-finger swipe up | Overview of every workspace |
 | Super+left/right mouse drag | Move / resize |
+| Super+scroll down/up | Next / previous workspace |
 | Super+J | Toggle split direction |
 | Super+M | Session overlay |
 | Super+A | Control center |
@@ -160,7 +171,10 @@ Fonts: Inter, with Inter Display for large text (the lock and greeter clocks, pa
 | Print | Screenshot a region, window or the whole screen; save to `~/Pictures/Screenshots` and copy it |
 | Shift+Print | The same, then annotate it in Satty |
 | Ctrl+Print | Record a region, window or the whole screen to `~/Videos/Screencasts`; press again to stop (right-click the bar's red capsule to pause) |
-| Audio / media / brightness keys | Volume and brightness (repeat while held), mute, playback, where hardware supports it |
+| Caps Lock | Show whether Caps Lock is on; the key still reaches the app |
+| Volume up/down / brightness up/down | Adjust volume / brightness (repeat while held, also while locked) |
+| Audio mute / microphone mute | Toggle output / microphone mute (also while locked) |
+| Media play / pause / next / previous | Play or pause / pause / next track / previous track (also while locked) |
 
 Bar: click the Arch logo for the launcher (right-click for the clipboard) and the clock for a calendar: the month (with week numbers if you click Wk), a dot under each day with events, and the chosen day's events. They come from `.ics` files in `~/.local/share/penumbra/calendars` (put exported calendars there), `~/.calendars` or `~/.local/share/vdirsyncer`, where vdirsyncer keeps CalDAV calendars (Nextcloud, Fastmail, iCloud, Google) in step; repeating events follow the common rules (`bin/penumbra-calendar`). While something plays, a capsule shows it with a small spectrum: click for the control center, middle-click to pause, scroll to skip. CPU/RAM open the system monitor (right-click for btop): live graphs of the processor (with a bar per thread, temperature and clock), memory, GPU, disk activity and network, how full each drive is, and on a second page the busiest apps, which you can end. On a hybrid laptop click the GPU card to switch GPUs; a discrete GPU that is asleep stays asleep rather than being woken to be measured. With several keyboard layouts, a capsule shows the current one; click it to switch. Click the network/Bluetooth/audio/battery capsule (or press Super+A) for the control center; its tooltip also lists the batteries of headsets, mice, keyboards and controllers; right-click it for pavucontrol, scroll it for volume. Tray icons are tinted violet until hovered; right-click for their menu. Hover any capsule for details. Push the pointer into the top-right corner for the control center. Destructive session actions require a second press to confirm.
 

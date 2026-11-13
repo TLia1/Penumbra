@@ -10,13 +10,14 @@ import Quickshell.Wayland
 Singleton {
     id: root
 
-    // At most one panel is open: control, calendar, monitor, updates, wallpapers, downloads, or "".
+    // At most one panel is open: control, calendar, monitor, updates, wallpapers, downloads, keybinds, or "".
     property string openPanel: ""
     readonly property bool controlOpen: openPanel === "control"
     readonly property bool calendarOpen: openPanel === "calendar"
     readonly property bool monitorOpen: openPanel === "monitor"
     readonly property bool updatesOpen: openPanel === "updates"
     readonly property bool wallpapersOpen: openPanel === "wallpapers"
+    readonly property bool keybindsOpen: openPanel === "keybinds"
     readonly property bool downloadsOpen: openPanel === "downloads"
     // The address the Downloads panel opens with (from the launcher or IPC); it takes it and clears it.
     property string downloadUrl: ""

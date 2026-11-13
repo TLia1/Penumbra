@@ -104,6 +104,11 @@ ColumnLayout {
         onBack: Ui.controlPage = "settings"
     }
 
+    PillButton {
+        text: "Keyboard shortcuts · Super + F1"
+        onClicked: { Ui.closeOverlays(); Ui.openPanel = "keybinds"; }
+    }
+
     SettingField {
         id: layouts
         key: "kb_layout"

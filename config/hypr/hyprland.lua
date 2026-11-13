@@ -73,86 +73,93 @@ for _, a in ipairs({
  {"fade", 3, "soft", nil}, {"workspaces", 4.5, "overshoot", "slidefade 18%"},
  {"layers", 3.5, "penumbra", "fade"}
 }) do hl.animation({leaf=a[1], enabled=true, speed=a[2], bezier=a[3], style=a[4]}) end
-local function exec(key, cmd) hl.bind(key, hl.dsp.exec_cmd(cmd)) end
+-- Descriptions travel with the active bindings: the shortcuts panel reads `hyprctl -j binds`.
+local function bind(key, action, description, options)
+ options = options or {}
+ options.description = description
+ hl.bind(key, action, options)
+end
+local function exec(key, cmd, description) bind(key, hl.dsp.exec_cmd(cmd), description) end
 -- The terminal chosen in Settings → Default apps (its desktop file, e.g. kitty or foot).
 local function terminal() hl.exec_cmd("gtk-launch " .. settings().terminal .. " || kitty") end
-hl.bind("SUPER + Return", terminal)
-hl.bind("SUPER + Q", terminal)
+bind("SUPER + Return", terminal, "Open terminal")
+bind("SUPER + Q", terminal, "Open terminal")
 -- The file manager chosen in Settings → Default apps.
-hl.bind("SUPER + E", function() hl.exec_cmd("gtk-launch " .. settings().file_manager .. " || lia-files || dolphin") end)
-exec("SUPER + R", "~/.local/bin/penumbra-launcher")
-exec("SUPER + space", "~/.local/bin/penumbra-launcher")
+bind("SUPER + E", function() hl.exec_cmd("gtk-launch " .. settings().file_manager .. " || lia-files || dolphin") end, "Open file manager")
+exec("SUPER + R", "~/.local/bin/penumbra-launcher", "App launcher")
+exec("SUPER + space", "~/.local/bin/penumbra-launcher", "App launcher")
 -- Your default web browser (Settings → Default apps, or xdg-settings set default-web-browser NAME.desktop).
-exec("SUPER + B", "gtk-launch \"$(xdg-settings get default-web-browser)\"")
-exec("SUPER + M", "~/.local/bin/penumbra-power")
-exec("SUPER + L", "loginctl lock-session")
-exec("SUPER + N", "quickshell -c penumbra ipc call notifications clear")
-exec("SUPER + A", "quickshell -c penumbra ipc call panel control")
-exec("SUPER + comma", "quickshell -c penumbra ipc call panel settings")
-exec("SUPER + SHIFT + V", "~/.local/bin/penumbra-clipboard")
-exec("SUPER + semicolon", "quickshell -c penumbra ipc call launcher emoji")
+exec("SUPER + B", "gtk-launch \"$(xdg-settings get default-web-browser)\"", "Open web browser")
+exec("SUPER + M", "~/.local/bin/penumbra-power", "Session menu")
+exec("SUPER + L", "loginctl lock-session", "Lock screen")
+exec("SUPER + N", "quickshell -c penumbra ipc call notifications clear", "Clear notifications")
+exec("SUPER + A", "quickshell -c penumbra ipc call panel control", "Control center")
+exec("SUPER + F1", "quickshell -c penumbra ipc call panel keybinds", "Show keyboard shortcuts")
+exec("SUPER + comma", "quickshell -c penumbra ipc call panel settings", "Settings")
+exec("SUPER + SHIFT + V", "~/.local/bin/penumbra-clipboard", "Clipboard history")
+exec("SUPER + semicolon", "quickshell -c penumbra ipc call launcher emoji", "Emoji and symbols")
 -- Jump to an open window by typing part of its title or app.
-exec("ALT + Tab", "quickshell -c penumbra ipc call launcher windows")
-exec("SUPER + SHIFT + C", "~/.local/bin/penumbra-picker")
-exec("SUPER + W", "~/.local/bin/penumbra-wallpaper next")
-exec("SUPER + SHIFT + W", "quickshell -c penumbra ipc call panel wallpapers")
-exec("SUPER + D", "quickshell -c penumbra ipc call panel downloads")
-exec("SUPER + SHIFT + R", "~/.local/bin/penumbra-session restart")
+exec("ALT + Tab", "quickshell -c penumbra ipc call launcher windows", "Search open windows")
+exec("SUPER + SHIFT + C", "~/.local/bin/penumbra-picker", "Pick a color")
+exec("SUPER + W", "~/.local/bin/penumbra-wallpaper next", "Next wallpaper")
+exec("SUPER + SHIFT + W", "quickshell -c penumbra ipc call panel wallpapers", "Wallpaper picker")
+exec("SUPER + D", "quickshell -c penumbra ipc call panel downloads", "Download video or audio")
+exec("SUPER + SHIFT + R", "~/.local/bin/penumbra-session restart", "Restart shell")
 -- Every workspace at a glance: Super and the key left of 1 (` on QWERTY, ² on AZERTY), or four
 -- fingers up on a touchpad.
-exec("SUPER + code:49", "quickshell -c penumbra ipc call panel overview")
+exec("SUPER + code:49", "quickshell -c penumbra ipc call panel overview", "Workspace overview")
 hl.gesture({fingers=4, direction="up", action=function() hl.exec_cmd("quickshell -c penumbra ipc call panel overview") end})
 -- Caps Lock shows a popup saying whether it is on; the key still reaches the window.
-hl.bind("Caps_Lock", hl.dsp.exec_cmd("quickshell -c penumbra ipc call osd capsLock"), {release=true, non_consuming=true, ignore_mods=true})
-exec("Print", "~/.local/bin/penumbra-shot")
-exec("SHIFT + Print", "~/.local/bin/penumbra-shot annotate")
+bind("Caps_Lock", hl.dsp.exec_cmd("quickshell -c penumbra ipc call osd capsLock"), "Show Caps Lock status", {release=true, non_consuming=true, ignore_mods=true})
+exec("Print", "~/.local/bin/penumbra-shot", "Screenshot")
+exec("SHIFT + Print", "~/.local/bin/penumbra-shot annotate", "Screenshot and annotate")
 -- Record the screen; press again (or click the red capsule) to stop.
-exec("CTRL + Print", "~/.local/bin/penumbra-record")
-hl.bind("SUPER + C", hl.dsp.window.close())
-hl.bind("SUPER + V", hl.dsp.window.float({action="toggle"}))
-hl.bind("SUPER + F", hl.dsp.window.fullscreen())
-hl.bind("SUPER + J", hl.dsp.layout("togglesplit"))
+exec("CTRL + Print", "~/.local/bin/penumbra-record", "Start or stop screen recording")
+bind("SUPER + C", hl.dsp.window.close(), "Close window")
+bind("SUPER + V", hl.dsp.window.float({action="toggle"}), "Toggle floating window")
+bind("SUPER + F", hl.dsp.window.fullscreen(), "Fullscreen window")
+bind("SUPER + J", hl.dsp.layout("togglesplit"), "Toggle split direction")
 -- Pin a floating window (picture-in-picture, a note) so it follows you to every workspace.
-hl.bind("SUPER + P", hl.dsp.window.pin())
+bind("SUPER + P", hl.dsp.window.pin(), "Pin window to all workspaces")
 -- Group windows into tabs; Super+Tab and Super+Shift+Tab step through the group.
-hl.bind("SUPER + G", hl.dsp.group.toggle())
-hl.bind("SUPER + Tab", hl.dsp.group.next())
-hl.bind("SUPER + SHIFT + Tab", hl.dsp.group.prev())
+bind("SUPER + G", hl.dsp.group.toggle(), "Toggle window group")
+bind("SUPER + Tab", hl.dsp.group.next(), "Next tab in group")
+bind("SUPER + SHIFT + Tab", hl.dsp.group.prev(), "Previous tab in group")
 -- A scratchpad workspace that slides over the current one: Super+Shift+S sends a window there.
-hl.bind("SUPER + S", hl.dsp.workspace.toggle_special("scratch"))
-hl.bind("SUPER + SHIFT + S", hl.dsp.window.move({workspace="special:scratch"}))
+bind("SUPER + S", hl.dsp.workspace.toggle_special("scratch"), "Show or hide scratchpad")
+bind("SUPER + SHIFT + S", hl.dsp.window.move({workspace="special:scratch"}), "Move window to scratchpad")
 -- Arrows focus; with Shift they move the window, with Ctrl they resize it (repeating while held).
 local step = {left={-40, 0}, right={40, 0}, up={0, -40}, down={0, 40}}
 for _, d in ipairs({"left", "right", "up", "down"}) do
- hl.bind("SUPER + "..d, hl.dsp.focus({direction=d}))
- hl.bind("SUPER + SHIFT + "..d, hl.dsp.window.move({direction=d}))
- hl.bind("SUPER + CTRL + "..d, hl.dsp.window.resize({x=step[d][1], y=step[d][2], relative=true}), {repeating=true})
+ bind("SUPER + "..d, hl.dsp.focus({direction=d}), "Focus window "..d)
+ bind("SUPER + SHIFT + "..d, hl.dsp.window.move({direction=d}), "Move window "..d)
+ bind("SUPER + CTRL + "..d, hl.dsp.window.resize({x=step[d][1], y=step[d][2], relative=true}), "Resize window "..d, {repeating=true})
 end
 -- Physical keycodes keep the number-row workspace shortcuts working on any layout (AZERTY included).
 -- Super+Alt sends the window without following it.
 for i=1,10 do
- hl.bind("SUPER + code:"..(i+9), hl.dsp.focus({workspace=i}))
- hl.bind("SUPER + SHIFT + code:"..(i+9), hl.dsp.window.move({workspace=i}))
- hl.bind("SUPER + ALT + code:"..(i+9), hl.dsp.window.move({workspace=i, follow=false}))
+ bind("SUPER + code:"..(i+9), hl.dsp.focus({workspace=i}), "Switch to workspace "..i)
+ bind("SUPER + SHIFT + code:"..(i+9), hl.dsp.window.move({workspace=i}), "Move window to workspace "..i)
+ bind("SUPER + ALT + code:"..(i+9), hl.dsp.window.move({workspace=i, follow=false}), "Send window to workspace "..i.." without following")
 end
 -- Three-finger swipes switch workspaces on a touchpad.
 hl.gesture({fingers=3, direction="horizontal", action="workspace"})
-hl.bind("SUPER + mouse:272", hl.dsp.window.drag(), {mouse=true})
-hl.bind("SUPER + mouse:273", hl.dsp.window.resize(), {mouse=true})
-hl.bind("SUPER + mouse_down", hl.dsp.focus({workspace="e+1"}))
-hl.bind("SUPER + mouse_up", hl.dsp.focus({workspace="e-1"}))
+bind("SUPER + mouse:272", hl.dsp.window.drag(), "Drag window", {mouse=true})
+bind("SUPER + mouse:273", hl.dsp.window.resize(), "Resize window with mouse", {mouse=true})
+bind("SUPER + mouse_down", hl.dsp.focus({workspace="e+1"}), "Next workspace")
+bind("SUPER + mouse_up", hl.dsp.focus({workspace="e-1"}), "Previous workspace")
 -- Volume and brightness repeat while held; toggles (mute, play/pause) fire once per press.
-for key,cmd in pairs({
- XF86AudioRaiseVolume="~/.local/bin/penumbra-osd volume up",
- XF86AudioLowerVolume="~/.local/bin/penumbra-osd volume down",
- XF86MonBrightnessUp="~/.local/bin/penumbra-osd brightness up", XF86MonBrightnessDown="~/.local/bin/penumbra-osd brightness down"
-}) do hl.bind(key, hl.dsp.exec_cmd(cmd), {locked=true, repeating=true}) end
-for key,cmd in pairs({
- XF86AudioMute="~/.local/bin/penumbra-osd volume mute",
- XF86AudioMicMute="~/.local/bin/penumbra-osd microphone mute",
- XF86AudioPlay="playerctl play-pause", XF86AudioPause="playerctl pause",
- XF86AudioNext="playerctl next", XF86AudioPrev="playerctl previous"
-}) do hl.bind(key, hl.dsp.exec_cmd(cmd), {locked=true}) end
+for key,entry in pairs({
+ XF86AudioRaiseVolume={"~/.local/bin/penumbra-osd volume up", "Volume up"},
+ XF86AudioLowerVolume={"~/.local/bin/penumbra-osd volume down", "Volume down"},
+ XF86MonBrightnessUp={"~/.local/bin/penumbra-osd brightness up", "Brightness up"}, XF86MonBrightnessDown={"~/.local/bin/penumbra-osd brightness down", "Brightness down"}
+}) do bind(key, hl.dsp.exec_cmd(entry[1]), entry[2], {locked=true, repeating=true}) end
+for key,entry in pairs({
+ XF86AudioMute={"~/.local/bin/penumbra-osd volume mute", "Mute audio"},
+ XF86AudioMicMute={"~/.local/bin/penumbra-osd microphone mute", "Mute microphone"},
+ XF86AudioPlay={"playerctl play-pause", "Play or pause media"}, XF86AudioPause={"playerctl pause", "Pause media"},
+ XF86AudioNext={"playerctl next", "Next track"}, XF86AudioPrev={"playerctl previous", "Previous track"}
+}) do bind(key, hl.dsp.exec_cmd(entry[1]), entry[2], {locked=true}) end
 hl.window_rule({name="settings", match={class="^(org.pulseaudio.pavucontrol|pavucontrol|blueman-manager|nm-connection-editor|qt6ct)$"}, float=true, size="820 540", center=true})
 hl.window_rule({name="annotate", match={class="^(com.gabm.satty)$"}, float=true, center=true})
 -- Browser video popped out: floating, on every workspace, keeping its shape.

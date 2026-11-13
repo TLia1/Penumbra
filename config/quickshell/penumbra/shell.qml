@@ -40,6 +40,7 @@ ShellRoot {
             onVisibleChanged: if (!visible) downloads.fading = false
         }
     }
+    KeybindsPanel {}
     NotificationPopups {}
     Osd {}
     SessionMenu {}
@@ -80,6 +81,11 @@ ShellRoot {
         function settings(): void { Ui.openControl("settings"); }
         // A page of Settings: look, displays, keyboard, idle or apps; or night (night light).
         function page(name: string): void { Ui.openControl(name); }
+        function keybinds(): void {
+            const reopen = !Ui.keybindsOpen;
+            Ui.closeOverlays();
+            if (reopen) Ui.openPanel = "keybinds";
+        }
         function overview(): void { Ui.toggleOverview(); }
         function calendar(): void { Ui.toggle("calendar"); }
         function monitor(): void { Ui.toggle("monitor"); }
