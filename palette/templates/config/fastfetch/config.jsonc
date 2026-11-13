@@ -4,7 +4,8 @@
   "logo": {
     "type": "builtin",
     "color": {
-      "1": "{{accentBright}}"
+      "1": "{{accentBright}}",
+      "2": "{{accent}}"
     },
     "padding": {
       "top": 1,
