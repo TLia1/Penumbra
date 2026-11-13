@@ -2,8 +2,7 @@
 // and palette/palette.toml; edit those.
 {
   "logo": {
-    "type": "file",
-    "source": "~/.config/fastfetch/penumbra-logo.txt",
+    "type": "builtin",
     "color": {
       "1": "{{accentBright}}"
     },
