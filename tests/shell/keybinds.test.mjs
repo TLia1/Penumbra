@@ -39,12 +39,17 @@ test('active custom bindings, submaps and duplicate chords are preserved', () =>
 });
 
 test('MangoWM config bindings parse with descriptions and readable shortcuts', () => {
-    const configPath = fileURLToPath(new URL('../../config/mango/config.conf', import.meta.url));
-    const entries = K.entries(K.parseMangoConfig(fs.readFileSync(configPath, 'utf8')));
+    const mangoDir = new URL('../../config/mango/', import.meta.url);
+    const text = ['config.conf', 'input.conf', 'keybinds.conf']
+        .map(name => fs.readFileSync(fileURLToPath(new URL(name, mangoDir)), 'utf8'))
+        .join('\n');
+    const entries = K.entries(K.parseMangoConfig(text));
     assert.ok(entries.length >= 40);
     assert.ok(entries.some(e => e.keys === 'Super + Enter' && e.action === 'Open terminal'));
     assert.ok(entries.some(e => e.keys === 'Super + Number row 1' && e.action === 'Switch to workspace 1'));
+    assert.ok(entries.some(e => e.keys === 'Super + Ctrl + Number row 1' && e.action === 'Toggle multi-tag view for tag 1'));
     assert.ok(entries.some(e => e.keys === 'Super + Left mouse' && e.action === 'Drag window'));
     assert.ok(entries.some(e => e.keys === 'Super + Scroll down' && e.action === 'Next workspace'));
     assert.ok(entries.some(e => e.keys === '4-finger swipe up' && e.action === 'Workspace overview'));
+    assert.ok(entries.some(e => e.keys === 'Esc' && e.details.includes('Submap: resize')));
 });

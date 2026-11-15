@@ -134,15 +134,7 @@ ColumnLayout {
 
     readonly property string barSummary: ({ floating: "Capsules", island: "Island", framed: "Framed" })[Settings.barStyle] ?? "Capsules"
     readonly property string dockSummary: ({ off: "Dock off", auto: "Dock auto-hide", empty: "Dock on empty" })[Settings.dockMode] ?? "Dock off"
-    readonly property string tilingSummary: ({
-        dwindle: "Dwindle",
-        tile: "Master & stack",
-        scroller: "Scroller",
-        center_tile: "Centered master",
-        grid: "Grid",
-        deck: "Deck",
-        monocle: "Monocle"
-    })[Settings.tilingLayout] ?? "Dwindle"
+    readonly property string tilingSummary: Wm.layoutById(Settings.tilingLayout)?.title ?? "Dwindle"
 
     // What search finds: a page to open (page), or a row of this page (page: "settings").
     readonly property var index: [
@@ -165,7 +157,7 @@ ColumnLayout {
         { page: "cast", glyph: "󰄘", title: "Cast screen", words: "tv chromecast dlna firewall port" },
         { page: "settings", glyph: "󰐊", title: "Animated wallpapers", words: "motion still battery power covered windows" },
         { page: "settings", glyph: "󰆾", title: "Hot corner", words: "corner control center" },
-        { page: "wm", glyph: "󰖯", title: "Window manager", words: "wm compositor mangowm mango session tiling layout windows dwindle master stack scroller monocle grid deck center split smart gaps" },
+        { page: "wm", glyph: "󰖯", title: "Window manager", words: "wm compositor mangowm mango session tiling layout tags multi-tag toggleview toggletag windows dwindle master stack scroller monocle grid deck fair vertical jump labels scratchpad group tabs overlay" },
         { page: "settings", glyph: "󰘾", title: "Reduced motion", words: "animations accessibility" },
         { page: "settings", glyph: "󰛖", title: "Text size", words: "font larger bigger accessibility zoom" },
         { page: "settings", glyph: "󰂄", title: "Battery care", words: "charge limit threshold power" },

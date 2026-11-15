@@ -158,7 +158,8 @@ Singleton {
     readonly property string display: "Inter Display"
     readonly property string mono: "JetBrainsMono Nerd Font"
     // The distribution's logo on the bar's launcher button, set by install.sh from distro/NAME/distro.sh.
-    readonly property string distroGlyph: "@@DISTRO_GLYPH@@"
+    readonly property string rawDistroGlyph: "@@DISTRO_GLYPH@@"
+    readonly property string distroGlyph: rawDistroGlyph.startsWith("@@") ? "󰣇" : rawDistroGlyph
 
     // The type scale. Every text size in the shell is one of these, scaled by Settings → Text size.
     readonly property real textScale: Settings.textScale > 0 ? Settings.textScale : 1

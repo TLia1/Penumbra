@@ -174,7 +174,10 @@ def mango_settings(values):
         pass
     if shell.get('reducedMotion'):
         lines.append('animations=0')
-    valid_layouts = ('dwindle', 'tile', 'scroller', 'center_tile', 'grid', 'deck', 'monocle')
+    valid_layouts = (
+        'dwindle', 'tile', 'scroller', 'center_tile', 'right_tile', 'grid', 'deck', 'monocle', 'fair',
+        'vertical_scroller', 'vertical_tile', 'vertical_grid', 'vertical_deck', 'vertical_fair',
+    )
     layout = shell.get('tilingLayout') if shell.get('tilingLayout') in valid_layouts else 'dwindle'
     try:
         mfact = min(0.9, max(0.2, float(shell.get('masterRatio', 0.55))))
@@ -188,6 +191,12 @@ def mango_settings(values):
     smart_split = 1 if shell.get('dwindleSmartSplit') else 0
     new_master = 0 if shell.get('newWindowMaster') is False else 1
     scroller_center = 1 if shell.get('scrollerCenter') else 0
+    monocle_tab = 0 if shell.get('monocleTabBar') is False else 1
+    deck_tab = 0 if shell.get('deckTabBar') is False else 1
+    floating_snap = 0 if shell.get('floatingSnap') is False else 1
+    sloppy_focus = 0 if shell.get('sloppyFocus') is False else 1
+    warp_cursor = 1 if shell.get('warpCursor') else 0
+    hotarea = 1 if shell.get('nativeHotarea') else 0
     lines += [
         f'smart_gaps={smart_gaps}',
         f'new_is_master={new_master}',
@@ -196,6 +205,12 @@ def mango_settings(values):
         f'scroller_default_proportion={scroller_prop:.2f}',
         f'scroller_focus_center={scroller_center}',
         f'scroller_prefer_center={scroller_center}',
+        f'monocle_tab_mode={monocle_tab}',
+        f'deck_tab_mode={deck_tab}',
+        f'enable_floating_snap={floating_snap}',
+        f'sloppy_focus={sloppy_focus}',
+        f'warp_cursor={warp_cursor}',
+        f'enable_hotarea={hotarea}',
         f'tag_rule=id:*,layout_name:{layout},master_factor:{mfact:.2f},scroller_default_proportion:{scroller_prop:.2f}',
     ]
     return '\n'.join(lines) + '\n'

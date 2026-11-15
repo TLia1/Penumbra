@@ -121,8 +121,13 @@ PanelWindow {
             list = Settings.clipboardPins.filter(t => !q || t.toLowerCase().includes(q)).map(t => ({ kind: "pin", text: t }))
                 .concat(clips.filter(c => !q || c.text.toLowerCase().includes(q)).map(c => ({ kind: "clip", clip: c })));
         } else if (windows) {
-            const open = ToplevelManager.toplevels.values.filter(t => !q || (t.title + " " + t.appId).toLowerCase().includes(q));
-            list = open.map(t => ({ kind: "window", toplevel: t, entry: DesktopEntries.heuristicLookup(t.appId) }));
+            if (Wm.isMango && Wm.clients.length > 0) {
+                const open = Wm.clients.filter(c => !q || (c.title + " " + c.appId + " tag " + (c.tags ?? []).join(" ")).toLowerCase().includes(q));
+                list = open.map(c => ({ kind: "window", toplevel: c.wayland, mangoClient: c, entry: DesktopEntries.heuristicLookup(c.appId) }));
+            } else {
+                const open = ToplevelManager.toplevels.values.filter(t => !q || (t.title + " " + t.appId).toLowerCase().includes(q));
+                list = open.map(t => ({ kind: "window", toplevel: t, mangoClient: null, entry: DesktopEntries.heuristicLookup(t.appId) }));
+            }
         } else if (text.startsWith(">")) {
             if (text.slice(1).trim())
                 list = [{ kind: "run", command: text.slice(1).trim() }];
@@ -183,7 +188,10 @@ PanelWindow {
             usage = Object.assign({}, usage, { [item.entry.id]: Search.launched(usage[item.entry.id], Date.now()) });
             usageFile.setText(JSON.stringify(usage));
         } else if (item.kind === "window") {
-            item.toplevel.activate();
+            if (item.mangoClient)
+                Wm.focusWindow(item.mangoClient);
+            else if (item.toplevel?.activate)
+                item.toplevel.activate();
         } else if (item.kind === "web") {
             Ui.spawn(["xdg-open", "https://duckduckgo.com/?q=" + encodeURIComponent(item.query)]);
         } else if (item.kind === "download") {
@@ -737,8 +745,23 @@ PanelWindow {
                                         return m.pending ? "Asking the European Central Bank for today's rate…" : `${m.from.amount} ${m.from.from} · ECB rate of ${m.date} · Enter copies`;
                                     if (m.kind === "action")
                                         return m.entry.name;
-                                    if (m.kind === "window")
-                                        return (m.entry?.name || m.toplevel.appId) + (m.toplevel.activated ? " · focused" : "");
+                                    if (m.kind === "window") {
+                                        const c = m.mangoClient;
+                                        const parts = [m.entry?.name || c?.appId || m.toplevel?.appId || "Window"];
+                                        if (c) {
+                                            parts.push(c.tags?.length > 1 ? `Tags ${c.tags.join("+")}` : `Tag ${c.tags?.[0] ?? 1}`);
+                                            if (c.activated) parts.push("focused");
+                                            if (c.isGlobal) parts.push("pinned");
+                                            if (c.isOverlay) parts.push("overlay");
+                                            if (c.isGroup) parts.push("grouped");
+                                            if (c.isScratchpad || c.isMinimized) parts.push("scratchpad");
+                                            if (c.isMaximized) parts.push("maximized");
+                                            if (c.isFloating) parts.push("floating");
+                                        } else if (m.toplevel?.activated) {
+                                            parts.push("focused");
+                                        }
+                                        return parts.join(" · ");
+                                    }
                                     if (m.kind === "web")
                                         return "Search the web · DuckDuckGo in your browser";
                                     if (m.kind === "download")

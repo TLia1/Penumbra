@@ -101,11 +101,71 @@ PanelWindow {
             showIcons: Settings.workspaceStyle === "icons" && bar.width - rightSide.width > 850
         }
 
+        // MangoWM active tiling layout capsule: click to cycle layouts, right-click for MangoWM settings.
+        Capsule {
+            id: layoutCapsule
+            readonly property var monitor: Wm.monitorFor(bar.screen)
+            readonly property var layoutInfo: monitor?.layoutInfo ?? Wm.activeLayout
+            readonly property bool isScroller: layoutInfo?.id === "scroller" || layoutInfo?.id === "vertical_scroller"
+            readonly property int scrollerPct: Math.round((Wm.focusedClient?.scrollerProportion ?? Settings.scrollerProportion ?? 0.8) * 100)
+            shown: Wm.isMango && !!layoutInfo
+            padding: 12
+            spacing: 6
+            active: Ui.controlOpen && Ui.controlPage === "wm"
+            onClicked: m => m.button === Qt.RightButton ? Ui.openControl("wm") : (m.button === Qt.MiddleButton && isScroller ? Wm.switchProportionPreset() : Wm.nextLayout())
+            onScrolled: step => isScroller && (Wm.focusedClient != null) ? Wm.switchProportionPreset() : Wm.nextLayout()
+            Glyph {
+                text: layoutCapsule.layoutInfo?.glyph ?? "󰕰"
+                size: 14
+                color: layoutCapsule.active ? Theme.accentInk : Theme.accentBright
+            }
+            Label {
+                text: (layoutCapsule.layoutInfo?.symbol ?? "DW") + (layoutCapsule.isScroller && Wm.focusedClient ? ` · ${layoutCapsule.scrollerPct}%` : "")
+                font.pixelSize: Theme.textSmall
+                font.weight: Font.Bold
+                color: layoutCapsule.active ? Theme.accentInk : Theme.textSoft
+            }
+        }
+
+        // MangoWM active keymode submap indicator (e.g. resize mode). Click to return to default.
+        Capsule {
+            id: keymodeCapsule
+            shown: Wm.isMango && Wm.keymode !== "" && Wm.keymode !== "default"
+            padding: 12
+            spacing: 6
+            color: hovered ? Theme.alpha(Theme.amber, 0.32) : Theme.alpha(Theme.amber, 0.2)
+            border.color: Theme.alpha(Theme.amber, 0.55)
+            onClicked: Wm.setKeymode("default")
+            Glyph { text: "󰌌"; size: 14; color: Theme.amber }
+            Label {
+                text: Wm.keymode.toUpperCase()
+                font.pixelSize: Theme.textSmall
+                font.weight: Font.Bold
+                color: Theme.amber
+            }
+        }
+
+        // MangoWM scratchpad / minimized stash indicator: click to toggle scratchpad, right-click to restore.
+        Capsule {
+            id: scratchpadCapsule
+            shown: Wm.isMango && Wm.scratchpadCount > 0
+            padding: 11
+            spacing: 5
+            onClicked: m => m.button === Qt.RightButton ? Wm.restoreMinimized() : Wm.toggleScratchpad()
+            Glyph { text: "󰀿"; size: 14; color: Theme.accentBright }
+            Label {
+                text: String(Wm.scratchpadCount)
+                font.pixelSize: Theme.textSmall
+                font.weight: Font.Bold
+                color: Theme.textSoft
+            }
+        }
+
         MediaCapsule {}
     }
 
     // ── Center ──────────────────────────────────────────────────────
-    // The focused window holds the exact center.
+    // The focused window holds the exact center, along with its MangoWM window state badges.
     RowLayout {
         anchors.centerIn: parent
         Capsule {
@@ -113,6 +173,7 @@ PanelWindow {
             // The Wayland toplevel protocol knows the focused window from startup; nothing is
             // activated on an empty workspace. Show it on the bar of the screen it is on.
             readonly property var client: ToplevelManager.activeToplevel
+            readonly property var mangoClient: Wm.focusedClient
             readonly property var entry: client ? DesktopEntries.heuristicLookup(client.appId) : null
             // Most windows end their title with the app's name ("… — Mozilla Firefox"); the icon says that.
             readonly property string text: {
@@ -121,12 +182,40 @@ PanelWindow {
                 const names = [entry?.name, client?.appId].filter(n => n).map(n => n.toLowerCase());
                 return m && names.some(n => m[2].toLowerCase().includes(n)) ? m[1] : t;
             }
+            readonly property var badges: {
+                const c = mangoClient;
+                if (!c)
+                    return [];
+                const list = [];
+                if (c.tags && c.tags.length > 1)
+                    list.push({ label: "TAGS " + c.tags.join("+"), color: Theme.accentBright });
+                if (c.isGlobal)
+                    list.push({ label: "PIN", color: Theme.accentBright });
+                if (c.isOverlay)
+                    list.push({ label: "TOP", color: Theme.cyan });
+                if (c.isGroup)
+                    list.push({ label: "GROUP", color: Theme.accent });
+                if (c.isMaximized)
+                    list.push({ label: "MAX", color: Theme.amber });
+                if (c.isFloating)
+                    list.push({ label: "FLOAT", color: Theme.textSoft });
+                if (c.isSwallowing)
+                    list.push({ label: "SWALLOW", color: Theme.green });
+                return list;
+            }
             readonly property real availableWidth: 2 * Math.min(content.width / 2 - leftSide.x - leftSide.width,
                 rightSide.x - content.width / 2) - 2 * Theme.gap
             shown: !bar.island && availableWidth >= 80 && !!client && client.activated && text !== "" && client.screens.some(s => s.name === bar.screen.name)
-            interactive: false
             padding: 15
             spacing: 8
+            onClicked: m => {
+                if (m.button === Qt.RightButton)
+                    Ui.toggleLauncher("windows");
+                else if (m.button === Qt.MiddleButton)
+                    Wm.toggleMaximizeScreen(title.mangoClient);
+                else
+                    Ui.toggleOverview();
+            }
             IconImage {
                 visible: source !== ""
                 implicitSize: 15
@@ -136,8 +225,30 @@ PanelWindow {
             Label {
                 text: title.text
                 // As wide as the room between the side capsules allows, up to a point.
-                Layout.maximumWidth: Math.max(0, Math.min(300, title.availableWidth - 60))
+                readonly property real maxTextWidth: Math.max(40, Math.min(280, title.availableWidth - 60 - (title.badges.length * 48)))
+                Layout.preferredWidth: Math.min(implicitWidth, maxTextWidth)
+                Layout.maximumWidth: maxTextWidth
+                elide: Text.ElideRight
                 color: Theme.textSoft
+            }
+            Repeater {
+                model: title.badges
+                delegate: Rectangle {
+                    required property var modelData
+                    implicitWidth: badgeText.implicitWidth + 10
+                    implicitHeight: 18
+                    radius: Theme.corner(9)
+                    color: Theme.alpha(modelData.color, 0.18)
+                    border.color: Theme.alpha(modelData.color, 0.45)
+                    Label {
+                        id: badgeText
+                        anchors.centerIn: parent
+                        text: modelData.label
+                        font.pixelSize: Theme.textTiny
+                        font.weight: Font.Bold
+                        color: modelData.color
+                    }
+                }
             }
         }
     }

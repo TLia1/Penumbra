@@ -4,6 +4,8 @@ import Quickshell
 import Quickshell.Widgets
 
 // One shared glass surface; the two edges of its active pill travel at different speeds.
+// Supports MangoWM multi-tag viewing: left-click views a tag, right-click (or Ctrl+click) toggles
+// viewing a second tag alongside the active one (toggleview), middle-click moves/tags the focused window.
 Rectangle {
     id: root
     required property var workspaces
@@ -68,12 +70,20 @@ Rectangle {
             delegate: Rectangle {
                 id: workspace
                 required property var modelData
-                readonly property bool current: modelData.active
-                readonly property var windows: modelData.toplevels.values
+                required property int index
+                readonly property bool current: !!modelData.active
+                // Secondary active tag when viewing multiple tags simultaneously via toggleview/comboview.
+                readonly property bool secondaryActive: current && index !== root.activeIndex
+                readonly property var windows: modelData.toplevels?.values ?? []
                 width: root.style === "dots" ? 28 : Math.max(36, contents.implicitWidth + 20)
                 height: root.height - 8
                 radius: Theme.corner(height / 2)
-                color: current ? "transparent" : modelData.urgent ? Theme.alpha(Theme.rose, 0.3) : mouse.containsMouse ? Theme.hover : "transparent"
+                color: secondaryActive ? Theme.alpha(Theme.accent, 0.32)
+                    : current ? "transparent"
+                    : modelData.urgent ? Theme.alpha(Theme.rose, 0.3)
+                    : mouse.containsMouse ? Theme.hover : "transparent"
+                border.width: secondaryActive ? 1 : 0
+                border.color: secondaryActive ? Theme.accentBright : "transparent"
                 Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
                 RowLayout {
                     id: contents
@@ -83,12 +93,18 @@ Rectangle {
                         visible: root.style === "dots"
                         implicitWidth: 7; implicitHeight: 7
                         radius: Theme.corner(3.5)
-                        color: workspace.current ? Theme.accentInk : workspace.modelData.urgent ? Theme.rose : Theme.muted
+                        color: workspace.current && !workspace.secondaryActive ? Theme.accentInk
+                            : workspace.secondaryActive ? Theme.accentBright
+                            : workspace.modelData.urgent ? Theme.rose
+                            : workspace.windows.length > 0 ? Theme.textSoft : Theme.muted
                     }
                     Label {
                         visible: root.style !== "dots"
                         text: workspace.modelData.name
-                        color: workspace.current ? Theme.accentInk : workspace.modelData.urgent ? Theme.rose : Theme.textSoft
+                        color: workspace.current && !workspace.secondaryActive ? Theme.accentInk
+                            : workspace.secondaryActive ? Theme.accentBright
+                            : workspace.modelData.urgent ? Theme.rose
+                            : workspace.windows.length > 0 ? Theme.textSoft : Theme.muted
                         font.weight: workspace.current ? Font.Bold : Font.DemiBold
                     }
                     Repeater {
@@ -111,7 +127,7 @@ Rectangle {
                                 visible: icon.status !== Image.Ready
                                 text: "󰣆"
                                 size: 13
-                                color: workspace.current ? Theme.accentInk : Theme.subtle
+                                color: workspace.current && !workspace.secondaryActive ? Theme.accentInk : Theme.subtle
                             }
                         }
                     }
@@ -119,7 +135,7 @@ Rectangle {
                         visible: root.showIcons && workspace.windows.length > 2
                         text: "+" + (workspace.windows.length - 2)
                         font.pixelSize: Theme.textTiny
-                        color: workspace.current ? Theme.accentInk : Theme.subtle
+                        color: workspace.current && !workspace.secondaryActive ? Theme.accentInk : Theme.subtle
                     }
                 }
                 MouseArea {
@@ -127,7 +143,20 @@ Rectangle {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: workspace.modelData.activate()
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+                    onClicked: m => {
+                        const ws = workspace.modelData;
+                        if (m.button === Qt.RightButton || (m.button === Qt.LeftButton && (m.modifiers & Qt.ControlModifier))) {
+                            if (ws.toggleView) ws.toggleView();
+                        } else if (m.button === Qt.MiddleButton) {
+                            if ((m.modifiers & Qt.ShiftModifier) && ws.toggleTagFocusedWindow)
+                                ws.toggleTagFocusedWindow();
+                            else if (ws.tagFocusedWindow)
+                                ws.tagFocusedWindow();
+                        } else if (ws.activate) {
+                            ws.activate();
+                        }
+                    }
                 }
             }
         }

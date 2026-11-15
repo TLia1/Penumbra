@@ -56,7 +56,7 @@ class QmlLoad(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='penumbra-load-') as temp:
             stage = Path(temp)
             shutil.copytree(ROOT / 'config/quickshell/penumbra', stage, dirs_exist_ok=True)
-            names = ['Bar', 'SettingsPage', 'LookPage', 'WeatherPage', 'PackagesPage', 'Osd', 'Overview', 'Wallpaper',
+            names = ['Bar', 'SettingsPage', 'LookPage', 'WmPage', 'WeatherPage', 'PackagesPage', 'Osd', 'Overview', 'Wallpaper',
                      'ControlCenter', 'CalendarPanel', 'KeybindsPanel', 'MonitorPanel', 'UpdatesPanel', 'WallpaperPicker',
                      'DownloadsPanel', 'MediaPopover', 'ScreenFrame', 'SessionMenu', 'Launcher']
             for path in stage.glob('*.qml'):

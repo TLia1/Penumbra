@@ -132,30 +132,48 @@ PanelWindow {
             scale: Ui.overviewOpen ? 1 : 0.94
             Behavior on scale { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
 
-            // The search, or the hint.
-            Rectangle {
+        // The search, or the hint, plus quick MangoWM actions.
+            RowLayout {
                 Layout.alignment: Qt.AlignHCenter
-                implicitWidth: Math.max(260, searchRow.implicitWidth + 36)
-                implicitHeight: 40
-                radius: Theme.corner(20)
-                color: Theme.glassStrong
-                border.color: root.query !== "" ? Theme.accent : Theme.line
-                RowLayout {
-                    id: searchRow
-                    anchors.centerIn: parent
-                    spacing: 10
-                    Glyph { text: "󰍉"; size: 15; color: root.query !== "" ? Theme.accentBright : Theme.dim }
-                    Label {
-                        text: search.text !== "" ? search.text : "Type to find a window"
-                        font.pixelSize: Theme.textMedium
-                        color: search.text !== "" ? Theme.text : Theme.dim
+                spacing: 10
+                Rectangle {
+                    implicitWidth: Math.max(260, searchRow.implicitWidth + 36)
+                    implicitHeight: 40
+                    radius: Theme.corner(20)
+                    color: Theme.glassStrong
+                    border.color: root.query !== "" ? Theme.accent : Theme.line
+                    RowLayout {
+                        id: searchRow
+                        anchors.centerIn: parent
+                        spacing: 10
+                        Glyph { text: "󰍉"; size: 15; color: root.query !== "" ? Theme.accentBright : Theme.dim }
+                        Label {
+                            text: search.text !== "" ? search.text : "Type to find a window"
+                            font.pixelSize: Theme.textMedium
+                            color: search.text !== "" ? Theme.text : Theme.dim
+                        }
+                        Label {
+                            visible: root.query !== ""
+                            text: root.matches.length === 1 ? "1 window" : `${root.matches.length} windows`
+                            font.pixelSize: Theme.textSmall
+                            color: root.matches.length ? Theme.muted : Theme.rose
+                        }
                     }
-                    Label {
-                        visible: root.query !== ""
-                        text: root.matches.length === 1 ? "1 window" : `${root.matches.length} windows`
-                        font.pixelSize: Theme.textSmall
-                        color: root.matches.length ? Theme.muted : Theme.rose
-                    }
+                }
+                PillButton {
+                    visible: Wm.isMango
+                    text: `Layout: ${Wm.activeLayout?.title ?? "Dwindle"} (${Wm.activeLayoutSymbol})`
+                    onClicked: Wm.nextLayout()
+                }
+                PillButton {
+                    visible: Wm.isMango
+                    text: "Jump labels"
+                    onClicked: { Ui.overviewOpen = false; Wm.toggleJump(); }
+                }
+                PillButton {
+                    visible: Wm.isMango && Wm.scratchpadCount > 0
+                    text: `Scratchpad (${Wm.scratchpadCount})`
+                    onClicked: { Ui.overviewOpen = false; Wm.toggleScratchpad(); }
                 }
             }
 
@@ -207,14 +225,24 @@ PanelWindow {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: root.goTo(tile.modelData.id)
+                                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                onClicked: m => {
+                                    if (m.button === Qt.RightButton || (m.modifiers & Qt.ControlModifier))
+                                        Wm.toggleTagView(tile.modelData.id, root.screen?.name);
+                                    else
+                                        root.goTo(tile.modelData.id);
+                                }
                             }
                             DropArea {
                                 id: drop
                                 anchors.fill: parent
                                 onDropped: drag => {
-                                    if (drag.source?.toplevel && drag.source.toplevel.workspace?.id !== tile.modelData.id)
-                                        root.moveWindow(drag.source.toplevel, tile.modelData.id);
+                                    if (drag.source?.toplevel && drag.source.toplevel.workspace?.id !== tile.modelData.id) {
+                                        if (drag.source.multiTag)
+                                            Wm.toggleWindowTag(drag.source.toplevel, tile.modelData.id);
+                                        else
+                                            root.moveWindow(drag.source.toplevel, tile.modelData.id);
+                                    }
                                 }
                             }
                             Glyph {
@@ -277,6 +305,7 @@ PanelWindow {
                                             if (!dragging && Math.hypot(m.x - start.x, m.y - start.y) > 6) {
                                                 dragging = true;
                                                 ghost.toplevel = win.modelData;
+                                                ghost.multiTag = !!(m.modifiers & (Qt.ControlModifier | Qt.ShiftModifier));
                                                 ghost.width = win.width;
                                                 ghost.height = win.height;
                                                 ghost.grab = start;
@@ -305,9 +334,25 @@ PanelWindow {
                             Layout.preferredWidth: root.tileWidth
                             spacing: 8
                             Label {
-                                text: tile.workspace ? tile.workspace.name : "New workspace"
+                                text: tile.workspace ? `Tag ${tile.workspace.name}` : `Tag ${tile.modelData.id}`
                                 font.weight: tile.current ? Font.Bold : Font.DemiBold
                                 color: tile.current ? Theme.accentBright : Theme.textSoft
+                            }
+                            Rectangle {
+                                visible: !!tile.workspace?.layoutSymbol
+                                implicitWidth: tagLayoutLabel.implicitWidth + 8
+                                implicitHeight: 18
+                                radius: Theme.corner(6)
+                                color: tile.current ? Theme.alpha(Theme.accent, 0.22) : Theme.raised
+                                border.color: tile.current ? Theme.alpha(Theme.accentBright, 0.45) : Theme.line
+                                Label {
+                                    id: tagLayoutLabel
+                                    anchors.centerIn: parent
+                                    text: tile.workspace?.layoutSymbol ?? ""
+                                    font.family: Theme.mono
+                                    font.pixelSize: Theme.textTiny
+                                    color: tile.current ? Theme.accentBright : Theme.muted
+                                }
                             }
                             Label {
                                 Layout.fillWidth: true
@@ -326,7 +371,7 @@ PanelWindow {
 
             Label {
                 Layout.alignment: Qt.AlignHCenter
-                text: "Click to go there · drag a window to move it · Tab and Enter pick a match · Esc to close"
+                text: "Click a tag to view · Right-click a tag to view multiple tags · Drag a window to move (Ctrl+drag to share across tags) · Esc to close"
                 font.pixelSize: Theme.textSmall
                 color: Theme.muted
             }
@@ -336,6 +381,7 @@ PanelWindow {
         Item {
             id: ghost
             property var toplevel: null
+            property bool multiTag: false
             property point grab
             visible: !!toplevel
             z: 10

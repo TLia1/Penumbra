@@ -9,6 +9,7 @@ function shortcut(bind) {
     }
     const names = {
         Return: "Enter", space: "Space", comma: ",", semicolon: ";", Caps_Lock: "Caps Lock",
+        Escape: "Esc", Page_Up: "Page Up", Page_Down: "Page Down", equal: "=", minus: "-",
         left: "←", right: "→", up: "↑", down: "↓",
         "mouse:272": "Left mouse", "mouse:273": "Right mouse", "mouse:274": "Middle mouse",
         mouse_down: "Scroll down", mouse_up: "Scroll up",

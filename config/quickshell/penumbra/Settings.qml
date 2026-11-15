@@ -24,14 +24,21 @@ Singleton {
     property alias dockMode: adapter.dockMode
     property alias dockPins: adapter.dockPins
     property alias hotCorner: adapter.hotCorner
-    // Window tiling: layout, smart gaps, and layout-specific tuning.
+    // Window tiling: layout, smart gaps, and MangoWM layout-specific tuning.
     property alias tilingLayout: adapter.tilingLayout
+    property alias showAllTags: adapter.showAllTags
     property alias smartGaps: adapter.smartGaps
     property alias dwindleSmartSplit: adapter.dwindleSmartSplit
     property alias masterRatio: adapter.masterRatio
     property alias newWindowMaster: adapter.newWindowMaster
     property alias scrollerProportion: adapter.scrollerProportion
     property alias scrollerCenter: adapter.scrollerCenter
+    property alias monocleTabBar: adapter.monocleTabBar
+    property alias deckTabBar: adapter.deckTabBar
+    property alias floatingSnap: adapter.floatingSnap
+    property alias sloppyFocus: adapter.sloppyFocus
+    property alias warpCursor: adapter.warpCursor
+    property alias nativeHotarea: adapter.nativeHotarea
     // Night light: its warmth in kelvin, and when it comes on (see NightLight).
     property alias nightTemperature: adapter.nightTemperature
     property alias nightSchedule: adapter.nightSchedule // manual, times or sun
@@ -81,6 +88,12 @@ Singleton {
     onNewWindowMasterChanged: Wm.syncTiling()
     onScrollerProportionChanged: Wm.syncTiling()
     onScrollerCenterChanged: Wm.syncTiling()
+    onMonocleTabBarChanged: Wm.syncTiling()
+    onDeckTabBarChanged: Wm.syncTiling()
+    onFloatingSnapChanged: Wm.syncTiling()
+    onSloppyFocusChanged: Wm.syncTiling()
+    onWarpCursorChanged: Wm.syncTiling()
+    onNativeHotareaChanged: Wm.syncTiling()
 
     function signatureComposition() {
         barStyle = "floating";
@@ -136,12 +149,19 @@ Singleton {
             property var dockPins: ["firefox", "kitty", "org.kde.dolphin"]
             property bool hotCorner: true
             property string tilingLayout: "dwindle"
+            property bool showAllTags: false
             property bool smartGaps: false
             property bool dwindleSmartSplit: false
             property real masterRatio: 0.55
             property bool newWindowMaster: true
             property real scrollerProportion: 0.8
             property bool scrollerCenter: false
+            property bool monocleTabBar: true
+            property bool deckTabBar: true
+            property bool floatingSnap: true
+            property bool sloppyFocus: true
+            property bool warpCursor: false
+            property bool nativeHotarea: false
             property int nightTemperature: 4500
             property string nightSchedule: "manual"
             property string nightFrom: "21:00"
