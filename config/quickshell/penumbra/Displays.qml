@@ -7,76 +7,36 @@ import Quickshell.Io
 Singleton {
     id: root
 
-    // [{ key, name, label, modes: ["1920x1080@144.00"], mode, x, y, scale, transform, enabled }]
     property var screens: []
     property var draft: []
     readonly property bool changed: JSON.stringify(screens) !== JSON.stringify(draft)
     property int countdown: 0 // seconds left to keep an applied change
 
+    readonly property string helper: Quickshell.env("HOME") + "/.local/bin/penumbra-displays"
+    readonly property bool busy: trial.running
+    property string error: ""
+    property string readError: ""
+
     function refresh() {
-        if (!list.running)
+        if (!list.running && !busy && !changed)
             list.running = true;
     }
     Process {
         id: list
-        command: ["mmsg", "get", "all-monitors"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                let all;
-                try {
-                    const firstLine = text.split("\n").find(l => l.trim().startsWith("{")) ?? "{}";
-                    const raw = JSON.parse(firstLine).monitors ?? [];
-                    const trMap = { normal: 0, "90": 1, "180": 2, "270": 3 };
-                    all = raw.map(m => {
-                        const scale = m.scale > 0 ? m.scale : 1;
-                        const tr = trMap[String(m.transform ?? "normal")] ?? 0;
-                        const turned = tr % 2 === 1;
-                        const w = Math.round((turned ? m.height : m.width) * scale);
-                        const h = Math.round((turned ? m.width : m.height) * scale);
-                        return {
-                            name: m.name,
-                            description: m.name,
-                            make: "",
-                            model: m.name,
-                            width: w,
-                            height: h,
-                            refreshRate: 60,
-                            availableModes: [`${w}x${h}@60.00Hz`],
-                            x: m.x ?? 0,
-                            y: m.y ?? 0,
-                            scale,
-                            transform: tr,
-                            disabled: false
-                        };
-                    });
-                } catch (e) {
-                    return;
-                }
-                const descriptions = all.map(m => m.description);
-                root.screens = all.map(m => {
-                    // The model's description stays when the cable moves to another port; two of
-                    // the same model (or none) fall back to the port.
-                    const unique = m.description && descriptions.filter(d => d === m.description).length === 1;
-                    const modes = [...new Set((m.availableModes ?? []).map(t => t.replace(/Hz$/, "")))];
-                    // A screen that is off may report no mode of its own.
-                    let mode = `${m.width}x${m.height}@${Number(m.refreshRate).toFixed(2)}`;
-                    if (m.width > 0 && !modes.includes(mode))
-                        modes.unshift(mode);
-                    else if (m.width <= 0)
-                        mode = modes[0] ?? "preferred";
-                    return {
-                        key: unique ? "desc:" + m.description : m.name,
-                        name: m.name,
-                        label: [m.make, m.model].filter(t => t && t !== "Unknown").join(" ") || m.name,
-                        modes, mode,
-                        x: m.x, y: m.y,
-                        scale: m.scale > 0 ? Math.round(m.scale * 1000) / 1000 : 1,
-                        transform: m.transform % 4,
-                        enabled: !m.disabled
-                    };
-                });
-                if (root.countdown === 0)
-                    root.draft = JSON.parse(JSON.stringify(root.screens));
+        command: [root.helper, "list"]
+        stdout: StdioCollector { id: output }
+        stderr: StdioCollector { id: listError }
+        onExited: code => {
+            if (root.busy || root.changed) return;
+            if (code !== 0) {
+                root.readError = listError.text.trim() || "Couldn't read Mango's display modes.";
+                return;
+            }
+            root.readError = "";
+            const latest = JSON.parse(output.text);
+            if (JSON.stringify(latest) !== JSON.stringify(root.screens)) {
+                root.screens = latest;
+                root.reset();
             }
         }
     }
@@ -156,53 +116,39 @@ Singleton {
         }
         draft = next;
     }
-    // The draft as MangoWM monitor_rule lines.
-    function mangoConf(screens) {
-        return screens.map(s => {
-            if (!s.enabled)
-                return `monitor_rule=name:^${s.name}$,disable:1`;
-            const m = /^(\d+)x(\d+)@([\d.]+)/.exec(s.mode);
-            const modePart = m ? `,width:${m[1]},height:${m[2]},refresh:${m[3]}` : "";
-            return `monitor_rule=name:^${s.name}$${modePart},x:${s.x},y:${s.y},scale:${s.scale},rr:${s.transform}`;
-        }).join("\n");
-    }
-    readonly property string mangoHeader: "# Your screens, written by the Penumbra shell's Settings -> Displays. config.conf reads this\n"
-        + "# file before settings.conf and user.conf.\n"
-
     function apply() {
-        if (!changed)
-            return;
-        mangoFile.setText(mangoHeader + mangoConf(draft) + "\n");
-        Quickshell.execDetached(["mmsg", "dispatch", "reload_config"]);
-        countdown = 15;
-        timer.restart();
+        if (!changed || busy) return;
+        error = "";
+        trial.command = [helper, "trial", JSON.stringify(draft), JSON.stringify(screens)];
+        trial.running = true;
     }
     function keep() {
-        timer.stop();
-        countdown = 0;
-        refresh();
+        if (countdown > 0) trial.write("keep\n");
     }
     function revert() {
-        timer.stop();
-        countdown = 0;
-        mangoFile.setText(mangoHeader + mangoConf(screens) + "\n");
-        Quickshell.execDetached(["mmsg", "dispatch", "reload_config"]);
-        draft = JSON.parse(JSON.stringify(screens));
-        refresh();
+        if (countdown > 0) trial.write("undo\n");
     }
-    Timer {
-        id: timer
-        interval: 1000
-        repeat: true
-        onTriggered: {
-            root.countdown -= 1;
-            if (root.countdown <= 0)
-                root.revert();
+    Process {
+        id: trial
+        stdinEnabled: true
+        stdout: SplitParser {
+            onRead: line => {
+                if (line === "ready") root.countdown = 15;
+            }
+        }
+        stderr: StdioCollector { id: trialError }
+        onExited: code => {
+            root.countdown = 0;
+            if (code !== 0)
+                root.error = trialError.text.trim() || "Couldn't apply the display settings.";
+            root.reset();
+            Qt.callLater(root.refresh);
         }
     }
-    FileView {
-        id: mangoFile
-        path: Quickshell.env("HOME") + "/.config/mango/monitors.conf"
-        printErrors: false
+    Timer {
+        interval: 1000
+        repeat: true
+        running: root.countdown > 0
+        onTriggered: root.countdown = Math.max(0, root.countdown - 1)
     }
 }

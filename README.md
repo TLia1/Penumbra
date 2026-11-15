@@ -240,7 +240,7 @@ quickshell -c penumbra ipc show   # list the shell's IPC commands
 sddm-greeter-qt6 --test-mode --theme /usr/share/sddm/themes/penumbra
 ```
 
-Kitty uses its native cursor trail, avoiding expensive always-running custom shaders. Keyboard layout and display scale are installer settings (see Your settings). Penumbra keeps each monitor's preferred mode; choose another resolution, refresh rate, scale, rotation or arrangement in Settings → Displays, which writes `~/.config/mango/monitors.conf`.
+Kitty uses its native cursor trail, avoiding expensive always-running custom shaders. Keyboard layout and display scale are installer settings (see Your settings). Penumbra keeps each monitor's preferred mode; choose another resolution, refresh rate, scale, rotation or arrangement in Settings → Displays, which writes `~/.config/mango/monitors.conf` when you choose Keep. The page lists the modes Mango advertises. To try another resolution, choose **Custom mode**, enter a value such as `1280x720@60`, then choose **Set** and **Apply**.
 
 ## Penumbra shell
 

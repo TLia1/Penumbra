@@ -9,23 +9,35 @@ ColumnLayout {
     spacing: 12
 
     property int selected: 0
+    property bool editingMode: false
+    onSelectedChanged: editingMode = false
+    onCurrentChanged: if (selected >= Displays.draft.length) selected = Math.max(0, Displays.draft.length - 1)
     readonly property var current: Displays.draft[Math.min(selected, Displays.draft.length - 1)] ?? null
     readonly property int enabledCount: Displays.draft.filter(s => s.enabled).length
-    onVisibleChanged: if (visible && Displays.countdown === 0 && !Displays.changed) Displays.refresh()
-    Component.onCompleted: if (Displays.countdown === 0 && !Displays.changed) Displays.refresh()
+    onVisibleChanged: if (visible) Displays.refresh()
+    Component.onCompleted: Displays.refresh()
+    Timer {
+        // A Mango config reload can change the mode without adding or removing a screen.
+        interval: 3000
+        running: root.visible && Ui.controlOpen && !Displays.changed && !Displays.busy
+        repeat: true
+        onTriggered: Displays.refresh()
+    }
 
     // Change the selected screen, then put it back against its neighbours: a new size may overlap.
     function change(changes) {
         Displays.update(selected, changes);
-        Displays.place(selected, current.x, current.y);
+        if (Displays.draft.length > 1)
+            Displays.place(selected, current.x, current.y);
     }
-    readonly property var resolutions: current ? [...new Set(current.modes.map(m => m.split("@")[0]))]
+    readonly property var modeChoices: current ? [...new Set([...current.modes, current.mode])] : []
+    readonly property var resolutions: current ? [...new Set(modeChoices.map(m => m.split("@")[0]))]
         .sort((a, b) => Displays.pixels(b).width * Displays.pixels(b).height - Displays.pixels(a).width * Displays.pixels(a).height) : []
     readonly property string resolution: current?.mode.split("@")[0] ?? ""
-    readonly property var rates: current ? current.modes.filter(m => m.split("@")[0] === resolution)
+    readonly property var rates: current ? modeChoices.filter(m => m.split("@")[0] === resolution)
         .sort((a, b) => Number(b.split("@")[1]) - Number(a.split("@")[1])) : []
     readonly property var scales: current ? Displays.scales(current) : []
-    readonly property var rotations: ["Normal", "90°", "Upside down", "270°"]
+    readonly property var rotations: ["Normal", "90°", "Upside down", "270°", "Flipped", "Flipped 90°", "Flipped 180°", "Flipped 270°"]
 
     // A titled row with its control on the right.
     component SettingRow: RowLayout {
@@ -57,6 +69,7 @@ ColumnLayout {
     // ── Arrangement ─────────────────────────────────────────────────
     Rectangle {
         id: canvas
+        enabled: !Displays.busy
         Layout.fillWidth: true
         implicitHeight: 168
         radius: Theme.radius
@@ -147,6 +160,25 @@ ColumnLayout {
         }
     }
 
+    // An output that's off has no box on the canvas, but can still be selected.
+    Flow {
+        Layout.fillWidth: true
+        Layout.preferredHeight: childrenRect.height
+        visible: root.enabledCount < Displays.draft.length
+        spacing: 6
+        Repeater {
+            model: Displays.draft
+            delegate: PillButton {
+                required property var modelData
+                required property int index
+                visible: !modelData.enabled
+                text: modelData.name + " · Off"
+                primary: root.selected === index
+                onClicked: root.selected = index
+            }
+        }
+    }
+
     // ── The selected screen ─────────────────────────────────────────
     RowLayout {
         Layout.fillWidth: true
@@ -163,6 +195,7 @@ ColumnLayout {
 
     SwitchRow {
         visible: Displays.draft.length > 1
+        enabled: !Displays.busy
         glyph: "󰍹"
         title: "Use this screen"
         subtitle: root.current?.enabled && root.enabledCount === 1 ? "The last screen on stays on" : ""
@@ -177,6 +210,7 @@ ColumnLayout {
     ColumnLayout {
         Layout.fillWidth: true
         visible: root.current?.enabled ?? false
+        enabled: !Displays.busy
         spacing: 4
         SettingRow {
             glyph: "󰨤"
@@ -191,7 +225,7 @@ ColumnLayout {
                 function pick(resolution) {
                     // The same refresh rate when the new resolution has it, else its fastest.
                     const rate = root.current.mode.split("@")[1];
-                    const modes = root.current.modes.filter(m => m.split("@")[0] === resolution);
+                    const modes = root.modeChoices.filter(m => m.split("@")[0] === resolution);
                     root.change({ mode: modes.find(m => m.split("@")[1] === rate) ?? modes.sort((a, b) => Number(b.split("@")[1]) - Number(a.split("@")[1]))[0] });
                 }
                 onDecreased: pick(root.resolutions[at + 1])
@@ -203,13 +237,42 @@ ColumnLayout {
             title: "Refresh rate"
             Stepper {
                 readonly property int at: root.rates.indexOf(root.current?.mode ?? "")
-                text: `${Math.round(Number((root.current?.mode ?? "@0").split("@")[1]) * 100) / 100} Hz`
+                text: root.current?.mode.includes("@") ? root.current.mode.split("@")[1] + " Hz" : "Preferred"
                 textWidth: 100
                 canDecrease: at < root.rates.length - 1
                 canIncrease: at > 0
                 onDecreased: root.change({ mode: root.rates[at + 1] })
                 onIncreased: root.change({ mode: root.rates[at - 1] })
             }
+        }
+        PillButton {
+            text: root.editingMode ? "Cancel custom mode" : "Custom mode…"
+            onClicked: {
+                root.editingMode = !root.editingMode;
+                if (root.editingMode) {
+                    modeField.text = root.current.mode === "preferred" ? "" : root.current.mode;
+                    modeField.forceActiveFocus();
+                    modeField.selectAll();
+                }
+            }
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            visible: root.editingMode
+            Field {
+                id: modeField
+                Layout.fillWidth: true
+                placeholderText: "Width × height @ Hz"
+                readonly property var parts: /^([1-9]\d{0,4})\s*[x×]\s*([1-9]\d{0,4})\s*@\s*(\d{1,3}(?:\.\d{1,3})?)\s*(?:Hz)?$/i.exec(text.trim())
+                readonly property bool valid: !!parts && Number(parts[3]) > 0
+                function selectMode() {
+                    if (!valid) return;
+                    root.change({ mode: parts[1] + "x" + parts[2] + "@" + Number(parts[3]) });
+                    root.editingMode = false;
+                }
+                onAccepted: selectMode()
+            }
+            PillButton { text: "Set"; available: modeField.valid; onClicked: modeField.selectMode() }
         }
         SettingRow {
             glyph: "󰑒"
@@ -230,10 +293,18 @@ ColumnLayout {
             Stepper {
                 text: root.rotations[root.current?.transform ?? 0]
                 textWidth: 100
-                onDecreased: root.change({ transform: (root.current.transform + 3) % 4 })
-                onIncreased: root.change({ transform: (root.current.transform + 1) % 4 })
+                onDecreased: root.change({ transform: (root.current.transform + root.rotations.length - 1) % root.rotations.length })
+                onIncreased: root.change({ transform: (root.current.transform + 1) % root.rotations.length })
             }
         }
+    }
+
+    Label {
+        Layout.fillWidth: true
+        visible: text !== ""
+        text: Displays.readError || Displays.error
+        wrapMode: Text.Wrap
+        color: Theme.rose
     }
 
     // ── Apply, then keep or undo ────────────────────────────────────
@@ -260,7 +331,7 @@ ColumnLayout {
     }
     RowLayout {
         Layout.fillWidth: true
-        visible: Displays.changed && Displays.countdown === 0
+        visible: Displays.changed && !Displays.busy
         spacing: 8
         Label {
             Layout.fillWidth: true

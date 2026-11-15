@@ -9,7 +9,7 @@ DISTRO_UPDATE_COMMAND='sudo pacman -Syu'
 
 PACKAGES=(
     # Desktop
-    mangowm quickshell awww sddm swaylock swayidle wlsunset rofi
+    mangowm wlr-randr quickshell awww sddm swaylock swayidle wlsunset rofi
     xdg-desktop-portal-wlr xdg-desktop-portal-gtk
     # Terminal and editor
     kitty fish starship fastfetch btop neovim git ripgrep fd unzip nodejs npm tree-sitter-cli gcc
