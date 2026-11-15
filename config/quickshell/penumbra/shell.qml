@@ -6,6 +6,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 
 ShellRoot {
     Wallpaper {
@@ -18,6 +19,27 @@ ShellRoot {
         delegate: Scope {
             id: output
             required property var modelData
+            // Mapped first in WlrLayer.Top so it sits beneath Bar, Dock and open Panels; its input
+            // mask is empty unless a panel is open on MangoWM, where it catches outside clicks.
+            PanelWindow {
+                screen: output.modelData
+                visible: Wm.isMango
+                color: "transparent"
+                exclusionMode: ExclusionMode.Ignore
+                anchors { top: true; bottom: true; left: true; right: true }
+                margins.top: Theme.barHeight + 10
+                mask: Region { item: panelBackdrop }
+                WlrLayershell.layer: WlrLayer.Top
+                WlrLayershell.namespace: "penumbra-backdrop"
+                WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+                MouseArea {
+                    id: panelBackdrop
+                    width: Ui.openPanel !== "" && Ui.panelGrabFocus ? parent.width : 0
+                    height: Ui.openPanel !== "" && Ui.panelGrabFocus ? parent.height : 0
+                    acceptedButtons: Qt.AllButtons
+                    onPressed: Ui.dismiss()
+                }
+            }
             ScreenFrame { modelData: output.modelData }
             Bar { modelData: output.modelData }
             Dock { modelData: output.modelData; locked: lockScreen.locked }

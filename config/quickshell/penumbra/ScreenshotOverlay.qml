@@ -33,7 +33,7 @@ PanelWindow {
     property bool dragging: false
     property var hovered: null // window geometry under the pointer, in window mode
 
-    readonly property var monitor: Hyprland.monitorFor(screen)
+    readonly property var monitor: Wm.monitorFor(screen)
     // Windows on this screen's workspace in local coordinates, floating ones first (they're on top).
     readonly property var windows: (monitor?.activeWorkspace?.toplevels.values ?? [])
         .filter(t => t.lastIpcObject?.size)
@@ -66,7 +66,7 @@ PanelWindow {
         function onShotOpenChanged() {
             if (!Ui.shotOpen)
                 return;
-            Hyprland.refreshToplevels();
+            Wm.refreshToplevels();
             root.shotScreen = Ui.screen;
             root.annotate = false;
             root.record = false;

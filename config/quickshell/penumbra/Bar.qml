@@ -56,6 +56,12 @@ PanelWindow {
         onPointChanged: bar.updateTip(point.position)
         onHoveredChanged: if (!hovered) bar.updateTip(null)
     }
+    MouseArea {
+        anchors.fill: parent
+        enabled: Ui.openPanel !== "" && Ui.panelGrabFocus
+        acceptedButtons: Qt.AllButtons
+        onPressed: Ui.dismiss()
+    }
 
     // ── Left ────────────────────────────────────────────────────────
     RowLayout {
@@ -99,9 +105,7 @@ PanelWindow {
 
         WorkspaceStrip {
             id: workspaceStrip
-            workspaces: Hyprland.workspaces.values
-                .filter(w => w.id > 0 && w.monitor?.name === bar.screen.name && (w.toplevels.values.length > 0 || w.focused || w.active))
-                .sort((a, b) => a.id - b.id)
+            workspaces: Wm.workspacesFor(bar.screen.name)
             showIcons: Settings.workspaceStyle === "icons" && bar.width - rightSide.width > 850
         }
 

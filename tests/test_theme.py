@@ -132,7 +132,7 @@ class WallpaperAccents(unittest.TestCase):
 
 # Stand-ins for the programs penumbra-theme tells about a change: each records how it was called.
 STUB = '#!/bin/sh\necho "${0##*/} $*" >> "$HOME/calls"\n'
-STUBS = ['gsettings', 'hyprctl', 'dbus-send', 'pkill', 'fish', 'nvim', 'bat']
+STUBS = ['gsettings', 'hyprctl', 'mmsg', 'dbus-send', 'pkill', 'fish', 'nvim', 'bat']
 
 
 def remove(path):
@@ -231,6 +231,7 @@ class Command(unittest.TestCase):
         self.assertIn(f'background {light["base"]}', (config / 'kitty/penumbra-colors.conf').read_text())
         self.assertIn("mode = 'light'", (config / 'nvim/lua/penumbra/palette.lua').read_text())
         self.assertIn('mode = "light"', (config / 'hypr/colors.lua').read_text())
+        self.assertIn(f'focus_color=0x{light["accent"][1:]}ff', (config / 'mango/colors.conf').read_text())
         self.assertIn(light['base'], (config / 'bat/themes/Penumbra.tmTheme').read_text())
         self.assertIn(f"gradient_color_1 = '{light['accentDeep']}'", (config / 'cava/themes/penumbra').read_text())
         self.assertIn(f"gradient_color_4 = '{light['pink']}'", (config / 'cava/themes/penumbra').read_text())
@@ -443,6 +444,17 @@ class Command(unittest.TestCase):
         fastfetch = (self.home / '.config/fastfetch/config.jsonc').read_text()
         self.assertNotIn('╭', fastfetch)
         self.assertIn('corner-roundness = 0', (self.home / '.config/satty/config.toml').read_text())
+
+    def test_mango_colors_and_corners(self):
+        self.env['MANGO_INSTANCE_SIGNATURE'] = 'mango-test'
+        self.theme('set', 'colors=custom', 'hue=190', '--duration', '0')
+        accent = palette.generate(PALETTES['dark'], 190, 1.0)['accent'][1:]
+        self.assertIn(f'mmsg dispatch setoption,focus_color,0x{accent}ff', self.calls())
+        result = subprocess.run([str(ROOT / 'bin/penumbra-corners'), 'sharp'],
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('border_radius=0', (self.home / '.config/mango/corners.conf').read_text())
+        self.assertIn('mmsg dispatch setoption,border_radius,0', self.calls())
 
 
 if __name__ == '__main__':

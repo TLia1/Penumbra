@@ -94,7 +94,7 @@ Scope {
     Timer {
         id: clients
         interval: 200
-        onTriggered: Hyprland.refreshToplevels()
+        onTriggered: Wm.refreshToplevels()
     }
     // A tiled window fills the workspace, gaps aside: the wallpaper is hidden.
     function covered(workspace) {
@@ -136,7 +136,7 @@ Scope {
                     WlrLayershell.namespace: "animated-wallpaper"
 
                     // Nothing to see under a fullscreen or tiled window; stop drawing.
-                    readonly property var workspace: Hyprland.monitorFor(screen)?.activeWorkspace ?? null
+                    readonly property var workspace: Wm.monitorFor(screen)?.activeWorkspace ?? null
                     readonly property bool running: Settings.animatedWallpapers && !Settings.reducedMotion && !root.paused && !root.saving
                         && !(workspace?.hasFullscreen ?? false) && !root.covered(workspace)
 

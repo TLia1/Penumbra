@@ -35,6 +35,7 @@ Settings (detected on the first run, then remembered in $SETTINGS_FILE):
   --kb-options OPTS    XKB options, e.g. caps:escape,grp:alt_shift_toggle.
   --scale SCALE        Display scale: auto, 1, 1.25, 1.5, 2...
   --numlock on|off     Turn Num Lock on when you log in.
+  --wm hyprland|mango  Window manager to configure and select at login.
   --shell fish|keep    Make fish your login shell, or keep the current one.
   --terminal APP       Terminal for Super+Enter, by its desktop file: kitty, foot...
   --file-manager APP   File manager for Super+E: io.github.lia.Files, org.kde.dolphin...
@@ -127,13 +128,14 @@ load_distro() {
 # which the shell's Settings pages use to change them later.
 
 declare -A settings=()
-SETTING_KEYS=(kb_layout kb_variant kb_options scale numlock shell terminal file_manager idle_dim idle_lock idle_screen_off idle_suspend)
+SETTING_KEYS=(kb_layout kb_variant kb_options scale numlock wm shell terminal file_manager idle_dim idle_lock idle_screen_off idle_suspend)
 declare -A SETTING_OPTIONS=(
     [kb_layout]=--layout
     [kb_variant]=--variant
     [kb_options]=--kb-options
     [scale]=--scale
     [numlock]=--numlock
+    [wm]=--wm
     [shell]=--shell
     [terminal]=--terminal
     [file_manager]=--file-manager
@@ -148,6 +150,7 @@ declare -A SETTING_LABELS=(
     [kb_options]='Keyboard options'
     [scale]='Display scale'
     [numlock]='Num Lock at login (on/off)'
+    [wm]='Window manager (hyprland/mango)'
     [shell]='Login shell (fish/keep)'
     [terminal]='Terminal (desktop file)'
     [file_manager]='File manager (desktop file)'
@@ -225,6 +228,7 @@ detect_settings() {
     set_default kb_options "$options"
     set_default scale auto
     set_default numlock on
+    set_default wm hyprland
     set_default shell fish
     set_default terminal kitty
     # Lia Files, or Dolphin if that is all there is. Super+E falls back to either one.
@@ -252,6 +256,7 @@ valid_setting() {
         kb_options) [[ $value =~ ^[A-Za-z0-9_,:+-]*$ ]] || { warn "Invalid keyboard options '$value'."; return 1; } ;;
         scale) [[ $value =~ ^(auto|[0-9]+(\.[0-9]+)?)$ ]] || { warn "Scale should be 'auto' or a number such as 1.25."; return 1; } ;;
         numlock) [[ $value == on || $value == off ]] || { warn "Num Lock should be 'on' or 'off'."; return 1; } ;;
+        wm) [[ $value == hyprland || $value == mango ]] || { warn "Window manager should be 'hyprland' or 'mango'."; return 1; } ;;
         shell) [[ $value == fish || $value == keep ]] || { warn "Login shell should be 'fish' or 'keep'."; return 1; } ;;
         terminal|file_manager) [[ $value =~ ^[A-Za-z0-9._-]+$ ]] || { warn "Apps are named by their desktop file, such as kitty or org.kde.dolphin."; return 1; } ;;
         idle_*) [[ $value == never || ( $value =~ ^[0-9]+(\.[0-9]+)?$ && ! $value =~ ^0+(\.0+)?$ ) ]] \
@@ -369,6 +374,9 @@ create_user_files() {
         [$HOME/.config/hypr/user.lua]='-- Your own Hyprland settings, read after Penumbra'"'"'s hyprland.lua. ./install.sh never replaces this file.
 -- hl.config({ general = { gaps_out = 8 } })
 -- hl.bind("SUPER + T", hl.dsp.exec_cmd("thunar"))'
+        [$HOME/.config/mango/user.conf]='# Your own MangoWM settings, read after Penumbra'"'"'s config.conf. ./install.sh never replaces this file.
+# gap_outer_horizontal=8
+# bind=SUPER,T,spawn,thunar'
         [$HOME/.config/kitty/user.conf]='# Your own Kitty settings, read after Penumbra'"'"'s kitty.conf. ./install.sh never replaces this file.
 # font_size 12.0'
         [$HOME/.config/nvim/lua/user.lua]='-- Your own Neovim settings, run after Penumbra'"'"'s init.lua. ./install.sh never replaces this file.
@@ -967,6 +975,9 @@ run_user_part() {
     if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
         hyprctl reload
         hyprctl dispatch "hl.dsp.exec_cmd('~/.local/bin/penumbra-session restart')"
+    elif [[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]]; then
+        mmsg dispatch reload_config
+        ~/.local/bin/penumbra-session restart
     fi
 
     printf '\nPenumbra installed. User backup: %s\n' "$BACKUP"

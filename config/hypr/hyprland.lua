@@ -37,17 +37,24 @@ hl.env("GTK_USE_PORTAL", "1")
 local corners = io.open(home .. "/.local/state/penumbra/corners")
 local sharp = corners ~= nil and corners:read("l") == "sharp"
 if corners then corners:close() end
--- Settings → Reduced motion (shell.json) turns Hyprland's animations off too.
+-- Settings → Reduced motion and tiling choices in shell.json.
 local shell = io.open(home .. "/.config/penumbra/shell.json")
-local still = shell ~= nil and shell:read("a"):find('"reducedMotion"%s*:%s*true') ~= nil
+local shell_text = shell ~= nil and shell:read("a") or ""
 if shell then shell:close() end
+local still = shell_text:find('"reducedMotion"%s*:%s*true') ~= nil
+local master_layout = shell_text:find('"tilingLayout"%s*:%s*"tile"') ~= nil
+local smart_gaps = shell_text:find('"smartGaps"%s*:%s*true') ~= nil
+local smart_split = shell_text:find('"dwindleSmartSplit"%s*:%s*true') ~= nil
+local new_slave = shell_text:find('"newWindowMaster"%s*:%s*false') ~= nil
+local mfact = tonumber(shell_text:match('"masterRatio"%s*:%s*([0-9.]+)')) or 0.55
 hl.config({
  xwayland = {
     force_zero_scaling = true
  },
  -- Software cursors in virtual machines, where hardware cursors often draw wrongly; automatic elsewhere.
  cursor = { no_hardware_cursors = @@SOFTWARE_CURSOR@@, enable_hyprcursor = false },
- general = { gaps_in = 6, gaps_out = 14, border_size = 2, resize_on_border = true, layout = "dwindle",
+ general = { gaps_in = smart_gaps and 3 or 6, gaps_out = smart_gaps and 6 or 14, border_size = 2, resize_on_border = true,
+  layout = master_layout and "master" or "dwindle",
   col = { active_border = {colors = {"rgba(" .. c.accent .. "ee)", "rgba(" .. c.accentDeep .. "bb)"}, angle = 45}, inactive_border = "rgba(" .. c.black .. "ff)" } },
  -- Global blur also covers the alpha backgrounds in GTK, Vesktop and terminal apps.
  decoration = { rounding = sharp and 0 or 16, rounding_power = 2, active_opacity = 1, inactive_opacity = 0.97,
@@ -56,7 +63,8 @@ hl.config({
   glow = {enabled = true, range = 18, render_power = 3, color = "rgba(" .. c.accentDeep .. "40)", color_inactive = "rgba(00000000)"},
   blur = {enabled = true, size = 10, passes = 4, vibrancy = 0.28, vibrancy_darkness = 0.15, noise = 0.025, contrast = 1.1, brightness = light and 1 or 0.9, popups = true} },
  animations = {enabled = not still},
- dwindle = {preserve_split = true},
+ dwindle = {preserve_split = true, smart_split = smart_split},
+ master = {mfact = mfact, new_status = new_slave and "slave" or "master"},
  input = {kb_layout = s.kb_layout, kb_variant = s.kb_variant, kb_options = s.kb_options, numlock_by_default = s.numlock == "on",
   follow_mouse = 1, sensitivity = 0, touchpad = {natural_scroll = true, disable_while_typing = false}},
  -- A fresh lock screen (hyprlock from a TTY) can take over if the shell's ever dies while locked.

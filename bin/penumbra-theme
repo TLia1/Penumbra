@@ -331,6 +331,23 @@ def fade_hyprland(old, colors, mode, duration):
         os._exit(0)
 
 
+def apply_mango(colors, mode):
+    """Give a running MangoWM the new borders, root, urgent, scratchpad, global and blur colours."""
+    c = {key: value[1:] for key, value in colors.items()}
+    options = [
+        ('root_color', f'0x{c["base"]}ff'),
+        ('border_color', f'0x{c["border"]}ff'),
+        ('focus_color', f'0x{c["accent"]}ff'),
+        ('urgent_color', f'0x{c["rose"]}ff'),
+        ('scratchpad_color', f'0x{c["accentDeep"]}ff'),
+        ('global_color', f'0x{c["accentBright"]}ff'),
+        ('shadows_color', '0x00000028' if mode == 'light' else '0x00000055'),
+        ('blur_params_brightness', '1.0' if mode == 'light' else '0.9'),
+    ]
+    for key, value in options:
+        quiet(['mmsg', 'dispatch', f'setoption,{key},{value}'])
+
+
 def recolor_icons(accent):
     """The folder icons in the accent: Penumbra's icon theme from its pristine copy, each of its
     violets turned as the palette is (ACCENT is resolve's (colors, hue, vividness)). Only the icons
@@ -421,6 +438,8 @@ def apply(choice, duration, everything=True, wallpaper=None):
         return
     if os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and shutil.which('hyprctl'):
         fade_hyprland(old, colors, mode, duration)
+    if os.environ.get('MANGO_INSTANCE_SIGNATURE') and shutil.which('mmsg'):
+        apply_mango(colors, mode)
     # The files' other mode comes from the same choice, for the ones that hold both ({{light.name}}).
     other = 'light' if mode == 'dark' else 'dark'
     palettes = {mode: colors, other: (palette.preset_palette(palettes, other, choice['preset'])

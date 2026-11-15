@@ -17,15 +17,13 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "penumbra-dock"
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-    readonly property var monitor: Hyprland.monitorFor(screen)
+    readonly property var monitor: Wm.monitorFor(screen)
     readonly property var workspace: monitor?.activeWorkspace ?? null
     visible: Settings.dockMode !== "off" && !locked && !(workspace?.hasFullscreen ?? false)
         && !Ui.overviewOpen && !Ui.launcherOpen && !Ui.sessionOpen && !Ui.shotOpen
     property bool held: false
     readonly property bool shown: held || (Settings.dockMode === "empty" && (workspace?.toplevels.values.length ?? 0) === 0)
-    readonly property var windows: Hyprland.workspaces.values
-        .filter(w => w.monitor?.name === monitor?.name)
-        .reduce((all, w) => all.concat(w.toplevels.values), []).filter(w => !w.lastIpcObject?.hidden)
+    readonly property var windows: Wm.windowsForMonitor(monitor?.name ?? "")
     readonly property var apps: {
         const groups = [];
         for (const id of Settings.dockPins) {
@@ -76,8 +74,7 @@ PanelWindow {
         onOpenLauncher: Ui.toggleLauncher("apps")
     }
     function focusWindow(win) {
-        const address = win.lastIpcObject?.address ?? "0x" + win.address;
-        if (/^0x[0-9a-f]+$/i.test(address)) Hyprland.dispatch(`hl.dsp.focus({window = "address:${address}"})`);
+        Wm.focusWindow(win);
     }
     function launch(entry) {
         if (!entry) return;

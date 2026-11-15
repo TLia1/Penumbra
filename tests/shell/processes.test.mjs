@@ -58,15 +58,18 @@ test('the shell, the compositor and systemd cannot be ended', () => {
         [301, 'lia', 100, 0.0, 'bash -c something'],
         [302, 'lia', 50000, 1.0, 'Hyprland'],
         [303, 'lia', 9000, 0.0, '/usr/lib/systemd/systemd --user'],
+        [304, 'lia', 40000, 1.0, 'mango'],
     ]), cgroups({
         300: `${user}/app.slice/penumbra-shell.service`,
         301: `${user}/app.slice/penumbra-shell.service`,
         302: `${user}/app.slice/wayland-wm@hyprland.desktop.service`,
         303: `${user}/init.scope`,
+        304: `${user}/app.slice/wayland-wm@mango.desktop.service`,
     })));
     assert.equal(g['penumbra-shell.service'].guarded, true);
     assert.equal(g['penumbra-shell.service'].name, 'quickshell');
     assert.equal(g['Hyprland@wayland-wm@hyprland.desktop.service'].guarded, true);
+    assert.equal(g['mango@wayland-wm@mango.desktop.service'].guarded, true);
     assert.equal(g['systemd@init.scope'].guarded, true);
 });
 

@@ -24,12 +24,40 @@ Singleton {
     }
     Process {
         id: list
-        command: ["hyprctl", "monitors", "all", "-j"]
+        command: Wm.isMango ? ["mmsg", "get", "all-monitors"] : ["hyprctl", "monitors", "all", "-j"]
         stdout: StdioCollector {
             onStreamFinished: {
                 let all;
                 try {
-                    all = JSON.parse(text);
+                    if (Wm.isMango) {
+                        const firstLine = text.split("\n").find(l => l.trim().startsWith("{")) ?? "{}";
+                        const raw = JSON.parse(firstLine).monitors ?? [];
+                        const trMap = { normal: 0, "90": 1, "180": 2, "270": 3 };
+                        all = raw.map(m => {
+                            const scale = m.scale > 0 ? m.scale : 1;
+                            const tr = trMap[String(m.transform ?? "normal")] ?? 0;
+                            const turned = tr % 2 === 1;
+                            const w = Math.round((turned ? m.height : m.width) * scale);
+                            const h = Math.round((turned ? m.width : m.height) * scale);
+                            return {
+                                name: m.name,
+                                description: m.name,
+                                make: "",
+                                model: m.name,
+                                width: w,
+                                height: h,
+                                refreshRate: 60,
+                                availableModes: [`${w}x${h}@60.00Hz`],
+                                x: m.x ?? 0,
+                                y: m.y ?? 0,
+                                scale,
+                                transform: tr,
+                                disabled: false
+                            };
+                        });
+                    } else {
+                        all = JSON.parse(text);
+                    }
                 } catch (e) {
                     return;
                 }
@@ -145,27 +173,52 @@ Singleton {
             ? `hl.monitor({ output = ${quote(s.key)}, mode = ${quote(s.mode)}, position = "${s.x}x${s.y}", scale = ${s.scale}, transform = ${s.transform} })`
             : `hl.monitor({ output = ${quote(s.key)}, disabled = true })`).join("\n");
     }
+    // The draft as MangoWM monitor_rule lines.
+    function mangoConf(screens) {
+        return screens.map(s => {
+            if (!s.enabled)
+                return `monitor_rule=name:^${s.name}$,disable:1`;
+            const m = /^(\d+)x(\d+)@([\d.]+)/.exec(s.mode);
+            const modePart = m ? `,width:${m[1]},height:${m[2]},refresh:${m[3]}` : "";
+            return `monitor_rule=name:^${s.name}$${modePart},x:${s.x},y:${s.y},scale:${s.scale},rr:${s.transform}`;
+        }).join("\n");
+    }
     readonly property string header: "-- Your screens, written by the Penumbra shell's Settings → Displays. hyprland.lua reads this\n"
         + "-- file before user.lua; change it there, or here by hand.\n"
+    readonly property string mangoHeader: "# Your screens, written by the Penumbra shell's Settings -> Displays. config.conf reads this\n"
+        + "# file before settings.conf and user.conf.\n"
 
     function apply() {
         if (!changed)
             return;
-        evaluate(lua(draft));
+        if (Wm.isMango) {
+            mangoFile.setText(mangoHeader + mangoConf(draft) + "\n");
+            Quickshell.execDetached(["mmsg", "dispatch", "reload_config"]);
+        } else {
+            evaluate(lua(draft));
+        }
         countdown = 15;
         timer.restart();
     }
     function keep() {
         timer.stop();
         countdown = 0;
-        file.setText(header + lua(draft) + "\n");
+        if (Wm.isMango)
+            mangoFile.setText(mangoHeader + mangoConf(draft) + "\n");
+        else
+            file.setText(header + lua(draft) + "\n");
         refresh();
     }
     function revert() {
         timer.stop();
         countdown = 0;
-        // The file was never touched; only the screens need putting back.
-        evaluate(lua(screens));
+        if (Wm.isMango) {
+            mangoFile.setText(mangoHeader + mangoConf(screens) + "\n");
+            Quickshell.execDetached(["mmsg", "dispatch", "reload_config"]);
+        } else {
+            // The file was never touched; only the screens need putting back.
+            evaluate(lua(screens));
+        }
         draft = JSON.parse(JSON.stringify(screens));
         refresh();
     }
@@ -185,6 +238,11 @@ Singleton {
     FileView {
         id: file
         path: Quickshell.env("HOME") + "/.config/penumbra/monitors.lua"
+        printErrors: false
+    }
+    FileView {
+        id: mangoFile
+        path: Quickshell.env("HOME") + "/.config/mango/monitors.conf"
         printErrors: false
     }
 }

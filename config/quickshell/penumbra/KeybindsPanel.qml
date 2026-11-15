@@ -31,18 +31,21 @@ Panel {
 
     Process {
         id: readBindings
-        command: ["hyprctl", "-j", "binds"]
+        command: Wm.isMango
+            ? ["bash", "-c", 'cat "$HOME/.config/mango/config.conf" "$HOME/.config/mango/user.conf" 2>/dev/null']
+            : ["hyprctl", "-j", "binds"]
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
-                    root.bindings = Keybinds.entries(JSON.parse(text));
+                    const data = Wm.isMango ? Keybinds.parseMangoConfig(text) : JSON.parse(text);
+                    root.bindings = Keybinds.entries(data);
                 } catch (e) {
-                    root.error = "Could not read keyboard shortcuts. Check that Hyprland is running, then retry.";
+                    root.error = "Could not read keyboard shortcuts. Check that the window manager is running, then retry.";
                 }
             }
         }
         onExited: code => {
-            if (code !== 0) root.error = "Could not read keyboard shortcuts. Check that Hyprland is running, then retry.";
+            if (code !== 0) root.error = "Could not read keyboard shortcuts. Check that the window manager is running, then retry.";
         }
     }
 

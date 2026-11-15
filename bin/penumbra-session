@@ -8,7 +8,7 @@ flock -n 9 || exit 0
 # The shell runs as a systemd user service, so it needs this session's environment. PATH lets
 # commands from the launcher find ~/.local/bin.
 dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP \
- HYPRLAND_INSTANCE_SIGNATURE PATH QT_QPA_PLATFORMTHEME XCURSOR_THEME XCURSOR_SIZE
+ HYPRLAND_INSTANCE_SIGNATURE MANGO_INSTANCE_SIGNATURE PATH QT_QPA_PLATFORMTHEME XCURSOR_THEME XCURSOR_SIZE
 # Older Penumbra versions exported GTK_THEME, which breaks libadwaita apps.
 systemctl --user unset-environment GTK_THEME
 # A shell started by hand (or by an older Penumbra) would hold the notification and polkit names.
@@ -18,7 +18,7 @@ if [[ ${1:-} = restart ]]; then
  systemctl --user restart penumbra-shell.service
  exit
 fi
-hyprctl setcursor Penumbra-Cursors 28 >/dev/null
+[[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] && hyprctl setcursor Penumbra-Cursors 28 >/dev/null
 # The shell is the polkit agent too; an older KDE agent would hold the registration.
 pkill -u "$UID" -f '^/usr/lib/(.*/)?polkit-kde-authentication-agent-1' || true
 # Bar, notifications, OSD, control center, launcher, overlays, lock screen and polkit agent;

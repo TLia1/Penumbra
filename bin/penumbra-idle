@@ -23,8 +23,30 @@ case ${1:-} in
         done
         (( battery )) && systemctl suspend
         ;;
+    dpms)
+        case ${2:-} in
+            on)
+                if [[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]]; then
+                    mmsg dispatch 'wakeup_monitor,.*' >/dev/null 2>&1 || true
+                elif [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
+                    hyprctl dispatch 'hl.dsp.dpms({action = "on"})' >/dev/null 2>&1 || true
+                fi
+                ;;
+            off)
+                if [[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]]; then
+                    mmsg dispatch 'sleep_monitor,.*' >/dev/null 2>&1 || true
+                elif [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
+                    hyprctl dispatch 'hl.dsp.dpms({action = "off"})' >/dev/null 2>&1 || true
+                fi
+                ;;
+            *)
+                echo 'Usage: penumbra-idle dim|undim|suspend|dpms on|off' >&2
+                exit 1
+                ;;
+        esac
+        ;;
     *)
-        echo 'Usage: penumbra-idle dim|undim|suspend' >&2
+        echo 'Usage: penumbra-idle dim|undim|suspend|dpms on|off' >&2
         exit 1
         ;;
 esac

@@ -13,7 +13,7 @@ Variants {
         id: corner
         required property var modelData
         screen: modelData
-        visible: Settings.hotCorner && !(Hyprland.monitorFor(modelData)?.activeWorkspace?.hasFullscreen ?? false)
+        visible: Settings.hotCorner && !(Wm.monitorFor(modelData)?.activeWorkspace?.hasFullscreen ?? false)
         anchors { top: true; right: true }
         exclusionMode: ExclusionMode.Ignore
         implicitWidth: 3

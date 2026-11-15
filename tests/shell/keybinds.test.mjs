@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { load } from './load.mjs';
 
 const K = load('keybinds.js');
@@ -34,4 +36,15 @@ test('active custom bindings, submaps and duplicate chords are preserved', () =>
     assert.equal(K.filter(entries, 'missing').length, 0);
     assert.equal(K.filter(entries, '').length, 3);
     assert.throws(() => K.entries({ error: 'unavailable' }));
+});
+
+test('MangoWM config bindings parse with descriptions and readable shortcuts', () => {
+    const configPath = fileURLToPath(new URL('../../config/mango/config.conf', import.meta.url));
+    const entries = K.entries(K.parseMangoConfig(fs.readFileSync(configPath, 'utf8')));
+    assert.ok(entries.length >= 40);
+    assert.ok(entries.some(e => e.keys === 'Super + Enter' && e.action === 'Open terminal'));
+    assert.ok(entries.some(e => e.keys === 'Super + Number row 1' && e.action === 'Switch to workspace 1'));
+    assert.ok(entries.some(e => e.keys === 'Super + Left mouse' && e.action === 'Drag window'));
+    assert.ok(entries.some(e => e.keys === 'Super + Scroll down' && e.action === 'Next workspace'));
+    assert.ok(entries.some(e => e.keys === '4-finger swipe up' && e.action === 'Workspace overview'));
 });

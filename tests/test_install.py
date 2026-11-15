@@ -305,5 +305,21 @@ class AppColors(unittest.TestCase):
             '2', '2', ''])
 
 
+    def test_mango_tiling_settings_written_from_shell_json(self):
+        out = self.run_install('''
+            mkdir -p ~/.config/penumbra
+            echo '{"tilingLayout":"scroller","smartGaps":true,"masterRatio":0.6,"scrollerProportion":0.67,"scrollerCenter":true}' > ~/.config/penumbra/shell.json
+            python3 "$ROOT/bin/penumbra-settings" apply --no-restart
+            grep -E '^(smart_gaps|default_master_factor|scroller_default_proportion|scroller_focus_center|tag_rule)=' ~/.config/mango/settings.conf
+        ''')
+        self.assertEqual(out.splitlines(), [
+            'smart_gaps=1',
+            'default_master_factor=0.60',
+            'scroller_default_proportion=0.67',
+            'scroller_focus_center=1',
+            'tag_rule=id:*,layout_name:scroller,master_factor:0.60,scroller_default_proportion:0.67',
+        ])
+
+
 if __name__ == '__main__':
     unittest.main()

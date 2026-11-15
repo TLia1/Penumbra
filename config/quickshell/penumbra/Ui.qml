@@ -12,6 +12,7 @@ Singleton {
 
     // At most one panel is open: control, calendar, monitor, updates, wallpapers, downloads, keybinds, or "".
     property string openPanel: ""
+    property bool panelGrabFocus: true
     readonly property bool controlOpen: openPanel === "control"
     readonly property bool calendarOpen: openPanel === "calendar"
     readonly property bool monitorOpen: openPanel === "monitor"
@@ -41,7 +42,7 @@ Singleton {
     property bool osdVisible: false
 
     // Panels follow the monitor that has focus.
-    readonly property var screen: Quickshell.screens.find(s => s.name === Hyprland.focusedMonitor?.name) ?? Quickshell.screens[0]
+    readonly property var screen: Quickshell.screens.find(s => s.name === Wm.focusedMonitor?.name) ?? Quickshell.screens[0]
 
     // Capsule centers in screen-local coordinates, published by each monitor's bar.
     property var panelOrigins: ({})
@@ -51,6 +52,7 @@ Singleton {
 
     function close() {
         openPanel = "";
+        panelGrabFocus = true;
     }
     // Full-screen overlays replace each other and any open panel.
     function closeOverlays() {

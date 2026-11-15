@@ -15,23 +15,46 @@ flock -n 9 || exit 0
 
 finish() {
  case $action in
-  logout) hyprctl dispatch 'hl.dsp.exit()';;
+  logout)
+   if [[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]]; then
+    mmsg dispatch quit
+   else
+    hyprctl dispatch 'hl.dsp.exit()'
+   fi
+   ;;
   reboot) systemctl reboot;;
   poweroff) systemctl poweroff;;
  esac
 }
 # "address<TAB>app" for each window.
 windows() {
- hyprctl clients -j 2>/dev/null | python3 -c '
+ if [[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]]; then
+  mmsg get all-clients 2>/dev/null | python3 -c '
+import json, sys
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    for c in json.loads(line).get("clients", []):
+        if c.get("id") is not None:
+            print(c["id"], c.get("appid") or c.get("title") or "a window", sep="\t")
+    break'
+ else
+  hyprctl clients -j 2>/dev/null | python3 -c '
 import json, sys
 for c in json.load(sys.stdin):
     if c.get("mapped", True):
         print(c["address"], c.get("class") or c.get("title") or "a window", sep="\t")'
+ fi
 }
 
-if [[ $force != --force ]] && command -v hyprctl >/dev/null; then
+if [[ $force != --force ]] && { [[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]] && command -v mmsg >/dev/null || command -v hyprctl >/dev/null; }; then
  while IFS=$'\t' read -r address _; do
-  hyprctl dispatch "hl.dsp.window.close({window = \"address:$address\"})" >/dev/null
+  if [[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]]; then
+   mmsg dispatch "killclient" "client,$address" >/dev/null 2>&1 || true
+  else
+   hyprctl dispatch "hl.dsp.window.close({window = \"address:$address\"})" >/dev/null
+  fi
  done < <(windows)
  for _ in {1..40}; do
   [[ -z $(windows) ]] && break

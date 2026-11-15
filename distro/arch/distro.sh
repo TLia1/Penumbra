@@ -9,8 +9,8 @@ DISTRO_UPDATE_COMMAND='sudo pacman -Syu'
 
 PACKAGES=(
     # Desktop
-    hyprland quickshell awww sddm hyprlock hypridle hyprsunset rofi
-    xdg-desktop-portal-hyprland xdg-desktop-portal-gtk
+    hyprland mangowm quickshell awww sddm hyprlock hypridle hyprsunset rofi
+    xdg-desktop-portal-hyprland xdg-desktop-portal-wlr xdg-desktop-portal-gtk
     # Terminal and editor
     kitty fish starship fastfetch btop neovim git ripgrep fd unzip nodejs npm tree-sitter-cli gcc
     # Applications

@@ -24,6 +24,14 @@ Singleton {
     property alias dockMode: adapter.dockMode
     property alias dockPins: adapter.dockPins
     property alias hotCorner: adapter.hotCorner
+    // Window tiling: layout, smart gaps, and layout-specific tuning.
+    property alias tilingLayout: adapter.tilingLayout
+    property alias smartGaps: adapter.smartGaps
+    property alias dwindleSmartSplit: adapter.dwindleSmartSplit
+    property alias masterRatio: adapter.masterRatio
+    property alias newWindowMaster: adapter.newWindowMaster
+    property alias scrollerProportion: adapter.scrollerProportion
+    property alias scrollerCenter: adapter.scrollerCenter
     // Night light: its warmth in kelvin, and when it comes on (see NightLight).
     property alias nightTemperature: adapter.nightTemperature
     property alias nightSchedule: adapter.nightSchedule // manual, times or sun
@@ -64,8 +72,15 @@ Singleton {
     // audioFormat, audioQuality, videoFolder, audioFolder.
     property alias downloads: adapter.downloads
 
-    // hyprland.lua reads it at start; a change applies to the running Hyprland at once.
-    onReducedMotionChanged: Quickshell.execDetached(["hyprctl", "eval", `hl.config({animations = {enabled = ${!reducedMotion}}})`])
+    // hyprland.lua and mango/config.conf read it at start; a change applies to the running compositor at once.
+    onReducedMotionChanged: Wm.setReducedMotion(reducedMotion)
+    onTilingLayoutChanged: Wm.syncTiling()
+    onSmartGapsChanged: Wm.syncTiling()
+    onDwindleSmartSplitChanged: Wm.syncTiling()
+    onMasterRatioChanged: Wm.syncTiling()
+    onNewWindowMasterChanged: Wm.syncTiling()
+    onScrollerProportionChanged: Wm.syncTiling()
+    onScrollerCenterChanged: Wm.syncTiling()
 
     function signatureComposition() {
         barStyle = "floating";
@@ -120,6 +135,13 @@ Singleton {
             property string dockMode: "off" // off, auto, empty
             property var dockPins: ["firefox", "kitty", "org.kde.dolphin"]
             property bool hotCorner: true
+            property string tilingLayout: "dwindle"
+            property bool smartGaps: false
+            property bool dwindleSmartSplit: false
+            property real masterRatio: 0.55
+            property bool newWindowMaster: true
+            property real scrollerProportion: 0.8
+            property bool scrollerCenter: false
             property int nightTemperature: 4500
             property string nightSchedule: "manual"
             property string nightFrom: "21:00"

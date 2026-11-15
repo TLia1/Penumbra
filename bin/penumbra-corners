@@ -17,16 +17,22 @@ mkdir -p "${state%/*}"
 printf '%s\n' "$current" > "$state"
 
 if [[ $current = sharp ]]; then
- window=0 lock=0 annotate=0
+ window=0 mango_window=0 lock=0 annotate=0
  boxes='s/╭/┌/g; s/╮/┐/g; s/╰/└/g; s/╯/┘/g'
 else
- window=16 lock=14 annotate=12
+ window=16 mango_window=12 lock=14 annotate=12
  boxes='s/┌/╭/g; s/┐/╮/g; s/└/╰/g; s/┘/╯/g'
 fi
 
-# Windows, at once; hyprland.lua reads the same file when it loads.
+# Windows, at once; hyprland.lua and mango/config.conf read the choice back when they load.
 if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
  hyprctl eval "hl.config({decoration = {rounding = $window}})" >/dev/null 2>&1 || true
+fi
+if [[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]]; then
+ mmsg dispatch "setoption,border_radius,$mango_window" >/dev/null 2>&1 || true
+fi
+if [[ -d $config/mango ]]; then
+ echo "border_radius=$mango_window" > "$config/mango/corners.conf"
 fi
 # Rofi imports corners.rasi after its own theme.
 if [[ -d $config/rofi ]]; then

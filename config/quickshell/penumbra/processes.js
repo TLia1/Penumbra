@@ -20,7 +20,7 @@ function interpreter(exe) {
 
 // The desktop's own pieces: ending one would end the session, its lock screen or this list.
 function guarded(unit, exe) {
-    return unit.startsWith("penumbra-") || ["Hyprland", "quickshell", "systemd", "hypridle"].includes(exe);
+    return unit.startsWith("penumbra-") || ["Hyprland", "mango", "quickshell", "systemd", "hypridle"].includes(exe);
 }
 
 // cgroups(text) → { pid: path } from `grep -H '' /proc/[0-9]*/cgroup`, which prints

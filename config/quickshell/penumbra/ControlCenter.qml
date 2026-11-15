@@ -130,6 +130,13 @@ Panel {
 
             Loader {
                 Layout.fillWidth: true
+                active: Ui.controlPage === "wm"
+                visible: active
+                sourceComponent: Component { WmPage {} }
+            }
+
+            Loader {
+                Layout.fillWidth: true
                 active: Ui.controlPage === "keyboard"
                 visible: active
                 sourceComponent: Component { KeyboardPage {} }

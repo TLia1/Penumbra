@@ -22,7 +22,7 @@ Singleton {
     // Recording, casting or a fullscreen window turn it on until they end; turning it off by
     // hand meanwhile holds until they do.
     readonly property bool sharing: Recorder.recording || Cast.casting || Cast.connecting
-    readonly property bool fullscreen: Hyprland.focusedMonitor?.activeWorkspace?.hasFullscreen ?? false
+    readonly property bool fullscreen: Wm.focusedMonitor?.activeWorkspace?.hasFullscreen ?? false
     readonly property bool autoQuiet: !!(Settings.dndWhileSharing && sharing || Settings.dndFullscreen && fullscreen)
     property bool autoDismissed: false
     onAutoQuietChanged: if (!autoQuiet) autoDismissed = false

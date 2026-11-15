@@ -26,13 +26,14 @@ import sys
 CONFIG = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config')
 SETTINGS = CONFIG / 'penumbra' / 'settings.conf'
 HYPRIDLE = CONFIG / 'hypr' / 'hypridle.conf'
+MANGO_SETTINGS = CONFIG / 'mango' / 'settings.conf'
 XKB_RULES = Path('/usr/share/X11/xkb/rules/base.lst')
 
 # The same keys, order and defaults as install.sh (SETTING_KEYS, detect_settings), which also
 # detects the keyboard on a first install. Idle timings are minutes, or "never".
 DEFAULTS = {
     'kb_layout': 'us', 'kb_variant': '', 'kb_options': '', 'scale': 'auto', 'numlock': 'on',
-    'shell': 'fish', 'terminal': 'kitty', 'file_manager': 'io.github.lia.Files',
+    'wm': 'hyprland', 'shell': 'fish', 'terminal': 'kitty', 'file_manager': 'io.github.lia.Files',
     'idle_dim': '9.5', 'idle_lock': '10', 'idle_screen_off': '11', 'idle_suspend': '30',
 }
 IDLE = re.compile(r'^(never|[0-9]+(\.[0-9]+)?)$')
@@ -75,6 +76,9 @@ def problem(key, value):
     elif key == 'numlock':
         if value not in ('on', 'off'):
             return "Num Lock should be 'on' or 'off'."
+    elif key == 'wm':
+        if value not in ('hyprland', 'mango'):
+            return "Window manager should be 'hyprland' or 'mango'."
     elif key == 'shell':
         if value not in ('fish', 'keep'):
             return "Login shell should be 'fish' or 'keep'."
@@ -141,15 +145,15 @@ def hypridle(values):
             '    before_sleep_cmd = loginctl lock-session',
             '    # Hold the suspend until the lock screen is up, so the desktop never shows on resume.',
             '    inhibit_sleep = 3',
-            '    after_sleep_cmd = hyprctl dispatch \'hl.dsp.dpms({action = "on"})\'',
+            '    after_sleep_cmd = ~/.local/bin/penumbra-idle dpms on',
             '}']
     steps = [
         ('idle_dim', '# Dim the backlight; any input brings it back.',
          ['on-timeout = ~/.local/bin/penumbra-idle dim', 'on-resume = ~/.local/bin/penumbra-idle undim']),
         ('idle_lock', '# Lock the screen.', ['on-timeout = loginctl lock-session']),
         ('idle_screen_off', '# Turn the screens off.',
-         ['on-timeout = hyprctl dispatch \'hl.dsp.dpms({action = "off"})\'',
-          'on-resume = hyprctl dispatch \'hl.dsp.dpms({action = "on"})\'']),
+         ['on-timeout = ~/.local/bin/penumbra-idle dpms off',
+          'on-resume = ~/.local/bin/penumbra-idle dpms on']),
         ('idle_suspend', '# Suspend, only on battery.', ['on-timeout = ~/.local/bin/penumbra-idle suspend']),
     ]
     # Dimming only warns of the lock, so it comes before it: half a minute before, or halfway
@@ -183,6 +187,57 @@ def hyprland(values, keyboard, scale):
     return ' '.join(lua)
 
 
+def mango_settings(values):
+    """~/.config/mango/settings.conf for MangoWM's keyboard, scale, tiling and default apps."""
+    lines = [
+        '# Written by penumbra-settings from ~/.config/penumbra/settings.conf and shell.json.',
+        f'var=terminal,{values["terminal"]}',
+        f'var=file_manager,{values["file_manager"]}',
+        f'xkb_rules_layout={values["kb_layout"]}',
+    ]
+    if values['kb_variant']:
+        lines.append(f'xkb_rules_variant={values["kb_variant"]}')
+    if values['kb_options']:
+        lines.append(f'xkb_rules_options={values["kb_options"]}')
+    lines.append(f'numlock_on={1 if values["numlock"] == "on" else 0}')
+    if values['scale'] != 'auto':
+        lines.append(f'monitor_rule=name:.*,scale:{values["scale"]}')
+    shell = {}
+    try:
+        loaded = json.loads((CONFIG / 'penumbra' / 'shell.json').read_text())
+        if isinstance(loaded, dict):
+            shell = loaded
+    except (OSError, ValueError, TypeError):
+        pass
+    if shell.get('reducedMotion'):
+        lines.append('animations=0')
+    valid_layouts = ('dwindle', 'tile', 'scroller', 'center_tile', 'grid', 'deck', 'monocle')
+    layout = shell.get('tilingLayout') if shell.get('tilingLayout') in valid_layouts else 'dwindle'
+    try:
+        mfact = min(0.9, max(0.2, float(shell.get('masterRatio', 0.55))))
+    except (TypeError, ValueError):
+        mfact = 0.55
+    try:
+        scroller_prop = min(1.0, max(0.2, float(shell.get('scrollerProportion', 0.8))))
+    except (TypeError, ValueError):
+        scroller_prop = 0.8
+    smart_gaps = 1 if shell.get('smartGaps') else 0
+    smart_split = 1 if shell.get('dwindleSmartSplit') else 0
+    new_master = 0 if shell.get('newWindowMaster') is False else 1
+    scroller_center = 1 if shell.get('scrollerCenter') else 0
+    lines += [
+        f'smart_gaps={smart_gaps}',
+        f'new_is_master={new_master}',
+        f'default_master_factor={mfact:.2f}',
+        f'dwindle_smart_split={smart_split}',
+        f'scroller_default_proportion={scroller_prop:.2f}',
+        f'scroller_focus_center={scroller_center}',
+        f'scroller_prefer_center={scroller_center}',
+        f'tag_rule=id:*,layout_name:{layout},master_factor:{mfact:.2f},scroller_default_proportion:{scroller_prop:.2f}',
+    ]
+    return '\n'.join(lines) + '\n'
+
+
 def apply(values, changed=None, restart=True):
     """Apply the settings in CHANGED (every one when None) to the running desktop."""
     def touched(*keys):
@@ -195,6 +250,11 @@ def apply(values, changed=None, restart=True):
         # (penumbra-hypridle.service, when the session started it).
         if restart:
             subprocess.run(['systemctl', '--user', 'try-restart', 'penumbra-hypridle.service'], capture_output=True)
+    if touched('kb_layout', 'kb_variant', 'kb_options', 'numlock', 'scale', 'terminal', 'file_manager', 'wm'):
+        MANGO_SETTINGS.parent.mkdir(parents=True, exist_ok=True)
+        MANGO_SETTINGS.write_text(mango_settings(values))
+        if os.environ.get('MANGO_INSTANCE_SIGNATURE') and shutil.which('mmsg'):
+            subprocess.run(['mmsg', 'dispatch', 'reload_config'], capture_output=True)
     lua = hyprland(values, touched('kb_layout', 'kb_variant', 'kb_options', 'numlock'), touched('scale'))
     if lua and os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and shutil.which('hyprctl'):
         subprocess.run(['hyprctl', 'eval', lua], capture_output=True)
@@ -258,6 +318,8 @@ def import_(source):
         subprocess.run([str(theme), 'restore'], capture_output=True)
     if os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and shutil.which('hyprctl'):
         subprocess.run(['hyprctl', 'reload'], capture_output=True)
+    elif os.environ.get('MANGO_INSTANCE_SIGNATURE') and shutil.which('mmsg'):
+        subprocess.run(['mmsg', 'dispatch', 'reload_config'], capture_output=True)
     return sorted(files)
 
 

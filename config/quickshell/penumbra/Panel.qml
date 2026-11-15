@@ -33,6 +33,8 @@ PanelWindow {
     // False while a dialog of the panel's own is up (a folder chooser), so clicking it doesn't
     // close the panel.
     property bool grabFocus: true
+    onOpenChanged: if (open) Ui.panelGrabFocus = grabFocus
+    onGrabFocusChanged: if (open) Ui.panelGrabFocus = grabFocus
     signal dismissed()
 
     // Room around the sheet for its shadow; panels anchor with Theme.edge - shadowRoom, so the
@@ -50,11 +52,13 @@ PanelWindow {
     margins.top: Theme.barHeight + 10 + (Settings.barStyle === "floating" ? Theme.gap : 0) - shadowRoom
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "penumbra-panel"
-    WlrLayershell.keyboardFocus: open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+    WlrLayershell.keyboardFocus: open && grabFocus
+        ? (Wm.isMango ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand)
+        : WlrKeyboardFocus.None
 
     HyprlandFocusGrab {
         windows: [panel]
-        active: panel.open && panel.grabFocus
+        active: Wm.isHyprland && panel.open && panel.grabFocus
         onCleared: panel.dismissed()
     }
 

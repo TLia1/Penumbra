@@ -28,17 +28,15 @@ PanelWindow {
             search.text = "";
             search.forceActiveFocus();
             root.picking = false;
-            // Window positions come from Hyprland's last report; ask for a fresh one.
-            Hyprland.refreshMonitors();
-            Hyprland.refreshWorkspaces();
-            Hyprland.refreshToplevels();
+            // Window positions come from the compositor's last report; ask for a fresh one.
+            Wm.refresh();
             root.selected = Math.max(0, root.matches.findIndex(t => t.activated));
         }
     }
 
     // Workspaces with windows or on screen, then the first free number, to drop a window into.
     readonly property var workspaces: {
-        const list = Hyprland.workspaces.values.filter(w => w.id > 0 && (w.toplevels.values.length > 0 || w.active))
+        const list = Wm.workspaces.filter(w => w.id > 0 && (w.toplevels.values.length > 0 || w.active))
             .sort((a, b) => a.id - b.id).map(w => ({ id: w.id, workspace: w }));
         let free = 1;
         while (list.some(w => w.id === free))
@@ -69,25 +67,22 @@ PanelWindow {
         selected = (selected + by + matches.length) % Math.max(1, matches.length);
     }
 
-    function address(toplevel) {
-        return toplevel.lastIpcObject?.address ?? "0x" + toplevel.address;
-    }
     function focusWindow(toplevel) {
         Ui.overviewOpen = false;
-        Hyprland.dispatch(`hl.dsp.focus({window = "address:${address(toplevel)}"})`);
+        Wm.focusWindow(toplevel);
     }
     function goTo(id) {
         Ui.overviewOpen = false;
-        Hyprland.dispatch(`hl.dsp.focus({workspace = ${id}})`);
+        Wm.focusWorkspace(id, root.screen?.name);
     }
     function moveWindow(toplevel, id) {
-        Hyprland.dispatch(`hl.dsp.window.move({workspace = ${id}, follow = false, window = "address:${address(toplevel)}"})`);
+        Wm.moveWindowToWorkspace(toplevel, id);
         refresh.restart();
     }
     Timer {
         id: refresh
         interval: 150
-        onTriggered: { Hyprland.refreshWorkspaces(); Hyprland.refreshToplevels(); }
+        onTriggered: Wm.refresh()
     }
 
     // A tile is this wide; its height follows its screen's shape.
@@ -179,7 +174,7 @@ PanelWindow {
                         StaggerReveal { shown: Ui.overviewOpen; order: tile.index }
                         required property var modelData
                         readonly property var workspace: modelData.workspace
-                        readonly property var monitor: workspace?.monitor ?? Hyprland.focusedMonitor
+                        readonly property var monitor: workspace?.monitor ?? Wm.focusedMonitor
                         readonly property bool turned: (monitor?.lastIpcObject?.transform ?? 0) % 2 === 1
                         // The screen's size in layout pixels, which window positions use too.
                         readonly property real screenWidth: (turned ? monitor?.height : monitor?.width) / (monitor?.scale || 1) || 1920
