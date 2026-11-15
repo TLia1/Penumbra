@@ -4,8 +4,8 @@ import Quickshell.Io
 import Quickshell.Services.Pam
 import Quickshell.Wayland
 
-// The lock screen, on every monitor. hypridle locks through `ipc call lock lock` (which
-// `loginctl lock-session` triggers); hyprlock takes over when the shell is not running. With a
+// The lock screen, on every monitor. swayidle locks through `ipc call lock lock` (which
+// `loginctl lock-session` triggers); swaylock takes over when the shell is not running. With a
 // finger enrolled in fprintd, a touch of the reader unlocks it too, while the password still works.
 Scope {
     id: root
@@ -16,6 +16,7 @@ Scope {
     property bool capsLock: false
     // Kept here rather than bound to sessionLock.locked: Quickshell 0.3.2 never signals the
     // unlock, so a binding stays true and the wallpapers stay paused after the first lock.
+    readonly property bool secure: sessionLock.secure
     property bool locked: false
     // When the screen was locked (Date.now()), for the lock screen's count of new notifications.
     property double lockedAt: 0
@@ -74,7 +75,7 @@ Scope {
             led.reload();
     }
 
-    // The default "login" PAM stack, the same one hyprlock includes.
+    // Use the default "login" PAM stack.
     PamContext {
         id: pam
         onPamMessage: {

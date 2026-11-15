@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Start the Penumbra desktop components when Hyprland starts; `restart` restarts the shell.
+# Start the Penumbra desktop components when MangoWM starts; `restart` restarts the shell.
 set -u
+[[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]] || exit 0
 export QT_QPA_PLATFORMTHEME=qt6ct XCURSOR_THEME=Penumbra-Cursors XCURSOR_SIZE=28
 mkdir -p "$HOME/.local/state/penumbra"
 exec 9>"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/penumbra-session.lock"
@@ -8,7 +9,7 @@ flock -n 9 || exit 0
 # The shell runs as a systemd user service, so it needs this session's environment. PATH lets
 # commands from the launcher find ~/.local/bin.
 dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP \
- HYPRLAND_INSTANCE_SIGNATURE MANGO_INSTANCE_SIGNATURE PATH QT_QPA_PLATFORMTHEME XCURSOR_THEME XCURSOR_SIZE
+ MANGO_INSTANCE_SIGNATURE PATH QT_QPA_PLATFORMTHEME XCURSOR_THEME XCURSOR_SIZE
 # Older Penumbra versions exported GTK_THEME, which breaks libadwaita apps.
 systemctl --user unset-environment GTK_THEME
 # A shell started by hand (or by an older Penumbra) would hold the notification and polkit names.
@@ -18,16 +19,14 @@ if [[ ${1:-} = restart ]]; then
  systemctl --user restart penumbra-shell.service
  exit
 fi
-[[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] && hyprctl setcursor Penumbra-Cursors 28 >/dev/null
 # The shell is the polkit agent too; an older KDE agent would hold the registration.
 pkill -u "$UID" -f '^/usr/lib/(.*/)?polkit-kde-authentication-agent-1' || true
 # Bar, notifications, OSD, control center, launcher, overlays, lock screen and polkit agent;
 # systemd restarts it if it dies (see ~/.config/systemd/user/penumbra-shell.service).
-# The helpers are user services too, so one that dies comes back: hypridle above all, or the
+# The helpers are user services too, so one that dies comes back: swayidle above all, or the
 # screen would stop locking. Older Penumbra versions started them by hand; those go first.
-helpers=(penumbra-shell.service penumbra-awww.service penumbra-hypridle.service
+helpers=(penumbra-shell.service penumbra-awww.service penumbra-idle.service
  penumbra-cliphist@text.service penumbra-cliphist@image.service)
-systemctl --user is-active -q penumbra-hypridle.service || pkill -u "$UID" -x hypridle
 systemctl --user is-active -q penumbra-awww.service || pkill -u "$UID" -x awww-daemon
 systemctl --user is-active -q penumbra-cliphist@text.service || pkill -u "$UID" -f '^wl-paste --type (text|image) --watch cliphist store'
 systemctl --user reset-failed "${helpers[@]}" penumbra-lock-fallback.service 2>/dev/null

@@ -1,8 +1,30 @@
 #!/usr/bin/env bash
-# Idle steps hypridle runs: dim the backlight before locking and bring it back, and suspend
+# Idle steps swayidle runs: dim the backlight before locking and bring it back, and suspend
 # only while running on battery (desktops and laptops on the charger stay awake).
 set -uo pipefail
+fallback_lock() {
+    local image=$HOME/.local/share/penumbra/lock.png
+    local args=()
+    [[ -r $image ]] && args=(-i "$image")
+    swaylock "${args[@]}" "$@"
+}
 case ${1:-} in
+    lock)
+        ipc=$HOME/.local/bin/penumbra-ipc
+        if "$ipc" lock lock >/dev/null; then
+            # Hold swayidle's sleep inhibitor until the compositor acknowledges the lock.
+            for _ in {1..20}; do
+                "$ipc" lock isSecure >/dev/null && exit 0
+                sleep 0.05
+            done
+        fi
+        fallback_lock -f
+        exit $?
+        ;;
+    fallback-lock)
+        fallback_lock
+        exit $?
+        ;;
     dim)
         # Down to a third of the current level; brightnessctl remembers it for undim.
         current=$(brightnessctl --class=backlight get 2>/dev/null) || exit 0
@@ -28,25 +50,21 @@ case ${1:-} in
             on)
                 if [[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]]; then
                     mmsg dispatch 'wakeup_monitor,.*' >/dev/null 2>&1 || true
-                elif [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
-                    hyprctl dispatch 'hl.dsp.dpms({action = "on"})' >/dev/null 2>&1 || true
                 fi
                 ;;
             off)
                 if [[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]]; then
                     mmsg dispatch 'sleep_monitor,.*' >/dev/null 2>&1 || true
-                elif [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
-                    hyprctl dispatch 'hl.dsp.dpms({action = "off"})' >/dev/null 2>&1 || true
                 fi
                 ;;
             *)
-                echo 'Usage: penumbra-idle dim|undim|suspend|dpms on|off' >&2
+                echo 'Usage: penumbra-idle lock|dim|undim|suspend|dpms on|off' >&2
                 exit 1
                 ;;
         esac
         ;;
     *)
-        echo 'Usage: penumbra-idle dim|undim|suspend|dpms on|off' >&2
+        echo 'Usage: penumbra-idle lock|dim|undim|suspend|dpms on|off' >&2
         exit 1
         ;;
 esac

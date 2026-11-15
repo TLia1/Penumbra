@@ -21,16 +21,16 @@ test('mouse, media and punctuation bindings have readable names', () => {
 
 test('active custom bindings, submaps and duplicate chords are preserved', () => {
     const entries = K.entries([
-        { key: 'F1', description: 'Help', dispatcher: '__lua', arg: '12' },
+        { key: 'F1', description: 'Help', dispatcher: 'spawn', arg: 'help' },
         { key: 'F1', dispatcher: 'exec', arg: 'custom-help', submap: 'resize', repeat: true },
-        { key: 'F2', dispatcher: '__lua', arg: '13', release: true, locked: true },
+        { key: 'F2', dispatcher: 'toggleoverview', release: true, locked: true },
         { key: 'F3', description: 'Disabled', enabled: false }
     ]);
     assert.equal(entries.length, 3);
     assert.equal(entries[0].action, 'Help');
     assert.equal(entries[1].action, 'exec custom-help');
     assert.match(entries[1].details, /Submap: resize.*Repeats/);
-    assert.equal(entries[2].action, 'Custom Lua binding (no description)');
+    assert.equal(entries[2].action, 'toggleoverview');
     assert.match(entries[2].details, /On release.*locked/);
     assert.equal(K.filter(entries, ' RESIZE f1 ').length, 1);
     assert.equal(K.filter(entries, 'missing').length, 0);

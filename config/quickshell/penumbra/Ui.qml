@@ -2,7 +2,6 @@ pragma Singleton
 import QtQuick
 import "wallpapers.js" as Wallpapers
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 
@@ -169,10 +168,10 @@ Singleton {
     property bool hasPowerProfiles: false // power-profiles-daemon (or another daemon with its D-Bus API)
     Process {
         running: true
-        command: ["bash", "-c", "command -v hyprsunset; command -v cava; command -v wtype; busctl --system list --no-pager 2>/dev/null | grep -qE \"^(org.freedesktop.UPower.PowerProfiles|net.hadess.PowerProfiles) \" && echo /power-profiles"]
+        command: ["bash", "-c", "command -v wlsunset; command -v cava; command -v wtype; busctl --system list --no-pager 2>/dev/null | grep -qE \"^(org.freedesktop.UPower.PowerProfiles|net.hadess.PowerProfiles) \" && echo /power-profiles"]
         stdout: StdioCollector {
             onStreamFinished: {
-                root.hasNightLight = text.includes("/hyprsunset");
+                root.hasNightLight = text.includes("/wlsunset");
                 root.hasVisualizer = text.includes("/cava");
                 root.hasTyping = text.includes("/wtype");
                 root.hasPowerProfiles = text.includes("/power-profiles");

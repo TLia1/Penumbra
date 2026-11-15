@@ -4,7 +4,7 @@ import Quickshell
 import Quickshell.Io
 
 // Shell preferences from the settings page, kept in ~/.config/penumbra/shell.json. The corner
-// style is penumbra-corners' instead (see Theme), since Hyprland and other apps follow it too.
+// style is penumbra-corners' instead (see Theme), since MangoWM and other apps follow it too.
 Singleton {
     property alias animatedWallpapers: adapter.animatedWallpapers
     // Animated wallpapers hold still while tiled windows hide them, and on battery or in power saver.
@@ -43,7 +43,7 @@ Singleton {
     // (0: any free one), so a firewall rule can let the TV in.
     property alias castSound: adapter.castSound
     property alias castPort: adapter.castPort
-    // Accessibility: no animations anywhere (shell, wallpapers, Hyprland), and larger text.
+    // Accessibility: no animations anywhere (shell, wallpapers, MangoWM), and larger text.
     property alias reducedMotion: adapter.reducedMotion
     property alias textScale: adapter.textScale
     // Do not disturb: on a schedule, while recording or casting, while a window is fullscreen.
@@ -72,7 +72,7 @@ Singleton {
     // audioFormat, audioQuality, videoFolder, audioFolder.
     property alias downloads: adapter.downloads
 
-    // hyprland.lua and mango/config.conf read it at start; a change applies to the running compositor at once.
+    // mango/config.conf reads it at start; a change applies to the running compositor at once.
     onReducedMotionChanged: Wm.setReducedMotion(reducedMotion)
     onTilingLayoutChanged: Wm.syncTiling()
     onSmartGapsChanged: Wm.syncTiling()

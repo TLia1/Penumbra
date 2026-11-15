@@ -4,8 +4,7 @@
 The choice is kept in ~/.local/state/penumbra/theme.json. The palette it makes goes to palette.json
 next to it, which the shell watches and fades to, and into every colour file Penumbra installed,
 rendered again from the templates install.sh keeps in ~/.local/share/penumbra/palette/. Apps that
-can reload their colours are told to; the others show them on their next start. Hyprland's
-borders step through the fade with the shell, the folder icons take the accent, and VS Code's
+can reload their colours are told to; the others show them on their next start. The folder icons take the accent, and VS Code's
 Penumbra themes are rewritten in place, which open windows follow.
 
   penumbra-theme set preset=solar-corona   apply a named palette and matching scene
@@ -68,8 +67,6 @@ DURATIONS = {'set': 420, 'preview': 160, 'restore': 0, 'wallpaper': 1400}
 # Templates the engine leaves alone: the shell reads palette.json instead (a new palette.js would
 # restart it), and the login screen's files belong to root.
 SKIPPED = ('config/quickshell/', 'system/')
-# How many colours Hyprland's borders step through during a fade (it can't fade them itself).
-BORDER_STEPS = 8
 BOOLEANS = {'true': True, 'false': False, '1': True, '0': False}
 
 
@@ -287,50 +284,6 @@ def apply_mode(mode):
         subprocess.run(interface + ['gtk-theme', 'Breeze-Dark' if dark else 'Breeze'], capture_output=True)
 
 
-def hyprland_lua(colors, mode):
-    """The Lua that gives a running Hyprland the borders, shadow and blur hyprland.lua makes from colors.lua."""
-    c = {key: value[1:] for key, value in colors.items()}
-    if mode == 'light':
-        shadow, inactive, brightness = f'rgba({c["shade"]}30)', 'rgba(00000022)', '1'
-    else:
-        shadow, inactive, brightness = f'rgba({c["onAccent"]}88)', 'rgba(00000055)', '0.9'
-    return ('hl.config({general = {col = {active_border = {colors = {"rgba(%see)", "rgba(%sbb)"}, angle = 45}, '
-            'inactive_border = "rgba(%sff)"}}, decoration = {shadow = {color = "%s", color_inactive = "%s"}, '
-            'glow = {color = "rgba(%s40)"}, blur = {brightness = %s}}})'
-            % (c['accent'], c['accentDeep'], c['black'], shadow, inactive, c['accentDeep'], brightness))
-
-
-def fade_hyprland(old, colors, mode, duration):
-    """Give a running Hyprland the new borders, shadow and blur. From OLD colours (the palette on
-    screen), they step there over DURATION ms alongside the shell's fade, from a child process so
-    the files are written meanwhile; a newer palette stops it."""
-    steps = min(BORDER_STEPS, duration // 50) if old and old.keys() == colors.keys() and old != colors else 0
-    if steps < 2:
-        quiet(['hyprctl', 'eval', hyprland_lua(colors, mode)])
-        return
-    if os.fork():
-        return
-    try:
-        # Nothing to say; the caller (the shell, a test) needn't wait for its output to end.
-        null = os.open(os.devnull, os.O_RDWR)
-        for fd in (0, 1, 2):
-            os.dup2(null, fd)
-        start = time.monotonic()
-        for step in range(1, steps + 1):
-            time.sleep(max(0.0, start + duration / 1000 * step / steps - time.monotonic()))
-            try:
-                if json.loads(PALETTE_JSON.read_text())['colors'] != colors:
-                    break
-            except (OSError, ValueError, KeyError, TypeError):
-                break
-            t = step / steps
-            eased = 2 * t * t if t < 0.5 else 1 - (-2 * t + 2) ** 2 / 2  # the shell's InOutQuad
-            shown = colors if step == steps else {k: palette.mix(old[k], v, eased) for k, v in colors.items()}
-            quiet(['hyprctl', 'eval', hyprland_lua(shown, mode)])
-    finally:
-        os._exit(0)
-
-
 def apply_mango(colors, mode):
     """Give a running MangoWM the new borders, root, urgent, scratchpad, global and blur colours."""
     c = {key: value[1:] for key, value in colors.items()}
@@ -428,16 +381,9 @@ def apply(choice, duration, everything=True, wallpaper=None):
     picked = accent(choice, wallpaper)
     colors = (palette.preset_palette(palettes, mode, choice['preset']) if choice.get('preset')
               else palette.resolve(palettes, mode, *picked, choice['harmonize']))
-    try:
-        old = json.loads(PALETTE_JSON.read_text())['colors']
-    except (OSError, ValueError, KeyError, TypeError):
-        old = None
-    # The shell first, so it starts fading while the files are written, and Hyprland with it.
     show(colors, mode, duration)
     if not everything:
         return
-    if os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and shutil.which('hyprctl'):
-        fade_hyprland(old, colors, mode, duration)
     if os.environ.get('MANGO_INSTANCE_SIGNATURE') and shutil.which('mmsg'):
         apply_mango(colors, mode)
     # The files' other mode comes from the same choice, for the ones that hold both ({{light.name}}).

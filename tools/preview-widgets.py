@@ -167,7 +167,7 @@ def main():
                'QT_QPA_PLATFORM': 'offscreen', 'QT_QUICK_BACKEND': 'software',
                'PENUMBRA_PREVIEW': str(output), 'TZ': 'Europe/Paris'}
         env.pop('WAYLAND_DISPLAY', None)
-        env.pop('HYPRLAND_INSTANCE_SIGNATURE', None)
+        env.pop('MANGO_INSTANCE_SIGNATURE', None)
         result = subprocess.run(['quickshell', '-p', temp, '--no-color'], env=env, capture_output=True, text=True, timeout=20)
         log = result.stdout + result.stderr
         # Sandboxed runners can refuse local IPC sockets; rendering does not use them.

@@ -9,8 +9,8 @@ DISTRO_UPDATE_COMMAND='sudo pacman -Syu'
 
 PACKAGES=(
     # Desktop
-    hyprland mangowm quickshell awww sddm hyprlock hypridle hyprsunset rofi
-    xdg-desktop-portal-hyprland xdg-desktop-portal-wlr xdg-desktop-portal-gtk
+    mangowm quickshell awww sddm swaylock swayidle wlsunset rofi
+    xdg-desktop-portal-wlr xdg-desktop-portal-gtk
     # Terminal and editor
     kitty fish starship fastfetch btop neovim git ripgrep fd unzip nodejs npm tree-sitter-cli gcc
     # Applications
@@ -25,7 +25,7 @@ PACKAGES=(
     # Passwords apps save, unlocked when you sign in
     gnome-keyring seahorse
     # Screenshots, screen recording, clipboard, color picker, emoji and symbols
-    grim slurp satty wf-recorder hyprpicker cliphist wl-clipboard wtype unicode-emoji noto-fonts-emoji
+    grim slurp satty wf-recorder cliphist wl-clipboard wtype unicode-emoji noto-fonts-emoji
     # Your own GIF and video wallpapers: the shell plays them, ffmpeg takes their first frame
     qt6-multimedia qt6-multimedia-ffmpeg ffmpeg
     # Video and audio downloads (the Downloads panel, Super+D)
@@ -35,9 +35,10 @@ PACKAGES=(
     # Used by the helper scripts and build tools
     pacman-contrib flatpak libnotify librsvg python-pillow xorg-xcursorgen
 )
-# Replaced by the Quickshell shell (bar, notifications, OSD), awww (wallpaper) and Lia Files (file
-# manager and file chooser). Nothing uses Qt 5 any more: the session's Qt theme is qt6ct.
-LEGACY_PACKAGES=(waybar mako swaybg dolphin)
+# Previous desktop components, offered for removal after their replacements are installed.
+LEGACY_PACKAGES=(waybar mako swaybg dolphin
+    xdg-desktop-portal-hyprland hypridle hyprlock hyprsunset hyprpicker hyprland
+)
 # The boot splash, offered by ./install.sh --boot-only.
 PLYMOUTH_PACKAGES=(plymouth)
 

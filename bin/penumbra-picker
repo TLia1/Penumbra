@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Pick any on-screen color; the hex value is copied to the clipboard.
 set -euo pipefail
-color=$(hyprpicker --autocopy --format=hex --no-fancy --quiet 2>/dev/null) || exit 0
-[[ -n "$color" ]] || exit 0
+point=$(slurp -p) || exit 0
+color=$(grim -g "$point" -t ppm - | python3 -c '
+from PIL import Image
+import sys
+pixel = Image.open(sys.stdin.buffer).convert("RGB").getpixel((0, 0))
+print("#%02X%02X%02X" % pixel)
+')
+printf %s "$color" | wl-copy
 notify-send -a Penumbra "Color copied · $color" "<font color='$color'>██████</font>  $color"

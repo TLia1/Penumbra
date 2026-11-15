@@ -1,6 +1,6 @@
 .pragma library
 
-// Format Hyprland's active bindings, including user.lua overrides and submaps.
+// Format the shortcuts from the compositor configuration.
 function shortcut(bind) {
     const parts = [];
     for (const [mask, name] of [[64, "Super"], [4, "Ctrl"], [8, "Alt"], [1, "Shift"],
@@ -31,9 +31,7 @@ function entries(data) {
     if (!Array.isArray(data)) throw new Error("Expected a list of bindings");
     return data.filter(b => b && b.enabled !== false).map(b => {
         const keys = shortcut(b);
-        // Lua callbacks cannot be recovered as commands from Hyprland's IPC.
-        const action = b.description || (b.dispatcher === "__lua" ? "Custom Lua binding (no description)"
-            : [b.dispatcher, b.arg].filter(Boolean).join(" ")) || "Custom binding (no description)";
+        const action = b.description || [b.dispatcher, b.arg].filter(Boolean).join(" ") || "Custom binding (no description)";
         const details = [b.submap ? "Submap: " + b.submap : "", b.release ? "On release" : "",
             b.repeat || b.repeating ? "Repeats while held" : "", b.locked ? "Also while locked" : "",
             b.mouse ? "Drag" : "", b.longPress || b.long_press ? "Long press" : "",

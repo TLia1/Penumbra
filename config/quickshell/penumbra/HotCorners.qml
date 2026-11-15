@@ -1,6 +1,5 @@
 import QtQuick
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Wayland
 
 // Push the pointer into the top-right corner for the control center. A short dwell keeps a

@@ -35,7 +35,6 @@ Settings (detected on the first run, then remembered in $SETTINGS_FILE):
   --kb-options OPTS    XKB options, e.g. caps:escape,grp:alt_shift_toggle.
   --scale SCALE        Display scale: auto, 1, 1.25, 1.5, 2...
   --numlock on|off     Turn Num Lock on when you log in.
-  --wm hyprland|mango  Window manager to configure and select at login.
   --shell fish|keep    Make fish your login shell, or keep the current one.
   --terminal APP       Terminal for Super+Enter, by its desktop file: kitty, foot...
   --file-manager APP   File manager for Super+E: io.github.lia.Files, org.kde.dolphin...
@@ -52,9 +51,9 @@ Other options:
   --offline            Configure an unbooted system (e.g. arch-chroot); enable
                        services for next boot without starting them now.
   --remove-legacy yes|no|ask
-                       Whether to remove the packages Penumbra replaced (Waybar,
-                       Mako, swaybg, Dolphin, Qt 5 tools) if they are installed (or
-                       PENUMBRA_REMOVE_LEGACY=1/0). Default: ask.
+                       Whether to remove installed legacy packages, including the
+                       previous desktop stack (or PENUMBRA_REMOVE_LEGACY=1/0).
+                       Default: ask.
   --user NAME          Desktop user for --system-only (default: \$SUDO_USER).
   -h, --help           Show this help.
 EOF
@@ -128,14 +127,13 @@ load_distro() {
 # which the shell's Settings pages use to change them later.
 
 declare -A settings=()
-SETTING_KEYS=(kb_layout kb_variant kb_options scale numlock wm shell terminal file_manager idle_dim idle_lock idle_screen_off idle_suspend)
+SETTING_KEYS=(kb_layout kb_variant kb_options scale numlock shell terminal file_manager idle_dim idle_lock idle_screen_off idle_suspend)
 declare -A SETTING_OPTIONS=(
     [kb_layout]=--layout
     [kb_variant]=--variant
     [kb_options]=--kb-options
     [scale]=--scale
     [numlock]=--numlock
-    [wm]=--wm
     [shell]=--shell
     [terminal]=--terminal
     [file_manager]=--file-manager
@@ -150,7 +148,6 @@ declare -A SETTING_LABELS=(
     [kb_options]='Keyboard options'
     [scale]='Display scale'
     [numlock]='Num Lock at login (on/off)'
-    [wm]='Window manager (hyprland/mango)'
     [shell]='Login shell (fish/keep)'
     [terminal]='Terminal (desktop file)'
     [file_manager]='File manager (desktop file)'
@@ -228,7 +225,6 @@ detect_settings() {
     set_default kb_options "$options"
     set_default scale auto
     set_default numlock on
-    set_default wm hyprland
     set_default shell fish
     set_default terminal kitty
     # Lia Files, or Dolphin if that is all there is. Super+E falls back to either one.
@@ -256,7 +252,6 @@ valid_setting() {
         kb_options) [[ $value =~ ^[A-Za-z0-9_,:+-]*$ ]] || { warn "Invalid keyboard options '$value'."; return 1; } ;;
         scale) [[ $value =~ ^(auto|[0-9]+(\.[0-9]+)?)$ ]] || { warn "Scale should be 'auto' or a number such as 1.25."; return 1; } ;;
         numlock) [[ $value == on || $value == off ]] || { warn "Num Lock should be 'on' or 'off'."; return 1; } ;;
-        wm) [[ $value == hyprland || $value == mango ]] || { warn "Window manager should be 'hyprland' or 'mango'."; return 1; } ;;
         shell) [[ $value == fish || $value == keep ]] || { warn "Login shell should be 'fish' or 'keep'."; return 1; } ;;
         terminal|file_manager) [[ $value =~ ^[A-Za-z0-9._-]+$ ]] || { warn "Apps are named by their desktop file, such as kitty or org.kde.dolphin."; return 1; } ;;
         idle_*) [[ $value == never || ( $value =~ ^[0-9]+(\.[0-9]+)?$ && ! $value =~ ^0+(\.0+)?$ ) ]] \
@@ -292,8 +287,7 @@ confirm_settings() {
     done
 }
 
-# Virtual machines get software cursors and a software-rendered login screen; their virtual GPUs
-# often draw hardware cursors and accelerated QML wrongly.
+# Virtual machines get a software-rendered login screen.
 is_vm() { systemd-detect-virt --vm --quiet 2>/dev/null; }
 
 # ─── Backups and copying ─────────────────────────────────────────────────────
@@ -321,8 +315,6 @@ set_placeholders() {
         [HOME]=$HOME
         [DISTRO_GLYPH]=$DISTRO_GLYPH
         [DISTRO_UPDATE_COMMAND]=$DISTRO_UPDATE_COMMAND
-        # Hyprland's no_hardware_cursors: 1 forces software cursors, 2 decides per GPU.
-        [SOFTWARE_CURSOR]=$(is_vm && echo 1 || echo 2)
     )
     local key
     for key in "${SETTING_KEYS[@]}"; do placeholders[${key^^}]=${settings[$key]:-}; done
@@ -366,14 +358,11 @@ prune_tree() {
     done < <(find "$to" \( -type f -o -type l \) -print0)
 }
 
-# Starter files for your own settings, created once and never replaced: Hyprland, Kitty and
+# Starter files for your own settings, created once and never replaced: MangoWM, Kitty and
 # Neovim read them after Penumbra's configuration.
 create_user_files() {
     local path
     declare -A starters=(
-        [$HOME/.config/hypr/user.lua]='-- Your own Hyprland settings, read after Penumbra'"'"'s hyprland.lua. ./install.sh never replaces this file.
--- hl.config({ general = { gaps_out = 8 } })
--- hl.bind("SUPER + T", hl.dsp.exec_cmd("thunar"))'
         [$HOME/.config/mango/user.conf]='# Your own MangoWM settings, read after Penumbra'"'"'s config.conf. ./install.sh never replaces this file.
 # gap_outer_horizontal=8
 # bind=SUPER,T,spawn,thunar'
@@ -613,7 +602,7 @@ apply_gtk_settings() {
     gsettings set org.gnome.desktop.interface cursor-size 28
     gsettings set org.gnome.desktop.interface font-name 'Inter 10'
     gsettings set org.gnome.desktop.interface monospace-font-name 'JetBrainsMono Nerd Font 10'
-    # Only a close button on title bars: Hyprland tiles, so minimize and maximize do nothing.
+    # Only a close button on title bars: MangoWM tiles, so minimize and maximize do nothing.
     gsettings set org.gnome.desktop.wm.preferences button-layout ':close'
 }
 
@@ -932,6 +921,18 @@ run_user_part() {
         rm -f "$script"
         echo "Removed ~/.local/bin/${script##*/}; Penumbra no longer uses it."
     done
+    # Retire obsolete Penumbra service units from previous installs.
+    local package unit name
+    for package in "${LEGACY_PACKAGES[@]}"; do
+        name=penumbra-$package.service
+        unit=$HOME/.config/systemd/user/$name
+        [[ -f $unit && ! -e $ROOT/config/systemd/user/$name && ! -e $DISTRO_DIR/config/systemd/user/$name ]] || continue
+        backup_file "$unit" "${unit#"$HOME/"}"
+        if [[ ${OFFLINE:-0} != 1 ]]; then
+            systemctl --user stop "$name" 2>/dev/null || true
+        fi
+        rm -f "$unit"
+    done
     set_placeholders
     # The common files, then the distribution's, which can add to or replace them.
     for from in "$ROOT" "$DISTRO_DIR"; do
@@ -949,9 +950,9 @@ run_user_part() {
     chmod +x "$HOME/.local/share/kio/servicemenus/penumbra-wallpaper.desktop"
     # The configs above come rounded; put back sharp corners if that was the choice.
     "$HOME/.local/bin/penumbra-corners" restore
-    # hypridle.conf comes from the idle settings; penumbra-settings writes it (and applies the rest).
-    backup_file "$HOME/.config/hypr/hypridle.conf" .config/hypr/hypridle.conf
-    "$HOME/.local/bin/penumbra-settings" apply
+    backup_file "$HOME/.config/penumbra/swayidle.conf" .config/penumbra/swayidle.conf
+    backup_file "$HOME/.config/mango/settings.conf" .config/mango/settings.conf
+    "$HOME/.local/bin/penumbra-settings" apply --no-restart
     install_wallpapers
     [[ ${OFFLINE:-0} == 1 ]] || retire_legacy_desktop
 
@@ -972,12 +973,9 @@ run_user_part() {
         systemctl --user daemon-reload
         systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
     fi
-    if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
-        hyprctl reload
-        hyprctl dispatch "hl.dsp.exec_cmd('~/.local/bin/penumbra-session restart')"
-    elif [[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]]; then
+    if [[ ${OFFLINE:-0} != 1 && -n ${MANGO_INSTANCE_SIGNATURE:-} ]]; then
         mmsg dispatch reload_config
-        ~/.local/bin/penumbra-session restart
+        "$HOME/.local/bin/penumbra-session"
     fi
 
     printf '\nPenumbra installed. User backup: %s\n' "$BACKUP"
@@ -1045,7 +1043,7 @@ uninstall_user() {
     BACKUP=$dir/uninstall-$STAMP
     mkdir -p "$BACKUP"
     step 'Removing Penumbra from your account'
-    systemctl --user stop penumbra-shell.service penumbra-hypridle.service penumbra-awww.service \
+    systemctl --user stop penumbra-shell.service penumbra-idle.service penumbra-awww.service \
         'penumbra-cliphist@*.service' 2>/dev/null || true
     undo_runs "$dir" "$HOME" .config .local .gitconfig .mozilla .var
     # The lock screen's link to the current wallpaper, the theme choice, its palette and the colours
@@ -1146,6 +1144,7 @@ while (( $# )); do
         --distro) DISTRO=${2?--distro needs a name}; shift ;;
         --skip-packages) SKIP_PACKAGES=1 ;;
         --offline) OFFLINE=1 ;;
+        --wm) [[ ${2:-} == mango ]] || die 'Penumbra uses MangoWM.'; shift ;;
         --remove-legacy) REMOVE_LEGACY=${2?--remove-legacy needs yes, no or ask}; shift ;;
         --user) TARGET_USER=${2?--user needs a name}; shift ;;
         -y|--yes) ASSUME_YES=1 ;;

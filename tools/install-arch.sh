@@ -296,6 +296,8 @@ fetch_sources() {
     [[ -f $WORK/Penumbra/install.sh && -f $WORK/Lia-s-file-linux/build-aux/PKGBUILD ]] || die 'GitHub checkout is missing an installer or PKGBUILD.'
     grep -q -- '--offline)' "$WORK/Penumbra/install.sh" \
         || die 'Publish the Penumbra install.sh --offline change to GitHub first, or use --penumbra-ref with a branch containing it. No disk has been erased.'
+    [[ -f $WORK/Penumbra/config/mango/config.conf && -f $WORK/Penumbra/config/systemd/user/penumbra-idle.service ]] \
+        || die 'Select a published MangoWM-only desktop revision with --penumbra-ref. No disk has been erased.'
     PENUMBRA_COMMIT=$(git -C "$WORK/Penumbra" rev-parse HEAD)
     LIA_COMMIT=$(git -C "$WORK/Lia-s-file-linux" rev-parse HEAD)
     mkdir "$WORK/lia-build"
@@ -481,7 +483,7 @@ configure_target() {
         --layout "$LAYOUT" --shell fish --remove-legacy no --yes < /dev/null
     # A private D-Bus session lets gsettings/dconf save settings without a desktop login.
     runuser -u "$DESKTOP_USER" -- env -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME \
-        -u XDG_CACHE_HOME -u XDG_RUNTIME_DIR -u HYPRLAND_INSTANCE_SIGNATURE \
+        -u XDG_CACHE_HOME -u XDG_RUNTIME_DIR -u MANGO_INSTANCE_SIGNATURE \
         HOME="$home" USER="$DESKTOP_USER" LOGNAME="$DESKTOP_USER" \
         dbus-run-session -- bash "$repo/install.sh" --user-only --offline --distro arch \
         --layout "$LAYOUT" --shell fish --file-manager io.github.lia.Files --yes < /dev/null

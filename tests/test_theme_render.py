@@ -53,7 +53,7 @@ ShellRoot {
                    'XDG_RUNTIME_DIR': str(folder / 'runtime'), 'QT_QPA_PLATFORM': 'offscreen',
                    'QT_QUICK_BACKEND': 'software'}
             env.pop('WAYLAND_DISPLAY', None)
-            env.pop('HYPRLAND_INSTANCE_SIGNATURE', None)
+            env.pop('MANGO_INSTANCE_SIGNATURE', None)
             result = subprocess.run(['quickshell', '-p', temp, '--no-color'], env=env,
                                     capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

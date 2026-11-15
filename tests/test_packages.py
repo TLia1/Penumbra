@@ -217,7 +217,7 @@ ShellRoot {{
             env = {**os.environ, 'HOME': temp, 'XDG_CONFIG_HOME': temp, 'XDG_CACHE_HOME': temp,
                    'XDG_RUNTIME_DIR': str(stage / 'runtime'), 'QT_QPA_PLATFORM': 'offscreen',
                    'QT_QUICK_BACKEND': 'software'}
-            env.pop('HYPRLAND_INSTANCE_SIGNATURE', None)
+            env.pop('MANGO_INSTANCE_SIGNATURE', None)
             env.pop('WAYLAND_DISPLAY', None)
             result = subprocess.run(['quickshell', '-p', temp, '--no-color'], env=env,
                                     capture_output=True, text=True, timeout=15)

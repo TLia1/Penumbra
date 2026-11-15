@@ -1,0 +1,9 @@
+# Penumbra lock screen fallback. Generated from palette/palette.toml.
+color={{base:hex}}
+scaling=fill
+font=Inter
+inside-color={{surface:hex}}ee
+ring-color={{accent:hex}}
+key-hl-color={{accentBright:hex}}
+ring-wrong-color={{rose:hex}}
+text-color={{text:hex}}

@@ -159,13 +159,13 @@ ColumnLayout {
         { page: "downloads", glyph: "󰇚", title: "Download video or audio", words: "yt-dlp youtube video audio music mp4 mp3 mkv webm opus flac" },
         { page: "weather", glyph: "󰖐", title: "Weather", words: "location city coordinates forecast temperature calendar clock bar" },
         { page: "notes", glyph: "󰎞", title: "Quick notes", words: "notes draft text writing local sidebar" },
-        { page: "night", glyph: "󰖔", title: "Night light", words: "warmth temperature kelvin sunset sunrise schedule hyprsunset" },
+        { page: "night", glyph: "󰖔", title: "Night light", words: "warmth temperature kelvin sunset sunrise schedule wlsunset" },
         { page: "wifi", glyph: "󰤨", title: "Wi-Fi", words: "wireless network internet" },
         { page: "bluetooth", glyph: "󰂯", title: "Bluetooth", words: "devices headphones mouse pair battery" },
         { page: "cast", glyph: "󰄘", title: "Cast screen", words: "tv chromecast dlna firewall port" },
         { page: "settings", glyph: "󰐊", title: "Animated wallpapers", words: "motion still battery power covered windows" },
         { page: "settings", glyph: "󰆾", title: "Hot corner", words: "corner control center" },
-        { page: "wm", glyph: "󰖯", title: "Window manager", words: "wm compositor hyprland mangowm mango session tiling layout windows dwindle master stack scroller monocle grid deck center split smart gaps" },
+        { page: "wm", glyph: "󰖯", title: "Window manager", words: "wm compositor mangowm mango session tiling layout windows dwindle master stack scroller monocle grid deck center split smart gaps" },
         { page: "settings", glyph: "󰘾", title: "Reduced motion", words: "animations accessibility" },
         { page: "settings", glyph: "󰛖", title: "Text size", words: "font larger bigger accessibility zoom" },
         { page: "settings", glyph: "󰂄", title: "Battery care", words: "charge limit threshold power" },
@@ -355,7 +355,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 glyph: "󰖯"
                 title: "Window manager"
-                subtitle: `${Wm.isMango ? "MangoWM" : "Hyprland"} · ${root.tilingSummary}`
+                subtitle: `MangoWM · ${root.tilingSummary}`
                 trailing: "󰅂"
                 onClicked: Ui.openControl("wm")
             }

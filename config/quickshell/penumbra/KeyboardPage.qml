@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 
 // Keyboard layouts, their variants and XKB options, and Num Lock: settings.conf's, applied to
-// Hyprland at once by penumbra-settings.
+// MangoWM at once by penumbra-settings.
 ColumnLayout {
     id: root
 

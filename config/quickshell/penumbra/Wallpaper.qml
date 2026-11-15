@@ -2,7 +2,6 @@ import QtQuick
 import QtMultimedia
 import Quickshell
 import Quickshell.Io
-import Quickshell.Hyprland
 import Quickshell.Services.UPower
 import Quickshell.Wayland
 
@@ -78,24 +77,7 @@ Scope {
         onTriggered: root.waiting = false
     }
 
-    // Whether a window floats is only in Hyprland's IPC objects, which have to be asked for again
-    // when windows open, close, move or float, and when workspaces change.
     readonly property bool watchCovers: Settings.stillWhenCovered && target !== ""
-    onWatchCoversChanged: if (watchCovers) clients.restart()
-    Connections {
-        target: Hyprland
-        enabled: root.watchCovers
-        function onRawEvent(event) {
-            if (["openwindow", "closewindow", "movewindow", "changefloatingmode", "workspace", "focusedmon", "moveworkspace"]
-                    .includes(event.name.replace(/v2$/, "")))
-                clients.restart();
-        }
-    }
-    Timer {
-        id: clients
-        interval: 200
-        onTriggered: Wm.refreshToplevels()
-    }
     // A tiled window fills the workspace, gaps aside: the wallpaper is hidden.
     function covered(workspace) {
         return watchCovers && (workspace?.toplevels.values.some(t => t.lastIpcObject?.floating === false && !t.lastIpcObject.hidden) ?? false);

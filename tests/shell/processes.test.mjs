@@ -37,7 +37,7 @@ test('an app scope is one app, with every process in it', () => {
 });
 
 test('scripts in a shared unit are not grouped by interpreter', () => {
-    const shared = `${user}/app.slice/wayland-wm@hyprland.desktop.service`;
+    const shared = `${user}/app.slice/wayland-wm@mango.desktop.service`;
     const g = P.group(top([
         [200, 'lia', 100, 0.1, '/usr/bin/python3 /home/lia/.local/bin/penumbra-cast stream'],
         [201, 'lia', 100, 0.1, 'python3 -u /home/lia/.local/bin/penumbra-updates status'],
@@ -56,19 +56,19 @@ test('the shell, the compositor and systemd cannot be ended', () => {
     const g = byKey(P.group(top([
         [300, 'lia', 300000, 3.0, '/usr/bin/quickshell -c penumbra'],
         [301, 'lia', 100, 0.0, 'bash -c something'],
-        [302, 'lia', 50000, 1.0, 'Hyprland'],
+        [302, 'lia', 1000, 0.0, 'swayidle'],
         [303, 'lia', 9000, 0.0, '/usr/lib/systemd/systemd --user'],
         [304, 'lia', 40000, 1.0, 'mango'],
     ]), cgroups({
         300: `${user}/app.slice/penumbra-shell.service`,
         301: `${user}/app.slice/penumbra-shell.service`,
-        302: `${user}/app.slice/wayland-wm@hyprland.desktop.service`,
+        302: `${user}/app.slice/session.scope`,
         303: `${user}/init.scope`,
         304: `${user}/app.slice/wayland-wm@mango.desktop.service`,
     })));
     assert.equal(g['penumbra-shell.service'].guarded, true);
     assert.equal(g['penumbra-shell.service'].name, 'quickshell');
-    assert.equal(g['Hyprland@wayland-wm@hyprland.desktop.service'].guarded, true);
+    assert.equal(g['session.scope'].guarded, true);
     assert.equal(g['mango@wayland-wm@mango.desktop.service'].guarded, true);
     assert.equal(g['systemd@init.scope'].guarded, true);
 });

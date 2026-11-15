@@ -1,8 +1,7 @@
 import QtQuick
 import QtQuick.Effects
 
-// The soft shadow under a floating surface. Hyprland only shadows windows, so shell surfaces
-// draw their own. Declare it just before the surface it lies under.
+// Draw a soft shadow under each floating shell surface.
 RectangularShadow {
     required property Item target
 

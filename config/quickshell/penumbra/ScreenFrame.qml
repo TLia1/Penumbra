@@ -1,6 +1,5 @@
 import QtQuick
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Wayland
 
 // A click-through bezel on every output. The inner cutout forms concave joins below the bar;

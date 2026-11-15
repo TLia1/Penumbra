@@ -31,13 +31,11 @@ Panel {
 
     Process {
         id: readBindings
-        command: Wm.isMango
-            ? ["bash", "-c", 'cat "$HOME/.config/mango/config.conf" "$HOME/.config/mango/user.conf" 2>/dev/null']
-            : ["hyprctl", "-j", "binds"]
+        command: ["bash", "-c", 'cat "$HOME/.config/mango/config.conf" "$HOME/.config/mango/user.conf" 2>/dev/null']
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
-                    const data = Wm.isMango ? Keybinds.parseMangoConfig(text) : JSON.parse(text);
+                    const data = Keybinds.parseMangoConfig(text);
                     root.bindings = Keybinds.entries(data);
                 } catch (e) {
                     root.error = "Could not read keyboard shortcuts. Check that the window manager is running, then retry.";

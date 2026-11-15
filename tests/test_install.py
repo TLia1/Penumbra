@@ -75,7 +75,7 @@ def settings_defaults():
 
 
 class SettingsDefaults(unittest.TestCase):
-    """install.sh, penumbra-settings and hyprland.lua each know the settings' defaults."""
+    """install.sh and penumbra-settings both know the settings' defaults."""
 
     def test_installer_matches_penumbra_settings(self):
         # With nothing detected: no keyboard from localectl, and Lia Files installed.
@@ -87,13 +87,19 @@ class SettingsDefaults(unittest.TestCase):
         self.assertEqual(list(installer), list(defaults), 'SETTING_KEYS and DEFAULTS list different keys or orders')
         self.assertEqual(installer, defaults)
 
-    def test_hyprland_matches_penumbra_settings(self):
-        text = (ROOT / 'config/hypr/hyprland.lua').read_text()
-        table = re.search(r'local s = \{(.*?)\}\n', text).group(1)
-        lua = dict(re.findall(r'(\w+) = "([^"]*)"', table))
-        self.assertTrue(lua)
-        defaults = settings_defaults()
-        self.assertEqual({key: defaults[key] for key in lua}, lua)
+    def test_idle_events_follow_saved_settings(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = {**os.environ, 'HOME': home, 'XDG_CONFIG_HOME': home, 'MANGO_INSTANCE_SIGNATURE': ''}
+            settings = Path(home, 'penumbra/settings.conf')
+            settings.parent.mkdir()
+            settings.write_text('wm=retired\nidle_lock=1\nidle_screen_off=never\n')
+            subprocess.run([ROOT / 'bin/penumbra-settings', 'apply', '--no-restart'], env=env, check=True)
+            events = settings.with_name('swayidle.conf').read_text().splitlines()
+            self.assertIn('lock "~/.local/bin/penumbra-idle lock"', events)
+            self.assertIn('before-sleep "~/.local/bin/penumbra-idle lock"', events)
+            self.assertIn('timeout 30 "~/.local/bin/penumbra-idle dim" resume "~/.local/bin/penumbra-idle undim"', events)
+            self.assertIn('timeout 60 "~/.local/bin/penumbra-idle lock"', events)
+            self.assertFalse(any('dpms off' in event for event in events))
 
 
 # Stand-ins for the apps in apps/ (and systemctl, for the uninstall): each records how it was

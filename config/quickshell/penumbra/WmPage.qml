@@ -2,8 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 
-// Window manager & tiling: choose the compositor session (Hyprland or MangoWM), the workspace
-// tiling layout, and layout-specific window behavior.
+// Tiling layouts and window behavior.
 ColumnLayout {
     id: root
 
@@ -79,51 +78,22 @@ ColumnLayout {
         }
     }
 
-    readonly property string selectedWm: Config.values.wm ?? "hyprland"
     readonly property var layouts: [
-        { id: "dwindle", glyph: "󰕰", title: "Dwindle", subtitle: "Each new window splits the focused window", mangoOnly: false },
-        { id: "tile", glyph: "󰙀", title: "Master & stack", subtitle: "Main window on the left, stack on the right", mangoOnly: false },
-        { id: "scroller", glyph: "󰔰", title: "Scroller", subtitle: "Horizontal scrolling strip of windows", mangoOnly: true },
-        { id: "center_tile", glyph: "󰆤", title: "Centered master", subtitle: "Main window centered with stacks on both sides", mangoOnly: true },
-        { id: "grid", glyph: "󰕳", title: "Grid", subtitle: "Windows arranged in an equal grid", mangoOnly: true },
-        { id: "deck", glyph: "󰘸", title: "Deck", subtitle: "Main window on the left, stacked deck on the right", mangoOnly: true },
-        { id: "monocle", glyph: "󰊓", title: "Monocle", subtitle: "Every window fills the workspace", mangoOnly: true }
-    ].filter(l => Wm.isMango || !l.mangoOnly)
+        { id: "dwindle", glyph: "󰕰", title: "Dwindle", subtitle: "Each new window splits the focused window" },
+        { id: "tile", glyph: "󰙀", title: "Master & stack", subtitle: "Main window on the left, stack on the right" },
+        { id: "scroller", glyph: "󰔰", title: "Scroller", subtitle: "Horizontal scrolling strip of windows" },
+        { id: "center_tile", glyph: "󰆤", title: "Centered master", subtitle: "Main window centered with stacks on both sides" },
+        { id: "grid", glyph: "󰕳", title: "Grid", subtitle: "Windows arranged in an equal grid" },
+        { id: "deck", glyph: "󰘸", title: "Deck", subtitle: "Main window on the left, stacked deck on the right" },
+        { id: "monocle", glyph: "󰊓", title: "Monocle", subtitle: "Every window fills the workspace" }
+    ]
 
     PageHeader {
         Layout.fillWidth: true
         title: "Window manager"
-        status: root.selectedWm === Wm.name
-            ? `Running ${Wm.isMango ? "MangoWM" : "Hyprland"}`
-            : `Running ${Wm.isMango ? "MangoWM" : "Hyprland"} · sign out to switch`
+        status: "MangoWM"
         showSwitch: false
         onBack: Ui.controlPage = "settings"
-    }
-
-    // ── Compositor ──────────────────────────────────────────────────
-    Section { text: "Compositor" }
-    SettingsCard {
-        innerMargin: 8
-        Segmented {
-            Layout.fillWidth: true
-            current: root.selectedWm
-            options: [
-                { value: "hyprland", glyph: "󰖯", title: "Hyprland" },
-                { value: "mango", glyph: "󰕰", title: "MangoWM" }
-            ]
-            onChosen: value => Config.set({ wm: value })
-        }
-        Label {
-            Layout.fillWidth: true
-            Layout.leftMargin: 4
-            Layout.topMargin: 2
-            text: root.selectedWm === Wm.name
-                ? (Wm.isMango ? "MangoWM is the active session and default at login." : "Hyprland is the active session and default at login.")
-                : `Sign out and choose ${root.selectedWm === "mango" ? "Mango" : "Hyprland"} on the login screen to switch sessions.`
-            wrapMode: Text.Wrap
-            font.pixelSize: Theme.textSmall
-            color: root.selectedWm === Wm.name ? Theme.dim : Theme.amber
-        }
     }
 
     // ── Tiling layout ───────────────────────────────────────────────
@@ -229,7 +199,7 @@ ColumnLayout {
         }
         StepperRow {
             id: scrollerWidthRow
-            visible: Wm.isMango && Settings.tilingLayout === "scroller"
+            visible: Settings.tilingLayout === "scroller"
             readonly property var proportions: [0.5, 0.67, 0.8, 1.0]
             readonly property int current: {
                 let best = 0;
@@ -249,7 +219,7 @@ ColumnLayout {
             onIncreased: Settings.scrollerProportion = proportions[current + 1]
         }
         SwitchRow {
-            visible: Wm.isMango && Settings.tilingLayout === "scroller"
+            visible: Settings.tilingLayout === "scroller"
             glyph: "󰆤"
             title: "Center focused column"
             subtitle: "Keep the active window centered on screen"
@@ -259,7 +229,7 @@ ColumnLayout {
         SwitchRow {
             glyph: "󰙀"
             title: "Smart gaps"
-            subtitle: Wm.isMango ? "Hide outer gaps when a workspace has a single tiled window" : "Compact gaps between tiled windows"
+            subtitle: "Hide outer gaps when a workspace has a single tiled window"
             checked: Settings.smartGaps
             onToggled: Settings.smartGaps = !Settings.smartGaps
         }
@@ -268,9 +238,7 @@ ColumnLayout {
     Label {
         Layout.fillWidth: true
         Layout.leftMargin: 4
-        text: Wm.isMango
-            ? "Press Super+Shift+Space to cycle layouts on the current workspace, or Super+J to flip a Dwindle split."
-            : "Press Super+J to flip the split direction of the focused window."
+        text: "Press Super+Shift+Space to cycle layouts on the current workspace, or Super+J to flip a Dwindle split."
         wrapMode: Text.Wrap
         font.pixelSize: Theme.textSmall
         color: Theme.dim

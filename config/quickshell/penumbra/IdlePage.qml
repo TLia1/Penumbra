@@ -4,7 +4,7 @@ import Quickshell
 import Quickshell.Wayland
 
 // When an idle computer dims, locks, turns its screens off and (on battery) suspends:
-// settings.conf's idle timings, which penumbra-settings writes into hypridle.conf.
+// settings.conf's idle timings, which penumbra-settings writes into penumbra/swayidle.conf.
 ColumnLayout {
     id: root
 

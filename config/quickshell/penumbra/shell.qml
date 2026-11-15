@@ -87,7 +87,7 @@ ShellRoot {
         function adjust(control: string, action: string): bool {
             return control === "brightness" ? Sys.stepBrightness(action) : Devices.adjust(control, action);
         }
-        // Hyprland calls this when Caps Lock is released; the popup says whether it is on.
+        // MangoWM calls this when Caps Lock is released; the popup says whether it is on.
         function capsLock(): void {
             Devices.showCapsLock();
         }
@@ -153,9 +153,10 @@ ShellRoot {
 
     IpcHandler {
         target: "lock"
-        // False if the compositor refused; hypridle then falls back to hyprlock.
+        // False if the compositor refused; swayidle then falls back to swaylock.
         function lock(): bool { return lockScreen.lock(); }
         function isLocked(): bool { return lockScreen.locked; }
+        function isSecure(): bool { return lockScreen.secure; }
     }
 
     IpcHandler {

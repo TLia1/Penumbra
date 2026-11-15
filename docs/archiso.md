@@ -47,7 +47,7 @@ If NVIDIA is present, you must choose a driver; there is no automatic default:
   `lib32-nvidia-utils`, `nvidia-settings`, `egl-wayland` and `nvidia-prime`.
 - **Nouveau:** the open-source kernel/Mesa driver, including NVK Vulkan packages.
   This also covers older NVIDIA hardware, although acceleration, Vulkan and
-  Hyprland compatibility depend on the card. It does not promise that old
+  Wayland compatibility depend on the card. It does not promise that old
   hardware can run the desktop. Legacy proprietary branches such as
   `nvidia-580xx-dkms` require separate AUR setup and are not installed here.
 
@@ -67,19 +67,16 @@ application to use NVIDIA. After reboot, launch an application on NVIDIA with
 packages are recorded in `/root/penumbra-install/graphics.txt`.
 
 References: [NVIDIA's supported GPUs](https://github.com/NVIDIA/open-gpu-kernel-modules#compatible-gpus),
-[Arch NVIDIA driver selection](https://wiki.archlinux.org/title/NVIDIA),
-[Hyprland's NVIDIA setup](https://wiki.hypr.land/0.55.0/nvidia/), and
+[Arch NVIDIA driver selection](https://wiki.archlinux.org/title/NVIDIA), and
 [mkinitcpio configuration](https://man.archlinux.org/man/mkinitcpio.conf.5.en).
 
-## Publish the chroot support first
+## Choose the desktop revision
 
-The installer clones **<https://github.com/TLia1/Panumbra>** (that spelling is the
-repository's existing remote) and runs its `install.sh`. The accompanying change
-to `install.sh` adds `--offline`, needed to configure services without a running
-desktop or system manager. **Push that change to the GitHub branch you intend to
-install before using the ISO.** No commit or push is performed by these files.
-If the fetched installer lacks `--offline`, installation stops **before erasing
-the disk**. To select a published branch or tag:
+The ISO installer clones **<https://github.com/TLia1/Panumbra>** and runs that
+checkout’s `install.sh`. Publish the MangoWM-only changes to the branch or tag
+you intend to install. Before partitioning, the installer checks for offline
+installation support, the MangoWM configuration and the idle service.
+To select a published branch or tag:
 
 ```bash
 install-arch --penumbra-ref YOUR_BRANCH_OR_TAG

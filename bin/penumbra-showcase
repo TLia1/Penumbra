@@ -8,9 +8,7 @@ Only windows created by this invocation are closed. No theme/settings are change
 import argparse
 from datetime import datetime
 import json
-import os
 from pathlib import Path
-import shlex
 import shutil
 import signal
 import subprocess
@@ -27,14 +25,12 @@ def run(args, timeout=15):
     return result.stdout
 
 
-def dispatch(expr):
-    result = run(['hyprctl', 'dispatch', expr]).strip()
-    if result and result != 'ok':
-        raise RuntimeError(result)
+def query(name, key):
+    return json.loads(run(['mmsg', 'get', name]))[key]
 
 
-def quote(value):
-    return json.dumps(value, ensure_ascii=False)
+def dispatch(action):
+    run(['mmsg', 'dispatch', action])
 
 
 def main():
@@ -52,29 +48,33 @@ def main():
     if args.dry_run:
         print(json.dumps({'output': str(args.output.resolve()), 'monitor': args.monitor or 'focused',
                           'windows': ['Fastfetch', 'Cava', 'Neovim sample code', 'Palette swatches'],
-                          'workspace': 'unique, temporary named workspace', 'video_fps': 60 if args.video else None,
+                          'workspace': 'unused tag on the selected monitor', 'video_fps': 60 if args.video else None,
                           'video_seconds': args.video, 'restore_focus': True, 'close_created_windows': True}, indent=2))
         return 0
-    needed = ['hyprctl', 'kitty', 'fastfetch', 'cava', 'nvim', 'grim']
+    needed = ['mmsg', 'kitty', 'fastfetch', 'cava', 'nvim', 'grim']
     if args.video:
         needed += ['wf-recorder', 'ffmpeg']
     missing = [name for name in needed if not shutil.which(name)]
     if missing:
         raise RuntimeError('Missing tools: ' + ', '.join(missing))
-    monitors = json.loads(run(['hyprctl', '-j', 'monitors']))
-    focused = next((m for m in monitors if m.get('focused')), None)
+    monitors = query('all-monitors', 'monitors')
+    focused = next((m for m in monitors if m.get('active')), None)
     monitor = next((m for m in monitors if m['name'] == args.monitor), None) if args.monitor else focused
-    if not monitor or not focused:
-        raise RuntimeError('No matching, active Hyprland output')
-    def selector(workspace):
-        return workspace['id'] if workspace['id'] > 0 else 'name:' + workspace['name']
-    old_workspace = selector(focused['activeWorkspace'])
-    old_target_workspace = selector(monitor['activeWorkspace'])
+    if not monitor or not focused or not monitor.get('active_tags'):
+        raise RuntimeError('No matching, active MangoWM output')
+    previous_tags = '|'.join(map(str, monitor['active_tags']))
+    occupied = set(monitor['active_tags'])
+    for client in query('all-clients', 'clients'):
+        if client['monitor'] == monitor['name']:
+            occupied.update(client['tags'])
+    workspace = next((i for i in range(1, 10) if i not in occupied), None)
+    if workspace is None:
+        raise RuntimeError('The showcase needs an unused tag on the selected monitor')
     tag = 'penumbra-showcase-' + uuid.uuid4().hex[:12]
-    workspace = 'name:' + tag
     out = args.output.resolve() / (datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + '-' + tag[-6:])
     out.mkdir(parents=True, exist_ok=False)
     recorder = None
+    terminals = []
     classes = [tag + '-' + str(i) for i in range(4)]
     try:
         with tempfile.TemporaryDirectory(prefix=tag) as temp:
@@ -96,16 +96,14 @@ for x, y in orbit(240, 0.3):
             swatches.write_text('print("\\n  P E N U M B R A\\n  light at the edge of shadow\\n")\n'
                                 'for i in range(8):\n print("  " + "".join(f"\\033[48;5;{16+36*i+j}m    " for j in range(6)) + "\\033[0m\\n")\n')
             commands = [['fastfetch'], ['cava'], ['nvim', '-R', '-n', str(sample)], [sys.executable, str(swatches)]]
-            dispatch('hl.dsp.focus({monitor=' + quote(monitor['name']) + '})')
-            dispatch('hl.dsp.focus({workspace=' + quote(workspace) + '})')
+            dispatch('focusmon,' + monitor['name'])
+            dispatch(f'view,{workspace},0')
             for cls, command in zip(classes, commands):
                 argv = ['kitty', '--class', cls, '--title', 'Penumbra Showcase', '--hold', *command]
-                # shlex quotes the command language; JSON quotes the enclosing Lua string.
-                expr = 'hl.dsp.exec_cmd(' + quote(shlex.join(argv)) + ', {workspace=' + quote(workspace) + ', tile=true})'
-                dispatch(expr)
+                terminals.append(subprocess.Popen(argv))
                 deadline = time.monotonic() + 10
                 while time.monotonic() < deadline:
-                    if any(c.get('class') == cls for c in json.loads(run(['hyprctl', '-j', 'clients']))):
+                    if any(c.get('appid') == cls for c in query('all-clients', 'clients')):
                         break
                     time.sleep(.1)
                 else:
@@ -132,12 +130,12 @@ for x, y in orbit(240, 0.3):
                 recorder.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 recorder.terminate()
+        for terminal in terminals:
+            if terminal.poll() is None:
+                terminal.terminate()
         try:
-            for client in json.loads(run(['hyprctl', '-j', 'clients'])):
-                if client.get('class') in classes:
-                    dispatch('hl.dsp.window.close({window=' + quote('address:' + client['address']) + '})')
-            dispatch('hl.dsp.focus({workspace=' + quote(old_target_workspace) + '})')
-            dispatch('hl.dsp.focus({workspace=' + quote(old_workspace) + '})')
+            dispatch(f"viewcrossmon,{previous_tags},{monitor['name']}")
+            dispatch('focusmon,' + focused['name'])
         except (RuntimeError, subprocess.SubprocessError, ValueError) as error:
             print('Could not restore showcase workspace: ' + str(error), file=sys.stderr)
     return 0

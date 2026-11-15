@@ -1,14 +1,9 @@
 pragma Singleton
 import QtQuick
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Io
 
-// Screens for Settings → Displays: what Hyprland has, a draft you change, and applying it. A draft
-// is tried at once through `hyprctl eval`; unless you keep it within 15 seconds it is undone, in
-// case the screen went dark. Only a kept draft is written to ~/.config/penumbra/monitors.lua
-// (which hyprland.lua reads before user.lua), so a shell that dies during the trial leaves the
-// file as it was and the next reload or login brings the old layout back.
+// Edit MangoWM output rules, with a 15-second trial before keeping changes.
 Singleton {
     id: root
 
@@ -24,40 +19,36 @@ Singleton {
     }
     Process {
         id: list
-        command: Wm.isMango ? ["mmsg", "get", "all-monitors"] : ["hyprctl", "monitors", "all", "-j"]
+        command: ["mmsg", "get", "all-monitors"]
         stdout: StdioCollector {
             onStreamFinished: {
                 let all;
                 try {
-                    if (Wm.isMango) {
-                        const firstLine = text.split("\n").find(l => l.trim().startsWith("{")) ?? "{}";
-                        const raw = JSON.parse(firstLine).monitors ?? [];
-                        const trMap = { normal: 0, "90": 1, "180": 2, "270": 3 };
-                        all = raw.map(m => {
-                            const scale = m.scale > 0 ? m.scale : 1;
-                            const tr = trMap[String(m.transform ?? "normal")] ?? 0;
-                            const turned = tr % 2 === 1;
-                            const w = Math.round((turned ? m.height : m.width) * scale);
-                            const h = Math.round((turned ? m.width : m.height) * scale);
-                            return {
-                                name: m.name,
-                                description: m.name,
-                                make: "",
-                                model: m.name,
-                                width: w,
-                                height: h,
-                                refreshRate: 60,
-                                availableModes: [`${w}x${h}@60.00Hz`],
-                                x: m.x ?? 0,
-                                y: m.y ?? 0,
-                                scale,
-                                transform: tr,
-                                disabled: false
-                            };
-                        });
-                    } else {
-                        all = JSON.parse(text);
-                    }
+                    const firstLine = text.split("\n").find(l => l.trim().startsWith("{")) ?? "{}";
+                    const raw = JSON.parse(firstLine).monitors ?? [];
+                    const trMap = { normal: 0, "90": 1, "180": 2, "270": 3 };
+                    all = raw.map(m => {
+                        const scale = m.scale > 0 ? m.scale : 1;
+                        const tr = trMap[String(m.transform ?? "normal")] ?? 0;
+                        const turned = tr % 2 === 1;
+                        const w = Math.round((turned ? m.height : m.width) * scale);
+                        const h = Math.round((turned ? m.width : m.height) * scale);
+                        return {
+                            name: m.name,
+                            description: m.name,
+                            make: "",
+                            model: m.name,
+                            width: w,
+                            height: h,
+                            refreshRate: 60,
+                            availableModes: [`${w}x${h}@60.00Hz`],
+                            x: m.x ?? 0,
+                            y: m.y ?? 0,
+                            scale,
+                            transform: tr,
+                            disabled: false
+                        };
+                    });
                 } catch (e) {
                     return;
                 }
@@ -91,9 +82,9 @@ Singleton {
     }
     // Screens plugged in or out while nothing is being changed.
     Connections {
-        target: Hyprland
-        function onRawEvent(event) {
-            if (["monitoradded", "monitorremoved", "monitoraddedv2", "monitorremovedv2"].includes(event.name) && !root.changed)
+        target: Quickshell
+        function onScreensChanged() {
+            if (!root.changed && root.countdown === 0)
                 root.refresh();
         }
     }
@@ -116,7 +107,7 @@ Singleton {
         const p = pixels(s.mode), turned = s.transform % 2 === 1;
         return { width: Math.round((turned ? p.height : p.width) / s.scale), height: Math.round((turned ? p.width : p.height) / s.scale) };
     }
-    // Scales Hyprland takes for a mode: whole logical pixels, in 120ths (Wayland's fractional
+    // Suggest scales yielding whole logical pixels, in 120ths (Wayland's fractional
     // scale), and round enough to read: 1, 1.2, 1.25, 1.33, 1.5…
     function scales(s) {
         const p = pixels(s.mode), found = [];
@@ -165,14 +156,6 @@ Singleton {
         }
         draft = next;
     }
-
-    // The draft as Lua: one hl.monitor rule per screen.
-    function lua(screens) {
-        const quote = t => '"' + t.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
-        return screens.map(s => s.enabled
-            ? `hl.monitor({ output = ${quote(s.key)}, mode = ${quote(s.mode)}, position = "${s.x}x${s.y}", scale = ${s.scale}, transform = ${s.transform} })`
-            : `hl.monitor({ output = ${quote(s.key)}, disabled = true })`).join("\n");
-    }
     // The draft as MangoWM monitor_rule lines.
     function mangoConf(screens) {
         return screens.map(s => {
@@ -183,47 +166,29 @@ Singleton {
             return `monitor_rule=name:^${s.name}$${modePart},x:${s.x},y:${s.y},scale:${s.scale},rr:${s.transform}`;
         }).join("\n");
     }
-    readonly property string header: "-- Your screens, written by the Penumbra shell's Settings → Displays. hyprland.lua reads this\n"
-        + "-- file before user.lua; change it there, or here by hand.\n"
     readonly property string mangoHeader: "# Your screens, written by the Penumbra shell's Settings -> Displays. config.conf reads this\n"
         + "# file before settings.conf and user.conf.\n"
 
     function apply() {
         if (!changed)
             return;
-        if (Wm.isMango) {
-            mangoFile.setText(mangoHeader + mangoConf(draft) + "\n");
-            Quickshell.execDetached(["mmsg", "dispatch", "reload_config"]);
-        } else {
-            evaluate(lua(draft));
-        }
+        mangoFile.setText(mangoHeader + mangoConf(draft) + "\n");
+        Quickshell.execDetached(["mmsg", "dispatch", "reload_config"]);
         countdown = 15;
         timer.restart();
     }
     function keep() {
         timer.stop();
         countdown = 0;
-        if (Wm.isMango)
-            mangoFile.setText(mangoHeader + mangoConf(draft) + "\n");
-        else
-            file.setText(header + lua(draft) + "\n");
         refresh();
     }
     function revert() {
         timer.stop();
         countdown = 0;
-        if (Wm.isMango) {
-            mangoFile.setText(mangoHeader + mangoConf(screens) + "\n");
-            Quickshell.execDetached(["mmsg", "dispatch", "reload_config"]);
-        } else {
-            // The file was never touched; only the screens need putting back.
-            evaluate(lua(screens));
-        }
+        mangoFile.setText(mangoHeader + mangoConf(screens) + "\n");
+        Quickshell.execDetached(["mmsg", "dispatch", "reload_config"]);
         draft = JSON.parse(JSON.stringify(screens));
         refresh();
-    }
-    function evaluate(text) {
-        Quickshell.execDetached(["hyprctl", "eval", text]);
     }
     Timer {
         id: timer
@@ -234,11 +199,6 @@ Singleton {
             if (root.countdown <= 0)
                 root.revert();
         }
-    }
-    FileView {
-        id: file
-        path: Quickshell.env("HOME") + "/.config/penumbra/monitors.lua"
-        printErrors: false
     }
     FileView {
         id: mangoFile

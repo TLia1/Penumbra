@@ -132,12 +132,11 @@ class WallpaperAccents(unittest.TestCase):
 
 # Stand-ins for the programs penumbra-theme tells about a change: each records how it was called.
 STUB = '#!/bin/sh\necho "${0##*/} $*" >> "$HOME/calls"\n'
-STUBS = ['gsettings', 'hyprctl', 'mmsg', 'dbus-send', 'pkill', 'fish', 'nvim', 'bat']
+STUBS = ['gsettings', 'mmsg', 'dbus-send', 'pkill', 'fish', 'nvim', 'bat']
 
 
 def remove(path):
-    """Remove the throwaway home. A fade's Hyprland steps may write there for a moment longer; once
-    palette.json is gone they stop."""
+    """Allow background app cache rebuilds to finish writing before cleanup."""
     for _ in range(30):
         try:
             shutil.rmtree(path)
@@ -187,7 +186,7 @@ class Command(unittest.TestCase):
         runtime.mkdir()
         (runtime / 'nvim.123.0').touch()
         self.env = {'HOME': str(self.home), 'PATH': f'{stubs}:{os.environ["PATH"]}',
-                    'XDG_RUNTIME_DIR': str(runtime), 'HYPRLAND_INSTANCE_SIGNATURE': 'test'}
+                    'XDG_RUNTIME_DIR': str(runtime), 'MANGO_INSTANCE_SIGNATURE': 'test'}
 
     def theme(self, *args, code=0):
         result = subprocess.run([str(self.home / '.local/bin/penumbra-theme'), *args],
@@ -230,7 +229,6 @@ class Command(unittest.TestCase):
         config = self.home / '.config'
         self.assertIn(f'background {light["base"]}', (config / 'kitty/penumbra-colors.conf').read_text())
         self.assertIn("mode = 'light'", (config / 'nvim/lua/penumbra/palette.lua').read_text())
-        self.assertIn('mode = "light"', (config / 'hypr/colors.lua').read_text())
         self.assertIn(f'focus_color=0x{light["accent"][1:]}ff', (config / 'mango/colors.conf').read_text())
         self.assertIn(light['base'], (config / 'bat/themes/Penumbra.tmTheme').read_text())
         self.assertIn(f"gradient_color_1 = '{light['accentDeep']}'", (config / 'cava/themes/penumbra').read_text())
@@ -246,7 +244,7 @@ class Command(unittest.TestCase):
         self.assertIn(f'pkill -USR2 -u {os.getuid()} -x cava', calls)
         for call in ('gsettings set org.gnome.desktop.interface color-scheme prefer-light',
                      'gsettings set org.gnome.desktop.interface gtk-theme Breeze',
-                     'hyprctl eval hl.config(', 'dbus-send --session --type=signal /KGlobalSettings',
+                     'mmsg dispatch setoption,focus_color,', 'dbus-send --session --type=signal /KGlobalSettings',
                      'pkill -USR1', 'fish -c set -U penumbra_theme',
                      f'nvim --server {self.home}/run/nvim.123.0 --remote-expr'):
             self.assertIn(call, calls)
@@ -284,20 +282,6 @@ class Command(unittest.TestCase):
         self.theme('set', 'mode=light')
         self.theme('set', 'auto=dark')
         self.assertEqual(self.palette_json()['mode'], 'light')
-
-    def test_hyprland_borders_step(self):
-        """Hyprland's borders step from the colours on screen to the new ones, after penumbra-theme returns."""
-        self.theme('restore')
-        before = self.calls().count('hyprctl eval hl.config({general')
-        self.theme('set', 'colors=custom', 'hue=190')
-        accent = palette.generate(PALETTES['dark'], 190, 1.0)['accent'][1:]
-        self.wait_for(lambda: f'rgba({accent}ee)' in self.calls())
-        steps = self.calls().count('hyprctl eval hl.config({general') - before
-        self.assertTrue(2 <= steps <= 8, steps)
-        # Without a fade, one step.
-        before = self.calls().count('hyprctl eval hl.config({general')
-        self.theme('set', 'colors=default', '--duration', '0')
-        self.assertEqual(self.calls().count('hyprctl eval hl.config({general') - before, 1)
 
     def test_preset_restore_preview_and_manual_override(self):
         helper = self.home / '.local/bin/penumbra-wallpaper'

@@ -2,7 +2,6 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Bluetooth
-import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Networking
 import Quickshell.Services.Pipewire
@@ -131,24 +130,17 @@ Singleton {
     }
 
     // Keyboard layouts of the main keyboard, e.g. ["us", "fr"], and the one in use.
-    property var layouts: Wm.isMango
-        ? (Config.values.kb_layout ?? "us").split(",").map(l => l.trim()).filter(l => l)
-        : []
+    readonly property var layouts: (Config.values.kb_layout ?? "us").split(",").map(l => l.trim()).filter(l => l)
     property int layoutIndex: 0
-    property string layoutName: Wm.isMango ? (Wm.keyboardLayout || (layouts[0] ?? "")) : ""
-    readonly property string layoutCode: Wm.isMango
-        ? (layouts.find(l => Wm.keyboardLayout.toLowerCase().includes(l.toLowerCase())) ?? layouts[layoutIndex] ?? Wm.keyboardLayout.slice(0, 2)).toUpperCase()
-        : (layouts[layoutIndex] ?? "").toUpperCase()
+    readonly property string layoutName: Wm.keyboardLayout || (layouts[0] ?? "")
+    readonly property string layoutCode: (layouts.find(l => Wm.keyboardLayout.toLowerCase().includes(l.toLowerCase())) ?? layouts[layoutIndex] ?? Wm.keyboardLayout.slice(0, 2)).toUpperCase()
     function nextLayout() {
-        if (Wm.isMango) {
-            layoutSwitched = true;
-            layoutIndex = (layoutIndex + 1) % Math.max(1, layouts.length);
-        }
+        layoutSwitched = true;
+        layoutIndex = (layoutIndex + 1) % Math.max(1, layouts.length);
         Wm.nextKeyboardLayout();
     }
     Connections {
         target: Wm
-        enabled: Wm.isMango
         function onKeyboardLayoutChanged() {
             if (root.layoutSwitched && Wm.keyboardLayout !== "")
                 Ui.showOsd("layout", 0, false, Wm.keyboardLayout);
@@ -157,60 +149,16 @@ Singleton {
     }
     // Whether the next reading follows a layout switch, which shows in the popup.
     property bool layoutSwitched: false
-    Process {
-        id: keyboards
-        running: !Wm.isMango
-        command: ["hyprctl", "devices", "-j"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const before = root.layoutName;
-                try {
-                    const all = JSON.parse(text).keyboards;
-                    const main = all.find(k => k.main) ?? all[all.length - 1];
-                    root.layouts = main.layout.split(",").map(l => l.trim()).filter(l => l);
-                    root.layoutIndex = main.active_layout_index ?? 0;
-                    root.layoutName = main.active_keymap ?? "";
-                } catch (e) {
-                    root.layouts = [];
-                }
-                if (root.layoutSwitched && before !== "" && root.layoutName !== before)
-                    Ui.showOsd("layout", 0, false, root.layoutName);
-                root.layoutSwitched = false;
-            }
-        }
-    }
-    Connections {
-        target: Hyprland
-        enabled: !Wm.isMango
-        function onRawEvent(event) {
-            if (event.name === "activelayout" || event.name === "configreloaded") {
-                if (event.name === "activelayout")
-                    root.layoutSwitched = true;
-                keyboards.running = true;
-            }
-        }
-    }
 
     // Caps Lock: the compositor runs `ipc call osd capsLock` when the key is released,
     // and says whether it is now on. Laptops often have no light for it.
     property bool capsLock: false
     Process {
         id: capsCheck
-        command: Wm.isMango
-            ? ["bash", "-c", "cat /sys/class/leds/*::capslock/brightness 2>/dev/null | grep -qx 1 && echo 1 || echo 0"]
-            : ["hyprctl", "devices", "-j"]
+        command: ["bash", "-c", "cat /sys/class/leds/*::capslock/brightness 2>/dev/null | grep -qx 1 && echo 1 || echo 0"]
         stdout: StdioCollector {
             onStreamFinished: {
-                if (Wm.isMango) {
-                    root.capsLock = text.trim() === "1";
-                } else {
-                    try {
-                        const all = JSON.parse(text).keyboards;
-                        root.capsLock = all.some(k => k.capsLock);
-                    } catch (e) {
-                        return;
-                    }
-                }
+                root.capsLock = text.trim() === "1";
                 Ui.showOsd("capslock", 0, !root.capsLock, root.capsLock ? "Caps Lock on" : "Caps Lock off");
             }
         }

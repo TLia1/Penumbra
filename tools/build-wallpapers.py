@@ -37,7 +37,7 @@ for key, preset in palette.PRESETS.items():
     + json.dumps(scenes, indent=4) + ';\n')
 for name in wallpapers:
     source = (assets / f'{name}.svg').read_text()
-    # The wordmark blurs into a smudge on hyprlock and crowds the SDDM card.
+    # The wordmark blurs into a smudge on the lock screen and crowds the SDDM card.
     clean = re.sub(r'<g id="wordmark">.*?</g>\n', '', source, flags=re.S)
     assert clean.count('<text') == 0 and clean != source, f'wordmark group not found in {name}.svg'
     (assets / f'{name}-clean.svg').write_text(clean)

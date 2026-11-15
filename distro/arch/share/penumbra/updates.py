@@ -14,7 +14,7 @@ PACMAN_LOG = Path("/var/log/pacman.log")
 NEWS_FEED = "https://archlinux.org/feeds/news/"
 # Updated while running, these only take full effect after a restart.
 CORE = ("glibc", "systemd", "linux-firmware", "mesa", "nvidia", "nvidia-open", "nvidia-utils",
-        "amd-ucode", "intel-ucode", "dbus", "dbus-broker", "wayland", "hyprland")
+        "amd-ucode", "intel-ucode", "dbus", "dbus-broker", "wayland", "mangowm")
 
 
 def aur_helper():

@@ -16,11 +16,7 @@ flock -n 9 || exit 0
 finish() {
  case $action in
   logout)
-   if [[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]]; then
-    mmsg dispatch quit
-   else
-    hyprctl dispatch 'hl.dsp.exit()'
-   fi
+   mmsg dispatch quit
    ;;
   reboot) systemctl reboot;;
   poweroff) systemctl poweroff;;
@@ -28,8 +24,7 @@ finish() {
 }
 # "address<TAB>app" for each window.
 windows() {
- if [[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]]; then
-  mmsg get all-clients 2>/dev/null | python3 -c '
+ mmsg get all-clients 2>/dev/null | python3 -c '
 import json, sys
 for line in sys.stdin:
     line = line.strip()
@@ -39,22 +34,11 @@ for line in sys.stdin:
         if c.get("id") is not None:
             print(c["id"], c.get("appid") or c.get("title") or "a window", sep="\t")
     break'
- else
-  hyprctl clients -j 2>/dev/null | python3 -c '
-import json, sys
-for c in json.load(sys.stdin):
-    if c.get("mapped", True):
-        print(c["address"], c.get("class") or c.get("title") or "a window", sep="\t")'
- fi
 }
 
-if [[ $force != --force ]] && { [[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]] && command -v mmsg >/dev/null || command -v hyprctl >/dev/null; }; then
+if [[ $force != --force && -n ${MANGO_INSTANCE_SIGNATURE:-} ]] && command -v mmsg >/dev/null; then
  while IFS=$'\t' read -r address _; do
-  if [[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]]; then
-   mmsg dispatch "killclient" "client,$address" >/dev/null 2>&1 || true
-  else
-   hyprctl dispatch "hl.dsp.window.close({window = \"address:$address\"})" >/dev/null
-  fi
+  mmsg dispatch "killclient" "client,$address" >/dev/null 2>&1 || true
  done < <(windows)
  for _ in {1..40}; do
   [[ -z $(windows) ]] && break

@@ -1,6 +1,5 @@
 import QtQuick
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Wayland
 
 // A glass sheet that grows from its bar capsule and closes on Escape or a click outside.
@@ -53,14 +52,8 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "penumbra-panel"
     WlrLayershell.keyboardFocus: open && grabFocus
-        ? (Wm.isMango ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand)
+        ? WlrKeyboardFocus.Exclusive
         : WlrKeyboardFocus.None
-
-    HyprlandFocusGrab {
-        windows: [panel]
-        active: Wm.isHyprland && panel.open && panel.grabFocus
-        onCleared: panel.dismissed()
-    }
 
     // Outside the scale transform so the Wayland input mask covers the full sheet from the first frame.
     Item {

@@ -1,17 +1,14 @@
 pragma Singleton
 import QtQuick
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 
-// Compositor bridge for Hyprland and MangoWM: monitors, workspaces/tags, windows and dispatches.
+// MangoWM monitors, tags and windows from mmsg.
 Singleton {
     id: root
 
     readonly property bool isMango: Quickshell.env("MANGO_INSTANCE_SIGNATURE") !== ""
-    readonly property bool isHyprland: !isMango && Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") !== ""
-    readonly property string name: isMango ? "mango" : "hyprland"
 
     property var rawMonitors: []
     property var rawClients: []
@@ -183,18 +180,14 @@ Singleton {
         return { monitors, workspaces };
     }
 
-    readonly property var monitors: isMango ? mangoState.monitors : (Hyprland.monitors?.values ?? [])
-    readonly property var workspaces: isMango ? mangoState.workspaces : (Hyprland.workspaces?.values ?? [])
-    readonly property var focusedMonitor: isMango
-        ? (mangoState.monitors.find(m => m.active) ?? mangoState.monitors[0] ?? null)
-        : Hyprland.focusedMonitor
+    readonly property var monitors: mangoState.monitors
+    readonly property var workspaces: mangoState.workspaces
+    readonly property var focusedMonitor: monitors.find(m => m.active) ?? monitors[0] ?? null
 
     function monitorFor(screen) {
         if (!screen)
             return null;
-        if (isMango)
-            return mangoState.monitors.find(m => m.name === screen.name) ?? null;
-        return Hyprland.monitorFor(screen);
+        return monitors.find(m => m.name === screen.name) ?? null;
     }
 
     function workspacesFor(screenName) {
@@ -221,72 +214,41 @@ Singleton {
     }
 
     function refresh() {
-        if (isMango) {
-            if (!pollMonitors.running)
-                pollMonitors.running = true;
-            if (!pollClients.running)
-                pollClients.running = true;
-        } else {
-            Hyprland.refreshMonitors();
-            Hyprland.refreshWorkspaces();
-            Hyprland.refreshToplevels();
-        }
+        if (isMango && !pollMonitors.running)
+            pollMonitors.running = true;
+        refreshToplevels();
     }
 
     function refreshToplevels() {
-        if (isMango) {
-            if (!pollClients.running)
-                pollClients.running = true;
-        } else {
-            Hyprland.refreshToplevels();
-        }
+        if (isMango && !pollClients.running)
+            pollClients.running = true;
     }
 
     function focusWindow(toplevel) {
         if (!toplevel)
             return;
-        if (isMango) {
-            const id = toplevel.id ?? toplevel.lastIpcObject?.address;
-            if (id !== undefined && id !== "")
-                Quickshell.execDetached(["mmsg", "dispatch", "focusid", `client,${id}`]);
-        } else {
-            const address = toplevel.lastIpcObject?.address ?? "0x" + toplevel.address;
-            if (/^0x[0-9a-f]+$/i.test(address))
-                Hyprland.dispatch(`hl.dsp.focus({window = "address:${address}"})`);
-        }
+        const id = toplevel.id;
+        if (id !== undefined)
+            Quickshell.execDetached(["mmsg", "dispatch", "focusid", `client,${id}`]);
     }
 
     function focusWorkspace(id, monitorName) {
-        if (isMango) {
-            if (monitorName && focusedMonitor && monitorName !== focusedMonitor.name)
-                Quickshell.execDetached(["mmsg", "dispatch", `viewcrossmon,${id},${monitorName}`]);
-            else
-                Quickshell.execDetached(["mmsg", "dispatch", `view,${id},0`]);
-        } else {
-            Hyprland.dispatch(`hl.dsp.focus({workspace = ${id}})`);
-        }
+        if (monitorName && focusedMonitor && monitorName !== focusedMonitor.name)
+            Quickshell.execDetached(["mmsg", "dispatch", `viewcrossmon,${id},${monitorName}`]);
+        else
+            Quickshell.execDetached(["mmsg", "dispatch", `view,${id},0`]);
     }
 
     function moveWindowToWorkspace(toplevel, id) {
         if (!toplevel)
             return;
-        if (isMango) {
-            const cid = toplevel.id ?? toplevel.lastIpcObject?.address;
-            if (cid !== undefined && cid !== "")
-                Quickshell.execDetached(["mmsg", "dispatch", `tagsilent,${id}`, `client,${cid}`]);
-        } else {
-            const address = toplevel.lastIpcObject?.address ?? "0x" + toplevel.address;
-            Hyprland.dispatch(`hl.dsp.window.move({workspace = ${id}, follow = false, window = "address:${address}"})`);
-        }
+        if (toplevel.id !== undefined)
+            Quickshell.execDetached(["mmsg", "dispatch", `tagsilent,${id}`, `client,${toplevel.id}`]);
     }
 
     function setReducedMotion(reduced) {
-        if (isMango) {
-            const v = reduced ? 0 : 1;
-            Quickshell.execDetached(["mmsg", "dispatch", `setoption,animations,${v}`]);
-        } else {
-            Quickshell.execDetached(["hyprctl", "eval", `hl.config({animations = {enabled = ${!reduced}}})`]);
-        }
+        if (isMango)
+            Quickshell.execDetached(["mmsg", "dispatch", `setoption,animations,${reduced ? 0 : 1}`]);
     }
 
     property bool tilingInitialized: false
@@ -300,16 +262,6 @@ Singleton {
             if (root.isMango) {
                 Quickshell.execDetached([Quickshell.env("HOME") + "/.local/bin/penumbra-settings", "apply", "--no-restart"]);
                 Quickshell.execDetached(["mmsg", "dispatch", `setlayout,${layout}`]);
-            } else if (root.isHyprland) {
-                const hlLayout = layout === "tile" ? "master" : "dwindle";
-                const smartSplit = Settings.dwindleSmartSplit ? "true" : "false";
-                const mfact = Number(Settings.masterRatio || 0.55).toFixed(2);
-                const newStatus = Settings.newWindowMaster ? "master" : "slave";
-                const gapsIn = Settings.smartGaps ? 3 : 6;
-                const gapsOut = Settings.smartGaps ? 6 : 14;
-                Quickshell.execDetached(["hyprctl", "eval",
-                    `hl.config({general = {layout = "${hlLayout}", gaps_in = ${gapsIn}, gaps_out = ${gapsOut}}, `
-                    + `dwindle = {smart_split = ${smartSplit}}, master = {mfact = ${mfact}, new_status = "${newStatus}"}})`]);
             }
         }
     }
@@ -322,7 +274,5 @@ Singleton {
     function nextKeyboardLayout() {
         if (isMango)
             Quickshell.execDetached(["mmsg", "dispatch", "switch_keyboard_layout"]);
-        else
-            Quickshell.execDetached(["hyprctl", "switchxkblayout", "all", "next"]);
     }
 }

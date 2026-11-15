@@ -41,7 +41,7 @@ class Widgets(unittest.TestCase):
             env = {**os.environ, 'HOME': temp, 'XDG_CONFIG_HOME': temp, 'XDG_CACHE_HOME': temp,
                    'XDG_RUNTIME_DIR': str(folder / 'runtime'), 'QT_QPA_PLATFORM': 'offscreen', 'QT_QUICK_BACKEND': 'software'}
             env.pop('WAYLAND_DISPLAY', None)
-            env.pop('HYPRLAND_INSTANCE_SIGNATURE', None)
+            env.pop('MANGO_INSTANCE_SIGNATURE', None)
             result = subprocess.run(['quickshell', '-p', temp, '--no-color'], env=env, capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual((folder / '.local/state/penumbra/notes.txt').read_text(), 'kept after closing the sidebar')
@@ -126,7 +126,7 @@ ShellRoot {
             env = {**os.environ, 'HOME': temp, 'XDG_CONFIG_HOME': temp + '/config',
                    'XDG_RUNTIME_DIR': str(runtime), 'QT_QPA_PLATFORM': 'offscreen', 'QT_QUICK_BACKEND': 'software'}
             env.pop('WAYLAND_DISPLAY', None)
-            env.pop('HYPRLAND_INSTANCE_SIGNATURE', None)
+            env.pop('MANGO_INSTANCE_SIGNATURE', None)
             result = subprocess.run(['quickshell', '-p', temp, '--no-color'], env=env,
                                     capture_output=True, text=True, timeout=12)
             log = result.stdout + result.stderr

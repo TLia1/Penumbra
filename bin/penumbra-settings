@@ -2,13 +2,12 @@
 """Read, change and apply Penumbra's settings in ~/.config/penumbra/settings.conf.
 
 The installer asks for them; the shell's Settings pages change them through this script, which
-applies each change at once: the keyboard to Hyprland, the idle timings to a new hypridle.conf (and
-a restart of hypridle). install.sh runs `apply` after copying, so both stay in step.
+applies keyboard settings to MangoWM and idle timings to swayidle. install.sh runs `apply` after copying, so both stay in step.
 
   penumbra-settings get                  every setting, as JSON
   penumbra-settings set KEY=VALUE...     check, save and apply; nothing changes if one is wrong
   penumbra-settings check KEY=VALUE...   only check
-  penumbra-settings apply [--no-restart] write hypridle.conf and apply everything
+  penumbra-settings apply [--no-restart] write swayidle.conf and apply everything
   penumbra-settings layouts              keyboard layouts and their variants, as JSON
   penumbra-settings export [FILE]        every Penumbra choice in one file, for another computer
                                          (default: ~/penumbra-settings-DATE.json); prints its path
@@ -25,7 +24,7 @@ import sys
 
 CONFIG = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config')
 SETTINGS = CONFIG / 'penumbra' / 'settings.conf'
-HYPRIDLE = CONFIG / 'hypr' / 'hypridle.conf'
+IDLE_CONFIG = CONFIG / 'penumbra' / 'swayidle.conf'
 MANGO_SETTINGS = CONFIG / 'mango' / 'settings.conf'
 XKB_RULES = Path('/usr/share/X11/xkb/rules/base.lst')
 
@@ -33,7 +32,7 @@ XKB_RULES = Path('/usr/share/X11/xkb/rules/base.lst')
 # detects the keyboard on a first install. Idle timings are minutes, or "never".
 DEFAULTS = {
     'kb_layout': 'us', 'kb_variant': '', 'kb_options': '', 'scale': 'auto', 'numlock': 'on',
-    'wm': 'hyprland', 'shell': 'fish', 'terminal': 'kitty', 'file_manager': 'io.github.lia.Files',
+    'shell': 'fish', 'terminal': 'kitty', 'file_manager': 'io.github.lia.Files',
     'idle_dim': '9.5', 'idle_lock': '10', 'idle_screen_off': '11', 'idle_suspend': '30',
 }
 IDLE = re.compile(r'^(never|[0-9]+(\.[0-9]+)?)$')
@@ -76,9 +75,6 @@ def problem(key, value):
     elif key == 'numlock':
         if value not in ('on', 'off'):
             return "Num Lock should be 'on' or 'off'."
-    elif key == 'wm':
-        if value not in ('hyprland', 'mango'):
-            return "Window manager should be 'hyprland' or 'mango'."
     elif key == 'shell':
         if value not in ('fish', 'keep'):
             return "Login shell should be 'fish' or 'keep'."
@@ -100,7 +96,7 @@ def load():
         for line in SETTINGS.read_text().splitlines():
             key, sep, value = line.partition('=')
             # A value edited by hand into something wrong keeps its default: these values end up
-            # in Lua for hyprctl eval and in hypridle.conf.
+            # in the desktop and idle configurations.
             if sep and re.fullmatch(r'[a-z_]+', key) and key in DEFAULTS and not problem(key, value):
                 values[key] = value
                 configured.add(key)
@@ -135,56 +131,23 @@ def seconds(minutes):
     return None if minutes == 'never' else max(1, round(float(minutes) * 60))
 
 
-def hypridle(values):
-    """hypridle.conf for the idle timings: dim, lock, screens off, suspend on battery."""
-    text = ['# Written by penumbra-settings from ~/.config/penumbra/settings.conf (idle_*); change',
-            '# the timings in the shell\'s Settings → Idle and sleep, which rewrites this file.',
-            'general {',
-            '    # The shell\'s lock screen; hyprlock when the shell isn\'t running or could not lock.',
-            '    lock_cmd = ~/.local/bin/penumbra-ipc lock lock || pidof hyprlock || hyprlock',
-            '    before_sleep_cmd = loginctl lock-session',
-            '    # Hold the suspend until the lock screen is up, so the desktop never shows on resume.',
-            '    inhibit_sleep = 3',
-            '    after_sleep_cmd = ~/.local/bin/penumbra-idle dpms on',
-            '}']
-    steps = [
-        ('idle_dim', '# Dim the backlight; any input brings it back.',
-         ['on-timeout = ~/.local/bin/penumbra-idle dim', 'on-resume = ~/.local/bin/penumbra-idle undim']),
-        ('idle_lock', '# Lock the screen.', ['on-timeout = loginctl lock-session']),
-        ('idle_screen_off', '# Turn the screens off.',
-         ['on-timeout = ~/.local/bin/penumbra-idle dpms off',
-          'on-resume = ~/.local/bin/penumbra-idle dpms on']),
-        ('idle_suspend', '# Suspend, only on battery.', ['on-timeout = ~/.local/bin/penumbra-idle suspend']),
-    ]
-    # Dimming only warns of the lock, so it comes before it: half a minute before, or halfway
-    # for a lock sooner than a minute.
-    timeouts = {key: seconds(values[key]) for key, _, _ in steps}
-    lock = timeouts['idle_lock']
-    if lock is not None and timeouts['idle_dim'] is not None and timeouts['idle_dim'] >= lock:
+def idle_config(values):
+    """swayidle events for logind requests and the four configurable idle timeouts."""
+    helper = '~/.local/bin/penumbra-idle'
+    lines = [f'lock "{helper} lock"', f'before-sleep "{helper} lock"',
+             f'after-resume "{helper} dpms on"']
+    timeouts = {key: seconds(values[key]) for key in ('idle_dim', 'idle_lock', 'idle_screen_off', 'idle_suspend')}
+    dim, lock = timeouts['idle_dim'], timeouts['idle_lock']
+    if dim is not None and lock is not None and dim >= lock:
         timeouts['idle_dim'] = max(1, lock - 30 if lock >= 60 else lock // 2)
-    for key, comment, actions in steps:
-        timeout = timeouts[key]
-        if timeout is None:
-            text.append(f'# {key} is never: no listener.')
-            continue
-        text += [comment, 'listener {', f'    timeout = {timeout}'] + [f'    {a}' for a in actions] + ['}']
-    return '\n'.join(text) + '\n'
-
-
-def hyprland(values, keyboard, scale):
-    """The Lua that applies the keyboard, or the default scale, to a running Hyprland."""
-    lua = []
-    if keyboard:
-        lua.append('hl.config({input = {kb_layout = "%s", kb_variant = "%s", kb_options = "%s", numlock_by_default = %s}})'
-                   % (values['kb_layout'], values['kb_variant'], values['kb_options'],
-                      'true' if values['numlock'] == 'on' else 'false'))
-    if scale:
-        # The rule for every screen, then the screens' own rules from Settings → Displays again.
-        lua.append('hl.monitor({output = "", mode = "preferred", position = "auto", scale = "%s"}) '
-                   'local m = io.open(os.getenv("HOME") .. "/.config/penumbra/monitors.lua") '
-                   'if m then m:close(); dofile(os.getenv("HOME") .. "/.config/penumbra/monitors.lua") end'
-                   % values['scale'])
-    return ' '.join(lua)
+    for key, action, resume in [('idle_dim', 'dim', 'undim'), ('idle_lock', 'lock', None),
+                                ('idle_screen_off', 'dpms off', 'dpms on'), ('idle_suspend', 'suspend', None)]:
+        if timeouts[key] is not None:
+            event = f'timeout {timeouts[key]} "{helper} {action}"'
+            if resume:
+                event += f' resume "{helper} {resume}"'
+            lines.append(event)
+    return '\n'.join(lines) + '\n'
 
 
 def mango_settings(values):
@@ -244,20 +207,15 @@ def apply(values, changed=None, restart=True):
         return changed is None or any(k in changed for k in keys)
 
     if touched('idle_dim', 'idle_lock', 'idle_screen_off', 'idle_suspend'):
-        HYPRIDLE.parent.mkdir(parents=True, exist_ok=True)
-        HYPRIDLE.write_text(hypridle(values))
-        # hypridle reads its configuration once; start it again with the new timings
-        # (penumbra-hypridle.service, when the session started it).
+        IDLE_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+        IDLE_CONFIG.write_text(idle_config(values))
         if restart:
-            subprocess.run(['systemctl', '--user', 'try-restart', 'penumbra-hypridle.service'], capture_output=True)
-    if touched('kb_layout', 'kb_variant', 'kb_options', 'numlock', 'scale', 'terminal', 'file_manager', 'wm'):
+            subprocess.run(['systemctl', '--user', 'try-restart', 'penumbra-idle.service'], capture_output=True)
+    if touched('kb_layout', 'kb_variant', 'kb_options', 'numlock', 'scale', 'terminal', 'file_manager'):
         MANGO_SETTINGS.parent.mkdir(parents=True, exist_ok=True)
         MANGO_SETTINGS.write_text(mango_settings(values))
         if os.environ.get('MANGO_INSTANCE_SIGNATURE') and shutil.which('mmsg'):
             subprocess.run(['mmsg', 'dispatch', 'reload_config'], capture_output=True)
-    lua = hyprland(values, touched('kb_layout', 'kb_variant', 'kb_options', 'numlock'), touched('scale'))
-    if lua and os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and shutil.which('hyprctl'):
-        subprocess.run(['hyprctl', 'eval', lua], capture_output=True)
 
 
 # What export carries: these settings, the shell's preferences, the theme and the screens. Paths
@@ -266,7 +224,7 @@ EXPORTED = {
     'settings.conf': '.config/penumbra/settings.conf',
     'shell.json': '.config/penumbra/shell.json',
     'theme.json': '.local/state/penumbra/theme.json',
-    'monitors.lua': '.config/penumbra/monitors.lua',
+    'monitors.conf': '.config/mango/monitors.conf',
 }
 
 
@@ -290,9 +248,14 @@ def import_(source):
     except (OSError, ValueError) as error:
         sys.exit(f'penumbra-settings: cannot read {source}: {error}')
     files = data.get('files') if isinstance(data, dict) and data.get('penumbra') == 1 else None
+    # Older exports can carry an obsolete screen layout. Keep the portable settings.
+    if isinstance(files, dict):
+        files.pop('monitors.lua', None)
     if not isinstance(files, dict) or not files or any(n not in EXPORTED or not isinstance(t, str) for n, t in files.items()):
         sys.exit(f'penumbra-settings: {source} is not a Penumbra settings export')
     if 'settings.conf' in files:
+        files['settings.conf'] = ''.join(line for line in files['settings.conf'].splitlines(keepends=True)
+                                         if not line.startswith('wm='))
         for line in files['settings.conf'].splitlines():
             key, sep, value = line.partition('=')
             if sep and not line.startswith('#') and key in DEFAULTS and problem(key, value):
@@ -316,10 +279,6 @@ def import_(source):
     theme = home / '.local/bin/penumbra-theme'
     if 'theme.json' in files and theme.exists():
         subprocess.run([str(theme), 'restore'], capture_output=True)
-    if os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and shutil.which('hyprctl'):
-        subprocess.run(['hyprctl', 'reload'], capture_output=True)
-    elif os.environ.get('MANGO_INSTANCE_SIGNATURE') and shutil.which('mmsg'):
-        subprocess.run(['mmsg', 'dispatch', 'reload_config'], capture_output=True)
     return sorted(files)
 
 

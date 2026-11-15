@@ -4,7 +4,7 @@ import Quickshell
 import Quickshell.Io
 import "sun.js" as Sun
 
-// Night light: hyprsunset warms the screen. It is turned on by hand, or by a schedule (fixed
+// Night light: wlsunset warms the screen. It is turned on by hand, or by a schedule (fixed
 // times, or sunset to sunrise where you are), and fades between warm and neutral rather than
 // jumping. The choices are in Settings (shell.json); a toggle by hand lasts until the schedule
 // next turns it on or off, and in manual mode it is saved so it survives a shell restart.
@@ -94,7 +94,7 @@ Singleton {
     // The next change the schedule makes, for the status line: "On until 07:12".
     readonly property string status: {
         if (!available)
-            return "Needs hyprsunset";
+            return "Needs wlsunset";
         const state = on ? `On · ${temperature} K` : "Off";
         if (!window || window.polar)
             return state;
@@ -139,7 +139,7 @@ Singleton {
             root.followSchedule(false, true);
         }
     }
-    // The slider moves in many small steps; send hyprsunset only where it stops.
+    // The slider moves in many small steps; send wlsunset only where it stops.
     onTemperatureChanged: if (on) settle.restart()
     Timer {
         id: settle
@@ -148,22 +148,18 @@ Singleton {
     }
 
     // ── Applying it ─────────────────────────────────────────────────
-    // hyprsunset runs while the screen is warm or fading, and takes each step over its IPC
-    // (`hyprctl hyprsunset temperature N`); it leaves the colours alone when it stops.
+    // Keep a gamma-control client alive while the screen is warm.
     property int applied: neutral
     property int fadeFrom: neutral
     property int fadeTo: neutral
     property real fadeStart: 0
     property int fadeLength: 0
-    readonly property bool fading: fader.running
     function fade(ms) {
         fadeFrom = applied;
         fadeTo = on ? temperature : neutral;
         fadeStart = Date.now();
         fadeLength = ms;
-        // A change by hand is one step (Hyprland eases colour changes itself); a scheduled fade is
-        // steps of 100 K at least ten seconds apart, since every step is a new colour transform
-        // for the whole screen.
+        // A scheduled transition updates in steps at least ten seconds apart.
         fader.interval = ms > 0 ? Math.max(10000, ms / Math.max(1, Math.abs(fadeTo - fadeFrom) / 100)) : 100;
         fader.restart();
     }
@@ -176,31 +172,32 @@ Singleton {
                 stop();
                 return;
             }
-            if (step.running)
-                return;
             const t = root.fadeLength > 0 ? Math.min(1, (Date.now() - root.fadeStart) / root.fadeLength) : 1;
             const eased = t * t * (3 - 2 * t);
             const value = Math.round((root.fadeFrom + (root.fadeTo - root.fadeFrom) * eased) / 10) * 10;
-            if (value !== root.applied && value < root.neutral && sunset.running) {
-                step.value = value;
-                step.command = ["hyprctl", "hyprsunset", "temperature", String(value)];
-                step.running = true;
-            } else if (value >= root.neutral) {
-                root.applied = root.neutral;
+            if (value !== root.applied) {
+                root.applied = value;
+                root.syncTemperature();
             }
-            if (t >= 1 && root.applied === root.fadeTo)
+            if (t >= 1)
                 stop();
+        }
+    }
+    function syncTemperature() {
+        if (sunset.running) {
+            sunset.running = false;
+        } else if (available && applied < neutral) {
+            // Both ends of the daily range give the requested colour (within one kelvin).
+            sunset.command = ["wlsunset", "-t", String(applied), "-T", String(applied + 1),
+                              "-S", "07:00", "-s", "19:00"];
+            sunset.running = true;
         }
     }
     Process {
         id: sunset
-        running: root.available && (root.on || root.applied < root.neutral || root.fading)
-        command: ["hyprsunset", "--identity"]
-    }
-    Process {
-        id: step
-        property int value
-        // hyprsunset takes a moment to listen after starting; a failed step is tried again.
-        onExited: code => { if (code === 0) root.applied = value; }
+        onExited: code => {
+            if (root.applied < root.neutral && Number(command[2]) !== root.applied)
+                Qt.callLater(root.syncTemperature);
+        }
     }
 }
