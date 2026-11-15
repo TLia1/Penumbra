@@ -8,30 +8,18 @@ Capsule {
     shown: !!Media.player
     padding: 12
     spacing: 10
-    tip: ""
     // The player can disappear during the exit animation.
     onClicked: m => {
         if (m.button === Qt.MiddleButton) Media.player?.togglePlaying();
-        else { pinned = !popup.visible || !pinned; popup.visible = pinned; }
+        else if (Media.player) popup.visible = !popup.visible;
     }
     onScrolled: step => step > 0 ? Media.player?.previous() : Media.player?.next()
 
-    property bool pinned: false
     property color artTint: Theme.accentBright
-    onHoveredChanged: hovered ? openDelay.restart() : closeDelay.restart()
-    onShownChanged: if (!shown) { pinned = false; popup.visible = false; }
-    property Timer openDelay: Timer {
-        interval: 280
-        onTriggered: if (root.hovered && Media.player) popup.visible = true
-    }
-    property Timer closeDelay: Timer {
-        interval: 350
-        onTriggered: if (!root.hovered && !popup.hovered && !root.pinned) popup.visible = false
-    }
+    onShownChanged: if (!shown) popup.visible = false
     property MediaPopover popup: MediaPopover {
         anchor.item: root
-        onHoveredChanged: if (!hovered) root.closeDelay.restart()
-        onDismissed: { root.pinned = false; visible = false; }
+        onDismissed: visible = false
     }
     // Quantize a tiny cover sample; use its most common saturated colour for the spectrum.
     // This runs once per cover, never once per audio frame.

@@ -190,15 +190,9 @@ ColumnLayout {
         command: ["bash", "-c", "ls -t \"$HOME\"/penumbra-settings-*.json 2>/dev/null | head -n 1"]
         stdout: StdioCollector { onStreamFinished: root.exportFile = text.trim() }
     }
-    property string transferMessage: ""
-    Process {
-        id: transfer
-        stdout: StdioCollector { id: transferOut }
-        stderr: StdioCollector { id: transferErr }
-        onExited: code => {
-            root.transferMessage = code === 0 ? transferOut.text.trim().replace(Quickshell.env("HOME"), "~") : transferErr.text.trim();
-            findExport.running = true;
-        }
+    Connections {
+        target: Config
+        function onTransferFinished() { findExport.running = true; }
     }
 
     PageHeader {
@@ -476,11 +470,8 @@ ColumnLayout {
                 glyph: "󰈝"
                 title: "Export settings"
                 subtitle: "Settings, look and screens, to one file in your home folder"
-                busy: transfer.running
-                onClicked: if (!transfer.running) {
-                    transfer.command = [Ui.bin + "penumbra-settings", "export"];
-                    transfer.running = true;
-                }
+                busy: Config.transferring
+                onClicked: Config.transferSettings(["export"])
             }
             ListRow {
                 Layout.fillWidth: true
@@ -488,11 +479,8 @@ ColumnLayout {
                 glyph: "󰈞"
                 title: "Import settings"
                 subtitle: "From " + root.exportFile.replace(/^.*\//, "~/")
-                busy: transfer.running
-                onClicked: if (!transfer.running) {
-                    transfer.command = [Ui.bin + "penumbra-settings", "import", root.exportFile];
-                    transfer.running = true;
-                }
+                busy: Config.transferring
+                onClicked: Config.transferSettings(["import", root.exportFile])
             }
             Label {
                 Layout.fillWidth: true
@@ -500,7 +488,7 @@ ColumnLayout {
                 Layout.rightMargin: 10
                 Layout.bottomMargin: 4
                 visible: text !== ""
-                text: root.transferMessage
+                text: Config.transferMessage
                 wrapMode: Text.Wrap
                 font.pixelSize: Theme.textSmall
                 color: Theme.muted
@@ -510,7 +498,7 @@ ColumnLayout {
                 Layout.leftMargin: 10
                 Layout.rightMargin: 10
                 Layout.bottomMargin: 4
-                visible: root.exportFile === "" && root.transferMessage === ""
+                visible: root.exportFile === "" && Config.transferMessage === ""
                 text: "To import, put a penumbra-settings-….json file from another computer in your home folder."
                 wrapMode: Text.Wrap
                 font.pixelSize: Theme.textSmall

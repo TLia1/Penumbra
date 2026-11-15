@@ -19,14 +19,18 @@ ShellRoot {
         delegate: Scope {
             id: output
             required property var modelData
-            // Mapped first in WlrLayer.Top so it sits beneath Bar, Dock and open Panels; its input
-            // mask is empty unless a panel is open on MangoWM, where it catches outside clicks.
+            // Keep the original stacking position under the bar, dock and sheets. An idle
+            // backdrop needs only one transparent pixel and an empty input region.
             PanelWindow {
+                id: backdropWindow
+                readonly property bool catching: Ui.openPanel !== "" && Ui.panelGrabFocus
                 screen: output.modelData
                 visible: Wm.isMango
                 color: "transparent"
                 exclusionMode: ExclusionMode.Ignore
-                anchors { top: true; bottom: true; left: true; right: true }
+                anchors { top: true; left: true; bottom: catching; right: catching }
+                implicitWidth: 1
+                implicitHeight: 1
                 margins.top: Theme.barHeight + 10
                 mask: Region { item: panelBackdrop }
                 WlrLayershell.layer: WlrLayer.Top
@@ -34,8 +38,8 @@ ShellRoot {
                 WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
                 MouseArea {
                     id: panelBackdrop
-                    width: Ui.openPanel !== "" && Ui.panelGrabFocus ? parent.width : 0
-                    height: Ui.openPanel !== "" && Ui.panelGrabFocus ? parent.height : 0
+                    width: backdropWindow.catching ? parent.width : 0
+                    height: backdropWindow.catching ? parent.height : 0
                     acceptedButtons: Qt.AllButtons
                     onPressed: Ui.dismiss()
                 }
@@ -46,21 +50,32 @@ ShellRoot {
         }
     }
 
-    ControlCenter {}
+    component PanelLoader: LazyLoader {
+        id: loader
+        required property bool requested
+        property bool showing: false
+        active: requested || showing
+        // Keep the loader active through the sheet's exit animation.
+        property Connections visibility: Connections {
+            target: loader.item
+            function onVisibleChanged() { loader.showing = target.visible; }
+        }
+    }
+
+    PanelLoader {
+        requested: Ui.controlOpen
+        ControlCenter {}
+    }
     CalendarPanel {}
     MonitorPanel {}
     UpdatesPanel {}
-    WallpaperPicker {}
-    // Made only while it is open, and while it fades out: closed, the Downloads panel costs nothing
-    // (downloads carry on in penumbra-download).
-    LazyLoader {
-        id: downloads
-        property bool fading: false
-        active: Ui.downloadsOpen || fading
-        DownloadsPanel {
-            onOpenChanged: if (!open && visible) downloads.fading = true
-            onVisibleChanged: if (!visible) downloads.fading = false
-        }
+    PanelLoader {
+        requested: Ui.wallpapersOpen
+        WallpaperPicker {}
+    }
+    PanelLoader {
+        requested: Ui.downloadsOpen
+        DownloadsPanel {}
     }
     KeybindsPanel {}
     NotificationPopups {}
@@ -161,8 +176,10 @@ ShellRoot {
 
     IpcHandler {
         target: "nightlight"
-        function toggle(): void { NightLight.toggle(); }
-        function isOn(): bool { return NightLight.on; }
+        // Start the scheduler at login even if the control center is never opened.
+        readonly property var service: NightLight
+        function toggle(): void { service.toggle(); }
+        function isOn(): bool { return service.on; }
     }
 
     IpcHandler {

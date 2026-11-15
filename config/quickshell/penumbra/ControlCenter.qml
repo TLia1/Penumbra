@@ -6,16 +6,14 @@ import Quickshell.Networking
 import Quickshell.Services.UPower
 
 // Quick settings, sliders and notification history, under the status capsule.
-Panel {
+OnDemandPanel {
     id: root
     originKey: "control"
     anchors { top: true; right: true }
     margins.right: edgeMargin - shadowRoom
     preferredSheetWidth: 440
-    open: Ui.controlOpen
+    requested: Ui.controlOpen
     onDismissed: Ui.dismiss()
-
-    property var expandedApps: []
 
     property string uptime: ""
     onOpenChanged: if (open) { uptimeFile.reload(); Sys.refreshBrightness(); }
@@ -449,7 +447,7 @@ Panel {
                         required property string modelData
                         readonly property string app: modelData
                         readonly property var items: Notifs.groups.find(g => g.app === app)?.items ?? []
-                        readonly property bool expanded: root.expandedApps.includes(app)
+                        readonly property bool expanded: Ui.expandedNotificationApps.includes(app)
                         width: ListView.view.width
                         spacing: 6
 
@@ -479,9 +477,9 @@ Panel {
                                     anchors.margins: -6
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.expandedApps = group.expanded
-                                        ? root.expandedApps.filter(a => a !== group.app)
-                                        : [...root.expandedApps, group.app]
+                                    onClicked: Ui.expandedNotificationApps = group.expanded
+                                        ? Ui.expandedNotificationApps.filter(a => a !== group.app)
+                                        : [...Ui.expandedNotificationApps, group.app]
                                 }
                             }
                             // The app's rule: normal, no popups, muted, or kept; each click moves to the next.

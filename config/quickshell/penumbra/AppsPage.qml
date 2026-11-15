@@ -40,9 +40,9 @@ ColumnLayout {
             onStreamFinished: root.browser = root.bare(text)
         }
     }
-    Process {
-        id: change
-        onExited: current.running = true
+    Connections {
+        target: Config
+        function onDefaultAppChanged() { current.running = true; }
     }
     function choose(kind, id) {
         expanded = "";
@@ -52,12 +52,11 @@ ColumnLayout {
         }
         if (kind === "files") {
             Config.set({ file_manager: bare(id) });
-            change.command = ["xdg-mime", "default", bare(id) + ".desktop", "inode/directory"];
+            Config.changeDefaultApp(["xdg-mime", "default", bare(id) + ".desktop", "inode/directory"]);
         } else {
             browser = bare(id);
-            change.command = ["xdg-settings", "set", "default-web-browser", bare(id) + ".desktop"];
+            Config.changeDefaultApp(["xdg-settings", "set", "default-web-browser", bare(id) + ".desktop"]);
         }
-        change.running = true;
     }
 
     PageHeader {

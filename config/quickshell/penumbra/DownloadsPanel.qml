@@ -11,18 +11,15 @@ import "downloads.js" as Downloads
 // in $XDG_RUNTIME_DIR/penumbra/downloads, shown below the form. shell.qml loads this panel only
 // while it is open: closed, nothing of it runs. Super+D, the launcher (paste an address) or
 // `panel downloads` / `panel download URL` open it.
-Panel {
+OnDemandPanel {
     id: root
     originKey: "downloads"
     anchors { top: true; right: true }
     margins.right: edgeMargin - shadowRoom
     preferredSheetWidth: 440
-    // Opened a moment after it is made, so it springs open like the panels that always exist.
-    property bool ready: false
-    open: Ui.downloadsOpen && ready
+    requested: Ui.downloadsOpen
     grabFocus: !choosingFolder
     onDismissed: if (!choosingFolder) Ui.dismiss()
-    Timer { interval: 1; running: true; onTriggered: root.ready = true }
     onOpenChanged: if (open) Qt.callLater(() => urlField.forceActiveFocus())
 
     readonly property string home: Quickshell.env("HOME")

@@ -43,6 +43,35 @@ Singleton {
         }
     }
 
+    // These writes can outlive the page that started them.
+    signal transferFinished()
+    readonly property bool transferring: transfer.running
+    function transferSettings(args) {
+        if (transferring) return;
+        transfer.command = [Ui.bin + "penumbra-settings"].concat(args);
+        transfer.running = true;
+    }
+    property string transferMessage: ""
+    Process {
+        id: transfer
+        stdout: StdioCollector { id: transferOut }
+        stderr: StdioCollector { id: transferErr }
+        onExited: code => {
+            root.transferMessage = code === 0 ? transferOut.text.trim().replace(Quickshell.env("HOME"), "~") : transferErr.text.trim();
+            root.transferFinished();
+        }
+    }
+
+    signal defaultAppChanged()
+    function changeDefaultApp(command) {
+        appChange.command = command;
+        appChange.running = true;
+    }
+    Process {
+        id: appChange
+        onExited: root.defaultAppChanged()
+    }
+
     // Every setting with its default filled in, whenever the file changes.
     Process {
         id: getter

@@ -22,6 +22,7 @@ Singleton {
     // The address the Downloads panel opens with (from the launcher or IPC); it takes it and clears it.
     property string downloadUrl: ""
     property string controlPage: "main" // main, wifi, bluetooth, mixer, night, cast, notifications, settings or a settings page
+    property var expandedNotificationApps: []
     property string previousControlPage: "main"
     property string lookTab: "theme" // theme or desktop
     property bool sessionOpen: false

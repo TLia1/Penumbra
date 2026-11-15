@@ -51,10 +51,6 @@ PanelWindow {
         width: parent.width + 2 * Theme.gap
         height: parent.height + 10
     }
-    HoverHandler {
-        onPointChanged: bar.updateTip(point.position)
-        onHoveredChanged: if (!hovered) bar.updateTip(null)
-    }
     MouseArea {
         anchors.fill: parent
         enabled: Ui.openPanel !== "" && Ui.panelGrabFocus
@@ -71,7 +67,6 @@ PanelWindow {
         Capsule {
             id: launcherCapsule
             padding: 14
-            tip: "Applications · right-click for the clipboard"
             active: Ui.launcherOpen
             onClicked: m => Ui.toggleLauncher(m.button === Qt.RightButton ? "clipboard" : "apps")
             Glyph { text: Theme.distroGlyph; size: 20; color: Ui.launcherOpen ? Theme.accentInk : Theme.accentBright }
@@ -81,7 +76,6 @@ PanelWindow {
             id: clockCapsule
             padding: 18
             active: Ui.calendarOpen
-            tip: Qt.formatDateTime(Clock.date, "dddd d MMMM yyyy")
             onClicked: Ui.toggle("calendar")
             Label {
                 text: Qt.formatDateTime(Clock.date, "HH:mm")
@@ -96,7 +90,6 @@ PanelWindow {
             id: weatherCapsule
             shown: Settings.weatherEnabled && Settings.weatherInBar && !!Weather.current && !Weather.stale
             padding: 10
-            tip: Weather.description
             onClicked: Ui.toggle("calendar")
             Glyph { text: Weather.current?.weather_code === 0 ? "󰖙" : "󰖐"; color: Theme.accentBright }
             Label { text: Math.round(Weather.current?.temperature_2m ?? 0) + "°" }
@@ -134,7 +127,6 @@ PanelWindow {
             interactive: false
             padding: 15
             spacing: 8
-            tip: shown ? client.title : ""
             IconImage {
                 visible: source !== ""
                 implicitSize: 15
@@ -160,7 +152,6 @@ PanelWindow {
         Capsule {
             shown: Recorder.countdown > 0
             padding: 14
-            tip: "Click to cancel"
             onClicked: Recorder.cancel()
             Glyph { text: "󰔛"; color: Theme.amber }
             Label { text: Recorder.countdown; font.weight: Font.Bold; color: Theme.amber }
@@ -170,7 +161,6 @@ PanelWindow {
         Capsule {
             shown: Recorder.recording
             padding: 14
-            tip: Recorder.paused ? "Paused · right-click to go on · click to stop" : "Recording · click to stop (or Ctrl+Print) · right-click to pause"
             color: hovered ? Theme.alpha(Theme.rose, 0.3) : Theme.alpha(Theme.rose, 0.16)
             border.color: Theme.alpha(Theme.rose, 0.5)
             onClicked: m => m.button === Qt.RightButton ? Recorder.togglePause() : Recorder.stop()
@@ -197,7 +187,6 @@ PanelWindow {
             shown: Cast.casting
             padding: 14
             active: Ui.controlOpen && Ui.controlPage === "cast"
-            tip: Cast.connecting ? `Connecting to ${Cast.tvName}…` : `Casting to ${Cast.tvName} · click to manage`
             onClicked: Ui.openControl("cast")
             Glyph { text: "󰄙"; color: castCapsule.active ? Theme.accentInk : Theme.accentBright }
             Label { text: Cast.tvName; font.weight: Font.Bold; color: castCapsule.active ? Theme.accentInk : Theme.accentBright }
@@ -206,7 +195,6 @@ PanelWindow {
         Capsule {
             shown: Devices.layouts.length > 1
             padding: 14
-            tip: `${Devices.layoutName} · click to switch`
             onClicked: Devices.nextLayout()
             Glyph { text: "󰌌"; color: Theme.textSoft }
             Label { text: Devices.layoutCode; font.weight: Font.Bold; color: Theme.textSoft }
@@ -217,7 +205,6 @@ PanelWindow {
             shown: Sys.updates > 0 || Sys.restartReasons.length > 0
             padding: 12
             active: Ui.updatesOpen
-            tip: Sys.updatesDetail
             id: updatesCapsule
             onClicked: Ui.toggle("updates")
             Glyph { visible: Sys.updates > 0; text: "󰚰"; color: Ui.updatesOpen ? Theme.accentInk : Theme.accentBright }
@@ -230,7 +217,6 @@ PanelWindow {
             padding: 12
             spacing: 12
             active: Ui.monitorOpen
-            tip: `CPU ${Usage.cpu}% · Memory ${Usage.memoryDetail}`
             onClicked: m => m.button === Qt.RightButton ? Ui.spawn(Ui.terminal(["btop"], ["--class", "penumbra-monitor"])) : Ui.toggle("monitor")
             readonly property color tint: Ui.monitorOpen ? Theme.accentInk : Theme.subtle
             Repeater {
@@ -313,8 +299,6 @@ PanelWindow {
             padding: 14
             spacing: 13
             active: Ui.controlOpen
-            tip: `${Devices.networkName} · Bluetooth ${Devices.bluetoothName}` + (Devices.hasBattery ? `\n${Devices.batteryDetail}` : "")
-                + (Devices.peripheralBatteries.length ? "\n" + Devices.peripheralBatteries.join(" · ") : "")
             onClicked: m => m.button === Qt.RightButton ? Ui.run("pavucontrol") : Ui.toggle("control")
             onScrolled: step => Devices.adjust("volume", step > 0 ? "up" : "down")
             readonly property color tint: Ui.controlOpen ? Theme.accentInk : Theme.textSoft
@@ -355,69 +339,10 @@ PanelWindow {
 
         Capsule {
             padding: 14
-            tip: "Session & power"
             onClicked: Ui.openSession()
             Glyph { text: "󰐥"; size: 16; color: Theme.accentBright }
         }
     }
 
-    }
-
-    // ── Tooltip ─────────────────────────────────────────────────────
-    property Item tipTarget: null
-    function updateTip(pos) {
-        const target = pos && !Ui.openPanel ? capsuleAt(pos) : null;
-        if (target !== tipTarget) {
-            tipTarget = target;
-            tipWindow.visible = false;
-            tipDelay.restart();
-        }
-    }
-    Connections {
-        target: Ui
-        function onOpenPanelChanged() {
-            if (Ui.openPanel)
-                bar.updateTip(null);
-        }
-    }
-    // Innermost item under the pointer that declares a tooltip.
-    function capsuleAt(pos) {
-        let found = null, item = content, p = pos;
-        for (let child = item.childAt(p.x, p.y); child; child = item.childAt(p.x, p.y)) {
-            p = item.mapToItem(child, p.x, p.y);
-            if (child.tip !== undefined)
-                found = child;
-            item = child;
-        }
-        return found;
-    }
-    Timer {
-        id: tipDelay
-        interval: 550
-        onTriggered: tipWindow.visible = !!bar.tipTarget && bar.tipTarget.tip !== "" && !Ui.openPanel
-    }
-    PopupWindow {
-        id: tipWindow
-        anchor.item: bar.tipTarget ?? bar.contentItem
-        anchor.edges: Edges.Bottom
-        anchor.gravity: Edges.Bottom
-        anchor.margins.top: 8
-        implicitWidth: tipText.implicitWidth + 24
-        implicitHeight: tipText.implicitHeight + 16
-        color: "transparent"
-        mask: Region {}
-        Rectangle {
-            anchors.fill: parent
-            radius: Theme.radiusSmall
-            color: Theme.glassStrong
-            border.color: Theme.lineStrong
-            Label {
-                id: tipText
-                anchors.centerIn: parent
-                text: bar.tipTarget?.tip ?? ""
-                color: Theme.text
-                elide: Text.ElideNone
-            }
-        }
     }
 }

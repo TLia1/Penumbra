@@ -70,7 +70,6 @@ Rectangle {
                 required property var modelData
                 readonly property bool current: modelData.active
                 readonly property var windows: modelData.toplevels.values
-                readonly property string tip: "Workspace " + modelData.name + (windows.length ? " · " + windows.length + " windows" : "")
                 width: root.style === "dots" ? 28 : Math.max(36, contents.implicitWidth + 20)
                 height: root.height - 8
                 radius: Theme.corner(height / 2)

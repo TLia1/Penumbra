@@ -10,7 +10,6 @@ Rectangle {
     default property alias content: row.data
     property alias spacing: row.spacing
     property int padding: 13
-    property string tip: ""
     property bool interactive: true
     property bool active: false
     readonly property bool hovered: mouse.containsMouse

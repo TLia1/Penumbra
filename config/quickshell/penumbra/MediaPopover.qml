@@ -6,7 +6,6 @@ import Quickshell.Widgets
 PopupWindow {
     id: root
     property var player: Media.player
-    property bool hovered: hover.hovered
     signal dismissed()
     implicitWidth: 340
     implicitHeight: body.implicitHeight + 32
@@ -25,7 +24,6 @@ PopupWindow {
         transformOrigin: Item.Top
         Behavior on scale { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutBack } }
         GlassEdge { radius: parent.radius }
-        HoverHandler { id: hover }
         ColumnLayout {
             id: body
             anchors { left: parent.left; right: parent.right; top: parent.top; margins: 16 }

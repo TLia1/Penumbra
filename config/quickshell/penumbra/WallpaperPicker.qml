@@ -6,13 +6,13 @@ import Quickshell.Widgets
 
 // Penumbra's coordinated wallpapers, then the images, GIFs and videos in ~/Pictures/Wallpapers; click
 // one, or pick it with the arrow keys and Enter, to switch with penumbra-wallpaper's transition.
-Panel {
+OnDemandPanel {
     id: root
     originKey: "wallpapers"
     anchors { top: true; right: true }
     margins.right: edgeMargin - shadowRoom
     preferredSheetWidth: 620
-    open: Ui.wallpapersOpen
+    requested: Ui.wallpapersOpen
     onDismissed: Ui.dismiss()
 
     readonly property int cell: (sheetWidth - 36 - 20) / 3
