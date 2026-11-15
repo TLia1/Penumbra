@@ -44,9 +44,15 @@ ShellRoot {
                     onPressed: Ui.dismiss()
                 }
             }
-            ScreenFrame { modelData: output.modelData }
+            LazyLoader {
+                active: Settings.screenFrame || Settings.barStyle === "framed"
+                ScreenFrame { modelData: output.modelData }
+            }
             Bar { modelData: output.modelData }
-            Dock { modelData: output.modelData; locked: lockScreen.locked }
+            LazyLoader {
+                active: Settings.dockMode !== "off"
+                Dock { modelData: output.modelData; locked: lockScreen.locked }
+            }
         }
     }
 
@@ -64,20 +70,29 @@ ShellRoot {
 
     PanelLoader {
         requested: Ui.controlOpen
-        ControlCenter {}
+        source: "ControlCenter.qml"
     }
-    CalendarPanel {}
+    PanelLoader {
+        requested: Ui.calendarOpen
+        source: "CalendarPanel.qml"
+    }
     MonitorPanel {}
-    UpdatesPanel {}
+    PanelLoader {
+        requested: Ui.updatesOpen
+        source: "UpdatesPanel.qml"
+    }
     PanelLoader {
         requested: Ui.wallpapersOpen
-        WallpaperPicker {}
+        source: "WallpaperPicker.qml"
     }
     PanelLoader {
         requested: Ui.downloadsOpen
-        DownloadsPanel {}
+        source: "DownloadsPanel.qml"
     }
-    KeybindsPanel {}
+    PanelLoader {
+        requested: Ui.keybindsOpen
+        source: "KeybindsPanel.qml"
+    }
     NotificationPopups {}
     Osd {}
     SessionMenu {}

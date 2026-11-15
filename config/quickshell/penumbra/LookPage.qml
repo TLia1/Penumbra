@@ -315,7 +315,8 @@ ColumnLayout {
                             radius: Theme.radiusSmall
                             Image {
                                 anchors.fill: parent
-                                source: Ui.fileUrl(Ui.wallpapers + modelData.wallpaper + "-clean.png")
+                                source: width > 0 && height > 0 ? Ui.fileUrl(Ui.wallpapers + modelData.wallpaper + "-clean.png") : ""
+                                sourceSize: Qt.size(Math.ceil(width * Screen.devicePixelRatio), Math.ceil(height * Screen.devicePixelRatio))
                                 fillMode: Image.PreserveAspectCrop
                             }
                             Rectangle {

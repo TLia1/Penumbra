@@ -6,13 +6,13 @@ import Quickshell.Io
 // Month view under the clock, with week numbers if you like (click "Wk") and the events of your
 // calendars (penumbra-calendar reads their .ics files): a dot under each day that has some, and
 // the chosen day's list below.
-Panel {
+OnDemandPanel {
     id: root
     originKey: "calendar"
     anchors { top: true; left: true }
     margins.left: edgeMargin - shadowRoom
     preferredSheetWidth: 360
-    open: Ui.calendarOpen
+    requested: Ui.calendarOpen
     onDismissed: Ui.dismiss()
 
     property date today: new Date()

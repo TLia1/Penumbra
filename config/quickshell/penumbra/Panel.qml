@@ -103,7 +103,8 @@ PanelWindow {
             Keys.forwardTo: panel.keyTargets
             Keys.onEscapePressed: panel.dismissed()
             Behavior on opacity { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
-            Behavior on height { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+            // Measure newly loaded content before the first frame of the entrance.
+            Behavior on height { enabled: sheet.opacity > 0; NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
         }
         // Outside the sheet so it doesn't count toward the content height.
         GlassEdge {

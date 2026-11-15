@@ -5,13 +5,13 @@ import Quickshell.Io
 import "keybinds.js" as Keybinds
 
 // Refresh from the compositor on each open, so user bindings never need a second list.
-Panel {
+OnDemandPanel {
     id: root
     originKey: "keybinds"
     anchors { top: true; right: true }
     margins.right: edgeMargin - shadowRoom
     preferredSheetWidth: 620
-    open: Ui.keybindsOpen
+    requested: Ui.keybindsOpen
     onDismissed: Ui.dismiss()
 
     property var bindings: []

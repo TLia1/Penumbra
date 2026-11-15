@@ -34,12 +34,11 @@ PanelWindow {
     readonly property bool windows: Ui.launcherMode === "windows"
     // Emoji and symbols are a grid of characters.
     readonly property bool characters: Ui.launcherMode === "emoji" || Ui.launcherMode === "symbols"
-    readonly property var apps: DesktopEntries.applications.values.filter(e => !e.noDisplay)
-    // Emoji and symbols are read the first time either opens, not at startup.
-    property bool charactersUsed: false
-    onCharactersChanged: if (characters) charactersUsed = true
-    onSymbolsChanged: if (Ui.launcherOpen) refresh()
-    readonly property var symbols: charactersUsed ? Symbols.groups.reduce((all, g) => all.concat(g[1].map(s => ({ char: s[0], name: s[1], group: g[0] }))), []) : []
+    readonly property var apps: Ui.launcherOpen && Ui.launcherMode === "apps"
+        ? DesktopEntries.applications.values.filter(e => !e.noDisplay) : []
+    readonly property var symbols: visible && Ui.launcherMode === "symbols"
+        ? Symbols.groups.reduce((all, g) => all.concat(g[1].map(s => ({ char: s[0], name: s[1], group: g[0] }))), []) : []
+    onSymbolsChanged: if (Ui.launcherOpen && Ui.launcherMode === "symbols") refresh()
     property var emoji: []
     property var results: []
     readonly property var selectedResult: results[view.currentIndex] ?? null
@@ -50,6 +49,14 @@ PanelWindow {
     property var usage: ({}) // desktop entry id → { score, at } (frecency, see search.js)
     property var picks: ({}) // emoji or symbol → times picked
     property var pointer: null // where the mouse last was, in window coordinates
+
+    // Keep rows and thumbnails for the exit animation. A new opening rebuilds them.
+    onVisibleChanged: if (!visible && !Ui.launcherOpen) {
+        results = [];
+        clips = [];
+        readyThumbs = {};
+        files = [];
+    }
 
     Connections {
         target: Ui
@@ -99,6 +106,8 @@ PanelWindow {
 
     // ── Results ─────────────────────────────────────────────────────
     function refresh() {
+        if (!Ui.launcherOpen)
+            return;
         const text = search.text, q = text.trim().toLowerCase();
         let list = [];
         if (characters) {
@@ -270,6 +279,8 @@ PanelWindow {
         id: fileSearch
         stdout: StdioCollector {
             onStreamFinished: {
+                if (!root.visible)
+                    return;
                 root.files = text.split("\n").filter(l => l).map(path => ({ kind: "file", path: path.replace(/\/$/, "") }));
                 if (search.text.startsWith("/"))
                     root.refresh();
@@ -378,9 +389,12 @@ PanelWindow {
     // "1F600 ; fully-qualified # 😀 E1.0 grinning face", under "# group: …" headings.
     // Skin-tone variants are left out.
     FileView {
-        path: root.charactersUsed ? "/usr/share/unicode/emoji/emoji-test.txt" : ""
+        path: root.visible && Ui.launcherMode === "emoji" ? "/usr/share/unicode/emoji/emoji-test.txt" : ""
         printErrors: false
+        onPathChanged: if (!path) root.emoji = []
         onLoaded: {
+            if (!path)
+                return;
             let group = "";
             const list = [];
             for (const line of text().split("\n")) {
@@ -405,6 +419,8 @@ PanelWindow {
         command: ["cliphist", "list"]
         stdout: StdioCollector {
             onStreamFinished: {
+                if (!root.visible || !root.clipboard)
+                    return;
                 root.clips = text.split("\n").filter(line => line.includes("\t")).map(line => {
                     const tab = line.indexOf("\t"), preview = line.slice(tab + 1);
                     const image = preview.match(/^\[\[ binary data (.+) (\w+) (\d+)x(\d+) \]\]$/);

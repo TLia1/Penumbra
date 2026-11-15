@@ -36,7 +36,6 @@ Panel {
     readonly property var gpu: Usage.gpus[gpuChoice >= 0 ? gpuChoice : gpuDefault] ?? null
 
     onOpenChanged: if (!open) expanded = ""
-    onPageChanged: pageIn.restart()
     onSortByChanged: refreshList()
 
     // Two batch iterations: the second measures CPU over the one-second delay. Then each
@@ -49,7 +48,7 @@ Panel {
             onStreamFinished: {
                 const at = text.indexOf("\n## cgroups\n");
                 root.groups = Processes.group(at < 0 ? text : text.slice(0, at), at < 0 ? "" : text.slice(at));
-                root.refreshList();
+                if (root.listing) root.refreshList();
             }
         }
     }
@@ -64,6 +63,7 @@ Panel {
     // Apps whose desktop file is named after something else (com.anthropic.Claude runs
     // claude-desktop) are found by the program they launch; wrappers say nothing about the app.
     readonly property var launchers: {
+        if (!listing) return {};
         const wrappers = ["env", "flatpak", "sh", "bash", "python", "python3", "java", "sudo", "pkexec"];
         const map = {};
         for (const e of DesktopEntries.applications.values) {
@@ -73,6 +73,7 @@ Panel {
         }
         return map;
     }
+    onLaunchersChanged: if (listing && groups.length) refreshList()
     // Updated in place, so rows keep their state between samples.
     function refreshList() {
         const byCpu = (a, b) => (b.cpu - a.cpu) || (b.mem - a.mem);
@@ -258,10 +259,16 @@ Panel {
         }
     }
 
-    ColumnLayout {
+    // Keep selections and the last sample, but release graphs and row delegates after the fade.
+    Loader {
         x: 18
         y: 18
         width: root.sheetWidth - 36
+        active: root.visible
+        sourceComponent: root.monitorContents
+    }
+
+    property Component monitorContents: ColumnLayout {
         spacing: 12
 
         // Header: the machine, and the two pages. Only the current page shows its name.
@@ -320,6 +327,10 @@ Panel {
                 id: pageIn
                 NumberAnimation { target: pageContent; property: "opacity"; from: 0; to: 1; duration: Theme.normal; easing.type: Easing.OutCubic }
                 NumberAnimation { target: pageContent; property: "Layout.topMargin"; from: 8; to: 0; duration: Theme.slow; easing.type: Easing.OutExpo }
+            }
+            Connections {
+                target: root
+                function onPageChanged() { pageIn.restart(); }
             }
 
             // Overview

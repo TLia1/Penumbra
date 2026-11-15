@@ -17,8 +17,8 @@ Rectangle {
     // ── Wallpaper ───────────────────────────────────────────────────
     Image {
         anchors.fill: parent
-        // Not before the surface has a size, so it decodes at the screen's size, not the file's.
-        source: width > 0 ? Ui.fileUrl(Ui.wallpaperStill) : ""
+        // The animated scene has its own opaque sky. Keep the still as a fallback.
+        source: width > 0 && height > 0 && !scene.item?.backgroundReady ? Ui.fileUrl(Ui.wallpaperStill) : ""
         sourceSize: Qt.size(Math.ceil(width * surface.pixelRatio), Math.ceil(height * surface.pixelRatio))
         fillMode: Image.PreserveAspectCrop
         asynchronous: true

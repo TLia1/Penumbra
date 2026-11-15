@@ -11,15 +11,23 @@ Capsule {
     // The player can disappear during the exit animation.
     onClicked: m => {
         if (m.button === Qt.MiddleButton) Media.player?.togglePlaying();
-        else if (Media.player) popup.visible = !popup.visible;
+        else if (Media.player) popup.active = !popup.active;
     }
     onScrolled: step => step > 0 ? Media.player?.previous() : Media.player?.next()
 
     property color artTint: Theme.accentBright
-    onShownChanged: if (!shown) popup.visible = false
-    property MediaPopover popup: MediaPopover {
-        anchor.item: root
-        onDismissed: visible = false
+    onShownChanged: if (!shown) popup.active = false
+    property LazyLoader popup: LazyLoader {
+        id: popupLoader
+        source: "MediaPopover.qml"
+        onItemChanged: if (item) {
+            item.anchor.item = root;
+            item.visible = true;
+        }
+        property Connections closed: Connections {
+            target: popupLoader.item
+            function onVisibleChanged() { if (target && !target.visible) popupLoader.active = false; }
+        }
     }
     // Quantize a tiny cover sample; use its most common saturated colour for the spectrum.
     // This runs once per cover, never once per audio frame.
@@ -41,6 +49,8 @@ Capsule {
             const ctx = getContext("2d");
             ctx.clearRect(0, 0, 16, 16); ctx.drawImage(art, 0, 0, 16, 16);
             const pixels = ctx.getImageData(0, 0, 16, 16).data;
+            unloadImage(art);
+            previous = "";
             const buckets = {}; let best = null;
             for (let i = 0; i < pixels.length; i += 4) {
                 const r = pixels[i], g = pixels[i+1], b = pixels[i+2];

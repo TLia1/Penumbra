@@ -166,7 +166,8 @@ PanelWindow {
                 columnSpacing: 22
 
                 Repeater {
-                    model: root.workspaces
+                    // Keep tiles and window previews through the fade, then release them.
+                    model: root.visible ? root.workspaces : []
                     delegate: ColumnLayout {
                         id: tile
                         required property int index

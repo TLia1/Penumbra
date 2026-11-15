@@ -14,6 +14,9 @@ Item {
     property bool desktop: false
     // Device pixels per scene unit, so layers decode no larger than they are shown.
     property real pixelScale: 1
+    readonly property bool backgroundReady: sky.status === Image.Ready
+
+    SceneLayer { id: sky; scene: root; name: root.clean ? "sky-clean" : "sky"; z: 0 }
 
     // Seconds of animation; ticking at 30 Hz keeps the redraws cheap.
     property real t: 0

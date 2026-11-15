@@ -6,7 +6,6 @@ import Quickshell.Widgets
 PopupWindow {
     id: root
     property var player: Media.player
-    signal dismissed()
     implicitWidth: 340
     implicitHeight: body.implicitHeight + 32
     color: "transparent"
@@ -49,7 +48,7 @@ PopupWindow {
                     Label { Layout.fillWidth: true; text: root.player?.trackTitle || "Nothing playing"; font.weight: Font.Bold }
                     Label { Layout.fillWidth: true; text: root.player?.trackArtist ?? ""; color: Theme.muted }
                 }
-                PillButton { text: "×"; onClicked: root.dismissed() }
+                PillButton { text: "×"; onClicked: root.visible = false }
             }
             RowLayout {
                 Layout.alignment: Qt.AlignHCenter

@@ -4,13 +4,13 @@ import QtQuick.Layouts
 // Pending updates by source, under the updates capsule; "Update now" opens the update session in a
 // terminal. Above them, a restart that is due and the distribution's news since the last upgrade
 // (Arch's sometimes ask for a step by hand), each opening in the browser.
-Panel {
+OnDemandPanel {
     id: root
     originKey: "updates"
     anchors { top: true; right: true }
     margins.right: edgeMargin - shadowRoom
     preferredSheetWidth: 400
-    open: Ui.updatesOpen
+    requested: Ui.updatesOpen
     onDismissed: Ui.dismiss()
 
     ColumnLayout {
