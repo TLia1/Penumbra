@@ -345,6 +345,7 @@ OnDemandPanel {
                             Layout.fillWidth: true
                             glyph: Devices.volumeGlyph
                             value: Devices.volume
+                            to: Settings.maxOutputVolume
                             muted: Devices.muted
                             hasMore: true
                             onMoved: v => Devices.setVolume(v)

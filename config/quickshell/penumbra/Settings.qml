@@ -16,6 +16,8 @@ Singleton {
     property alias barStyle: adapter.barStyle
     property alias workspaceStyle: adapter.workspaceStyle
     property alias osdPosition: adapter.osdPosition
+    property alias volumeBoost: adapter.volumeBoost
+    readonly property int maxOutputVolume: volumeBoost ? 150 : 100
     property alias glassFrost: adapter.glassFrost
     property alias weatherInBar: adapter.weatherInBar
     property alias screenFrame: adapter.screenFrame
@@ -138,6 +140,7 @@ Singleton {
             property string barStyle: "floating"
             property string workspaceStyle: "pills"
             property string osdPosition: "bottom"
+            property bool volumeBoost: false
             property real glassFrost: 0
             property bool weatherInBar: false
             property bool screenFrame: false

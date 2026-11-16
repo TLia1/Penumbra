@@ -24,10 +24,22 @@ Singleton {
         if (!sink)
             return;
         sink.muted = false;
-        sink.volume = Math.max(0, Math.min(100, percent)) / 100;
+        sink.volume = Math.max(0, Math.min(Settings.maxOutputVolume, percent)) / 100;
+        targets = Object.assign({}, targets, { volume: null });
     }
 
-    // Volume and microphone keys: 5% steps between 0 and 100% ("up", "down"), "mute" toggles,
+    Connections {
+        target: Settings
+        function onVolumeBoostChanged() {
+            if (!Settings.volumeBoost) {
+                root.targets = Object.assign({}, root.targets, { volume: null });
+                if (root.sink && root.sink.volume > 1)
+                    root.sink.volume = 1;
+            }
+        }
+    }
+
+    // Volume and microphone keys: 5% steps ("up", "down"), "mute" toggles,
     // "current" only shows the popup. Held keys repeat faster than PipeWire reports back, so each
     // step starts from the last one asked for while it is recent.
     property var targets: ({})
@@ -45,7 +57,8 @@ Singleton {
             muted = !muted;
             node.muted = muted;
         } else if (action === "up" || action === "down") {
-            volume = Math.max(0, Math.min(1, Math.round(volume * 20 + (action === "up" ? 1 : -1)) / 20));
+            const limit = control === "volume" ? Settings.maxOutputVolume / 100 : 1;
+            volume = Math.max(0, Math.min(limit, Math.round(volume * 20 + (action === "up" ? 1 : -1)) / 20));
             node.volume = volume;
         }
         targets = Object.assign({}, targets, { [control]: { volume, at: Date.now() } });

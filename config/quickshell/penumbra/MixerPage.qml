@@ -80,6 +80,13 @@ ColumnLayout {
             onClicked: Pipewire.preferredDefaultAudioSink = modelData
         }
     }
+    SwitchRow {
+        glyph: "󰕾"
+        title: "Volume boost"
+        subtitle: "Allow output volume up to 150%"
+        checked: Settings.volumeBoost
+        onToggled: Settings.volumeBoost = !Settings.volumeBoost
+    }
 
     Overline {
         Layout.fillWidth: true

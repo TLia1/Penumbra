@@ -113,7 +113,7 @@ Singleton {
 
     function showOsd(kind, value, muted, text) {
         osdKind = kind;
-        osdValue = Math.max(0, Math.min(100, value));
+        osdValue = Math.max(0, kind === "volume" ? value : Math.min(100, value));
         osdMuted = muted;
         osdText = text ?? "";
         osdVisible = true;

@@ -24,6 +24,7 @@ ShellRoot {
             PanelWindow {
                 id: backdropWindow
                 readonly property bool catching: Ui.openPanel !== "" && Ui.panelGrabFocus
+                readonly property bool fullscreen: Wm.monitorFor(screen)?.activeWorkspace?.hasFullscreen ?? false
                 screen: output.modelData
                 visible: Wm.isMango
                 color: "transparent"
@@ -31,9 +32,10 @@ ShellRoot {
                 anchors { top: true; left: true; bottom: catching; right: catching }
                 implicitWidth: 1
                 implicitHeight: 1
-                margins.top: Theme.barHeight + 10
+                margins.top: fullscreen ? 0 : Theme.barHeight + 10
                 mask: Region { item: panelBackdrop }
-                WlrLayershell.layer: WlrLayer.Top
+                // A fullscreen client covers the top layer, including the usual bar strip.
+                WlrLayershell.layer: fullscreen ? WlrLayer.Overlay : WlrLayer.Top
                 WlrLayershell.namespace: "penumbra-backdrop"
                 WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
                 MouseArea {

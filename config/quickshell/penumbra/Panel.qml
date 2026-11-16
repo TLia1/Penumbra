@@ -49,7 +49,8 @@ PanelWindow {
     implicitHeight: (screen?.height ?? 1080) - margins.top - Theme.edge
     mask: Region { item: inputBounds }
     margins.top: Theme.barHeight + 10 + (Settings.barStyle === "floating" ? Theme.gap : 0) - shadowRoom
-    WlrLayershell.layer: WlrLayer.Top
+    WlrLayershell.layer: (Wm.monitorFor(screen)?.activeWorkspace?.hasFullscreen ?? false)
+        ? WlrLayer.Overlay : WlrLayer.Top
     WlrLayershell.namespace: "penumbra-panel"
     WlrLayershell.keyboardFocus: open && grabFocus
         ? WlrKeyboardFocus.Exclusive
@@ -60,7 +61,7 @@ PanelWindow {
         id: inputBounds
         x: panel.shadowRoom
         y: panel.shadowRoom
-        width: panel.sheetWidth
+        width: panel.open ? panel.sheetWidth : 0
         height: sheet.height
     }
 

@@ -81,7 +81,8 @@ PanelWindow {
                 radius: Theme.corner(4)
                 color: Theme.raised
                 Rectangle {
-                    width: parent.width * (Ui.osdMuted ? 0 : Ui.osdValue / 100)
+                    readonly property int maximum: Ui.osdKind === "volume" ? Settings.maxOutputVolume : 100
+                    width: parent.width * (Ui.osdMuted ? 0 : Math.min(1, Ui.osdValue / maximum))
                     height: parent.height
                     radius: Theme.corner(4)
                     gradient: Gradient {

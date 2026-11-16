@@ -142,7 +142,7 @@ ColumnLayout {
         { page: "look", tab: "desktop", glyph: "󰍹", title: "Bar, dock & desktop", words: "bar island capsules framed workspaces dock depth clock audio aura screen frame bezel signature layout osd" },
         { page: "wallpapers", glyph: "󰸉", title: "Wallpaper", words: "background picture image video gif" },
         { page: "displays", glyph: "󰍹", title: "Displays", words: "monitors screens resolution refresh rate scale rotation arrangement" },
-        { page: "mixer", glyph: "󰕾", title: "Sound", words: "audio volume output input microphone speakers apps" },
+        { page: "mixer", glyph: "󰕾", title: "Sound", words: "audio volume boost output input microphone speakers apps" },
         { page: "keyboard", glyph: "󰌌", title: "Keyboard", words: "layout variant options num lock xkb" },
         { page: "idle", glyph: "󰒲", title: "Idle and sleep", words: "dim lock screens off suspend timeout stay awake apps inhibit video calls" },
         { page: "notifications", glyph: "󰂚", title: "Notifications", words: "do not disturb dnd schedule fullscreen sharing sounds lock screen count mute quiet keep rules" },
