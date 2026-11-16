@@ -23,7 +23,7 @@ IFS=: read -ra dirs <<<"${XDG_DATA_HOME:-$HOME/.local/share}:${XDG_DATA_DIRS:-/u
 for dir in "${dirs[@]}"; do
     file="$dir/applications/${id:-kitty}.desktop"
     if [[ -n $id && -r $file ]]; then
-        program=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' "$file" | head -n 1)
+        program=$(sed -n 's/^Exec=["'\'']*\([^"'\'' ]*\).*/\1/p' "$file" | head -n 1)
         break
     fi
 done

@@ -149,7 +149,7 @@ Singleton {
             // an empty string explicitly uses the computer's time zone.
             property var weatherPlace: null
             property string dockMode: "off" // off, auto, empty
-            property var dockPins: ["firefox", "kitty", "org.kde.dolphin"]
+            property var dockPins: ["firefox", "kitty", "io.github.lia.Files"]
             property bool hotCorner: true
             property string tilingLayout: "dwindle"
             property bool showAllTags: false

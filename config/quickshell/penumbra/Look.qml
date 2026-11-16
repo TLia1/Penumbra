@@ -34,7 +34,9 @@ Singleton {
     function set(changes, duration) {
         pending = Object.assign({}, pending, changes);
         pendingDuration = duration ?? -1;
-        choice = Object.assign({}, choice, changes);
+        const local = (!("preset" in changes) && Object.keys(changes).some(k => ["colors", "hue", "vividness", "harmonize"].includes(k)))
+            ? Object.assign({ preset: "" }, changes) : changes;
+        choice = Object.assign({}, choice, local);
         if (!setter.running)
             flush();
     }

@@ -26,7 +26,9 @@ PanelWindow {
     readonly property var apps: {
         const groups = [];
         for (const id of Settings.dockPins) {
-            const entry = DesktopEntries.heuristicLookup(id);
+            let entry = DesktopEntries.heuristicLookup(id);
+            if (!entry && (id === "io.github.lia.Files" || id === "org.kde.dolphin"))
+                entry = DesktopEntries.heuristicLookup(id === "io.github.lia.Files" ? "org.kde.dolphin" : "io.github.lia.Files");
             if (entry && !groups.some(g => g.key === entry.id))
                 groups.push({ key: entry.id, entry, windows: [], pin: id });
         }

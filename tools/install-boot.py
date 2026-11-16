@@ -742,7 +742,7 @@ def apply_plymouth(limine=None, refind=None):
         jobs = [(kernel, image, without_stock_splash(options)) for kernel, image, options in jobs]
     # Keep originals plus new staged images; allow ample room for Plymouth/fonts.
     needed = sum(image.stat().st_size for _, image, _ in jobs) + 256 * 1024 * 1024
-    if shutil.disk_usage('/boot').free < needed:
+    if shutil.disk_usage(Path('/boot')).free < needed:
         raise ValueError('Insufficient free /boot space for safe staged initramfs builds.')
     with Transaction('plymouth') as tx:
         for path in (config, defaults, Path('/etc/plymouth/plymouthd.conf'),
