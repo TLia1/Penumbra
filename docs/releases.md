@@ -69,7 +69,7 @@ tools/build-arch-packages.sh "dist/arch/$(cat VERSION)"
    saved settings, shell preferences, palette, and Mango, Kitty and Neovim
    override files. If you edited a stock file directly, its previous copy is in
    the timestamped installer backup. Boot loader and initramfs changes have
-   their own recovery procedure in the README.
+   their own [boot backup recovery procedure](boot-themes.md#restore-a-boot-backup).
 
 ## Migration for 0.1.0
 

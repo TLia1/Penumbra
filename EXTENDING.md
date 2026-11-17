@@ -1,6 +1,6 @@
 # Extending Penumbra
 
-How the bundle is put together, and where to make each kind of change: a new distribution, an installer setting, a shell feature, a colour. For changing your own desktop without touching the bundle, use the files in "Your own settings" in the README instead; `./install.sh` never replaces them.
+How the bundle is put together, and where to make each kind of change: a new distribution, an installer setting, a shell feature, a colour. For changing your own desktop without touching the bundle, use the [personal configuration files](docs/installation.md#personal-configuration-files) that the installer preserves.
 
 ## The layers
 
@@ -90,7 +90,7 @@ Settings are what `install.sh` asks before installing and remembers in `~/.confi
 2. Give it a default in `detect_settings` (`set_default key value`) and a check in `valid_setting`.
 3. Use it as `@@KEY@@` (upper case) in any configuration file.
 
-The option parsing, saving and loading, and handing it to the system part follow from the tables. Describe it in `usage` (the `--help` text) and in the README's settings table.
+The option parsing, saving and loading, and handing it to the system part follow from the tables. Describe it in `usage` (the `--help` text) and in the [installer settings table](docs/installation.md#installer-settings).
 
 A value that is not a setting (worked out by the installer, or from `distro.sh`) goes in `set_placeholders` instead. `install.sh` warns about a placeholder it doesn't know, and `tests/test_install.py` fails on one.
 
@@ -102,7 +102,7 @@ The shell is `config/quickshell/penumbra/`. `shell.qml` lists the top-level surf
 - **A panel**: a file like `CalendarPanel.qml`; give it a name, add a `readonly property bool xOpen: openPanel === "x"` to `Ui.qml` and open it with `Ui.toggle("x")` (only one panel is open at a time, so closing needs nothing more), instantiate it in `shell.qml`, and add a function to the `panel` `IpcHandler` there so scripts and keybindings can open it.
 - **A control center page**: a page file like `WifiPage.qml`, shown by `ControlCenter.qml` when `Ui.controlPage` is its name; open it with `Ui.openControl("name")`.
 - **A settings switch**: add a `property bool` to the `JsonAdapter` in `Settings.qml` (an alias next to the others, and a default), and a `SwitchRow` in `SettingsPage.qml`. It is saved in `~/.config/penumbra/shell.json`.
-- **A keybinding**: `config/mango/config.conf`; call the shell with `quickshell -c penumbra ipc call TARGET FUNCTION`. List them in the README's Controls table.
+- **A keybinding**: edit `config/mango/keybinds.conf` and call the shell with `quickshell -c penumbra ipc call TARGET FUNCTION`. Document the shortcut in the [desktop guide](docs/desktop.md#keyboard-and-mouse-shortcuts).
 - **A helper script**: `bin/penumbra-NAME`. It is installed to `~/.local/bin` and removed again when it leaves the bundle. Start programs from QML with `Ui.spawn([...])` so they outlive shell restarts.
 - **An optional tool**: detect it the way `Ui.qml` detects wlsunset and cava, and hide what needs it when it is missing.
 
