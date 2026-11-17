@@ -175,12 +175,13 @@ ColumnLayout {
                 color: chip.active ? Theme.accentBright : Theme.textSoft
             }
         }
-        MouseArea {
+        ActionArea {
             id: chipArea
+            actionName: chip.text
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: chip.clicked()
+            onTriggered: chip.clicked()
         }
     }
 
@@ -234,13 +235,14 @@ ColumnLayout {
                 color: linkArea.containsMouse ? Theme.accentBright : Theme.dim
             }
         }
-        MouseArea {
+        ActionArea {
             id: linkArea
+            actionName: linkChip.fullText
             anchors.fill: parent
             hoverEnabled: true
             enabled: linkChip.clickable
             cursorShape: linkChip.clickable ? Qt.PointingHandCursor : Qt.ArrowCursor
-            onClicked: linkChip.activated(linkChip.targetKey)
+            onTriggered: linkChip.activated(linkChip.targetKey)
         }
     }
 
@@ -293,12 +295,13 @@ ColumnLayout {
             radius: Theme.corner(11)
             color: clearArea.containsMouse ? Theme.hover : "transparent"
             Glyph { anchors.centerIn: parent; text: "󰅖"; size: 12; color: Theme.muted }
-            MouseArea {
+            ActionArea {
                 id: clearArea
+                actionName: "Clear search"
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: search.text = ""
+                onTriggered: search.text = ""
             }
         }
     }
@@ -391,12 +394,13 @@ ColumnLayout {
                         color: navBackArea.containsMouse ? Theme.accentInk : Theme.accentBright
                     }
                 }
-                MouseArea {
+                ActionArea {
                     id: navBackArea
+                    actionName: "Back"
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: root.goBack()
+                    onTriggered: root.goBack()
                 }
             }
 
@@ -414,13 +418,14 @@ ColumnLayout {
                 text: "󰅖"
                 size: 12
                 color: clearHistoryArea.containsMouse ? Theme.text : Theme.muted
-                MouseArea {
+                ActionArea {
                     id: clearHistoryArea
+                    actionName: "Clear package history"
                     anchors.fill: parent
                     anchors.margins: -5
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: root.history = []
+                    onTriggered: root.history = []
                 }
             }
         }
@@ -538,13 +543,14 @@ ColumnLayout {
                         Layout.preferredWidth: 0
                         implicitHeight: headerRow.implicitHeight
 
-                        MouseArea {
+                        ActionArea {
                             id: headerMouse
+                            actionName: packageCard.modelData.name
                             anchors.fill: parent
                             anchors.margins: -6
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: {
+                            onTriggered: {
                                 root.selected = packageCard.expanded ? "" : packageCard.modelData.key;
                                 root.confirmRemove = "";
                                 root.showRawDetails = "";

@@ -115,7 +115,28 @@ def window_matches(windows, clients, same_session):
     return matches
 
 
-def open_missing_window(window, reserved):
+def launch_command(desktop, project):
+    command = ['gtk-launch', '--', desktop]
+    if not project:
+        return command
+    entry = desktop.removesuffix('.desktop').lower()
+    terminals = {
+        'kitty': ['kitty', '--directory'], 'foot': ['foot', '--working-directory'],
+        'alacritty': ['alacritty', '--working-directory'], 'org.kde.konsole': ['konsole', '--workdir'],
+        'org.wezfurlong.wezterm': ['wezterm', 'start', '--cwd'],
+    }
+    if entry in terminals:
+        command = [*terminals[entry], project]
+    elif entry in ('io.github.lia.files', 'org.kde.dolphin'):
+        command.append(Path(project).as_uri())
+    else:
+        return command
+    if not Path(project).is_dir():
+        raise ValueError(f'Project folder is unavailable: {project}')
+    return command
+
+
+def open_missing_window(window, reserved, project=None):
     # One browser launch can restore several windows. Claim those before launching again.
     clients = query('clients')
     unclaimed = [c for c in clients if c['id'] not in reserved]
@@ -127,7 +148,7 @@ def open_missing_window(window, reserved):
         raise ValueError('No launchable desktop entry')
     before = {c['id'] for c in clients}
     process = subprocess.Popen(['systemd-run', '--user', '--scope', '--slice=app.slice', '--collect',
-                                '--quiet', '--', 'env', '-u', 'MALLOC_CONF', 'gtk-launch', '--', desktop],
+                                '--quiet', '--', 'env', '-u', 'MALLOC_CONF', *launch_command(desktop, project)],
                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
@@ -163,7 +184,7 @@ def place_windows(profile, mapping):
                 if app in failed_launches:
                     raise ValueError(failed_launches[app])
                 try:
-                    client = open_missing_window(window, reserved)
+                    client = open_missing_window(window, reserved, profile.get('project'))
                     reserved.add(client['id'])
                 except (OSError, ValueError) as exc:
                     failed_launches[app] = str(exc)
@@ -255,7 +276,7 @@ def write(profiles):
             path.unlink(missing_ok=True)
 
 
-def manage(action, name, selection, entries):
+def manage(action, name, selection, entries, project=None):
     if action == 'list':
         return summaries(load())
     if not name or len(name) > 80 or not all(c.isprintable() for c in name):
@@ -277,13 +298,26 @@ def manage(action, name, selection, entries):
         if action == 'delete':
             del profiles[name]
         else:
-            profiles[name] = capture(selection, entries)
+            if project is None:
+                project = profiles.get(name, {}).get('project', '')
+            elif project:
+                folder = Path(project).expanduser()
+                if not folder.is_absolute() or not folder.is_dir():
+                    raise ValueError('Choose an existing absolute project folder or use ~/folder.')
+                project = str(folder)
+            profile = capture(selection, entries)
+            if project:
+                profile['project'] = project
+            profiles[name] = profile
         write(profiles)
         return summaries(profiles)
 
 
 def summaries(profiles):
     return dict(profiles=[dict(name=name, windows=len(p['windows']),
+                               project=p.get('project', ''),
+                               apps=[dict(app=w['app'], desktop=w['desktop'], output=w['output'], tags=w['tags'])
+                                     for w in p['windows']],
                                places=[[place['output'], place['tag']] for place in p['places']])
                           for name, p in sorted(profiles.items(), key=lambda item: item[0].casefold())])
 
@@ -296,13 +330,15 @@ def main():
         command = commands.add_parser(action)
         command.add_argument('name')
         if action in ('save', 'replace'):
+            command.add_argument('--project', help='Optional project folder for newly opened terminals and file managers')
             command.add_argument('--selection', help='JSON pairs of output name and tag (defaults to active tags)')
             command.add_argument('--entries', default='{}', help='JSON map of application IDs to desktop entry IDs')
     args = parser.parse_args()
     selection = getattr(args, 'selection', None)
     if selection is not None:
         selection = {(output, tag) for output, tag in json.loads(selection)}
-    result = manage(args.action, getattr(args, 'name', '').strip(), selection, json.loads(getattr(args, 'entries', '{}')))
+    result = manage(args.action, getattr(args, 'name', '').strip(), selection, json.loads(getattr(args, 'entries', '{}')),
+                    getattr(args, 'project', None))
     print(json.dumps(result, ensure_ascii=False))
 
 

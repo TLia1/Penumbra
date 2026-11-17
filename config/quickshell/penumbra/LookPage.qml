@@ -73,12 +73,13 @@ ColumnLayout {
                 color: choice.current ? Theme.text : Theme.textSoft
             }
         }
-        MouseArea {
+        ActionArea {
             id: choiceArea
+            actionName: choice.title
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: if (!choice.current) choice.picked()
+            onTriggered: if (!choice.current) choice.picked()
         }
     }
 
@@ -660,6 +661,8 @@ ColumnLayout {
                 }
                 SliderRow {
                     Layout.fillWidth: true
+                    accessibleLabel: "Glass frost"
+                    glyphAction: ""
                     glyph: "󰂓"
                     from: -0.15; to: 0.28; stepSize: 0.01
                     value: Settings.glassFrost
@@ -744,6 +747,14 @@ ColumnLayout {
             }
 
             SwitchRow {
+                title: "Compact system monitor"
+                subtitle: "Show a single icon for the CPU and memory graphs"
+                glyph: "󰍛"
+                checked: Settings.compactMonitor
+                onToggled: Settings.compactMonitor = !Settings.compactMonitor
+            }
+
+            SwitchRow {
                 title: "Join the bar to a screen frame"
                 subtitle: "Thin bezel with curved inner corners"
                 glyph: "󰍹"
@@ -775,14 +786,14 @@ ColumnLayout {
             innerMargin: 4
             SwitchRow {
                 title: "Depth clock"
-                subtitle: "Time behind Dawn, Eclipse or a custom mask"
+                subtitle: "Set the time into the scenery or behind a custom mask"
                 glyph: "󰥔"
                 checked: Settings.desktopClock
                 onToggled: Settings.desktopClock = !Settings.desktopClock
             }
             SwitchRow {
                 title: "Audio aura"
-                subtitle: "Dawn’s ring and Eclipse’s aurora react to music"
+                subtitle: "Fireflies in Moonwake, a ring in Dawn and an aurora in Eclipse"
                 glyph: "󰝚"
                 checked: Settings.desktopAura
                 onToggled: Settings.desktopAura = !Settings.desktopAura
@@ -791,7 +802,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 Layout.leftMargin: 10
                 Layout.rightMargin: 10
-                text: "Choose Dawn or Eclipse in Wallpaper. The aura rests when wallpaper motion is paused."
+                text: "Choose Moonwake, Dawn or Eclipse in Wallpaper. The aura rests when wallpaper motion is paused."
                 wrapMode: Text.Wrap
                 font.pixelSize: Theme.textSmall
                 color: Theme.dim

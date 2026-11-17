@@ -1,10 +1,10 @@
 # PENUMBRA
 
-Penumbra is a black-and-violet Wayland desktop for Arch Linux and its derivatives, including EndeavourOS and CachyOS. MangoWM tiles the windows. A Quickshell bar puts workspaces, media, and system controls above an orbital wallpaper. The same palette carries through the SDDM login screen, Kitty terminal, Fish prompt, and Neovim editor.
+Penumbra is a black-and-violet Wayland desktop for Arch Linux and its derivatives, including EndeavourOS and CachyOS. MangoWM tiles the windows. Save the apps and tags for a project, then type its workspace name in the launcher to resume it. A Quickshell bar puts workspaces, media, and system controls above a moonlit alpine lake. The same palette carries through the SDDM login screen, Kitty terminal, Fish prompt, and Neovim editor.
 
-![Penumbra desktop with floating capsules and numbered workspaces](previews/desktop.png)
+![A tiled Penumbra workspace with browser, editor and file manager](previews/workspace.png)
 
-[Working desktop](previews/workspace.png) · [Control Center](previews/control-center.png) · [Launcher](previews/launcher.png) · [Solar Corona](previews/solar-corona.png) · [Starlight](previews/starlight.png) · [Motion demo](previews/motion.webp)
+[Orbital desktop](previews/desktop.png) · [Aurora Borealis workspace](previews/aurora-workspace.png) · [Control Center](previews/control-center.png) · [Launcher](previews/launcher.png) · [Solar Corona](previews/solar-corona.png) · [Starlight](previews/starlight.png) · [Motion demo](previews/motion.webp)
 
 ## Install
 
@@ -32,13 +32,15 @@ Log out, choose **Mango** on the login screen, and sign in. **Super** is usually
 
 | Shortcut | Action |
 |---|---|
-| Super+Space | Open the app launcher |
+| Super+Space | Search apps, settings and saved workspaces |
 | Super+Enter / Super+E | Open your terminal / file manager |
 | Super+1–9 | Switch workspace using the physical number row |
 | Super+A | Open the Control Center for Wi-Fi, Bluetooth, sound, and brightness |
 | Super+, | Open Settings |
 | Super+L / Super+M | Lock the screen / open the session menu |
 | Super+F1 | Search all active keyboard shortcuts |
+
+Moonwake, the default wallpaper, places the depth clock between mountain peaks. Music lights up fireflies along the wooded slopes. [See it in motion](previews/moonwake.webp)
 
 To change the colours and wallpaper together, open **Settings → Look → Curated palettes**. **Apply signature layout** restores the floating capsules and numbered workspaces shown above while keeping your palette and text size.
 

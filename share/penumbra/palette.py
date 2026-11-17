@@ -225,7 +225,7 @@ def guard(colors):
 # same accent family with that mode's readable surfaces.
 PRESETS = {
     'penumbra': dict(title='Penumbra', mode='dark', hue=297, vividness=1,
-                     wallpaper='wallpaper-eclipse', base='#0d0a12', surface='#100d18', accent='#b69af7'),
+                     wallpaper='wallpaper-moonwake', base='#0d0a12', surface='#100d18', accent='#b69af7'),
     'solar-corona': dict(title='Solar Corona', mode='dark', hue=65, vividness=.9,
                          wallpaper='wallpaper-solar-corona', base='#16100c', surface='#211811', accent='#f4b976'),
     'aurora-borealis': dict(title='Aurora Borealis', mode='dark', hue=185, vividness=.85,

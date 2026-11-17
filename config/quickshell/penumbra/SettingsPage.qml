@@ -1,4 +1,5 @@
 import QtQuick
+import "settingsSearch.js" as SettingsSearch
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
@@ -10,7 +11,7 @@ ColumnLayout {
 
     spacing: 10
     onVisibleChanged: if (visible) { Config.loadLayouts(); findExport.running = true; }
-    Component.onCompleted: { Config.loadLayouts(); findExport.running = true; }
+    Component.onCompleted: { Qt.callLater(locate); Config.loadLayouts(); findExport.running = true; }
 
     component Section: Overline {
         Layout.fillWidth: true
@@ -45,6 +46,7 @@ ColumnLayout {
         property int textWidth: 92
         property bool canDecrease: true
         property bool canIncrease: true
+        readonly property Item focusControl: stepper.focusControl
         signal decreased()
         signal increased()
 
@@ -74,6 +76,8 @@ ColumnLayout {
                 }
             }
             Stepper {
+                id: stepper
+                accessibleLabel: stepRow.title
                 text: stepRow.valueText
                 textWidth: stepRow.textWidth
                 canDecrease: stepRow.canDecrease
@@ -123,12 +127,13 @@ ColumnLayout {
                 color: Theme.accentBright
             }
         }
-        MouseArea {
+        ActionArea {
             id: chipArea
+            actionName: chip.title
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: chip.toggled()
+            onTriggered: chip.toggled()
         }
     }
 
@@ -137,42 +142,34 @@ ColumnLayout {
     readonly property string tilingSummary: Wm.layoutById(Settings.tilingLayout)?.title ?? "Dwindle"
 
     // What search finds: a page to open (page), or a row of this page (page: "settings").
-    readonly property var index: [
-        { page: "look", tab: "theme", glyph: "󰏘", title: "Look", words: "theme dark light auto colours colors accent hue vividness corners rounded sharp harmonize glass frost" },
-        { page: "look", tab: "desktop", glyph: "󰍹", title: "Bar, dock & desktop", words: "bar island capsules framed workspaces dock depth clock audio aura screen frame bezel signature layout osd" },
-        { page: "wallpapers", glyph: "󰸉", title: "Wallpaper", words: "background picture image video gif" },
-        { page: "displays", glyph: "󰍹", title: "Displays", words: "monitors screens resolution refresh rate scale rotation arrangement" },
-        { page: "mixer", glyph: "󰕾", title: "Sound", words: "audio volume boost output input microphone speakers apps" },
-        { page: "keyboard", glyph: "󰌌", title: "Keyboard", words: "layout variant options num lock xkb" },
-        { page: "idle", glyph: "󰒲", title: "Idle and sleep", words: "dim lock screens off suspend timeout stay awake apps inhibit video calls" },
-        { page: "notifications", glyph: "󰂚", title: "Notifications", words: "do not disturb dnd schedule fullscreen sharing sounds lock screen count mute quiet keep rules" },
-        { page: "apps", glyph: "󰀻", title: "Default apps", words: "browser file manager terminal" },
-        { page: "packages", glyph: "󰏗", title: "Installed packages", words: "software pacman aur foreign flatpak appimage uninstall update manage" },
-        { page: "downloads", glyph: "󰇚", title: "Download video or audio", words: "yt-dlp youtube video audio music mp4 mp3 mkv webm opus flac" },
-        { page: "weather", glyph: "󰖐", title: "Weather", words: "location city coordinates forecast temperature calendar clock bar" },
-        { page: "notes", glyph: "󰎞", title: "Quick notes", words: "notes draft text writing local sidebar" },
-        { page: "night", glyph: "󰖔", title: "Night light", words: "warmth temperature kelvin sunset sunrise schedule wlsunset" },
-        { page: "wifi", glyph: "󰤨", title: "Wi-Fi", words: "wireless network internet" },
-        { page: "bluetooth", glyph: "󰂯", title: "Bluetooth", words: "devices headphones mouse pair battery" },
-        { page: "cast", glyph: "󰄘", title: "Cast screen", words: "tv chromecast dlna firewall port" },
-        { page: "settings", glyph: "󰐊", title: "Animated wallpapers", words: "motion still battery power covered windows" },
-        { page: "settings", glyph: "󰆾", title: "Hot corner", words: "corner control center" },
-        { page: "wm", glyph: "󰖯", title: "Window manager", words: "wm compositor mangowm mango session tiling layout tags multi-tag toggleview toggletag windows dwindle master stack scroller monocle grid deck fair vertical jump labels scratchpad group tabs overlay" },
-        { page: "settings", glyph: "󰘾", title: "Reduced motion", words: "animations accessibility" },
-        { page: "settings", glyph: "󰛖", title: "Text size", words: "font larger bigger accessibility zoom" },
-        { page: "settings", glyph: "󰂄", title: "Battery care", words: "charge limit threshold power" },
-        { page: "settings", glyph: "󰅌", title: "Clipboard history", words: "copy paste keep days expire pins" },
-        { page: "settings", glyph: "󰈝", title: "Export settings", words: "backup move another computer save file" },
-        { page: "settings", glyph: "󰈞", title: "Import settings", words: "restore another computer load file" }
-    ]
     readonly property string query: search.text.trim().toLowerCase()
-    readonly property var matches: query === "" ? [] : index.filter(e => query.split(/\s+/).every(q => (e.title + " " + e.words).toLowerCase().includes(q)))
+    readonly property var matches: query === "" ? [] : SettingsSearch.matches(query, Sys.chargeLimitFile !== "")
+    required property bool panelOpen
+    onPanelOpenChanged: if (panelOpen) Qt.callLater(locate)
+    signal revealItem(Item row)
+
     function open(entry) {
         search.text = "";
-        if (entry.page === "wallpapers" || entry.page === "downloads")
-            Ui.toggle(entry.page);
-        else if (entry.page !== "settings")
-            Ui.openControl(entry.page, entry.tab);
+        Ui.openSetting(entry);
+    }
+
+    function locate() {
+        const rows = {
+            "Reduced motion": reducedMotion, "Text size": textSize, "Battery care": battery,
+            "Animated wallpapers": animated, "Hot corner": hotCorner,
+            "Clipboard history": clipboard, "Export settings": exportRow,
+            "Import settings": root.exportFile ? importRow : importHint
+        };
+        const row = rows[Ui.settingTarget];
+        if (!row || !panelOpen) return;
+        Ui.settingTarget = "";
+        root.revealItem(row);
+        const control = row === importHint ? row : row.focusControl;
+        control.forceActiveFocus(Qt.TabFocusReason);
+    }
+    Connections {
+        target: Ui
+        function onSettingTargetChanged() { if (Ui.settingTarget) Qt.callLater(root.locate); }
     }
 
     // The newest export in the home folder, offered for import.
@@ -277,9 +274,10 @@ ColumnLayout {
                 onClicked: Ui.toggle("wallpapers")
             }
             SwitchRow {
+                id: animated
                 glyph: "󰐊"
                 title: "Animated wallpapers"
-                subtitle: Settings.reducedMotion ? "Still while Reduced motion is on" : Settings.animatedWallpapers ? "Dawn, eclipse, GIFs and videos move" : "Still images"
+                subtitle: Settings.reducedMotion ? "Still while Reduced motion is on" : Settings.animatedWallpapers ? "Wallpaper scenes, GIFs and videos move" : "Still images"
                 checked: Settings.animatedWallpapers
                 onToggled: Settings.animatedWallpapers = !Settings.animatedWallpapers
             }
@@ -304,6 +302,7 @@ ColumnLayout {
                 }
             }
             SwitchRow {
+                id: hotCorner
                 glyph: "󰆾"
                 title: "Hot corner"
                 subtitle: "Top-right corner opens the control center"
@@ -443,6 +442,7 @@ ColumnLayout {
         Section { text: "Accessibility" }
         SettingsCard {
             SwitchRow {
+                id: reducedMotion
                 glyph: "󰘾"
                 title: "Reduced motion"
                 subtitle: "No animations in the shell, wallpapers or windows"
@@ -451,16 +451,14 @@ ColumnLayout {
             }
             StepperRow {
                 id: textSize
-                readonly property var sizes: [1, 1.1, 1.25, 1.4]
-                readonly property int current: Math.max(0, sizes.indexOf(Settings.textScale))
                 glyph: "󰛖"
                 title: "Text size"
                 subtitle: "Scale labels across the shell"
-                valueText: ["Default", "Large", "Larger", "Largest"][textSize.current]
-                canDecrease: textSize.current > 0
-                canIncrease: textSize.current < textSize.sizes.length - 1
-                onDecreased: Settings.textScale = textSize.sizes[textSize.current - 1]
-                onIncreased: Settings.textScale = textSize.sizes[textSize.current + 1]
+                valueText: Settings.textSizeLabels[Settings.textSizeIndex]
+                canDecrease: Settings.textSizeIndex > 0
+                canIncrease: Settings.textSizeIndex < Settings.textSizes.length - 1
+                onDecreased: Settings.textScale = Settings.textSizes[Settings.textSizeIndex - 1]
+                onIncreased: Settings.textScale = Settings.textSizes[Settings.textSizeIndex + 1]
             }
         }
 
@@ -486,6 +484,7 @@ ColumnLayout {
                 onToggled: root.includeMonitors = !root.includeMonitors
             }
             ListRow {
+                id: exportRow
                 Layout.fillWidth: true
                 glyph: "󰈝"
                 title: "Export settings"
@@ -494,6 +493,7 @@ ColumnLayout {
                 onClicked: Config.transferSettings(["export"].concat(root.transferOptions))
             }
             ListRow {
+                id: importRow
                 Layout.fillWidth: true
                 visible: root.exportFile !== ""
                 glyph: "󰈞"
@@ -525,6 +525,7 @@ ColumnLayout {
                 Layout.rightMargin: 10
                 Layout.bottomMargin: 4
                 visible: root.exportFile === "" && Config.transferMessage === ""
+                id: importHint
                 text: "To import, put a penumbra-settings-….json file from another computer in your home folder."
                 wrapMode: Text.Wrap
                 font.pixelSize: Theme.textSmall

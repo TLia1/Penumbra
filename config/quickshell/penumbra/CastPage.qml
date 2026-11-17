@@ -80,14 +80,15 @@ ColumnLayout {
                 loops: Animation.Infinite
                 onStopped: refreshGlyph.rotation = 0
             }
-            MouseArea {
+            ActionArea {
                 id: refreshArea
+                actionName: "Scan for displays"
                 anchors.fill: parent
                 anchors.margins: -6
                 hoverEnabled: true
                 enabled: !Cast.scanning
                 cursorShape: Qt.PointingHandCursor
-                onClicked: Cast.scan()
+                onTriggered: Cast.scan()
             }
         }
     }

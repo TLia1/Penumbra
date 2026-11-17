@@ -7,6 +7,8 @@ RowLayout {
     id: root
 
     property string text
+    property string accessibleLabel: ""
+    readonly property Item focusControl: canDecrease ? less : more
     property string lessGlyph: "󰅁"
     property string moreGlyph: "󰅂"
     property bool canDecrease: true
@@ -22,6 +24,14 @@ RowLayout {
         property string glyph
         property bool available: true
         signal step()
+        activeFocusOnTab: available
+        Accessible.role: Accessible.Button
+        Accessible.name: (glyph === root.lessGlyph ? "Decrease " : "Increase ") + root.accessibleLabel + " " + root.text
+        Accessible.onPressAction: if (available) step()
+        Keys.onSpacePressed: if (available) step()
+        Keys.onReturnPressed: if (available) step()
+        Keys.onEnterPressed: if (available) step()
+        border.color: activeFocus ? Theme.accentBright : "transparent"
         implicitWidth: 28
         implicitHeight: 28
         radius: Theme.corner(14)
@@ -49,12 +59,12 @@ RowLayout {
         }
     }
 
-    Arrow { glyph: root.lessGlyph; available: root.canDecrease; onStep: root.decreased() }
+    Arrow { id: less; glyph: root.lessGlyph; available: root.canDecrease; onStep: root.decreased() }
     Label {
         Layout.preferredWidth: root.textWidth
         horizontalAlignment: Text.AlignHCenter
         text: root.text
         font.weight: Font.DemiBold
     }
-    Arrow { glyph: root.moreGlyph; available: root.canIncrease; onStep: root.increased() }
+    Arrow { id: more; glyph: root.moreGlyph; available: root.canIncrease; onStep: root.increased() }
 }

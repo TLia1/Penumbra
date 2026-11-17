@@ -26,11 +26,12 @@ Item {
         border.color: Theme.overlayStrong
         Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.slow } }
     }
-    MouseArea {
+    ActionArea {
         id: area
+        actionName: "Choose " + root.color
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        onClicked: root.picked()
+        onTriggered: root.picked()
     }
 }

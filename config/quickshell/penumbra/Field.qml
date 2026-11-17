@@ -8,7 +8,7 @@ TextField {
     property bool invalid: false
 
     color: Theme.text
-    placeholderTextColor: Theme.dim
+    placeholderTextColor: Theme.muted
     selectionColor: Theme.accent
     selectedTextColor: Theme.accentInk
     font.family: Theme.sans

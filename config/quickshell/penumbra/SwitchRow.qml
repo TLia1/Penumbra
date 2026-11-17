@@ -5,6 +5,7 @@ import QtQuick.Layouts
 Rectangle {
     id: row
     property string glyph
+    readonly property alias focusControl: toggleSwitch
     property string title
     property string subtitle
     property bool checked: false
@@ -35,6 +36,8 @@ Rectangle {
             Label { Layout.fillWidth: true; text: row.subtitle; font.pixelSize: Theme.textSmall; color: Theme.textSoft }
         }
         Switch {
+            id: toggleSwitch
+            accessibleLabel: row.title
             checked: row.checked
             onToggled: row.toggled()
         }

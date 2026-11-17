@@ -70,7 +70,9 @@ Click the status capsule or move the pointer to the top-right hot corner for the
 
 **Saved workspaces.** Arrange the apps for a task, open Overview, and select **Saved workspaces → New workspace**. You can also press **Ctrl+S** inside Overview. Give the task a name such as *Development*, choose the tags to include on each display, and select **Save workspace**. The visible tags are selected initially. You can include tags that are currently out of view.
 
-Choose **Open** to return to a task. Penumbra reuses matching windows, launches missing apps through their desktop entries, restores the selected tags’ tiling layouts, and returns to their saved views. If a display is disconnected, its tags move to the built-in display or, on a desktop, the focused display. Penumbra shows any remapped tags and apps it could not reopen. **Update…** captures the current arrangement again. **Delete** removes the saved workspace and leaves its apps running.
+Optionally enter a project folder such as `~/Projects/orbit` when saving or updating a workspace. Newly opened Kitty, foot, Alacritty, Konsole, and WezTerm windows start in that folder. Newly opened Lia Files and Dolphin windows open the folder. Existing windows keep their current location. Clear the field on update to remove it.
+
+Choose **Open** or enter the workspace name in **Super+Space** to return to a task. Penumbra reuses matching windows, launches missing apps through their desktop entries, restores the selected tags’ tiling layouts, and returns to their saved views. If a display is disconnected, its tags move to the built-in display or, on a desktop, the focused display. Penumbra shows any remapped tags and apps it could not reopen. **Update…** captures the current arrangement again. **Delete** removes the saved workspace and leaves its apps running.
 
 Saved workspaces remember application identities and tag assignments. Reopened apps handle their own documents, browser tabs and terminal contents. Pinned, scratchpad, overlay and minimized windows are excluded from capture. Workspaces are stored locally in `$XDG_CONFIG_HOME/penumbra/workspaces.json` (normally `~/.config/penumbra/workspaces.json`).
 
@@ -78,7 +80,7 @@ Saved workspaces remember application identities and tag assignments. Reopened a
 
 ## Launcher and clipboard
 
-Press **Super+Space** to search apps and their actions. For example, “private” finds Firefox’s New Private Window. Recent, frequent launches rank higher. The details pane appears on wider screens.
+Press **Super+Space** to search apps, their actions, settings and saved workspaces. Searching for *Text size* and pressing Enter takes you to the control. A saved workspace preview lists its apps by display and tag. On a wide screen, use the preview to adjust text size, choose a night light schedule or launch an app’s desktop actions. **F1** shows the command prefixes. For example, “private” finds Firefox’s New Private Window. Recent, frequent launches rank higher. The details pane appears on wider screens.
 
 | Type in the launcher | Result |
 |---|---|
@@ -95,7 +97,7 @@ Press **Tab** to cycle through the launcher’s other modes.
 
 ## Control Center
 
-**Control center** (Super+A, or click the status capsule): Wi-Fi and Bluetooth toggles, Do not disturb (its chevron opens the Notifications page), Stay awake (pauses idle locking), Night light (wlsunset; its chevron opens a page for the warmth and a schedule, by fixed times or from sunset to sunrise where you are), Screenshot and Cast screen, volume, microphone and brightness sliders, and notification history grouped by app with Clear all. Shortcuts for settings, the wallpaper picker, lock and the session overlay sit in its header. Escape or a click outside closes it.
+**Control center** (Super+A, or click the status capsule): Tab and Shift+Tab move between controls. Enter or Space activates a focused button. A tile and its details chevron are separate stops. The panel includes Wi-Fi and Bluetooth toggles, Do not disturb (its chevron opens the Notifications page), Stay awake (pauses idle locking), Night light (wlsunset; its chevron opens a page for the warmth and a schedule, by fixed times or from sunset to sunrise where you are), Screenshot and Cast screen, volume, microphone and brightness sliders, and notification history grouped by app with Clear all. Shortcuts for settings, the wallpaper picker, lock and the session overlay sit in its header. Escape or a click outside closes it.
 
 **Sound page** opens from the chevron beside the volume slider (or `ipc call panel mixer`): pick the output and input device, and set each app's own volume and mute. Turn on **Volume boost** to raise the output limit from 100% to 150% for the slider, volume keys and bar scrolling. Turning it off brings boosted output back to 100%. A laptop's HDMI and DisplayPort outputs are listed only while an external screen is connected.
 

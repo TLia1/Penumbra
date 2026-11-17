@@ -62,12 +62,13 @@ ColumnLayout {
                 color: chip.active ? Theme.text : Theme.textSoft
             }
         }
-        MouseArea {
+        ActionArea {
             id: chipArea
+            actionName: chip.title
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: chip.clicked()
+            onTriggered: chip.clicked()
         }
     }
 
@@ -173,8 +174,11 @@ ColumnLayout {
                             color: tagCell.modelData.active ? Theme.textSoft : Theme.dim
                         }
                     }
-                    MouseArea {
+                    ActionArea {
                         id: tagArea
+                        clickActivates: false
+                        actionName: "Tag " + tagCell.modelData.name
+                        onTriggered: tagCell.modelData.activate()
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
@@ -337,12 +341,13 @@ ColumnLayout {
                         color: Theme.accentBright
                     }
                 }
-                MouseArea {
+                ActionArea {
                     id: rowArea
+                    actionName: layoutRow.modelData.title
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: {
+                    onTriggered: {
                         Settings.tilingLayout = layoutRow.modelData.id;
                         Wm.setLayout(layoutRow.modelData.id);
                     }

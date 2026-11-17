@@ -128,6 +128,7 @@ ColumnLayout {
             }
             SliderRow {
                 Layout.fillWidth: true
+                accessibleLabel: root.appName(stream.modelData) + " volume"
                 icon: root.appIcon(stream.modelData)
                 value: Math.round((stream.modelData.audio?.volume ?? 0) * 100)
                 muted: stream.modelData.audio?.muted ?? false
@@ -155,13 +156,14 @@ ColumnLayout {
         text: "Advanced sound settings"
         font.pixelSize: Theme.textSmall
         color: advancedArea.containsMouse ? Theme.accentBright : Theme.muted
-        MouseArea {
+        ActionArea {
             id: advancedArea
+            actionName: parent.text
             anchors.fill: parent
             anchors.margins: -4
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: { Ui.close(); Ui.run("pavucontrol"); }
+            onTriggered: { Ui.close(); Ui.run("pavucontrol"); }
         }
     }
 }

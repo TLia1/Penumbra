@@ -9,7 +9,10 @@ Item {
     required property point center
     required property real orbitRadius
     required property real clockY
-    // Eclipse feeds the same audio samples into its existing horizon aurora instead.
+    property real clockSize: 240
+    property color clockInk: Theme.white
+    property color dateInk: Theme.accentBright
+    // Scenes with their own audio treatment consume samples directly.
     property bool radialAura: true
     readonly property bool live: active && running && Settings.desktopAura
         && !Theme.reducedMotion && Ui.hasVisualizer && !!Media.playing
@@ -32,7 +35,7 @@ Item {
             font.pixelSize: 23
             font.letterSpacing: 5
             font.weight: Font.Medium
-            color: Theme.accentBright
+            color: root.dateInk
             style: Text.Outline
             styleColor: Theme.alpha(Theme.base, 0.35)
         }
@@ -41,10 +44,10 @@ Item {
             horizontalAlignment: Text.AlignHCenter
             text: Qt.formatDateTime(Clock.date, "HH:mm")
             font.family: Theme.display
-            font.pixelSize: 240
+            font.pixelSize: root.clockSize
             font.weight: Font.DemiBold
-            font.letterSpacing: -12
-            color: Theme.white
+            font.letterSpacing: -root.clockSize / 20
+            color: root.clockInk
             opacity: 0.86
             style: Text.Outline
             styleColor: Theme.alpha(Theme.base, 0.35)

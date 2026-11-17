@@ -68,9 +68,25 @@ class SavedWorkspaces(unittest.TestCase):
         self.assertEqual(self.store.read_bytes(), saved)
         ws.manage('replace', 'Work', {('DP-1', 4)}, {})
         self.assertEqual(ws.manage('list', '', None, {})['profiles'],
-                         [dict(name='Work', places=[['DP-1', 4]], windows=1)])
+                         [dict(name='Work', places=[['DP-1', 4]], windows=1, project='',
+                               apps=[dict(app='other', desktop='other', output='DP-1', tags=[4])])])
         ws.manage('delete', 'Work', None, {})
         self.assertEqual(ws.load(), {})
+
+    def test_project_is_optional_and_only_used_for_supported_new_windows(self):
+        folder = self.store.parents[2] / 'Project A'
+        folder.mkdir()
+        ws.manage('save', 'Work', None, {}, str(folder))
+        ws.manage('replace', 'Work', None, {})
+        self.assertEqual(ws.load()['Work']['project'], str(folder))
+        self.assertEqual(ws.launch_command('kitty.desktop', str(folder)), ['kitty', '--directory', str(folder)])
+        self.assertEqual(ws.launch_command('io.github.lia.Files', str(folder))[-1], folder.as_uri())
+        self.assertEqual(ws.launch_command('firefox', str(folder)), ['gtk-launch', '--', 'firefox'])
+        folder.rmdir()
+        with self.assertRaisesRegex(ValueError, 'unavailable'):
+            ws.launch_command('kitty', str(folder))
+        ws.manage('replace', 'Work', None, {}, '')
+        self.assertNotIn('project', ws.load()['Work'])
 
     def test_reuse_duplicate_apps_before_and_after_restart(self):
         recipe = ws.capture(None, {})

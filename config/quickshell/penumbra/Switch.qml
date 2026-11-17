@@ -5,13 +5,23 @@ Rectangle {
     id: root
 
     property bool checked: false
+    property string accessibleLabel: "Toggle"
+    activeFocusOnTab: enabled
+    Accessible.role: Accessible.CheckBox
+    Accessible.name: accessibleLabel
+    Accessible.checked: checked
+    Accessible.onToggleAction: toggled()
+    Keys.onSpacePressed: toggled()
+    Keys.onReturnPressed: toggled()
+    Keys.onEnterPressed: toggled()
     signal toggled()
 
     implicitWidth: 44
     implicitHeight: 24
     radius: Theme.corner(12)
     color: checked ? Theme.accent : Theme.raised
-    border.color: checked ? Theme.accentBright : Theme.lineStrong
+    border.width: activeFocus ? 2 : 1
+    border.color: activeFocus ? Theme.accentBright : checked ? Theme.accentBright : Theme.lineStrong
     Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
     Rectangle {

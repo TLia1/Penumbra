@@ -4,7 +4,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Widgets
 
-// One monitor of the lock screen: the wordmark-free wallpaper (dawn and eclipse keep moving),
+// One monitor of the lock screen: the wordmark-free wallpaper,
 // the time, and the password field. Every monitor shows the same password dots.
 Rectangle {
     id: surface
@@ -30,7 +30,15 @@ Rectangle {
         // Not before the surface has a size: the scene decodes its layers for it.
         active: surface.width > 0 && !!Ui.wallpaperScenes[Ui.wallpaper]?.scene
         scale: item ? Math.max(surface.width / item.width, surface.height / item.height) : 1
-        sourceComponent: Ui.wallpaperScenes[Ui.wallpaper]?.scene === "eclipse" ? eclipse : dawn
+        sourceComponent: ({ "moonwake": moonwake, "dawn": dawn, "eclipse": eclipse })[Ui.wallpaperScenes[Ui.wallpaper]?.scene] ?? null
+        Component {
+            id: moonwake
+            MoonwakeScene {
+                clean: true
+                running: Settings.animatedWallpapers && !Theme.reducedMotion
+                pixelScale: Math.max(surface.width / width, surface.height / height) * surface.pixelRatio
+            }
+        }
         Component {
             id: dawn
             DawnScene {

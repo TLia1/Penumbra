@@ -51,12 +51,13 @@ Rectangle {
         radius: root.radius
     }
 
-    MouseArea {
+    ActionArea {
         id: area
+        actionName: root.notification?.summary || "Notification"
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        onClicked: {
+        onTriggered: {
             const n = root.notification;
             const action = n.actions.find(a => a.identifier === "default");
             if (action)
@@ -121,13 +122,14 @@ Rectangle {
                     text: "󰅖"
                     size: 13
                     color: close.containsMouse ? Theme.text : Theme.dim
-                    MouseArea {
+                    ActionArea {
                         id: close
+                        actionName: "Dismiss notification"
                         anchors.fill: parent
                         anchors.margins: -6
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.notification.dismiss()
+                        onTriggered: root.notification.dismiss()
                     }
                 }
             }
@@ -206,10 +208,11 @@ Rectangle {
                     radius: Theme.corner(14)
                     color: reply.text ? Theme.accent : "transparent"
                     Glyph { anchors.centerIn: parent; text: "󰒊"; size: 13; color: reply.text ? Theme.accentInk : Theme.dim }
-                    MouseArea {
+                    ActionArea {
+                        actionName: "Send reply"
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: reply.send()
+                        onTriggered: reply.send()
                     }
                 }
             }
@@ -235,12 +238,13 @@ Rectangle {
                             font.pixelSize: Theme.textSmall
                             color: actionArea.containsMouse ? Theme.accentInk : Theme.text
                         }
-                        MouseArea {
+                        ActionArea {
                             id: actionArea
+                            actionName: modelData.text
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: {
+                            onTriggered: {
                                 modelData.invoke();
                                 root.notification.dismiss();
                             }

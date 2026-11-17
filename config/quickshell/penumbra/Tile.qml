@@ -25,13 +25,16 @@ Rectangle {
     Behavior on color { enabled: !Theme.fading; ColorAnimation { duration: Theme.fast } }
 
     CardLight { radius: root.radius; pointer: Qt.point(body.mouseX, body.mouseY); hovered: body.containsMouse }
-    MouseArea {
+    ActionArea {
         id: body
+        actionName: root.title
+        Accessible.checkable: true
+        Accessible.checked: root.on
         anchors.fill: parent
         hoverEnabled: true
         enabled: root.available
         cursorShape: Qt.PointingHandCursor
-        onClicked: root.toggled()
+        onTriggered: root.toggled()
     }
 
     RowLayout {
@@ -80,13 +83,14 @@ Rectangle {
                 text: "󰅂"
                 color: root.on ? Theme.accentInk : Theme.textSoft
             }
-            MouseArea {
+            ActionArea {
                 id: more
+                actionName: root.title + " details"
                 anchors.fill: parent
                 hoverEnabled: true
                 enabled: root.available
                 cursorShape: Qt.PointingHandCursor
-                onClicked: root.more()
+                onTriggered: root.more()
             }
         }
     }

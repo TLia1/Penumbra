@@ -5,7 +5,7 @@ import Quickshell.Io
 import Quickshell.Services.UPower
 import Quickshell.Wayland
 
-// Animated wallpapers: the dawn and eclipse scenes, and your GIFs and videos. Each sits on the
+// Animated wallpapers: Penumbra's layered scenes and your GIFs and videos. Each sits on the
 // bottom layer over awww's still copy of the same image (a GIF's or video's first frame), so
 // fading it in or out changes nothing at rest; night and plain images have nothing to animate.
 // Ui and penumbra-wallpaper say when the wallpaper changes; the settings page can keep them still, and
@@ -130,7 +130,7 @@ Scope {
                         opacity: root.fade
                         // Nothing for a still or no scene: a video player with no video would
                         // still load FFmpeg and wake the GPUs' video decoders.
-                        sourceComponent: ({ "dawn": dawn, "eclipse": eclipse })[Ui.wallpaperScenes[root.scene]?.scene]
+                        sourceComponent: ({ "moonwake": moonwake, "dawn": dawn, "eclipse": eclipse })[Ui.wallpaperScenes[root.scene]?.scene]
                             ?? ({ "gif": gif, "video": video })[Ui.wallpaperKind(root.scene)] ?? (root.customDepth ? depth : null)
 
                         Component {
@@ -154,6 +154,14 @@ Scope {
                                     fillMode: Image.PreserveAspectCrop
                                     asynchronous: true
                                 }
+                            }
+                        }
+                        Component {
+                            id: moonwake
+                            MoonwakeScene {
+                                desktop: true
+                                running: window.running
+                                pixelScale: Math.max(window.width / width, window.height / height) * window.devicePixelRatio
                             }
                         }
                         Component {

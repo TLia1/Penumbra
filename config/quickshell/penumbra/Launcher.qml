@@ -6,6 +6,7 @@ import Quickshell.Wayland
 import Quickshell.Widgets
 import "downloads.js" as Downloads
 import "search.js" as Search
+import "settingsSearch.js" as SettingsSearch
 import "symbols.js" as Symbols
 
 // Applications, open windows, clipboard history, emoji and symbols, over a dimmed screen. Type to
@@ -43,7 +44,7 @@ PanelWindow {
     property var results: []
     readonly property var selectedResult: results[view.currentIndex] ?? null
     readonly property bool showPreview: width >= 1080 && !characters
-        && ["app", "action", "window", "clip", "pin"].includes(selectedResult?.kind)
+        && ["app", "action", "window", "clip", "pin", "setting", "workspace"].includes(selectedResult?.kind)
     property var readyThumbs: ({})
     property var clips: []
     property var usage: ({}) // desktop entry id → { score, at } (frecency, see search.js)
@@ -70,9 +71,13 @@ PanelWindow {
     }
     onAppsChanged: refresh()
 
+    property bool showHelp: false
     function reset() {
+        showHelp = false;
         search.text = "";
         search.forceActiveFocus();
+        if (Ui.launcherMode === "apps" && Wm.isMango)
+            workspaceList.running = true;
         if (clipboard)
             loadClips();
         refresh();
@@ -102,6 +107,31 @@ PanelWindow {
         const i = list.indexAt(p.x + list.contentX, p.y + list.contentY);
         if (i >= 0)
             list.currentIndex = i;
+    }
+
+    property var workspaces: []
+    Process {
+        id: workspaceList
+        command: [Ui.bin + "penumbra-workspaces", "list"]
+        stdout: StdioCollector { id: workspaceOutput }
+        onExited: code => {
+            let profiles = [];
+            try { if (code === 0) profiles = JSON.parse(workspaceOutput.text).profiles; }
+            catch (error) { console.warn("Saved workspace list:", error); }
+            root.workspaces = profiles;
+            root.refresh();
+        }
+    }
+    Process {
+        id: restoreWorkspace
+        stdout: StdioCollector { id: restoreOutput }
+        stderr: StdioCollector { id: restoreErrors }
+        onExited: code => {
+            let message = restoreErrors.text.trim() || "Could not open workspace";
+            try { if (code === 0) message = JSON.parse(restoreOutput.text).message; }
+            catch (error) { console.warn("Workspace restore:", error); }
+            Quickshell.execDetached(["notify-send", "--app-name=Penumbra", "--", "Saved workspace", message]);
+        }
     }
 
     // ── Results ─────────────────────────────────────────────────────
@@ -162,7 +192,26 @@ PanelWindow {
                         scored.push({ entry: e, action: a, score: score + Search.boost(Search.frecency(usage[e.id], now)) });
                 }
             scored.sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name));
-            list = list.concat(scored.slice(0, 60).map(s => s.action ? { kind: "action", entry: s.entry, action: s.action } : { kind: "app", entry: s.entry }));
+            const profiles = Wm.isMango ? workspaces.filter(p => p.name.toLowerCase().includes(q)) : [];
+            const candidates = scored.map(s => ({
+                score: s.score, item: s.action ? { kind: "action", entry: s.entry, action: s.action } : { kind: "app", entry: s.entry }
+            }));
+            for (const profile of (q ? profiles : profiles.slice(0, 3))) {
+                const name = profile.name.toLowerCase();
+                candidates.push({ score: !q || name === q ? 150 : name.startsWith(q) ? 99 : 68, item: {
+                    kind: "workspace", profile, title: profile.name, glyph: "󰖯",
+                    subtitle: "Saved workspace · " + profile.windows + (profile.windows === 1 ? " window" : " windows")
+                }});
+            }
+            if (q) {
+                for (const setting of SettingsSearch.matches(q, Sys.chargeLimitFile !== "")) {
+                    const name = setting.title.toLowerCase();
+                    candidates.push({ score: name === q ? 140 : name.startsWith(q) ? 98 : name.includes(q) ? 70 : 44,
+                        item: { kind: "setting", setting, title: setting.title, glyph: setting.glyph, subtitle: "Settings" } });
+                }
+            }
+            candidates.sort((a, b) => b.score - a.score);
+            list = list.concat(candidates.slice(0, 60).map(candidate => candidate.item));
             // Nothing runs unless asked for with `>`: a typo like "reboot" must not reboot.
         }
         results = list;
@@ -175,18 +224,20 @@ PanelWindow {
     // ── Actions ─────────────────────────────────────────────────────
     function activate(index, alternate) {
         const item = results[index];
-        if (!item)
+        if (!item || (item.kind === "workspace" && restoreWorkspace.running))
             return;
         Ui.launcherOpen = false;
-        if (item.kind === "app") {
+        if (item.kind === "setting") {
+            Ui.openSetting(item.setting);
+        } else if (item.kind === "workspace") {
+            restoreWorkspace.command = [Ui.bin + "penumbra-workspaces", "restore", "--", item.title];
+            restoreWorkspace.running = true;
+        } else if (item.kind === "app") {
             launch(item.entry);
         } else if (item.kind === "run") {
             Ui.spawn(alternate ? Ui.terminal(["bash", "-c", item.command], ["--hold"]) : ["bash", "-c", item.command]);
         } else if (item.kind === "action") {
-            const command = item.action.command.filter(arg => !/^%[a-zA-Z]$/.test(arg));
-            Ui.spawn({ command, workingDirectory: item.entry.workingDirectory || Quickshell.env("HOME") });
-            usage = Object.assign({}, usage, { [item.entry.id]: Search.launched(usage[item.entry.id], Date.now()) });
-            usageFile.setText(JSON.stringify(usage));
+            activateEntryAction(item.entry, item.action);
         } else if (item.kind === "window") {
             if (item.mangoClient)
                 Wm.focusWindow(item.mangoClient);
@@ -216,6 +267,13 @@ PanelWindow {
             picks = Object.assign({}, picks, { [item.char.char]: (picks[item.char.char] ?? 0) + 1 });
             picksFile.setText(JSON.stringify(picks));
         }
+    }
+    function activateEntryAction(entry, action) {
+        Ui.launcherOpen = false;
+        const command = action.command.filter(arg => !/^%[a-zA-Z]$/.test(arg));
+        Ui.spawn({ command, workingDirectory: entry.workingDirectory || Quickshell.env("HOME") });
+        usage = Object.assign({}, usage, { [entry.id]: Search.launched(usage[entry.id], Date.now()) });
+        usageFile.setText(JSON.stringify(usage));
     }
     function launch(entry) {
         // Field codes (%u, %F…) stand for files and URLs; there are none to pass.
@@ -475,17 +533,19 @@ PanelWindow {
         Behavior on scale { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutExpo } }
         Behavior on height { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
 
+        // Swallow clicks on empty space behind the content.
+        MouseArea { anchors.fill: parent }
+
         LauncherPreview {
             anchors { top: parent.top; right: parent.right; bottom: parent.bottom; margins: 12 }
             width: 304
             visible: root.showPreview
             active: visible && Ui.launcherOpen
+            onLaunchAction: action => root.activateEntryAction(root.selectedResult.entry, action)
             result: root.selectedResult
             clipImage: root.selectedResult?.kind === "clip" ? root.readyThumbs[root.selectedResult.clip.id] ?? "" : ""
         }
 
-        // Swallow clicks so they don't reach the backdrop.
-        MouseArea { anchors.fill: parent }
         // Handlers hear hover even when a row's MouseArea takes it.
         HoverHandler {
             onPointChanged: if (hovered) root.pointerAt(point.scenePosition.x, point.scenePosition.y)
@@ -530,14 +590,17 @@ PanelWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: !search.text
                         text: ({ windows: "Search open windows…", clipboard: "Search clipboard history…", emoji: "Search emoji…", symbols: "Search symbols…" })[Ui.launcherMode]
-                            ?? "Search apps, > run, ? web, / files, = calculate…"
+                            ?? "Search Penumbra…"
                         font.pixelSize: Theme.textTitle
-                        color: Theme.dim
+                        color: Theme.muted
                     }
                     Keys.onPressed: event => {
                         const ctrl = event.modifiers & Qt.ControlModifier;
-                        if (event.key === Qt.Key_Escape) {
-                            Ui.launcherOpen = false;
+                        if (event.key === Qt.Key_F1) {
+                            root.showHelp = !root.showHelp;
+                        } else if (event.key === Qt.Key_Escape) {
+                            if (root.showHelp) root.showHelp = false;
+                            else Ui.launcherOpen = false;
                         } else if (root.characters && root.gridKey(event.key)) {
                             // Arrows and pages move around the grid.
                         } else if (event.key === Qt.Key_Down || (ctrl && event.key === Qt.Key_N)) {
@@ -658,7 +721,7 @@ PanelWindow {
                                 Glyph {
                                     anchors.centerIn: parent
                                     visible: !parent.swatch
-                                    text: ({ run: "󰆍", calc: "󰃬", clip: "󰅍", pin: "󰐃", web: "󰖟", download: "󰇚", file: "󰈔", convert: "󰁔", currency: "󰄉" })[row.modelData.kind] ?? ""
+                                    text: row.modelData.glyph ?? ({ run: "󰆍", calc: "󰃬", clip: "󰅍", pin: "󰐃", web: "󰖟", download: "󰇚", file: "󰈔", convert: "󰁔", currency: "󰄉" })[row.modelData.kind] ?? ""
                                     size: 16
                                     color: Theme.accentBright
                                 }
@@ -699,6 +762,7 @@ PanelWindow {
                                 Layout.fillWidth: true
                                 text: {
                                     const m = row.modelData;
+                                    if (m.title) return m.title;
                                     if (m.kind === "app")
                                         return m.entry.name;
                                     if (m.kind === "run")
@@ -735,6 +799,7 @@ PanelWindow {
                                 visible: text !== ""
                                 text: {
                                     const m = row.modelData;
+                                    if (m.subtitle) return m.subtitle;
                                     if (m.kind === "app")
                                         return m.entry.genericName || m.entry.comment;
                                     if (m.kind === "run")
@@ -858,7 +923,7 @@ PanelWindow {
                     Layout.fillWidth: true
                     text: root.clipboard || root.characters ? root.modes.find(m => m.mode === Ui.launcherMode).glyph : "󰍉"
                     size: 26
-                    color: Theme.dim
+                    color: Theme.muted
                 }
                 Label {
                     Layout.fillWidth: true
@@ -875,13 +940,21 @@ PanelWindow {
                         if (search.text.startsWith("/"))
                             return search.text.slice(1).trim() ? (fileSearch.running || findFiles.running ? "Looking…" : "No file in your home folder matches") : "Type part of a file or folder name";
                         if (search.text.trim() && !search.text.startsWith(">") && !search.text.startsWith("?"))
-                            return "No application matches · start with > to run it as a command";
+                            return "No matches · > command · ? web · / files";
                         return "Type to search";
                     }
                     color: Theme.muted
                 }
             }
 
+            Label {
+                Layout.fillWidth: true
+                visible: root.showHelp
+                text: "> Run a command   ·   ? Search the web   ·   / Find files   ·   = Calculate"
+                wrapMode: Text.Wrap
+                color: Theme.textSoft
+                font.pixelSize: Theme.textSmall
+            }
             // Hints, and clearing the clipboard.
             RowLayout {
                 Layout.fillWidth: true
@@ -900,7 +973,11 @@ PanelWindow {
                         return "↑↓ choose · Enter open · Tab windows · Esc close";
                     }
                     font.pixelSize: Theme.textSmall
-                    color: Theme.dim
+                    color: Theme.muted
+                }
+                PillButton {
+                    text: root.showHelp ? "Hide help" : "F1 Help"
+                    onClicked: { root.showHelp = !root.showHelp; search.forceActiveFocus(); }
                 }
                 PillButton {
                     visible: root.clipboard && root.clips.length > 0

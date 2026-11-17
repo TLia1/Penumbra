@@ -188,13 +188,14 @@ ColumnLayout {
         text: "Advanced Bluetooth settings"
         font.pixelSize: Theme.textSmall
         color: advancedArea.containsMouse ? Theme.accentBright : Theme.muted
-        MouseArea {
+        ActionArea {
             id: advancedArea
+            actionName: "Advanced Bluetooth settings"
             anchors.fill: parent
             anchors.margins: -4
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: { Ui.close(); Ui.run("blueman-manager"); }
+            onTriggered: { Ui.close(); Ui.run("blueman-manager"); }
         }
     }
 }

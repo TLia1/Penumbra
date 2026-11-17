@@ -40,6 +40,19 @@ OnDemandPanel {
         clip: true
         interactive: contentHeight > height
         boundsBehavior: Flickable.StopAtBounds
+        function reveal(item) {
+            const top = item.mapToItem(contentItem, 0, 0).y;
+            if (top < contentY || top + item.height > contentY + height)
+                contentY = Math.max(0, Math.min(contentHeight - height, top - 8));
+        }
+        Connections {
+            target: scroller.Window.window
+            function onActiveFocusItemChanged() {
+                const item = scroller.Window.window.activeFocusItem;
+                for (let p = item; p; p = p.parent)
+                    if (p === pages) { scroller.reveal(item); break; }
+            }
+        }
         // Each page, and each opening, starts at the top.
         Connections {
             target: root
@@ -109,7 +122,12 @@ OnDemandPanel {
                 Layout.fillWidth: true
                 active: Ui.controlPage === "settings"
                 visible: active
-                sourceComponent: Component { SettingsPage {} }
+                sourceComponent: Component {
+                    SettingsPage {
+                        panelOpen: root.open
+                        onRevealItem: row => Qt.callLater(() => scroller.reveal(row))
+                    }
+                }
             }
 
             Loader {
@@ -207,12 +225,13 @@ OnDemandPanel {
                             color: headerArea.containsMouse ? Theme.hover : Theme.raised
                             border.color: Theme.line
                             Glyph { anchors.centerIn: parent; text: modelData.glyph; size: 15; color: Theme.accentBright }
-                            MouseArea {
+                            ActionArea {
                                 id: headerArea
+                                actionName: parent.modelData.tip
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: modelData.run()
+                                onTriggered: modelData.run()
                             }
                         }
                     }
@@ -316,12 +335,13 @@ OnDemandPanel {
                                 Glyph { text: quickAction.modelData.glyph; size: 15; color: Theme.accentBright }
                                 Label { Layout.fillWidth: true; text: quickAction.modelData.title; font.pixelSize: Theme.textSmall; font.weight: Font.Medium; color: Theme.textSoft }
                             }
-                            MouseArea {
+                            ActionArea {
                                 id: actionArea
+                                actionName: quickAction.modelData.title
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: quickAction.modelData.run()
+                                onTriggered: quickAction.modelData.run()
                             }
                         }
                     }
@@ -356,6 +376,7 @@ OnDemandPanel {
                             Layout.fillWidth: true
                             Layout.rightMargin: 36
                             visible: !!Devices.source
+                            accessibleLabel: "Microphone"
                             glyph: Devices.micMuted ? "󰍭" : "󰍬"
                             value: Devices.source ? Math.round(Devices.source.volume * 100) : 0
                             muted: Devices.micMuted
@@ -366,6 +387,8 @@ OnDemandPanel {
                             Layout.fillWidth: true
                             Layout.rightMargin: 36
                             visible: Sys.brightness >= 0
+                            accessibleLabel: "Brightness"
+                            glyphAction: ""
                             glyph: "󰃟"
                             value: Sys.brightness
                             onMoved: v => Sys.setBrightness(v)
@@ -419,13 +442,14 @@ OnDemandPanel {
                         text: "Clear all"
                         font.pixelSize: Theme.textSmall
                         color: clearArea.containsMouse ? Theme.accentBright : Theme.accent
-                        MouseArea {
+                        ActionArea {
                             id: clearArea
+                            actionName: "Clear all notifications"
                             anchors.fill: parent
                             anchors.margins: -6
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: Notifs.clear()
+                            onTriggered: Notifs.clear()
                         }
                     }
                 }
@@ -472,13 +496,14 @@ OnDemandPanel {
                                 text: group.expanded ? "Show less" : "Show all"
                                 font.pixelSize: Theme.textSmall
                                 color: expandArea.containsMouse ? Theme.accentBright : Theme.accent
-                                MouseArea {
+                                ActionArea {
                                     id: expandArea
+                                    actionName: parent.text
                                     anchors.fill: parent
                                     anchors.margins: -6
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: Ui.expandedNotificationApps = group.expanded
+                                    onTriggered: Ui.expandedNotificationApps = group.expanded
                                         ? Ui.expandedNotificationApps.filter(a => a !== group.app)
                                         : [...Ui.expandedNotificationApps, group.app]
                                 }
@@ -491,13 +516,14 @@ OnDemandPanel {
                                 text: ({ "": "󰂚", "silent": "󰂠", "mute": "󰂛", "keep": "󰐃" })[rule] ?? "󰂚"
                                 size: 13
                                 color: ruleArea.containsMouse ? Theme.text : rule ? Theme.accent : Theme.dim
-                                MouseArea {
+                                ActionArea {
                                     id: ruleArea
+                                    actionName: "Notification rule for " + group.app
                                     anchors.fill: parent
                                     anchors.margins: -6
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: Settings.setRule(group.app, parent.next[parent.rule] ?? "")
+                                    onTriggered: Settings.setRule(group.app, parent.next[parent.rule] ?? "")
                                 }
                             }
                             Glyph {
@@ -505,13 +531,14 @@ OnDemandPanel {
                                 text: "󰎟"
                                 size: 13
                                 color: clearGroup.containsMouse ? Theme.text : Theme.dim
-                                MouseArea {
+                                ActionArea {
                                     id: clearGroup
+                                    actionName: "Clear notifications from " + group.app
                                     anchors.fill: parent
                                     anchors.margins: -6
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: Notifs.clearApp(group.app)
+                                    onTriggered: Notifs.clearApp(group.app)
                                 }
                             }
                         }

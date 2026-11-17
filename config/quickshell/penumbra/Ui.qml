@@ -77,6 +77,15 @@ Singleton {
         }
         openPanel = reopen ? name : "";
     }
+    property string settingTarget: ""
+    function openSetting(entry) {
+        if (entry.page === "wallpapers" || entry.page === "downloads") {
+            toggle(entry.page);
+        } else {
+            openControl(entry.page, entry.tab);
+            settingTarget = entry.page === "settings" ? entry.title : "";
+        }
+    }
     function openControl(page, tab) {
         if (page !== controlPage)
             previousControlPage = openPanel === "control" ? controlPage : "main";
@@ -127,14 +136,14 @@ Singleton {
 
     // The chosen wallpaper, as penumbra-wallpaper records it: one of Penumbra's (wallpaper,
     // wallpaper-dawn…), or the path of your own image, GIF or video.
-    property string wallpaper: "wallpaper"
+    property string wallpaper: "wallpaper-moonwake"
     readonly property string wallpapers: Quickshell.env("HOME") + "/.local/share/penumbra/"
     readonly property string wallpaperFolder: Quickshell.env("HOME") + "/Pictures/Wallpapers"
     readonly property var wallpaperScenes: Wallpapers.scenes
     function wallpaperTitle(name) {
         return wallpaperScenes[name]?.title ?? name.replace(/^.*\//, "").replace(/\.[^.]*$/, "");
     }
-    // scene (dawn, eclipse), still (night or an image), gif or video.
+    // Layered scene, still (Night or an image), GIF or video.
     function wallpaperKind(name) {
         if (wallpaperScenes[name]?.scene)
             return "scene";
@@ -159,7 +168,7 @@ Singleton {
         watchChanges: true
         printErrors: false
         onFileChanged: reload()
-        onLoaded: root.wallpaper = text().trim() || "wallpaper"
+        onLoaded: root.wallpaper = text().trim() || "wallpaper-moonwake"
     }
 
     // Optional tools, found once at startup.

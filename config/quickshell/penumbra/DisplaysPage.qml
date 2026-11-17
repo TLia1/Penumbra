@@ -132,8 +132,14 @@ ColumnLayout {
                         color: Theme.muted
                     }
                 }
-                MouseArea {
+                ActionArea {
                     id: area
+                    actionName: "Arrange " + box.modelData.name
+                    onTriggered: root.selected = box.index
+                    Keys.onLeftPressed: Displays.place(box.index, box.modelData.x - 32, box.modelData.y)
+                    Keys.onRightPressed: Displays.place(box.index, box.modelData.x + 32, box.modelData.y)
+                    Keys.onUpPressed: Displays.place(box.index, box.modelData.x, box.modelData.y - 32)
+                    Keys.onDownPressed: Displays.place(box.index, box.modelData.x, box.modelData.y + 32)
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: canvas.shown.length > 1 ? (pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor) : Qt.PointingHandCursor

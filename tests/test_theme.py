@@ -260,7 +260,7 @@ class Command(unittest.TestCase):
                          {'mode': 'dark', 'colors': 'custom', 'hue': 190.0, 'vividness': 0.8, 'pick': 0,
                           'harmonize': False, 'auto': 'dark', 'preset': '',
                           'presets': [dict(id=k, **v) for k, v in palette.PRESETS.items()],
-                          'candidates': json.loads((ROOT / 'share/penumbra/wallpaper-colors.json').read_text())['wallpaper']})
+                          'candidates': json.loads((ROOT / 'share/penumbra/wallpaper-colors.json').read_text())['wallpaper-moonwake']})
 
     def test_harmonize(self):
         self.theme('set', 'colors=custom', 'hue=190', 'harmonize=true')

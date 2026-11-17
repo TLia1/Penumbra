@@ -162,11 +162,12 @@ ColumnLayout {
                         text: checked ? "󰈈" : "󰈉"
                         size: 14
                         color: Theme.muted
-                        MouseArea {
+                        ActionArea {
+                            actionName: reveal.checked ? "Hide password" : "Show password"
                             anchors.fill: parent
                             anchors.margins: -4
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: reveal.checked = !reveal.checked
+                            onTriggered: reveal.checked = !reveal.checked
                         }
                     }
                 }
@@ -224,13 +225,14 @@ ColumnLayout {
         text: "Advanced network settings"
         font.pixelSize: Theme.textSmall
         color: advancedArea.containsMouse ? Theme.accentBright : Theme.muted
-        MouseArea {
+        ActionArea {
             id: advancedArea
+            actionName: "Advanced network settings"
             anchors.fill: parent
             anchors.margins: -4
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: { Ui.close(); Ui.run("nm-connection-editor"); }
+            onTriggered: { Ui.close(); Ui.run("nm-connection-editor"); }
         }
     }
 }

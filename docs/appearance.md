@@ -8,9 +8,9 @@ the palette engine checks text contrast in both modes. Custom colour edits leave
 
 | Preset | CLI ID | Paired scene |
 |---|---|---|
-| Penumbra | `penumbra` | Eclipse |
+| Penumbra | `penumbra` | Moonwake |
 | Solar Corona | `solar-corona` | Amber Dawn |
-| Aurora Borealis | `aurora-borealis` | Teal Eclipse |
+| Aurora Borealis | `aurora-borealis` | Polar curtain |
 | Event Horizon | `event-horizon` | Rose-red Eclipse |
 | Nebula Rose | `nebula-rose` | Rose Night |
 | Starlight | `starlight` | Pearl Dawn |
@@ -21,6 +21,7 @@ penumbra-theme set colors=default mode=dark
 ```
 
 The second command restores the default palette while keeping the selected wallpaper.
+Aurora Borealis adds a folded mint curtain across the sky, visible in the [tiled workspace capture](../previews/aurora-workspace.png).
 Each preset now pairs its palette with coordinated artwork. `tools/build-wallpapers.py`
 recolours the original SVG sources before rendering the still, wordmark-free lock image and
 animated layers. Stars, moonlets and the eclipse aurora use the scene's matching tint. The
@@ -31,6 +32,7 @@ images keep their own colours.
 
 Look also offers **Capsules / Island / Framed** bar layouts, **Numbers / Numbers + icons /
 Dots** workspace styles, a **Bottom / Top island** OSD, and a **Glass frost** slider.
+**Compact system monitor** replaces CPU and RAM readings with one icon that opens the same graphs.
 The signature layout keeps floating capsules and uses numbered workspaces; existing saved
 preferences remain in effect. **Apply signature layout** also turns off the frame, desktop
 clock/aura, bar weather and dock, and restores the bottom OSD and neutral frost. Weather service,
@@ -48,9 +50,11 @@ corners still apply.
 
 ## Wallpapers
 
+**Moonwake** is the default Penumbra scene. A full moon lights a violet alpine lake. Thin clouds drift over the peaks and the reflection ripples between the banks. Enable **Depth clock** in Settings → Bar, dock & desktop to place the date and time in the mountain saddle. **Audio aura** lights up small groups of fireflies along the wooded slopes. Lower notes bring out larger, slowly drifting lights. Higher notes pick out smaller, quicker ones. [Animated preview](../previews/moonwake.webp)
+
 **Wallpaper picker** (Super+Shift+W, or the wallpaper button in the control center): Penumbra's built-in wallpapers, then the images, GIFs and videos in `~/Pictures/Wallpapers` (Open folder creates and opens it); click one to switch, or move with the arrow keys (Tab, Home and End too) and press Enter.
 
-**Your own wallpapers**: any PNG, JPEG, WebP or BMP image, GIF, or MP4, WebM, MKV or MOV video. Put them in `~/Pictures/Wallpapers` to see them in the picker and in Super+W's cycle, right-click one in Lia Files or Dolphin and choose **Set as Wallpaper**, or run `penumbra-wallpaper PATH`. awww shows a GIF's or video's first frame with the usual transition, then the shell plays it over that frame on a loop, silently and without an audio stream, pausing under fullscreen windows and while locked, as it does dawn and eclipse; with animated wallpapers off in Settings it stays on that first frame. The lock screen shows the still image or first frame. Videos decode with Qt Multimedia's FFmpeg backend, which uses the GPU's video decoder when it has one; first frames are kept in `~/.cache/penumbra/wallpapers/`.
+**Your own wallpapers**: any PNG, JPEG, WebP or BMP image, GIF, or MP4, WebM, MKV or MOV video. Put them in `~/Pictures/Wallpapers` to see them in the picker and in Super+W's cycle, right-click one in Lia Files or Dolphin and choose **Set as Wallpaper**, or run `penumbra-wallpaper PATH`. awww shows a GIF's or video's first frame with the usual transition, then the shell plays it over that frame on a loop, silently and without an audio stream, pausing under fullscreen windows and while locked, as it does for the built-in scenes; with animated wallpapers off in Settings it stays on that first frame. The lock screen shows the still image or first frame. Videos decode with Qt Multimedia's FFmpeg backend, which uses the GPU's video decoder when it has one; first frames are kept in `~/.cache/penumbra/wallpapers/`.
 
 **Desktop depth and frame** (Settings → Look): optional clock and date behind the foreground planet in Dawn and Eclipse, plus an audio aura using the existing Cava stream: a radial spectrum in Dawn, and audio-driven curtains replacing the ambient drift in Eclipse’s foreground horizon aurora during playback. The curtains rise, brighten and fold with the frequency bands, settling to a faint rim during silence; the ambient aurora returns when the audio aura is inactive. The clock remains visible with wallpaper animations off or Reduced motion on; the aura pauses with wallpaper motion, including battery, covered-workspace and lock-screen pauses. These widgets stay off the lock screen. An optional thin screen frame adds concave joins under the bar on every monitor, follows sharp corners, accepts no input and hides for fullscreen windows. All three options default to off and persist in `~/.config/penumbra/shell.json`.
 

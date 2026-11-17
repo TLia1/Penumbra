@@ -107,11 +107,11 @@ ShellRoot {
 
 def stage(folder):
     widgets.stage(folder)
-    for name in ['Capsule', 'Tile', 'SliderRow', 'CardLight', 'IslandSurface', 'WorkspaceStrip', 'MediaCapsule', 'MediaPopover', 'LauncherPreview']:
+    for name in ['ActionArea', 'Stepper', 'Capsule', 'Tile', 'SliderRow', 'CardLight', 'IslandSurface', 'WorkspaceStrip', 'MediaCapsule', 'MediaPopover', 'LauncherPreview']:
         shutil.copy2(widgets.SHELL / (name + '.qml'), folder)
     (folder / 'Settings.qml').write_text('''pragma Singleton
 import Quickshell
-Singleton { property real glassFrost: 0; property real textScale: 1; property bool reducedMotion: true; property string workspaceStyle: "icons"; property string barStyle: "island" }
+Singleton { property real glassFrost: 0; property real textScale: 1; property int textSizeIndex: 0; property bool reducedMotion: true; property string workspaceStyle: "icons"; property string barStyle: "island" }
 ''')
     (folder / 'Media.qml').write_text('''pragma Singleton
 import QtQuick

@@ -39,12 +39,12 @@ sddm-greeter-qt6 --test-mode --theme /usr/share/sddm/themes/penumbra
 - `bin/` → `~/.local/bin/` (session, power and graceful exit, idle, screenshot, screen recording, casting, clipboard, calendar, color picker, OSD, update, GPU reading, wallpaper and shell IPC scripts).
 - `config/quickshell/penumbra/` → the Penumbra shell (QML), run by `penumbra-shell.service`.
 - `share/` → `~/.local/share/` (KDE color scheme and violet icon overlay).
-- `assets/wallpaper*.png` (night, dawn, eclipse and the curated preset scenes, each with a wordmark-free variant) → `~/.local/share/penumbra/`; `lock.png` there links to the clean variant of the current scene. After editing a wallpaper SVG, run `tools/build-wallpapers.py` to re-render them and the SDDM copy; it also splits the dawn and eclipse scenes into the layers under `config/quickshell/penumbra/` that the animated wallpapers move, and compiles the aurora shader (needs `qt6-shadertools`).
+- `assets/wallpaper*.png` (Moonwake, Night, Dawn, Eclipse and the curated preset scenes, each with a wordmark-free variant) → `~/.local/share/penumbra/`; `lock.png` there links to the clean variant of the current scene. After editing a wallpaper SVG, run `tools/build-wallpapers.py` to re-render them and the SDDM copy; it also splits the animated scenes into layers under `config/quickshell/penumbra/` and compiles their shaders (needs `qt6-shadertools`).
 - `system/` mirrors absolute system paths: SDDM configuration and complete theme, and the cursor theme.
 - `palette/` holds the palette and the templates of the generated colour files (see [Edit the source palette](appearance.md#edit-the-source-palette)).
 - `apps/` holds colours for apps Penumbra doesn't install, used only when the app is (see [Application themes](appearance.md#application-themes)).
 - `share/kio/servicemenus/penumbra-wallpaper.desktop` and `share/lia-files/actions/penumbra-wallpaper.desktop` → Dolphin and Lia Files right-click **Set as Wallpaper** for images, GIFs and videos.
-- `previews/` contains live desktop captures (`desktop.png`, `solar-corona.png`, `starlight.png`, `workspace.png`, `control-center.png`, `launcher.png`, `motion.webp`), offline QML component studies (`widgets.png`, `widgets-light.png`, `aesthetics.png`), and the cursor sheet (`cursors.png`).
+- `previews/` contains live desktop captures (`aurora-workspace.png`, `desktop.png`, `solar-corona.png`, `starlight.png`, `workspace.png`, `control-center.png`, `launcher.png`, `motion.webp`), the Moonwake scene with sample audio bands (`moonwake.webp`), offline QML component studies (`widgets.png`, `widgets-light.png`, `aesthetics.png`), and the cursor sheet (`cursors.png`).
 
 `@@PLACEHOLDERS@@` in configuration files (for example, your home folder in the two Qt configurations) are filled in by the installer as it copies them. All other paths are portable home-relative paths or fixed standard system paths. The default shell changes through `usermod`; the installer does not copy account/password databases.
 
@@ -75,7 +75,7 @@ While recording, demonstrate the Control Center, Overview and Launcher using the
 shortcuts. Cava needs playing audio for a visible spectrum.
 
 The helper requires `mmsg`, `kitty`, `fastfetch`, `cava`, `nvim` and `grim`; video additionally
-requires `wf-recorder` and `ffmpeg`. The [desktop gallery](../README.md) was captured in an earlier nested desktop session with a 1920×1080 virtual
+requires `wf-recorder` and `ffmpeg`. The Aurora workspace and the workspace search preview were captured on an isolated 1280×720 Mango output. The other images in the [desktop gallery](../README.md) were captured in an earlier nested desktop session with a 1920×1080 virtual
 output at 125% scale. A second output, rapid panel reversals, reduced motion, and 1024×768 with
 130% text were also checked. The motion demonstration includes panels, launcher, dock and a
 sample notification. This exercises the actual shaders; it is not a physical multi-monitor

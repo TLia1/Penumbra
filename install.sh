@@ -644,7 +644,7 @@ install_wallpapers() {
     if [[ ! -e $dir/lock.png && ! -L $dir/lock.png ]]; then
         if (( PLAN )); then plan_file Create "$dir/lock.png"; return; fi
         backup_file "$dir/lock.png" .local/share/penumbra/lock.png
-        ln -s "$dir/wallpaper-clean.png" "$dir/lock.png"
+        ln -s "$dir/wallpaper-moonwake-clean.png" "$dir/lock.png"
         completed create "$dir/lock.png"
     fi
 }

@@ -109,12 +109,13 @@ ColumnLayout {
                             Label { Layout.fillWidth: true; text: modelData.name; font.weight: chosen ? Font.DemiBold : Font.Normal }
                             Glyph { visible: chosen; text: "󰄬"; size: 13; color: Theme.accentBright }
                         }
-                        MouseArea {
+                        ActionArea {
                             id: choice
+                            actionName: modelData.name
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: root.choose(row.modelData.kind, modelData.id)
+                            onTriggered: root.choose(row.modelData.kind, modelData.id)
                         }
                     }
                 }

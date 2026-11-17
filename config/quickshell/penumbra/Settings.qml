@@ -13,6 +13,7 @@ Singleton {
     // Optional desktop depth and a frame joined to the bar.
     property alias desktopClock: adapter.desktopClock
     property alias desktopAura: adapter.desktopAura
+    property alias compactMonitor: adapter.compactMonitor
     property alias barStyle: adapter.barStyle
     property alias workspaceStyle: adapter.workspaceStyle
     property alias osdPosition: adapter.osdPosition
@@ -44,6 +45,11 @@ Singleton {
     // Night light: its warmth in kelvin, and when it comes on (see NightLight).
     property alias nightTemperature: adapter.nightTemperature
     property alias nightSchedule: adapter.nightSchedule // manual, times or sun
+    readonly property var nightSchedules: [
+        { value: "manual", title: "By hand" },
+        { value: "times", title: "Set times" },
+        { value: "sun", title: "Sunset to sunrise" }
+    ]
     property alias nightFrom: adapter.nightFrom
     property alias nightTo: adapter.nightTo
     property alias nightPlace: adapter.nightPlace // a city or "latitude, longitude"; empty: the time zone's
@@ -55,6 +61,9 @@ Singleton {
     // Accessibility: no animations anywhere (shell, wallpapers, MangoWM), and larger text.
     property alias reducedMotion: adapter.reducedMotion
     property alias textScale: adapter.textScale
+    readonly property var textSizes: [1, 1.1, 1.25, 1.4]
+    readonly property var textSizeLabels: ["Default", "Large", "Larger", "Largest"]
+    readonly property int textSizeIndex: Math.max(0, textSizes.indexOf(textScale))
     // Do not disturb: on a schedule, while recording or casting, while a window is fullscreen.
     property alias dndSchedule: adapter.dndSchedule
     property alias dndFrom: adapter.dndFrom
@@ -137,6 +146,7 @@ Singleton {
             property bool stillOnBattery: true
             property bool desktopClock: false
             property bool desktopAura: false
+            property bool compactMonitor: false
             property string barStyle: "floating"
             property string workspaceStyle: "pills"
             property string osdPosition: "bottom"

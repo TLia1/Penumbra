@@ -134,9 +134,9 @@ def shown_mode(choice):
 
 def current_wallpaper():
     try:
-        return WALLPAPER.read_text().strip() or 'wallpaper'
+        return WALLPAPER.read_text().strip() or palette.PRESETS['penumbra']['wallpaper']
     except OSError:
-        return 'wallpaper'
+        return palette.PRESETS['penumbra']['wallpaper']
 
 
 def wallpaper_accents(name):

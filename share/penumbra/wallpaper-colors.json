@@ -41,8 +41,8 @@
   ],
   "wallpaper-aurora-borealis": [
     {
-      "hue": 185,
-      "vividness": 0.41
+      "hue": 184,
+      "vividness": 0.52
     }
   ],
   "wallpaper-event-horizon": [
@@ -61,6 +61,12 @@
     {
       "hue": 304,
       "vividness": 0.35
+    }
+  ],
+  "wallpaper-moonwake": [
+    {
+      "hue": 305,
+      "vividness": 0.38
     }
   ]
 }

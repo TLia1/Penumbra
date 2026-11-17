@@ -49,12 +49,13 @@ ColumnLayout {
                     Label { Layout.preferredWidth: 90; text: modelData[0]; font.family: Theme.mono; font.pixelSize: Theme.textSmall; color: Theme.accentBright }
                     Label { Layout.fillWidth: true; text: modelData[1]; font.pixelSize: Theme.textSmall; color: Theme.textSoft }
                 }
-                MouseArea {
+                ActionArea {
                     id: pick
+                    actionName: modelData[1]
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: {
+                    onTriggered: {
                         root.replaceToken(suggestions.field, suggestions.current.index, modelData[0]);
                         suggestions.field.forceActiveFocus();
                     }

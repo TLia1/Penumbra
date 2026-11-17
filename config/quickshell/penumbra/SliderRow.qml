@@ -8,6 +8,8 @@ import Quickshell.Widgets
 RowLayout {
     id: root
 
+    property string accessibleLabel: "Volume"
+    property string glyphAction: accessibleLabel + " mute"
     property string glyph
     property string icon: ""
     property real value: 0
@@ -43,17 +45,20 @@ RowLayout {
             source: root.icon
             opacity: root.muted ? 0.4 : 1
         }
-        MouseArea {
+        ActionArea {
             id: button
+            enabled: root.glyphAction !== ""
+            actionName: root.glyphAction
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: root.glyphClicked()
+            onTriggered: root.glyphClicked()
         }
     }
 
     Slider {
         id: slider
+        Accessible.name: root.accessibleLabel
         Layout.fillWidth: true
         // The custom background and handle give no implicit height, which would leave a 0 px hit area.
         implicitHeight: 36
@@ -89,8 +94,8 @@ RowLayout {
             height: width
             radius: Theme.corner(width / 2)
             color: Theme.white
-            border.color: Theme.accent
-            border.width: 2
+            border.color: slider.visualFocus ? Theme.white : Theme.accent
+            border.width: slider.visualFocus ? 3 : 2
             Rectangle {
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: -height - 8
@@ -121,12 +126,13 @@ RowLayout {
         radius: Theme.radiusSmall
         color: moreArea.containsMouse ? Theme.hover : "transparent"
         Glyph { anchors.centerIn: parent; text: "󰅂"; size: 14; color: Theme.muted }
-        MouseArea {
+        ActionArea {
             id: moreArea
+            actionName: root.accessibleLabel + " details"
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: root.more()
+            onTriggered: root.more()
         }
     }
 }

@@ -51,13 +51,14 @@ Rectangle {
                         color: segment.current ? Theme.accentInk : Theme.textSoft
                     }
                 }
-                MouseArea {
+                ActionArea {
                     id: segmentArea
+                    actionName: segment.modelData.title
                     anchors.fill: parent
                     hoverEnabled: true
                     enabled: segment.available && !segment.current
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: root.chosen(segment.modelData.value)
+                    onTriggered: root.chosen(segment.modelData.value)
                 }
             }
         }

@@ -35,6 +35,7 @@ Rectangle {
         replacing = name;
         nameField.text = name;
         const prior = profiles.find(p => p.name === name);
+        projectField.text = prior?.project ?? "";
         selection = Wm.workspaces.filter(w => outputs.some(m => m.name === w.monitor.name) && (prior
             ? prior.places.some(p => p[0] === w.monitor.name && p[1] === w.id)
             : w.active)).map(w => [w.monitor.name, w.id]);
@@ -53,7 +54,7 @@ Rectangle {
             const entries = Object.create(null);
             for (const c of Wm.clients)
                 entries[c.appId] = DesktopEntries.heuristicLookup(c.appId)?.id ?? c.appId;
-            args.push("--selection", JSON.stringify(selection), "--entries", JSON.stringify(entries));
+            args.push("--project", projectField.text.trim(), "--selection", JSON.stringify(selection), "--entries", JSON.stringify(entries));
         }
         if (name !== undefined) args.push("--", name);
         failed = false;
@@ -88,17 +89,6 @@ Rectangle {
         }
     }
 
-    component Action: PillButton {
-        id: button
-        activeFocusOnTab: available
-        border.color: activeFocus ? Theme.accentBright : Theme.line
-        Accessible.role: Accessible.Button
-        Accessible.name: text
-        Accessible.onPressAction: if (available) clicked()
-        Keys.onReturnPressed: if (available) clicked()
-        Keys.onEnterPressed: if (available) clicked()
-        Keys.onSpacePressed: if (available) clicked()
-    }
     MouseArea { anchors.fill: parent } // Keep clicks inside the card from dismissing Overview.
     Shortcut {
         sequence: "Escape"
@@ -124,7 +114,7 @@ Rectangle {
                 font.pixelSize: Theme.textLarge
                 font.weight: Font.DemiBold
             }
-            Action {
+            PillButton {
                 id: backButton
                 text: root.editing ? "Cancel" : "Back"
                 onClicked: {
@@ -143,7 +133,7 @@ Rectangle {
                 id: items
                 width: scroll.availableWidth
                 spacing: 10
-                Action {
+                PillButton {
                     visible: !root.editing
                     text: "New workspace"
                     primary: true
@@ -178,16 +168,16 @@ Rectangle {
                         }
                         RowLayout {
                             enabled: !root.busy
-                            Action {
+                            PillButton {
                                 primary: true
                                 text: "Open"
                                 onClicked: root.run("restore", row.modelData.name)
                             }
-                            Action {
+                            PillButton {
                                 text: "Update…"
                                 onClicked: root.edit(row.modelData.name)
                             }
-                            Action {
+                            PillButton {
                                 text: root.removing === row.modelData.name ? "Confirm delete" : "Delete"
                                 danger: true
                                 onClicked: {
@@ -212,6 +202,12 @@ Rectangle {
                         Accessible.name: "Workspace name"
                         onAccepted: if (saveButton.available) saveButton.clicked()
                     }
+                    Field {
+                        id: projectField
+                        Layout.fillWidth: true
+                        placeholderText: "Project folder (optional) · ~/Projects/example"
+                        Accessible.name: "Project folder"
+                    }
                     Label {
                         Layout.fillWidth: true
                         text: "Choose the tags whose apps and tiling layouts to save."
@@ -231,7 +227,7 @@ Rectangle {
                                 spacing: 5
                                 Repeater {
                                     model: Wm.allTagsFor(output.modelData.name)
-                                    delegate: Action {
+                                    delegate: PillButton {
                                         required property var modelData
                                         text: modelData.name
                                         primary: root.selection.some(p => p[0] === output.modelData.name && p[1] === modelData.id)
@@ -244,7 +240,7 @@ Rectangle {
                             }
                         }
                     }
-                    Action {
+                    PillButton {
                         id: saveButton
                         text: root.replacing ? "Replace saved workspace" : "Save workspace"
                         primary: true

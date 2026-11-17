@@ -36,7 +36,7 @@ class Artwork(unittest.TestCase):
                 source = artwork.SOURCES[key]
                 svg = (ROOT / 'assets' / (name + '.svg')).read_text()
                 if key != 'penumbra':
-                    self.assertEqual(svg, artwork.recolor((ROOT / 'assets' / (source + '.svg')).read_text(), preset))
+                    self.assertEqual(svg, artwork.preset_scene((ROOT / 'assets' / (source + '.svg')).read_text(), preset))
                 clean = (ROOT / 'assets' / (name + '-clean.svg')).read_text()
                 self.assertNotIn('<text', clean)
                 self.assertNotIn('id="wordmark"', clean)

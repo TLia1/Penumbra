@@ -30,6 +30,8 @@ ColumnLayout {
     SliderRow {
         Layout.fillWidth: true
         glyph: "󱩌"
+        accessibleLabel: "Warmth"
+        glyphAction: "Toggle night light"
         // Warmer to the right.
         from: 6000
         to: 2500
@@ -46,11 +48,7 @@ ColumnLayout {
     Segmented {
         Layout.fillWidth: true
         current: Settings.nightSchedule
-        options: [
-            { value: "manual", title: "By hand" },
-            { value: "times", title: "Set times" },
-            { value: "sun", title: "Sunset to sunrise" }
-        ]
+        options: Settings.nightSchedules
         onChosen: value => Settings.nightSchedule = value
     }
 

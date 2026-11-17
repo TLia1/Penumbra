@@ -21,12 +21,13 @@ RowLayout {
         color: backArea.containsMouse ? Theme.hover : Theme.raised
         border.color: Theme.line
         Glyph { anchors.centerIn: parent; text: "󰁍"; size: 15; color: Theme.textSoft }
-        MouseArea {
+        ActionArea {
             id: backArea
+            actionName: "Back"
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: root.back()
+            onTriggered: root.back()
         }
     }
     ColumnLayout {
@@ -37,6 +38,7 @@ RowLayout {
         Label { Layout.fillWidth: true; visible: text !== ""; text: root.status; font.pixelSize: Theme.textSmall; color: Theme.muted }
     }
     Switch {
+        accessibleLabel: root.title
         visible: root.showSwitch
         checked: root.checked
         onToggled: root.toggled()

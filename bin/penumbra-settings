@@ -243,7 +243,7 @@ EXPORTED = {
 }
 # New shell fields need an explicit portability decision before they leave the machine.
 PORTABLE = set("""
-    animatedWallpapers stillWhenCovered stillOnBattery desktopClock desktopAura barStyle workspaceStyle
+    animatedWallpapers stillWhenCovered stillOnBattery desktopClock desktopAura barStyle compactMonitor workspaceStyle
     osdPosition volumeBoost glassFrost weatherInBar screenFrame weatherEnabled dockMode dockPins hotCorner
     tilingLayout showAllTags smartGaps dwindleSmartSplit masterRatio newWindowMaster scrollerProportion
     scrollerCenter monocleTabBar deckTabBar floatingSnap sloppyFocus warpCursor nativeHotarea

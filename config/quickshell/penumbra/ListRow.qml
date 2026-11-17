@@ -6,6 +6,7 @@ Rectangle {
     id: root
 
     property string glyph
+    readonly property alias focusControl: area
     property string title
     property string subtitle
     property string trailing: "" // glyph on the right, e.g. a lock
@@ -24,12 +25,13 @@ Rectangle {
     Behavior on implicitHeight { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
     clip: true
 
-    MouseArea {
+    ActionArea {
         id: area
+        actionName: root.title
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        onClicked: root.clicked()
+        onTriggered: root.clicked()
     }
 
     ColumnLayout {

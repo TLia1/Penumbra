@@ -330,9 +330,10 @@ PanelWindow {
             spacing: 12
             active: Ui.monitorOpen
             onClicked: m => m.button === Qt.RightButton ? Ui.spawn(Ui.terminal(["btop"], ["--class", "penumbra-monitor"])) : Ui.toggle("monitor")
+            Glyph { visible: Settings.compactMonitor; text: "󰍛"; color: monitor.tint }
             readonly property color tint: Ui.monitorOpen ? Theme.accentInk : Theme.subtle
             Repeater {
-                model: ["CPU", "RAM"]
+                model: Settings.compactMonitor ? [] : ["CPU", "RAM"]
                 delegate: RowLayout {
                     required property string modelData
                     spacing: 5
