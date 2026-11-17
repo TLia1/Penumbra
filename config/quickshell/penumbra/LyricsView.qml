@@ -12,6 +12,8 @@ ColumnLayout {
     readonly property var lines: Lrc.parse(result.synced ?? "")
     readonly property int current: Lrc.current(lines, player?.position ?? 0)
     property string loaded: ""
+    readonly property int maximumContentHeight: Math.max(heading.implicitHeight, retry.implicitHeight)
+        + spacing + Math.max(synced.implicitHeight, unsynced.implicitHeight, statusLabel.implicitHeight)
     spacing: 5
     onSignatureChanged: { result = {}; loaded = ""; settle.restart(); }
     onActiveChanged: if (active) settle.restart()
@@ -42,15 +44,18 @@ ColumnLayout {
         }
     }
     RowLayout {
+        id: heading
         Layout.fillWidth: true
         Label { Layout.fillWidth: true; text: "Lyrics · LRCLIB"; color: Theme.textSoft; font.pixelSize: Theme.textTiny }
         PillButton {
+            id: retry
             visible: root.result.status === "offline"
             text: "Retry"
             onClicked: { root.loaded = ""; settle.restart(); }
         }
     }
     Item {
+        id: synced
         Layout.fillWidth: true
         implicitHeight: 90
         visible: root.lines.length > 0
@@ -77,6 +82,7 @@ ColumnLayout {
         }
     }
     Flickable {
+        id: unsynced
         Layout.fillWidth: true
         implicitHeight: 100
         visible: !root.lines.length && !!root.result.plain
@@ -86,7 +92,8 @@ ColumnLayout {
         clip: true
         Label {
             id: plain
-            width: parent.width
+            width: unsynced.width
+            elide: Text.ElideNone
             text: "Unsynced lyrics\n\n" + (root.result.plain ?? "")
             textFormat: Text.PlainText
             wrapMode: Text.Wrap
@@ -94,9 +101,10 @@ ColumnLayout {
         }
     }
     Label {
+        id: statusLabel
         Layout.fillWidth: true
         visible: !root.lines.length && !root.result.plain
-        text: root.result.status === "loading" ? "Finding lyrics…" : root.result.status === "offline" ? "Lyrics unavailable offline" : root.result.instrumental ? "Instrumental" : "No lyrics for this track"
+        text: (!root.result.status || root.result.status === "loading") ? "Finding lyrics…" : root.result.status === "offline" ? "Lyrics unavailable offline" : root.result.instrumental ? "Instrumental" : "No lyrics for this track"
         horizontalAlignment: Text.AlignHCenter
         color: Theme.textSoft
     }

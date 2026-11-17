@@ -45,12 +45,26 @@ class Online(unittest.TestCase):
     def test_missing_lyrics_and_instrumental(self):
         error = HTTPError('https://lrclib.net', 404, 'Not found', {}, None)
         self.addCleanup(error.close)
-        with patch.object(online, 'urlopen', side_effect=error) as request:
+        with patch.object(online, 'urlopen', side_effect=[error, self.response([])]) as request:
             self.assertEqual(online.main(['lyrics', 'missing', 'artist', '', '0'])['status'], 'missing')
             online.main(['lyrics', 'missing', 'artist', '', '0'])
-            request.assert_called_once()
+            self.assertEqual(request.call_count, 2)
         with patch.object(online, 'urlopen', return_value=self.response({'instrumental': True})):
             self.assertTrue(online.main(['lyrics', 'instrumental', 'artist', '', '0'])['instrumental'])
+
+    def test_lyrics_search_after_exact_miss(self):
+        rows = [{'trackName': 'Song', 'artistName': artist, 'duration': duration,
+                 'syncedLyrics': f'[00:02]{duration}', 'plainLyrics': 'words'}
+                for artist, duration in [('Other', 120), ('Artist', 145), ('Artist', 121)]]
+        for seconds, expected in [(120, '[00:02]121'), (155, '')]:
+            error = HTTPError('https://lrclib.net', 404, 'Not found', {}, None)
+            with patch.object(online, 'urlopen', side_effect=[error, self.response(rows)]) as request:
+                result = online.main(['lyrics', 'song', 'Artist', 'unknown album', str(seconds)])
+                self.assertEqual(result['synced'], expected)
+                self.assertEqual(result['plain'], 'words')
+                search = urlsplit(request.call_args.args[0].full_url)
+                self.assertEqual(search.path, '/api/search')
+                self.assertEqual(parse_qs(search.query), {'track_name': ['song'], 'artist_name': ['Artist']})
 
     def test_rate_limit_applies_across_tracks(self):
         error = HTTPError('https://lrclib.net', 429, 'Slow down', {'Retry-After': '3600'}, None)

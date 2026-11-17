@@ -58,6 +58,45 @@ def retry_after(value, now):
             return 300
 
 
+def request_json(url):
+    with urlopen(Request(url, headers={'User-Agent': AGENT, 'Accept': 'application/json'}), timeout=8) as response:
+        raw = response.read(1024 * 1024 + 1)
+    if len(raw) > 1024 * 1024:
+        raise ValueError('Response too large')
+    return json.loads(raw)
+
+
+def lookup_lyrics(url, params):
+    try:
+        return request_json(url)
+    except HTTPError as error:
+        if error.code != 404:
+            raise
+        error.close()
+
+    names = {key: params[key] for key in ('track_name', 'artist_name')}
+    rows = request_json('https://lrclib.net/api/search?' + urlencode(names))
+    if not isinstance(rows, list):
+        raise ValueError('Expected search results')
+    matches = [row for row in rows if isinstance(row, dict)
+               and str(row.get('trackName', '')).strip().casefold() == names['track_name'].strip().casefold()
+               and str(row.get('artistName', '')).strip().casefold() == names['artist_name'].strip().casefold()
+               and (row.get('syncedLyrics') or row.get('plainLyrics') or row.get('instrumental'))]
+    if not matches:
+        return None
+    duration = params.get('duration')
+    if duration is None:
+        return matches[0]
+    def distance(row):
+        seconds = row.get('duration')
+        return abs(seconds - duration) if isinstance(seconds, (float, int)) else math.inf
+    best = min(matches, key=distance)
+    if distance(best) > 2:
+        # Another recording may share the words but have different timing.
+        return {**best, 'syncedLyrics': ''} if best.get('plainLyrics') else None
+    return best
+
+
 def fetch(kind, params):
     base = 'https://lrclib.net/api/get' if kind == 'lyrics' else 'https://api.open-meteo.com/v1/forecast'
     url = base + '?' + urlencode(params)
@@ -65,16 +104,17 @@ def fetch(kind, params):
     path = folder / (hashlib.sha256(url.encode()).hexdigest() + '.json')
     cached, now = read(path), time.time()
     if isinstance(cached.get('until'), (float, int)) and cached['until'] > now and isinstance(cached.get('data'), dict):
-        return cached['data']
+        if kind != 'lyrics' or cached['data'].get('status') != 'missing' or cached.get('searched'):
+            return cached['data']
     gate = read(folder / 'retry.json').get('until', 0)
     if isinstance(gate, (float, int)) and gate > now:
         return fallback(kind, cached, now)
     try:
-        with urlopen(Request(url, headers={'User-Agent': AGENT, 'Accept': 'application/json'}), timeout=8) as response:
-            raw = response.read(1024 * 1024 + 1)
-        if len(raw) > 1024 * 1024:
-            raise ValueError('Response too large')
-        value = json.loads(raw)
+        value = lookup_lyrics(url, params) if kind == 'lyrics' else request_json(url)
+        if kind == 'lyrics' and value is None:
+            data = {'status': 'missing'}
+            write(path, {'until': now + 86400, 'searched': True, 'data': data})
+            return data
         if not isinstance(value, dict):
             raise ValueError('Expected object')
         if kind == 'lyrics':
@@ -90,10 +130,6 @@ def fetch(kind, params):
         return data
     except HTTPError as error:
         try:
-            if error.code == 404 and kind == 'lyrics':
-                data = {'status': 'missing'}
-                write(path, {'until': now + 86400, 'data': data})
-                return data
             write(folder / 'retry.json', {'until': now + retry_after(error.headers.get('Retry-After'), now)})
         finally:
             error.close()

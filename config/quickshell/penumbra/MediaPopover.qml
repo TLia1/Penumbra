@@ -7,14 +7,18 @@ PopupWindow {
     id: root
     property var player: Media.player
     implicitWidth: 340
-    implicitHeight: body.implicitHeight + 32
+    // Reserve the lyrics area before mapping the native popup.
+    implicitHeight: body.implicitHeight + 32 + body.spacing + lyrics.maximumContentHeight
+    mask: Region { item: card }
     color: "transparent"
     anchor.edges: Edges.Bottom
     anchor.gravity: Edges.Bottom
     anchor.margins.top: 4
 
     Rectangle {
-        anchors.fill: parent
+        id: card
+        width: parent.width
+        height: body.implicitHeight + 32 + (lyrics.active ? body.spacing + lyrics.implicitHeight : 0)
         radius: Theme.radiusLarge
         color: Theme.glassStrong
         border.color: Theme.line
@@ -68,13 +72,12 @@ PopupWindow {
                 labelWidth: 45
                 onMoved: value => { if (root.player?.canSeek) root.player.position = value; }
             }
-            LyricsView {
-                id: lyrics
-                Layout.fillWidth: true
-                visible: active
-                player: root.player
-                onVisibleChanged: if (!root.visible) active = false
-            }
+        }
+        LyricsView {
+            id: lyrics
+            anchors { left: body.left; right: body.right; top: body.bottom; topMargin: body.spacing }
+            visible: active
+            player: root.player
         }
     }
     onVisibleChanged: if (!visible) lyrics.active = false
