@@ -140,7 +140,7 @@ Singleton {
     }
     FileView {
         id: paletteFile
-        path: Quickshell.env("HOME") + "/.local/state/penumbra/palette.json"
+        path: (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state") + "/penumbra/palette.json"
         watchChanges: true
         printErrors: false
         blockLoading: true
@@ -178,7 +178,7 @@ Singleton {
     readonly property bool sharp: corners === "sharp"
     function corner(px) { return sharp ? 0 : px; }
     FileView {
-        path: Quickshell.env("HOME") + "/.local/state/penumbra/corners"
+        path: (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state") + "/penumbra/corners"
         watchChanges: true
         printErrors: false
         onFileChanged: reload()

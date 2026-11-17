@@ -36,7 +36,9 @@ OnDemandPanel {
                 Layout.fillWidth: true
                 spacing: 1
                 Label {
-                    text: Sys.updates === 1 ? "1 update" : `${Sys.updates} updates`
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    text: Sys.updateHeadline
                     font.pixelSize: Theme.textLarge
                     font.weight: Font.DemiBold
                 }
@@ -122,7 +124,16 @@ OnDemandPanel {
                             Layout.fillWidth: true
                             Layout.topMargin: 4
                             Layout.bottomMargin: 2
-                            text: `${source.modelData.name} · ${source.modelData.packages.length}`
+                            text: source.modelData.name + " · " + (source.modelData.status === "ok"
+                                  ? source.modelData.packages.length : "Unavailable")
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            color: Theme.muted
+                            font.pixelSize: Theme.textTiny
+                            text: source.modelData.lastSuccess
+                                ? "Last checked successfully " + Qt.formatDateTime(new Date(source.modelData.lastSuccess), "d MMM yyyy, HH:mm")
+                                : "No successful check yet"
                         }
                         Repeater {
                             model: source.modelData.packages

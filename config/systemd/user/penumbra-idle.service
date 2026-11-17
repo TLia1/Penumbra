@@ -9,6 +9,6 @@ StartLimitBurst=10
 [Service]
 Type=exec
 ExecCondition=/bin/sh -c 'test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"'
-ExecStart=/usr/bin/swayidle -w -C %h/.config/penumbra/swayidle.conf
+ExecStart=/usr/bin/swayidle -w -C %E/penumbra/swayidle.conf
 Restart=on-failure
 RestartSec=1

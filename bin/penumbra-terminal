@@ -17,7 +17,7 @@ while (($#)); do
 done
 
 # The setting names a desktop file; its Exec= line gives the program.
-id=$(sed -n 's/^terminal=//p' "$HOME/.config/penumbra/settings.conf" 2>/dev/null | tail -n 1)
+id=$(sed -n 's/^terminal=//p' "${XDG_CONFIG_HOME:-$HOME/.config}/penumbra/settings.conf" 2>/dev/null | tail -n 1)
 program=""
 IFS=: read -ra dirs <<<"${XDG_DATA_HOME:-$HOME/.local/share}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 for dir in "${dirs[@]}"; do

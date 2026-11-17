@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Update checks for the Penumbra bar and an interactive update session in the terminal."""
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 import fcntl
 import importlib.util
 import json
@@ -9,6 +10,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 
 # The distribution's package sources, installed from distro/<name>/share/penumbra/updates.py.
 DISTRO = Path.home() / ".local/share/penumbra/updates.py"
@@ -42,9 +44,40 @@ def check(command, empty=(), empty_if_silent=()):
         return None
 
 
+def source_status(found):
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "penumbra"
+    history = {}
+    try:
+        cache.mkdir(parents=True, exist_ok=True)
+        with (cache / "update-history.lock").open("a") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            path = cache / "update-history.json"
+            try:
+                saved = json.loads(path.read_text())
+                if isinstance(saved, dict):
+                    history = saved
+            except (FileNotFoundError, ValueError):
+                pass
+            history.update({name: now for name, lines in found if lines is not None})
+            with tempfile.NamedTemporaryFile(mode="w", dir=cache, delete=False) as out:
+                json.dump(history, out)
+            os.replace(out.name, path)
+    except OSError as error:
+        print(f"update history: {error}", file=sys.stderr)
+    return [{"name": name, "packages": lines or [],
+             "status": "unavailable" if lines is None else "ok",
+             "lastSuccess": history.get(name) if lines is None else now}
+            for name, lines in found]
+
+
 def status():
-    packages = distro()
-    sources = packages.sources() if packages else []
+    try:
+        packages = distro()
+        sources = packages.sources() if packages else []
+    except (OSError, ImportError, SyntaxError) as error:
+        print(f"system packages: {error}", file=sys.stderr)
+        packages, sources = None, []
     if shutil.which("flatpak"):
         sources.extend({"name": f"Flatpak ({scope})",
                         "command": ["flatpak", "remote-ls", f"--{scope}", "--updates",
@@ -55,6 +88,9 @@ def status():
         results = pool.map(lambda source: check(source["command"], source.get("empty", ()),
                                                 source.get("empty_if_silent", ())), sources)
         found = list(zip((source["name"] for source in sources), results))
+    if packages is None:
+        found.insert(0, ("System packages", None))
+    checked = source_status(found)
     total = sum(len(lines) for _, lines in found if lines is not None)
     details = [f"{name}: {len(lines) if lines is not None else 'check unavailable'}"
                for name, lines in found]
@@ -75,12 +111,18 @@ def status():
     details.append("Click for the list · checked every 15 minutes")
     # For the shell: the count, the lines of the bar's tooltip, and each source's updates, one line
     # each as the distribution's check prints it (pacman: "name old -> new") or a Flatpak ref.
-    print(json.dumps({"count": total,
+    unavailable = [name for name, lines in found if lines is None]
+    headline = f"{total} update{'s' if total != 1 else ''}"
+    if not found:
+        headline = "No update sources configured"
+    elif unavailable:
+        names = ", ".join(unavailable)
+        headline = f"{headline} · {names} unavailable" if total else f"Couldn’t check {names}"
+    print(json.dumps({"count": total, "headline": headline, "incomplete": bool(unavailable) or not found,
                       "details": details,
                       "news": news,
                       "restart": restart,
-                      "sources": [{"name": name, "packages": lines}
-                                  for name, lines in found if lines]}))
+                      "sources": checked}))
 
 
 def lock(name):

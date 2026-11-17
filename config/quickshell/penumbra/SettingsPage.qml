@@ -177,6 +177,16 @@ ColumnLayout {
 
     // The newest export in the home folder, offered for import.
     property string exportFile: ""
+    property bool includePins: false
+    property bool includeLocation: false
+    property bool includeMonitors: false
+    readonly property var transferOptions: [
+        ...(includePins ? ["--clipboard-pins"] : []),
+        ...(includeLocation ? ["--location"] : []),
+        ...(includeMonitors ? ["--monitors"] : [])
+    ]
+    onTransferOptionsChanged: Config.reviewedToken = ""
+    onExportFileChanged: Config.reviewedToken = ""
     Process {
         id: findExport
         command: ["bash", "-c", "ls -t \"$HOME\"/penumbra-settings-*.json 2>/dev/null | head -n 1"]
@@ -457,22 +467,46 @@ ColumnLayout {
         // ── Backup & restore ────────────────────────────────────────
         Section { text: "Backup & restore" }
         SettingsCard {
+            SwitchRow {
+                title: "Include clipboard pins"
+                subtitle: "Pinned text in exports and imports"
+                checked: root.includePins
+                onToggled: root.includePins = !root.includePins
+            }
+            SwitchRow {
+                title: "Include location"
+                subtitle: "Weather and night light locations"
+                checked: root.includeLocation
+                onToggled: root.includeLocation = !root.includeLocation
+            }
+            SwitchRow {
+                title: "Include monitor layout"
+                subtitle: "Display rules for this hardware"
+                checked: root.includeMonitors
+                onToggled: root.includeMonitors = !root.includeMonitors
+            }
             ListRow {
                 Layout.fillWidth: true
                 glyph: "󰈝"
                 title: "Export settings"
-                subtitle: "Settings, look and screens, to one file in your home folder"
+                subtitle: "Save portable preferences to your home folder"
                 busy: Config.transferring
-                onClicked: Config.transferSettings(["export"])
+                onClicked: Config.transferSettings(["export"].concat(root.transferOptions))
             }
             ListRow {
                 Layout.fillWidth: true
                 visible: root.exportFile !== ""
                 glyph: "󰈞"
-                title: "Import settings"
+                title: "Preview import"
                 subtitle: "From " + root.exportFile.replace(/^.*\//, "~/")
                 busy: Config.transferring
-                onClicked: Config.transferSettings(["import", root.exportFile])
+                onClicked: Config.transferSettings(["import", "--json-preview", root.exportFile].concat(root.transferOptions))
+            }
+            PillButton {
+                visible: Config.reviewedToken !== ""
+                text: "Apply import"
+                onClicked: Config.transferSettings(["import", "--apply", "--reviewed", Config.reviewedToken,
+                                                     root.exportFile].concat(root.transferOptions))
             }
             Label {
                 Layout.fillWidth: true

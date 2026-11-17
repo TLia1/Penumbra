@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""Open a folder with the selected desktop entry. --check also works before login."""
+import argparse
+from configparser import ConfigParser, Error
+import os
+from pathlib import Path
+import shlex
+import shutil
+import subprocess
+import sys
+
+
+def desktop_entry(app):
+    data = Path(os.environ.get('XDG_DATA_HOME') or Path.home() / '.local/share')
+    dirs = [data, *(os.environ.get('XDG_DATA_DIRS') or '/usr/local/share:/usr/share').split(':'),
+            data / 'flatpak/exports/share', '/var/lib/flatpak/exports/share']
+    if '/' in app or not app:
+        return None
+    for directory in dirs:
+        path = Path(directory) / 'applications' / (app.removesuffix('.desktop') + '.desktop')
+        if not path.is_file():
+            continue
+        entry = ConfigParser(interpolation=None, strict=False)
+        try:
+            entry.read(path)
+            fields = entry['Desktop Entry']
+            if fields.getboolean('Hidden', fallback=False) or fields.get('Type') != 'Application':
+                return None
+            if fields.get('TryExec') and not shutil.which(fields['TryExec']):
+                return None
+            if fields.get('Exec'):
+                executable = shlex.split(fields['Exec'])[0]
+                if shutil.which(executable):
+                    return path
+                # An abandoned ~/.local Lia build can shadow a working system copy.
+                # set_folder_default cleans up this same stale override during installation.
+                if app.removesuffix('.desktop') == 'io.github.lia.Files' and directory == data and executable.startswith('/'):
+                    continue
+                return None
+            return path if fields.getboolean('DBusActivatable', fallback=False) else None
+        except (Error, KeyError, IndexError, ValueError):
+            return None
+    return None
+
+
+def detect():
+    try:
+        result = subprocess.run(['xdg-mime', 'query', 'default', 'inode/directory'],
+                                capture_output=True, text=True, timeout=5)
+        default = result.stdout.strip().removesuffix('.desktop')
+        if result.returncode == 0 and desktop_entry(default):
+            return default
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return 'io.github.lia.Files' if desktop_entry('io.github.lia.Files') else 'org.kde.dolphin'
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--check', action='store_true')
+    parser.add_argument('--detect', action='store_true', help='print the current or recommended desktop id')
+    parser.add_argument('app', nargs='?')
+    parser.add_argument('folder', nargs='?', default=str(Path.home()))
+    args = parser.parse_args()
+    if args.detect:
+        print(detect())
+        sys.exit(0)
+    if not args.app:
+        parser.error('specify the desktop entry to open')
+    entry = desktop_entry(args.app)
+    if args.check:
+        sys.exit(0 if entry else 1)
+    if entry:
+        os.execlp('gio', 'gio', 'launch', str(entry), args.folder)
+    sys.exit(f'Cannot launch {args.app}. Choose an installed file manager in Settings → Default apps.')

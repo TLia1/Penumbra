@@ -4,8 +4,11 @@
 set -euo pipefail
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-STAMP=$(date +%Y%m%d-%H%M%S)
-SETTINGS_FILE=${XDG_CONFIG_HOME:-$HOME/.config}/penumbra/settings.conf
+STAMP=$(date +%Y%m%d-%H%M%S-%N)
+CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
+PLAN=0
+PLANNED_FILES=0
+SETTINGS_FILE=$CONFIG_HOME/penumbra/settings.conf
 XKB_RULES=/usr/share/X11/xkb/rules/base.lst
 
 # The bar, notification daemon and wallpaper setter Penumbra replaced, stopped when it installs, and
@@ -47,6 +50,7 @@ The shell's Settings pages (Super+,) change all but the login shell, at once.
 
 Other options:
   -y, --yes            Don't ask about the settings; use the saved or detected ones.
+  --plan               Preview managed file changes and installation phases without applying them.
   --skip-packages      Don't install packages (or PENUMBRA_SKIP_PACKAGES=1).
   --offline            Configure an unbooted system (e.g. arch-chroot); enable
                        services for next boot without starting them now.
@@ -173,32 +177,44 @@ load_saved_settings() {
     [[ -r $SETTINGS_FILE ]] || return 0
     local key value
     while IFS='=' read -r key value; do
-        # Dolphin was the file manager before Lia Files; once Lia Files is installed it takes over.
-        [[ $key == file_manager && $value == org.kde.dolphin ]] && lia_files_installed && value=io.github.lia.Files
         if [[ $key =~ ^[a-z_]+$ && -v SETTING_LABELS[$key] ]]; then set_default "$key" "$value"; fi
     done < "$SETTINGS_FILE"
 }
 
-# Lia Files, installed natively or from Flatpak. Penumbra doesn't install it (yet).
-lia_files_installed() {
-    command -v lia-files >/dev/null || { command -v flatpak >/dev/null && flatpak info io.github.lia.Files >/dev/null 2>&1; }
+file_manager_available() { "$ROOT/bin/penumbra-files" --check "$1"; }
+
+# A full Arch install can supply Dolphin from the repositories. The ISO has already
+# installed Lia Files by the time it reaches this step.
+ensure_file_manager() {
+    local app=${settings[file_manager]}
+    file_manager_available "$app" && return 0
+    if [[ ${app%.desktop} == org.kde.dolphin && $PART == all && $SKIP_PACKAGES != 1 ]]; then
+        if [[ ${PLAN:-0} == 1 ]]; then
+            echo "Package to install: dolphin"
+        elif interactive && [[ $ASSUME_YES != 1 ]]; then
+            ask 'Install Dolphin for Super+E and folders?' ||
+                die 'Install your preferred file manager, then run the installer again with --file-manager APP.'
+        fi
+        return 0
+    fi
+    if (( PLAN )); then echo "Required file manager: $app (install before applying)"; return; fi
+    die "Cannot launch $app. Install its desktop entry first, or run ./install.sh --file-manager org.kde.dolphin to install Dolphin."
 }
 
-save_settings() {
-    mkdir -p "$(dirname "$SETTINGS_FILE")"
+render_settings() {
     {
         echo "# Penumbra settings, written by install.sh and the shell's Settings pages."
         echo '# Edit them, then run ./install.sh --user-only (or penumbra-settings apply) to apply.'
         local key
         for key in "${SETTING_KEYS[@]}"; do printf '%s=%s\n' "$key" "${settings[$key]}"; done
-    } > "$SETTINGS_FILE"
+    } > "$WORK_DIR/settings.conf"
 }
 
 # localectl_field "X11 Layout" → that line's value from `localectl status`.
 localectl_field() {
     [[ ${OFFLINE:-0} == 1 ]] && return 0
     command -v localectl >/dev/null || return 0
-    localectl status 2>/dev/null | sed -n "s/^ *$1: //p"
+    localectl status 2>/dev/null | sed -n "s/^ *$1: //p" || true
 }
 
 known_layout() {
@@ -227,11 +243,8 @@ detect_settings() {
     set_default numlock on
     set_default shell fish
     set_default terminal kitty
-    # Lia Files, or Dolphin if that is all there is. Super+E falls back to either one.
-    if ! lia_files_installed && command -v dolphin >/dev/null; then
-        set_default file_manager org.kde.dolphin
-    else
-        set_default file_manager io.github.lia.Files
+    if [[ ! -v settings[file_manager] ]]; then
+        settings[file_manager]=$("$ROOT/bin/penumbra-files" --detect)
     fi
     set_default idle_dim 9.5
     set_default idle_lock 10
@@ -298,6 +311,9 @@ is_vm() { systemd-detect-virt --vm --quiet 2>/dev/null; }
 # file in a run counts: later ones would keep what this run already changed.
 backup_file() {
     local path=$1 name=$2
+    if [[ $CONFIG_HOME != "$HOME/.config" && $path == "$CONFIG_HOME/"* && ${SYSTEM_FILES:-0} != 1 ]]; then
+        name=xdg-config/${path#"$CONFIG_HOME/"}
+    fi
     if [[ -e $BACKUP/$name || -L $BACKUP/$name ]] || grep -qxF -- "$path" "$BACKUP/new-files.txt" 2>/dev/null; then
         return 0
     elif [[ -e $path || -L $path ]]; then
@@ -334,12 +350,14 @@ install_tree() {
     local from=$1 to=$2 source dest
     while IFS= read -r -d '' source; do
         dest=$to/${source#"$from/"}
-        backup_file "$dest" "${dest#"$HOME/"}"
-        mkdir -p "$(dirname "$dest")"
         if grep -Iq '@@[A-Z_]*@@' "$source"; then
-            render_template "$source" > "$dest"
+            local rendered
+            rendered=$(mktemp)
+            render_template "$source" > "$rendered"
+            install_file "$rendered" "$dest" "$source"
+            rm -f "$rendered"
         else
-            cp "$source" "$dest"
+            install_file "$source" "$dest"
         fi
     done < <(find "$from" -type f -print0)
 }
@@ -352,9 +370,8 @@ prune_tree() {
     [[ -d $to ]] || return 0
     while IFS= read -r -d '' dest; do
         [[ -e $from/${dest#"$to/"} ]] && continue
-        backup_file "$dest" "${dest#"$HOME/"}"
-        rm -f "$dest"
-        echo "Removed ${dest/#"$HOME"/\~}; Penumbra no longer uses it."
+        remove_file "$dest"
+        (( PLAN )) || echo "Removed ${dest/#"$HOME"/\~}; Penumbra no longer uses it."
     done < <(find "$to" \( -type f -o -type l \) -print0)
 }
 
@@ -363,19 +380,18 @@ prune_tree() {
 create_user_files() {
     local path
     declare -A starters=(
-        [$HOME/.config/mango/user.conf]='# Your own MangoWM settings, read after Penumbra'"'"'s config.conf. ./install.sh never replaces this file.
+        [$CONFIG_HOME/mango/user.conf]='# Your own MangoWM settings, read after Penumbra'"'"'s config.conf. ./install.sh never replaces this file.
 # gap_outer_horizontal=8
 # bind=SUPER,T,spawn,thunar'
-        [$HOME/.config/kitty/user.conf]='# Your own Kitty settings, read after Penumbra'"'"'s kitty.conf. ./install.sh never replaces this file.
+        [$CONFIG_HOME/kitty/user.conf]='# Your own Kitty settings, read after Penumbra'"'"'s kitty.conf. ./install.sh never replaces this file.
 # font_size 12.0'
-        [$HOME/.config/nvim/lua/user.lua]='-- Your own Neovim settings, run after Penumbra'"'"'s init.lua. ./install.sh never replaces this file.
+        [$CONFIG_HOME/nvim/lua/user.lua]='-- Your own Neovim settings, run after Penumbra'"'"'s init.lua. ./install.sh never replaces this file.
 -- vim.opt.relativenumber = false'
     )
     for path in "${!starters[@]}"; do
-        [[ -e $path ]] && continue
-        backup_file "$path" "${path#"$HOME/"}"
-        mkdir -p "$(dirname "$path")"
-        printf '%s\n' "${starters[$path]}" > "$path"
+        [[ -e $path || -L $path ]] && continue
+        printf '%s\n' "${starters[$path]}" > "$WORK_DIR/starter"
+        install_file "$WORK_DIR/starter" "$path"
     done
 }
 # ─── System part (root) ──────────────────────────────────────────────────────
@@ -385,7 +401,9 @@ install_packages() {
         echo 'Skipping packages.'
         return
     fi
-    pkg_install "${PACKAGES[@]}"
+    local packages=("${PACKAGES[@]}")
+    if [[ ${settings[file_manager]:-} == org.kde.dolphin || ${settings[file_manager]:-} == org.kde.dolphin.desktop ]]; then packages+=(dolphin); fi
+    pkg_install "${packages[@]}"
 }
 
 remove_legacy_packages() {
@@ -415,11 +433,11 @@ install_system_files() {
         [[ -d $from ]] || continue
         while IFS= read -r -d '' source; do
             rel=${source#"$from/"}
-            backup_file "/$rel" "$rel"
-            install -Dm644 "$source" "/$rel"
+            SYSTEM_FILES=1 install_file "$source" "/$rel"
         done < <(find "$from" -type f -print0)
     done
     configure_vm_greeter
+    (( ! PLAN )) || return 0
     # The battery charge limit rule (Settings → Battery care) applies without a reboot.
     if [[ ${OFFLINE:-0} != 1 ]] && command -v udevadm >/dev/null; then
         udevadm control --reload 2>/dev/null || true
@@ -432,12 +450,11 @@ install_system_files() {
 configure_vm_greeter() {
     local conf=/etc/sddm.conf.d/91-penumbra-vm.conf
     if is_vm; then
-        backup_file "$conf" "${conf#/}"
         printf '%s\n' '# Written by the Penumbra installer because this is a virtual machine.' '[General]' \
-            'GreeterEnvironment=QT_SCREEN_SCALE_FACTORS=1,QT_QUICK_CONTROLS_STYLE=Basic,QT_QUICK_BACKEND=software' > "$conf"
+            'GreeterEnvironment=QT_SCREEN_SCALE_FACTORS=1,QT_QUICK_CONTROLS_STYLE=Basic,QT_QUICK_BACKEND=software' > "$WORK_DIR/vm.conf"
+        SYSTEM_FILES=1 install_file "$WORK_DIR/vm.conf" "$conf"
     elif [[ -e $conf ]]; then
-        backup_file "$conf" "${conf#/}"
-        rm -f "$conf"
+        SYSTEM_FILES=1 remove_file "$conf"
     fi
 }
 
@@ -445,8 +462,13 @@ set_login_shell() {
     local user=$1 fish
     [[ ${settings[shell]:-fish} == fish ]] || return 0
     fish=$(command -v fish) || { warn 'fish is not installed; the login shell stays as it is.'; return 0; }
-    getent passwd "$user" | cut -d: -f7 > "$BACKUP/previous-shell.txt"
+    local previous
+    previous=$(getent passwd "$user" | cut -d: -f7)
+    [[ $previous != "$fish" ]] || return 0
+    if (( PLAN )); then echo "Set login shell for $user to $fish"; return; fi
+    printf '%s\n' "$previous" > "$BACKUP/previous-shell.txt"
     usermod -s "$fish" "$user"
+    completed Shell "$user"
 }
 
 # Give the login screen the same keyboard layout as the desktop.
@@ -455,18 +477,20 @@ set_login_keyboard() {
     local layout=${settings[kb_layout]} variant=${settings[kb_variant]:-} options=${settings[kb_options]:-}
     if [[ ${OFFLINE:-0} == 1 ]]; then
         local path=/etc/X11/xorg.conf.d/00-keyboard.conf
-        backup_file "$path" "${path#/}"
-        mkdir -p "${path%/*}"
+
         printf 'Section "InputClass"\n    Identifier "system-keyboard"\n    MatchIsKeyboard "on"\n    Option "XkbLayout" "%s"\n    Option "XkbVariant" "%s"\n    Option "XkbOptions" "%s"\nEndSection\n' \
-            "$layout" "$variant" "$options" > "$path"
+            "$layout" "$variant" "$options" > "$WORK_DIR/keyboard.conf"
+        SYSTEM_FILES=1 install_file "$WORK_DIR/keyboard.conf" "$path"
         return 0
     fi
     if [[ $(localectl_field 'X11 Layout') == "$layout" && $(localectl_field 'X11 Variant') == "$variant" ]]; then
         return 0
     fi
+    (( ! PLAN )) || { echo "Set login keyboard to $layout"; return 0; }
     localectl status > "$BACKUP/localectl-status.txt" 2>&1 || true
     # --no-convert leaves the text console keymap alone.
     if localectl --no-convert set-x11-keymap "$layout" "$(localectl_field 'X11 Model')" "$variant" "$options"; then
+        completed Keyboard "$layout"
         echo "Login screen keyboard layout set to $layout${variant:+ ($variant)}."
     else
         warn 'Could not set the login screen keyboard layout.'
@@ -481,11 +505,13 @@ enable_keyring_unlock() {
     [[ -f $pam ]] || return 0
     grep -Eq '^-?auth[[:space:]].*pam_gnome_keyring\.so' "$pam" \
         && grep -Eq '^-?session[[:space:]].*pam_gnome_keyring\.so' "$pam" && return 0
+    if (( PLAN )); then plan_file Edit "$pam"; return; fi
     backup_file "$pam" "${pam#/}"
     grep -Eq '^-?auth[[:space:]].*pam_gnome_keyring\.so' "$pam" \
         || printf '%s\n' '-auth       optional    pam_gnome_keyring.so' >> "$pam"
     grep -Eq '^-?session[[:space:]].*pam_gnome_keyring\.so' "$pam" \
         || printf '%s\n' '-session    optional    pam_gnome_keyring.so    auto_start' >> "$pam"
+    completed Edit "$pam"
     echo "Added gnome-keyring to $pam, so the keyring unlocks when you sign in."
 }
 
@@ -502,11 +528,13 @@ enable_fingerprint_polkit() {
     local question='Accept a fingerprint, instead of your password, for administrator prompts?'
     # The edited copy in /etc shadows the package's file, so its later updates would not apply.
     [[ $from == "$vendor" ]] && question+=" (This copies $vendor to $pam, which then hides package updates to it.)"
+    if (( PLAN )); then echo "Optional: $question"; return; fi
     ask "$question" || return 0
     backup_file "$pam" "${pam#/}"
     awk '!done && /^-?auth[[:space:]]/ { print "-auth      sufficient   pam_fprintd.so max-tries=1 timeout=10"; done = 1 } { print }' \
         "$from" > "$pam.penumbra" && mv "$pam.penumbra" "$pam"
     chmod 644 "$pam"
+    completed Edit "$pam"
     echo "Added fingerprint sign-in to $pam, for administrator prompts."
 }
 
@@ -531,14 +559,24 @@ enable_services() {
 }
 
 run_system_part() {
-    [[ $EUID == 0 ]] || die 'The system part needs root: sudo ./install.sh --system-only'
+    [[ $EUID == 0 || $PLAN == 1 ]] || die 'The system part needs root: sudo ./install.sh --system-only'
     local user=${TARGET_USER:-${SUDO_USER:-}}
+    if (( PLAN )); then
+        echo "System phase: packages, login settings, services and optional boot themes"
+        install_system_files
+        set_login_keyboard
+        [[ -z $user ]] || set_login_shell "$user"
+        enable_keyring_unlock
+        enable_fingerprint_polkit
+        return
+    fi
     [[ -n $user && $user != root ]] || die 'Name the desktop user with --user NAME.'
     BACKUP=/var/lib/penumbra/backups/$STAMP
     mkdir -p "$BACKUP"
 
     step 'Installing packages'
     install_packages
+    completed Finish packages
     remove_legacy_packages
 
     step 'Installing the login screen, cursors and system files'
@@ -548,6 +586,7 @@ run_system_part() {
     enable_keyring_unlock
     enable_fingerprint_polkit
     enable_services
+    completed Finish services
 
     if [[ ${OFFLINE:-0} != 1 ]]; then
         step 'Boot themes (optional)'
@@ -571,23 +610,32 @@ run_boot_part() {
 
 install_wallpapers() {
     local dir=$HOME/.local/share/penumbra wallpaper
-    mkdir -p "$dir"
     for wallpaper in "$ROOT"/assets/wallpaper*.png; do
-        backup_file "$dir/${wallpaper##*/}" ".local/share/penumbra/${wallpaper##*/}"
-        cp "$wallpaper" "$dir/"
+        install_file "$wallpaper" "$dir/${wallpaper##*/}"
     done
     # The lock screen follows the chosen wallpaper; penumbra-wallpaper repoints this link.
-    [[ -e $dir/lock.png ]] || ln -sfn "$dir/wallpaper-clean.png" "$dir/lock.png"
+    if [[ ! -e $dir/lock.png && ! -L $dir/lock.png ]]; then
+        if (( PLAN )); then plan_file Create "$dir/lock.png"; return; fi
+        backup_file "$dir/lock.png" .local/share/penumbra/lock.png
+        ln -s "$dir/wallpaper-clean.png" "$dir/lock.png"
+        completed create "$dir/lock.png"
+    fi
 }
 
 # Stop the previous bar, notification daemon and wallpaper setter, and move their configs into the backup.
 retire_legacy_desktop() {
     local name
-    for name in "${LEGACY_PROCESSES[@]}"; do pkill -u "$UID" -x "$name" 2>/dev/null || true; done
+    if (( ! PLAN )); then
+        for name in "${LEGACY_PROCESSES[@]}"; do pkill -u "$UID" -x "$name" 2>/dev/null || true; done
+    fi
     for name in "${LEGACY_CONFIGS[@]}"; do
-        [[ -e $HOME/.config/$name ]] || continue
-        mkdir -p "$BACKUP/.config"
-        mv "$HOME/.config/$name" "$BACKUP/.config/$name"
+        [[ -e $CONFIG_HOME/$name ]] || continue
+        if (( PLAN )); then plan_file Remove "$CONFIG_HOME/$name"; continue; fi
+        local prefix=.config
+        [[ $CONFIG_HOME == "$HOME/.config" ]] || prefix=xdg-config
+        mkdir -p "$BACKUP/$prefix"
+        mv "$CONFIG_HOME/$name" "$BACKUP/$prefix/$name"
+        completed Remove "$CONFIG_HOME/$name"
         echo "Moved ~/.config/$name to the backup; it is no longer used."
     done
 }
@@ -609,7 +657,7 @@ apply_gtk_settings() {
 # gnome-keyring keeps the passwords apps save (Secret Service). KWallet comes with KDE apps and can
 # claim the same D-Bus name, so it is told not to; their own KWallet use is unchanged.
 configure_keyring() {
-    local rc=$HOME/.config/kwalletrc
+    local rc=$CONFIG_HOME/kwalletrc
     if command -v kwriteconfig6 >/dev/null; then
         backup_file "$rc" .config/kwalletrc
         kwriteconfig6 --file "$rc" --group org.freedesktop.secrets --key apiEnabled false
@@ -633,8 +681,9 @@ clean_stale_lia_overrides() {
         [[ -f $file ]] || continue
         bin=$(sed -n 's/^Exec=["'\'']*\([^"'\'' ]*\).*/\1/p' "$file")
         if [[ $bin == /* && ! -x $bin ]]; then
-            rm -f "$file"
-            [[ $file == *portal.desktop.lia.service ]] && rm -f "$data/xdg-desktop-portal/portals/lia.portal"
+            remove_file "$file"
+            local portal=$data/xdg-desktop-portal/portals/lia.portal
+            if [[ $file == *portal.desktop.lia.service && -e $portal ]]; then remove_file "$portal"; fi
             removed=1
         fi
     done
@@ -645,18 +694,15 @@ clean_stale_lia_overrides() {
 # once it is installed: its desktop file has to exist.
 set_folder_default() {
     clean_stale_lia_overrides || true
-    local app=${settings[file_manager]}.desktop dirs dir
+    local app=${settings[file_manager]%.desktop}.desktop
+    file_manager_available "$app" || return 0
     command -v xdg-mime >/dev/null || return 0
     [[ $(xdg-mime query default inode/directory 2>/dev/null) == "$app" ]] && return 0
-    IFS=: read -ra dirs <<< "${XDG_DATA_HOME:-$HOME/.local/share}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-    dirs+=("$HOME/.local/share/flatpak/exports/share" /var/lib/flatpak/exports/share)
-    for dir in "${dirs[@]}"; do
-        [[ -f $dir/applications/$app ]] || continue
-        backup_file "$HOME/.config/mimeapps.list" .config/mimeapps.list
-        xdg-mime default "$app" inode/directory
-        echo "Folders open in ${settings[file_manager]}."
-        return 0
-    done
+    if (( PLAN )); then plan_file Edit "$CONFIG_HOME/mimeapps.list"; return; fi
+    backup_file "$CONFIG_HOME/mimeapps.list" .config/mimeapps.list
+    xdg-mime default "$app" inode/directory
+    completed Default "$app"
+    echo "Folders open in ${settings[file_manager]}."
 }
 
 # The portal reads portals.conf when it starts: restart it when that changed or Lia Files is
@@ -665,7 +711,8 @@ set_folder_default() {
 restart_portal() {
     local conf=.config/xdg-desktop-portal/portals.conf stale=0
     clean_stale_lia_overrides && stale=1
-    if (( ! stale )) && cmp -s "$BACKUP/$conf" "$HOME/$conf" && ! command -v lia-files >/dev/null; then
+    if (( ! stale )) && ! grep -qxF -- "$CONFIG_HOME/xdg-desktop-portal/portals.conf" "$BACKUP/new-files.txt" 2>/dev/null \
+        && [[ ! -e $BACKUP/$conf && ! -e $BACKUP/xdg-config/xdg-desktop-portal/portals.conf ]] && ! command -v lia-files >/dev/null; then
         return 0
     fi
     if (( stale )) && command -v gdbus >/dev/null; then
@@ -679,7 +726,7 @@ restart_portal() {
 disable_dunst() {
     systemctl --user cat dunst.service >/dev/null 2>&1 || return 0
     systemctl --user is-enabled dunst.service > "$BACKUP/dunst.enabled" 2>&1 || true
-    backup_file "$HOME/.config/systemd/user/dunst.service" .config/systemd/user/dunst.service
+    backup_file "$CONFIG_HOME/systemd/user/dunst.service" .config/systemd/user/dunst.service
     systemctl --user mask --now dunst.service
     systemctl --user daemon-reload
 }
@@ -693,7 +740,7 @@ declare -A APP_COMMANDS=([vscode]='code codium')
 
 install_app_colors() {
     local dir app command found
-    for dir in "$ROOT"/apps/*/; do
+    for dir in "${PREPARED:-$ROOT}"/apps/*/; do
         dir=${dir%/} app=${dir##*/} found=
         for command in ${APP_COMMANDS[$app]:-$app}; do
             command -v "$command" >/dev/null && found=1
@@ -701,11 +748,11 @@ install_app_colors() {
         if [[ $app = lia-files ]] && command -v flatpak >/dev/null && flatpak info io.github.lia.Files >/dev/null 2>&1; then
             found=1
             install_tree "$dir/config" "$HOME/.var/app/io.github.lia.Files/config"
-            install_tree "$ROOT/share/gtksourceview-5" "$HOME/.var/app/io.github.lia.Files/data/gtksourceview-5"
+            install_tree "${PREPARED:-$ROOT}/share/gtksourceview-5" "$HOME/.var/app/io.github.lia.Files/data/gtksourceview-5"
             install_tree "$ROOT/share/lia-files" "$HOME/.var/app/io.github.lia.Files/data/lia-files"
         fi
         [[ -n $found ]] || continue
-        [[ ! -d $dir/config ]] || install_tree "$dir/config" "$HOME/.config"
+        [[ ! -d $dir/config ]] || install_tree "$dir/config" "$CONFIG_HOME"
         [[ ! -d $dir/share ]] || install_tree "$dir/share" "$HOME/.local/share"
         if declare -F "color_$app" >/dev/null; then "color_$app" "$dir"; fi
         echo "Penumbra colours for $app."
@@ -713,6 +760,7 @@ install_app_colors() {
 }
 
 color_lia-files() {
+    (( ! PLAN )) || return 0
     if command -v gsettings >/dev/null && gsettings list-schemas | grep -qx io.github.lia.Files; then
         local key current
         for key in text-scheme-dark text-scheme-light; do
@@ -745,9 +793,42 @@ color_lia-files() {
 
 # install_file FROM TO: copy one file, keeping what it replaces.
 install_file() {
-    backup_file "$2" "${2#"$HOME/"}"
-    mkdir -p "$(dirname "$2")"
-    cp "$1" "$2"
+    local source=$1 dest=$2 mode_from=${3:-$1} name action=Create
+    if [[ -f $dest ]] && cmp -s "$source" "$dest" && { [[ ! -x $mode_from ]] || [[ -x $dest ]]; }; then
+        return 0
+    fi
+    [[ ! -e $dest && ! -L $dest ]] || action=Update
+    if (( PLAN )); then plan_file "$action" "$dest"; return; fi
+    name=${dest#"$HOME/"}
+    [[ ${SYSTEM_FILES:-0} != 1 ]] || name=${dest#/}
+    backup_file "$dest" "$name"
+    mkdir -p "${dest%/*}"
+    # Replace links themselves, so restoring a backed-up link also restores its original target.
+    local tmp
+    tmp=$(mktemp "${dest%/*}/.penumbra-XXXXXXXX")
+    cp "$source" "$tmp"
+    if [[ -f $dest && ! -L $dest ]]; then chmod --reference="$dest" "$tmp"
+    else chmod --reference="$mode_from" "$tmp"; fi
+    [[ ! -x $mode_from ]] || chmod +x "$tmp"
+    mv -fT "$tmp" "$dest"
+    completed "$action" "$dest"
+}
+
+plan_file() {
+    printf '%s %s\n' "$1" "$2"
+    (( ++PLANNED_FILES ))
+}
+
+completed() { printf '%s\t%s\n' "$1" "$2" >> "$BACKUP/completed.txt"; }
+
+remove_file() {
+    local dest=$1 name
+    if (( PLAN )); then plan_file Remove "$dest"; return; fi
+    name=${dest#"$HOME/"}
+    [[ ${SYSTEM_FILES:-0} != 1 ]] || name=${dest#/}
+    backup_file "$dest" "$name"
+    rm -f "$dest"
+    completed Remove "$dest"
 }
 
 # add_line FILE LINE [top]: add LINE at the end of FILE, or at the top, unless FILE already has it.
@@ -755,6 +836,7 @@ install_file() {
 add_line() {
     local file=$1 line=$2 text=''
     [[ -f $file ]] && grep -qxF -- "$line" "$file" && return 0
+    if (( PLAN )); then plan_file Edit "$file"; return; fi
     backup_file "$file" "${file#"$HOME/"}"
     mkdir -p "$(dirname "$file")"
     [[ -f $file ]] && text=$(<"$file")
@@ -763,15 +845,18 @@ add_line() {
     else
         printf '%s%s\n' "${text:+$text$'\n'}" "$line" > "$file"
     fi
+    completed Edit "$file"
 }
 
 # btop: choose the theme in btop.conf (btop fills in the rest of a new file).
 color_btop() {
-    local conf=$HOME/.config/btop/btop.conf
+    local conf=$CONFIG_HOME/btop/btop.conf
     if [[ -f $conf ]] && grep -q '^color_theme *=' "$conf"; then
         grep -qx 'color_theme = "penumbra"' "$conf" && return 0
+        if (( PLAN )); then plan_file Edit "$conf"; return; fi
         backup_file "$conf" .config/btop/btop.conf
         sed --follow-symlinks -i 's/^color_theme *=.*/color_theme = "penumbra"/' "$conf"
+        completed Edit "$conf"
     else
         add_line "$conf" 'color_theme = "penumbra"'
     fi
@@ -783,7 +868,7 @@ color_bat() {
     local conf
     conf=$(bat --config-file)
     [[ -f $conf ]] && grep -q '^--theme[= ]' "$conf" || add_line "$conf" '--theme="Penumbra"'
-    bat cache --build >/dev/null
+    if (( ! PLAN )); then bat cache --build >/dev/null; fi
 }
 
 # delta: include the "penumbra" feature from your Git configuration and add it to delta.features,
@@ -792,27 +877,30 @@ color_delta() {
     local conf=$HOME/.gitconfig features
     # shellcheck disable=SC2088  # Git expands the ~ itself.
     local include='~/.config/git/penumbra-delta.gitconfig'
-    [[ -e $conf || ! -e $HOME/.config/git/config ]] || conf=$HOME/.config/git/config
+    [[ $CONFIG_HOME == "$HOME/.config" ]] || include=$CONFIG_HOME/git/penumbra-delta.gitconfig
+    [[ -e $conf || ! -e $CONFIG_HOME/git/config ]] || conf=$CONFIG_HOME/git/config
     # Syntax highlighting in the Penumbra colours comes from bat's theme cache.
-    if command -v bat >/dev/null; then
-        git config --file "$HOME/.config/git/penumbra-delta.gitconfig" delta.penumbra.syntax-theme Penumbra
+    if (( ! PLAN )) && command -v bat >/dev/null; then
+        git config --file "$CONFIG_HOME/git/penumbra-delta.gitconfig" delta.penumbra.syntax-theme Penumbra
     fi
     features=$(git config --file "$conf" delta.features || true)
     if git config --file "$conf" --get-all include.path 2>/dev/null | grep -qxF "$include" \
         && [[ " $features " == *' penumbra '* ]]; then
         return 0
     fi
+    if (( PLAN )); then plan_file Edit "$conf"; return; fi
     backup_file "$conf" "${conf#"$HOME/"}"
     git config --file "$conf" --get-all include.path 2>/dev/null | grep -qxF "$include" \
         || git config --file "$conf" --add include.path "$include"
     [[ " $features " == *' penumbra '* ]] || git config --file "$conf" delta.features "${features:+$features }penumbra"
+    completed Edit "$conf"
 }
 
 # yazi: the flavor's code previews use bat's theme; choose the flavor unless theme.toml has one.
 color_yazi() {
-    local theme=$HOME/.config/yazi/theme.toml
-    install_file "$ROOT/apps/bat/config/bat/themes/Penumbra.tmTheme" \
-        "$HOME/.config/yazi/flavors/penumbra.yazi/tmtheme.xml"
+    local theme=$CONFIG_HOME/yazi/theme.toml
+    install_file "${PREPARED:-$ROOT}/apps/bat/config/bat/themes/Penumbra.tmTheme" \
+        "$CONFIG_HOME/yazi/flavors/penumbra.yazi/tmtheme.xml"
     if [[ -f $theme ]] && grep -q '^\[flavor\]' "$theme"; then
         grep -q '"penumbra"' "$theme" || echo 'yazi: your theme.toml chooses its own flavor; set dark = "penumbra" and light = "penumbra" there to use Penumbra.'
         return 0
@@ -821,14 +909,15 @@ color_yazi() {
     add_line "$theme" $'[flavor]\ndark = "penumbra"\nlight = "penumbra"'
 }
 
-color_zathura() { add_line "$HOME/.config/zathura/zathurarc" 'include penumbra-colors'; }
+color_zathura() { add_line "$CONFIG_HOME/zathura/zathurarc" 'include penumbra-colors'; }
 
 # mpv: at the top of mpv.conf, so it isn't read as part of a [profile].
-color_mpv() { add_line "$HOME/.config/mpv/mpv.conf" 'include="~~/penumbra.conf"' top; }
+color_mpv() { add_line "$CONFIG_HOME/mpv/mpv.conf" 'include="~~/penumbra.conf"' top; }
 
 # VS Code, Code - OSS and VSCodium: package the theme as an extension and install it with the editor's
 # own command (a copied folder is ignored once the editor keeps a list of its extensions).
 color_vscode() {
+    (( ! PLAN )) || { echo "Install the Penumbra editor extension"; return; }
     local vsix=$BACKUP/penumbra-theme.vsix command
     (cd "$1/vsix" && python3 -m zipfile -c "$vsix" extension.vsixmanifest '[Content_Types].xml' extension)
     for command in ${APP_COMMANDS[vscode]}; do
@@ -843,8 +932,9 @@ color_vscode() {
 
 # Cava: choose our gradient without replacing audio, smoothing or output settings, or a named theme.
 color_cava() {
-    local conf=$HOME/.config/cava/config
+    local conf=$CONFIG_HOME/cava/config
     if [[ -f $conf ]] && grep -qE '^[[:space:]]*theme[[:space:]]*=' "$conf"; then return 0; fi
+    if (( PLAN )); then plan_file Edit "$conf"; return; fi
     backup_file "$conf" .config/cava/config
     mkdir -p "${conf%/*}"
     python3 - "$conf" <<'EOF'
@@ -859,16 +949,18 @@ else:
     text = text.rstrip() + "\n\n[color]\ntheme = 'penumbra'\n"
 path.write_text(text)
 EOF
+    completed Edit "$conf"
 }
 
 # Vesktop: enable the theme and a transparent native window. A running Vesktop keeps its own
 # copy, so this shows after a restart. Other settings and enabled themes are preserved.
 color_vesktop() {
-    local settings=$HOME/.config/vesktop/settings/settings.json
+    local settings=$CONFIG_HOME/vesktop/settings/settings.json
     if [[ -f $settings ]]; then
         python3 -c 'import json, sys; s = json.load(open(sys.argv[1])); sys.exit("penumbra.theme.css" in s.get("enabledThemes", []) and s.get("transparent") is True)' \
             "$settings" || return 0
     fi
+    if (( PLAN )); then plan_file Edit "$settings"; return; fi
     backup_file "$settings" .config/vesktop/settings/settings.json
     mkdir -p "${settings%/*}"
     python3 - "$settings" <<'EOF'
@@ -883,6 +975,7 @@ settings['transparent'] = True
 with open(sys.argv[1], 'w') as file:
     json.dump(settings, file, indent=4)
 EOF
+    completed Edit "$settings"
 }
 
 # Firefox: every profile imports the colours from its chrome/userChrome.css, which Firefox reads
@@ -890,7 +983,7 @@ EOF
 # download goes) through the file chooser portal, so they are Lia Files' like other apps'.
 color_firefox() {
     local root profile
-    for root in "$HOME/.mozilla/firefox" "$HOME/.config/mozilla/firefox"; do
+    for root in "$HOME/.mozilla/firefox" "$CONFIG_HOME/mozilla/firefox"; do
         [[ -r $root/profiles.ini ]] || continue
         while IFS= read -r profile; do
             [[ $profile == /* ]] || profile=$root/$profile
@@ -906,37 +999,37 @@ color_firefox() {
 }
 
 run_user_part() {
-    BACKUP=$HOME/.local/state/penumbra/backups/$STAMP
-    mkdir -p "$BACKUP"
+    PREPARED=$WORK_DIR/bundle
+    install_file "$WORK_DIR/settings.conf" "$SETTINGS_FILE"
+    python3 "$ROOT/tools/render-install.py" "$ROOT" "$PREPARED"
 
     step 'Installing your configuration'
-    prune_tree "$ROOT/config/quickshell/penumbra" "$HOME/.config/quickshell/penumbra"
-    prune_tree "$ROOT/config/nvim/lua/penumbra" "$HOME/.config/nvim/lua/penumbra"
+    prune_tree "$ROOT/config/quickshell/penumbra" "$CONFIG_HOME/quickshell/penumbra"
+    prune_tree "$ROOT/config/nvim/lua/penumbra" "$CONFIG_HOME/nvim/lua/penumbra"
     prune_tree "$ROOT/palette/templates" "$HOME/.local/share/penumbra/palette/templates"
     prune_tree "$ROOT/share/icons/Penumbra" "$HOME/.local/share/penumbra/icons/Penumbra"
     local script from
     for script in "$HOME"/.local/bin/penumbra-*; do
         [[ -e $script && ! -e $ROOT/bin/${script##*/} && ! -e $DISTRO_DIR/bin/${script##*/} ]] || continue
-        backup_file "$script" "${script#"$HOME/"}"
-        rm -f "$script"
-        echo "Removed ~/.local/bin/${script##*/}; Penumbra no longer uses it."
+        remove_file "$script"
+        (( PLAN )) || echo "Removed ~/.local/bin/${script##*/}; Penumbra no longer uses it."
     done
     # Retire obsolete Penumbra service units from previous installs.
     local package unit name
     for package in "${LEGACY_PACKAGES[@]}"; do
         name=penumbra-$package.service
-        unit=$HOME/.config/systemd/user/$name
+        unit=$CONFIG_HOME/systemd/user/$name
         [[ -f $unit && ! -e $ROOT/config/systemd/user/$name && ! -e $DISTRO_DIR/config/systemd/user/$name ]] || continue
-        backup_file "$unit" "${unit#"$HOME/"}"
-        if [[ ${OFFLINE:-0} != 1 ]]; then
+        if (( ! PLAN )) && [[ ${OFFLINE:-0} != 1 ]]; then
             systemctl --user stop "$name" 2>/dev/null || true
         fi
-        rm -f "$unit"
+        remove_file "$unit"
     done
     set_placeholders
     # The common files, then the distribution's, which can add to or replace them.
-    for from in "$ROOT" "$DISTRO_DIR"; do
-        [[ ! -d $from/config ]] || install_tree "$from/config" "$HOME/.config"
+    install_tree "$ROOT/bin" "$HOME/.local/bin"
+    for from in "$PREPARED" "$DISTRO_DIR"; do
+        [[ ! -d $from/config ]] || install_tree "$from/config" "$CONFIG_HOME"
         [[ ! -d $from/bin ]] || install_tree "$from/bin" "$HOME/.local/bin"
         [[ ! -d $from/share ]] || install_tree "$from/share" "$HOME/.local/share"
     done
@@ -945,24 +1038,19 @@ run_user_part() {
     # The icon theme as shipped, which penumbra-theme recolours the installed one from.
     install_tree "$ROOT/share/icons/Penumbra" "$HOME/.local/share/penumbra/icons/Penumbra"
     create_user_files
-    chmod +x "$HOME"/.local/bin/penumbra-*
-    # Dolphin only reads service menus in your account that are executable.
-    chmod +x "$HOME/.local/share/kio/servicemenus/penumbra-wallpaper.desktop"
-    # The configs above come rounded; put back sharp corners if that was the choice.
-    "$HOME/.local/bin/penumbra-corners" restore
-    backup_file "$HOME/.config/penumbra/swayidle.conf" .config/penumbra/swayidle.conf
-    backup_file "$HOME/.config/mango/settings.conf" .config/mango/settings.conf
-    "$HOME/.local/bin/penumbra-settings" apply --no-restart
     install_wallpapers
+    install_app_colors
     [[ ${OFFLINE:-0} == 1 ]] || retire_legacy_desktop
-
+    if (( PLAN )); then
+        set_folder_default
+        echo "Session phase: apply desktop defaults, restore the theme and enable user services"
+        return
+    fi
     step 'Applying themes and starting services'
     apply_gtk_settings
-    install_app_colors
     "$HOME/.local/bin/penumbra-corners" restore
-    # Every colour file above comes in the default dark palette; render them again for the chosen
-    # theme (and set the GTK theme for its mode).
     "$HOME/.local/bin/penumbra-theme" restore
+    completed Apply theme
     configure_keyring
     set_folder_default
     if [[ ${OFFLINE:-0} == 1 ]]; then
@@ -978,6 +1066,7 @@ run_user_part() {
         "$HOME/.local/bin/penumbra-session"
     fi
 
+    completed Finish session
     printf '\nPenumbra installed. User backup: %s\n' "$BACKUP"
     echo 'Log out when convenient to apply every environment setting.'
 }
@@ -989,7 +1078,7 @@ run_user_part() {
 
 # backup_runs DIR → the run backups in DIR (named YYYYmmdd-HHMMSS), newest first.
 backup_runs() {
-    find "$1" -mindepth 1 -maxdepth 1 -type d -regextype posix-extended -regex '.*/[0-9]{8}-[0-9]{6}' \
+    find "$1" -mindepth 1 -maxdepth 1 -type d -regextype posix-extended -regex '.*/[0-9]{8}-[0-9]{6}(-[0-9]{9})?' \
         -printf '%f\n' 2>/dev/null | sort -r
 }
 
@@ -1005,8 +1094,20 @@ undo_runs() {
     local runs
     mapfile -t runs < <(backup_runs "$dir")
     for run in "${runs[@]}"; do
+        local config_root=''
+        if [[ $target == "$HOME" && -r $dir/$run/config-home.txt ]]; then
+            config_root=$(<"$dir/$run/config-home.txt")
+            [[ $config_root == "$CONFIG_HOME" && $config_root != "$HOME/.config" ]] || config_root=''
+        fi
         if [[ -r $dir/$run/new-files.txt ]]; then
             while IFS= read -r path; do
+                if [[ -n $config_root && $path == "$config_root/"* ]]; then
+                    [[ ! -e $path && ! -L $path ]] || {
+                        keep_once "$path" "xdg-config/${path#"$config_root/"}"
+                        rm -f "$path"
+                    }
+                    continue
+                fi
                 [[ $path == "${target%/}"/* ]] && [[ -e $path || -L $path ]] || continue
                 rel=${path#"${target%/}/"}
                 [[ " $* " == *" ${rel%%/*} "* ]] || continue  # Only under TOPS.
@@ -1024,6 +1125,14 @@ undo_runs() {
                 cp -a "$path" "${target%/}/$rel"
             done < <(find "$dir/$run/$top" \( -type f -o -type l \) -print0)
         done
+        if [[ -n $config_root && -d $dir/$run/xdg-config ]]; then
+            while IFS= read -r -d '' path; do
+                rel=${path#"$dir/$run/xdg-config/"}
+                keep_once "$config_root/$rel" "xdg-config/$rel"
+                mkdir -p "$(dirname "$config_root/$rel")"
+                cp -a --remove-destination "$path" "$config_root/$rel"
+            done < <(find "$dir/$run/xdg-config" \( -type f -o -type l \) -print0)
+        fi
         echo "Undid the install of $run."
     done
 }
@@ -1049,9 +1158,9 @@ uninstall_user() {
     # The lock screen's link to the current wallpaper, the theme choice, its palette and the colours
     # found in wallpapers, and folders left empty.
     [[ -L $HOME/.local/share/penumbra/lock.png ]] && rm -f "$HOME/.local/share/penumbra/lock.png"
-    rm -f "$HOME/.local/state/penumbra/theme.json" "$HOME/.local/state/penumbra/palette.json"
+    rm -f "${XDG_STATE_HOME:-$HOME/.local/state}/penumbra/theme.json" "${XDG_STATE_HOME:-$HOME/.local/state}/penumbra/palette.json"
     rm -rf "$HOME/.cache/penumbra/theme"
-    find "$HOME/.config/quickshell/penumbra" "$HOME/.local/share/penumbra" "$HOME/.config/nvim/lua/penumbra" \
+    find "$CONFIG_HOME/quickshell/penumbra" "$HOME/.local/share/penumbra" "$CONFIG_HOME/nvim/lua/penumbra" \
         -depth -type d -empty -delete 2>/dev/null || true
     # The editor's theme extension, which the editor installed itself.
     for editor in ${APP_COMMANDS[vscode]}; do
@@ -1144,6 +1253,7 @@ while (( $# )); do
         --distro) DISTRO=${2?--distro needs a name}; shift ;;
         --skip-packages) SKIP_PACKAGES=1 ;;
         --offline) OFFLINE=1 ;;
+        --plan) PLAN=1 ;;
         --wm) [[ ${2:-} == mango ]] || die 'Penumbra uses MangoWM.'; shift ;;
         --remove-legacy) REMOVE_LEGACY=${2?--remove-legacy needs yes, no or ask}; shift ;;
         --user) TARGET_USER=${2?--user needs a name}; shift ;;
@@ -1164,6 +1274,7 @@ for key in "${!settings[@]}"; do
 done
 
 if (( UNINSTALL )); then
+    (( ! PLAN )) || die '--plan previews installation.'
     case $PART in
         system) uninstall_system ;;
         user|all)
@@ -1181,24 +1292,41 @@ if (( UNINSTALL )); then
 fi
 
 load_distro
+WORK_DIR=$(mktemp -d)
+trap 'rm -rf -- "$WORK_DIR"' EXIT
 case $PART in
     boot)
-        [[ $EUID == 0 ]] || exec sudo "$ROOT/install.sh" --boot-only --distro "$DISTRO"
-        run_boot_part
+        (( ! PLAN )) || { echo "Optional boot phase: Plymouth and boot menu themes"; exit 0; }
+        if [[ $EUID == 0 ]]; then run_boot_part; else sudo "$ROOT/install.sh" --boot-only --distro "$DISTRO"; fi
         ;;
     system)
         run_system_part
         ;;
     user|all)
-        [[ $EUID != 0 ]] || die 'Run this installer as your regular desktop user, not root.'
+        [[ $EUID != 0 || $PLAN == 1 ]] || die 'Run this installer as your regular desktop user, not root.'
         load_saved_settings
         detect_settings
         for key in "${SETTING_KEYS[@]}"; do
             valid_setting "$key" "${settings[$key]}" || die "Fix '$key' with its option (see --help) or in $SETTINGS_FILE."
         done
-        confirm_settings
-        save_settings
-        [[ $PART == all ]] && run_system_part_with_sudo
+        if (( ! PLAN )); then confirm_settings; fi
+        ensure_file_manager
+        render_settings
+        BACKUP=$HOME/.local/state/penumbra/backups/$STAMP
+        if (( ! PLAN )); then
+            mkdir -p "$BACKUP"
+            if ! cmp -s "$WORK_DIR/settings.conf" "$SETTINGS_FILE"; then
+                backup_file "$SETTINGS_FILE" "${SETTINGS_FILE#"$HOME/"}"
+            fi
+            printf '%s\n' "$CONFIG_HOME" > "$BACKUP/config-home.txt"
+        fi
+        if [[ $PART == all ]]; then
+            if (( PLAN )); then run_system_part; else run_system_part_with_sudo; fi
+        fi
+        if (( ! PLAN )); then
+            file_manager_available "${settings[file_manager]}" || die "Missing desktop entry for ${settings[file_manager]} after package installation."
+        fi
         run_user_part
         ;;
 esac
+if (( PLAN && PLANNED_FILES == 0 )); then echo 'No managed file changes.'; fi

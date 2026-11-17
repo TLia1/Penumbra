@@ -39,7 +39,7 @@ import time
 HOME = Path.home()
 CONFIG = Path(os.environ.get('XDG_CONFIG_HOME') or HOME / '.config')
 DATA = HOME / '.local' / 'share'
-STATE = HOME / '.local' / 'state' / 'penumbra'
+STATE = Path(os.environ.get('XDG_STATE_HOME') or HOME / '.local/state') / 'penumbra'
 CHOICE = STATE / 'theme.json'
 PALETTE_JSON = STATE / 'palette.json'
 SHARE = DATA / 'penumbra'
@@ -261,12 +261,10 @@ def render_files(palettes, mode):
     return changed
 
 
-def apply_mode(mode):
-    """The settings that follow the mode besides colours: the GTK theme and its dark preference,
-    which GTK, libadwaita, Qt and the portal (for web pages) read."""
+def write_gtk_mode(config, mode):
     dark = mode == 'dark'
     for version in ('gtk-3.0', 'gtk-4.0'):
-        path = CONFIG / version / 'settings.ini'
+        path = config / version / 'settings.ini'
         try:
             text = path.read_text()
         except OSError:
@@ -275,6 +273,11 @@ def apply_mode(mode):
         text = re.sub(r'(?m)^gtk-application-prefer-dark-theme=.*$',
                       'gtk-application-prefer-dark-theme=' + ('true' if dark else 'false'), text)
         write(path, text)
+
+
+def apply_mode(mode):
+    write_gtk_mode(CONFIG, mode)
+    dark = mode == 'dark'
     if shutil.which('gsettings'):
         interface = ['gsettings', 'set', 'org.gnome.desktop.interface']
         # Older GNOME schemas have no prefer-light; default means light there.
@@ -391,24 +394,26 @@ def show(colors, mode, duration):
     write(PALETTE_JSON, json.dumps({'mode': mode, 'duration': duration, 'colors': colors}, indent=1) + '\n')
 
 
-def apply(choice, duration, everything=True, wallpaper=None):
+def resolved_palettes(choice, picked, source):
     try:
-        palettes = palette.load(SHARE / 'palette' / 'palette.toml')
+        palettes = palette.load(source)
     except (OSError, ValueError) as error:
         sys.exit(f'penumbra-theme: {error}; run ./install.sh --user-only.')
+    return {mode: (palette.preset_palette(palettes, mode, choice['preset']) if choice.get('preset')
+                   else palette.resolve(palettes, mode, *picked, choice['harmonize']))
+            for mode in ('dark', 'light')}
+
+
+def apply(choice, duration, everything=True, wallpaper=None):
     mode = shown_mode(choice)
     picked = accent(choice, wallpaper)
-    colors = (palette.preset_palette(palettes, mode, choice['preset']) if choice.get('preset')
-              else palette.resolve(palettes, mode, *picked, choice['harmonize']))
+    palettes = resolved_palettes(choice, picked, SHARE / 'palette/palette.toml')
+    colors = palettes[mode]
     show(colors, mode, duration)
     if not everything:
         return
     if os.environ.get('MANGO_INSTANCE_SIGNATURE') and shutil.which('mmsg'):
         apply_mango(colors, mode)
-    # The files' other mode comes from the same choice, for the ones that hold both ({{light.name}}).
-    other = 'light' if mode == 'dark' else 'dark'
-    palettes = {mode: colors, other: (palette.preset_palette(palettes, other, choice['preset'])
-                if choice.get('preset') else palette.resolve(palettes, other, *picked, choice['harmonize']))}
     changed = render_files(palettes, mode)
     icons = recolor_icons(picked)
     apply_mode(mode)

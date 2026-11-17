@@ -119,7 +119,7 @@ Singleton {
     }
 
     FileView {
-        path: Quickshell.env("HOME") + "/.config/penumbra/shell.json"
+        path: (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/penumbra/shell.json"
         watchChanges: true
         printErrors: false
         onFileChanged: reload()

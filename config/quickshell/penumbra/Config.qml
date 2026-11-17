@@ -48,9 +48,12 @@ Singleton {
     readonly property bool transferring: transfer.running
     function transferSettings(args) {
         if (transferring) return;
+        reviewedToken = "";
+        transferMessage = "";
         transfer.command = [Ui.bin + "penumbra-settings"].concat(args);
         transfer.running = true;
     }
+    property string reviewedToken: ""
     property string transferMessage: ""
     Process {
         id: transfer
@@ -58,6 +61,11 @@ Singleton {
         stderr: StdioCollector { id: transferErr }
         onExited: code => {
             root.transferMessage = code === 0 ? transferOut.text.trim().replace(Quickshell.env("HOME"), "~") : transferErr.text.trim();
+            if (code === 0 && transfer.command.includes("--json-preview")) {
+                const preview = JSON.parse(transferOut.text);
+                root.reviewedToken = preview.token;
+                root.transferMessage = preview.summary;
+            }
             root.transferFinished();
         }
     }
@@ -86,7 +94,7 @@ Singleton {
         }
     }
     FileView {
-        path: Quickshell.env("HOME") + "/.config/penumbra/settings.conf"
+        path: (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/penumbra/settings.conf"
         watchChanges: true
         printErrors: false
         onFileChanged: getter.running = true

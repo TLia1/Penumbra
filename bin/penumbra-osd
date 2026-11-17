@@ -14,7 +14,7 @@ def run(*args):
 
 def max_output_volume():
     try:
-        settings = json.loads((Path.home() / '.config/penumbra/shell.json').read_text())
+        settings = json.loads((Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / 'penumbra/shell.json').read_text())
     except (OSError, ValueError):
         return 100
     return 150 if isinstance(settings, dict) and settings.get('volumeBoost') is True else 100

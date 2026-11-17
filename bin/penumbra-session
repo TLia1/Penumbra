@@ -3,13 +3,13 @@
 set -u
 [[ -n ${MANGO_INSTANCE_SIGNATURE:-} ]] || exit 0
 export QT_QPA_PLATFORMTHEME=qt6ct XCURSOR_THEME=Penumbra-Cursors XCURSOR_SIZE=28
-mkdir -p "$HOME/.local/state/penumbra"
+mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/penumbra"
 exec 9>"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/penumbra-session.lock"
 flock -n 9 || exit 0
 # The shell runs as a systemd user service, so it needs this session's environment. PATH lets
 # commands from the launcher find ~/.local/bin.
 dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP \
- MANGO_INSTANCE_SIGNATURE PATH QT_QPA_PLATFORMTHEME XCURSOR_THEME XCURSOR_SIZE
+ XDG_CONFIG_HOME XDG_STATE_HOME MANGO_INSTANCE_SIGNATURE PATH QT_QPA_PLATFORMTHEME XCURSOR_THEME XCURSOR_SIZE
 # Older Penumbra versions exported GTK_THEME, which breaks libadwaita apps.
 systemctl --user unset-environment GTK_THEME
 # A shell started by hand (or by an older Penumbra) would hold the notification and polkit names.

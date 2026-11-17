@@ -313,11 +313,12 @@ PanelWindow {
 
         // Pending updates; also there when a restart is due, with its own glyph.
         Capsule {
-            shown: Sys.updates > 0 || Sys.restartReasons.length > 0
+            shown: Sys.updates > 0 || Sys.updatesIncomplete || Sys.restartReasons.length > 0
             padding: 12
             active: Ui.updatesOpen
             id: updatesCapsule
             onClicked: Ui.toggle("updates")
+            Label { visible: Sys.updatesIncomplete; text: "!"; color: Ui.updatesOpen ? Theme.accentInk : Theme.amber }
             Glyph { visible: Sys.updates > 0; text: "󰚰"; color: Ui.updatesOpen ? Theme.accentInk : Theme.accentBright }
             Label { visible: Sys.updates > 0; text: Sys.updates; color: Ui.updatesOpen ? Theme.accentInk : Theme.accentBright }
             Glyph { visible: Sys.restartReasons.length > 0; text: "󰜉"; color: Ui.updatesOpen ? Theme.accentInk : Theme.amber }

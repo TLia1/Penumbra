@@ -155,7 +155,7 @@ Singleton {
         return "file://" + path.split("/").map(encodeURIComponent).join("/");
     }
     FileView {
-        path: Quickshell.env("HOME") + "/.local/state/penumbra/wallpaper"
+        path: (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state") + "/penumbra/wallpaper"
         watchChanges: true
         printErrors: false
         onFileChanged: reload()

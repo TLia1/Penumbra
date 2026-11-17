@@ -79,7 +79,7 @@ class SettingsDefaults(unittest.TestCase):
 
     def test_installer_matches_penumbra_settings(self):
         # With nothing detected: no keyboard from localectl, and Lia Files installed.
-        result = bash('localectl_field() { :; }; lia_files_installed() { true; }; settings=(); detect_settings; '
+        result = bash('localectl_field() { :; }; settings=([file_manager]=io.github.lia.Files); detect_settings; '
                       'for key in "${SETTING_KEYS[@]}"; do printf "%s=%s\\n" "$key" "${settings[$key]}"; done', 'arch')
         self.assertEqual(result.returncode, 0, result.stderr)
         installer = dict(line.split('=', 1) for line in result.stdout.splitlines())
@@ -201,41 +201,37 @@ class AppColors(unittest.TestCase):
     def test_file_manager_detection_preserves_existing_choice(self):
         out = self.run_install('''
             localectl_field() { :; }
+            export XDG_DATA_HOME=$HOME/data XDG_DATA_DIRS=$HOME/empty
+            mkdir -p "$XDG_DATA_HOME/applications"
+            desktop=$XDG_DATA_HOME/applications/io.github.lia.Files.desktop
+            printf '[Desktop Entry]\\nType=Application\\nName=Files\\nExec=/bin/true %%U\\n' > "$desktop"
             settings=(); detect_settings; echo "${settings[file_manager]}"
-            python3 "$ROOT/bin/penumbra-settings" get | python3 -c 'import json,sys; print(json.load(sys.stdin)["file_manager"])'
+            "$ROOT/bin/penumbra-settings" get | python3 -c 'import json,sys; print(json.load(sys.stdin)["file_manager"])'
             settings[file_manager]=custom; detect_settings; echo "${settings[file_manager]}"
-            missing=(lia-files)
-            command() {
-                if [[ $1 = -v && " ${missing[*]} " = *" $2 "* ]]; then return 1; fi
-                if [[ $1 = -v && $2 = dolphin ]]; then echo /usr/bin/dolphin; return 0; fi
-                builtin command "$@"
-            }
-            settings=(); detect_settings; echo "${settings[file_manager]}"
-            missing=(lia-files dolphin)
+            rm "$desktop"
             settings=(); detect_settings; echo "${settings[file_manager]}"
         ''')
-        self.assertEqual(out.splitlines(), ['io.github.lia.Files', 'io.github.lia.Files', 'custom',
-                                            'org.kde.dolphin', 'io.github.lia.Files'])
+        self.assertEqual(out.splitlines(), ['io.github.lia.Files', 'io.github.lia.Files', 'custom', 'org.kde.dolphin'])
 
-    def test_saved_dolphin_becomes_lia_files_once_installed(self):
+    def test_saved_dolphin_is_preserved_even_with_lia_installed(self):
         out = self.run_install('''
             SETTINGS_FILE=~/.config/penumbra/settings.conf; mkdir -p ~/.config/penumbra
             printf '%s\\n' file_manager=org.kde.dolphin terminal=kitty > "$SETTINGS_FILE"
             settings=(); load_saved_settings; echo "${settings[file_manager]}"
-            lia_files_installed() { false; }
             settings=(); load_saved_settings; echo "${settings[file_manager]}"
-            settings=([file_manager]=org.kde.dolphin); lia_files_installed() { true; }
+            settings=([file_manager]=org.kde.dolphin)
             load_saved_settings; echo "${settings[file_manager]}"
         ''')
-        self.assertEqual(out.splitlines(), ['io.github.lia.Files', 'org.kde.dolphin', 'org.kde.dolphin'])
+        self.assertEqual(out.splitlines(), ['org.kde.dolphin'] * 3)
 
     def test_folders_open_in_the_installed_file_manager(self):
         out = self.run_install('''
             xdg-mime() { if [[ $1 = query ]]; then cat ~/folders 2>/dev/null; else echo "$2" > ~/folders; fi; }
             BACKUP=$runs/20260104-000000; mkdir -p "$BACKUP"
-            XDG_DATA_HOME=~/data XDG_DATA_DIRS=/nonexistent
+            export XDG_DATA_HOME=~/data XDG_DATA_DIRS=/nonexistent
             settings=([file_manager]=org.example.Files); set_folder_default; cat ~/folders 2>/dev/null || echo none
-            mkdir -p ~/data/applications; touch ~/data/applications/org.example.Files.desktop
+            mkdir -p ~/data/applications
+            printf '[Desktop Entry]\\nType=Application\\nName=Files\\nExec=/bin/true %%U\\n' > ~/data/applications/org.example.Files.desktop
             set_folder_default; cat ~/folders
             set_folder_default
         ''')

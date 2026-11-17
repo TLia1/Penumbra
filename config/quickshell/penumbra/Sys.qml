@@ -38,6 +38,8 @@ Singleton {
 
     property int brightness: -1 // -1 when the machine has no backlight
     property int updates: 0
+    property string updateHeadline: "Checking for updates…"
+    property bool updatesIncomplete: false
     property string updatesDetail: ""
     property var updateSources: [] // [{ name, packages: ["name old -> new" or a Flatpak ref] }]
     property var updateNews: [] // the distribution's latest news: [{ title, link, date, new }]
@@ -103,12 +105,17 @@ Singleton {
             onStreamFinished: {
                 try {
                     const status = JSON.parse(text);
+                    root.updateHeadline = status.headline;
+                    root.updatesIncomplete = status.incomplete;
                     root.updates = status.count ?? 0;
                     root.updatesDetail = (status.details ?? []).join("\n");
                     root.updateSources = status.sources ?? [];
                     root.updateNews = status.news ?? [];
                     root.restartReasons = status.restart ?? [];
                 } catch (e) {
+                    root.updateHeadline = "Update check unavailable";
+                    root.updatesDetail = root.updateHeadline;
+                    root.updatesIncomplete = true;
                     root.updates = 0;
                     root.updateSources = [];
                 }

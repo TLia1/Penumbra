@@ -128,7 +128,7 @@ Singleton {
         }
     }
     FileView {
-        path: Quickshell.env("HOME") + "/.local/state/penumbra/theme.json"
+        path: (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state") + "/penumbra/theme.json"
         watchChanges: true
         printErrors: false
         onFileChanged: root.refresh()

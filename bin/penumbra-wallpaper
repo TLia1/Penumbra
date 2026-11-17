@@ -6,7 +6,7 @@
 # taken from the wallpaper.
 set -euo pipefail
 dir="$HOME/.local/share/penumbra"
-state="$HOME/.local/state/penumbra/wallpaper"
+state="${XDG_STATE_HOME:-$HOME/.local/state}/penumbra/wallpaper"
 folder="$HOME/Pictures/Wallpapers"
 # First frames and PNG copies, named after the md5 of the file's path (the shell finds them the same way).
 cache="$HOME/.cache/penumbra/wallpapers"

@@ -36,7 +36,7 @@ PACKAGES=(
     pacman-contrib flatpak libnotify librsvg python-pillow xorg-xcursorgen
 )
 # Previous desktop components, offered for removal after their replacements are installed.
-LEGACY_PACKAGES=(waybar mako swaybg dolphin
+LEGACY_PACKAGES=(waybar mako swaybg
     xdg-desktop-portal-hyprland hypridle hyprlock hyprsunset hyprpicker hyprland
 )
 # The boot splash, offered by ./install.sh --boot-only.

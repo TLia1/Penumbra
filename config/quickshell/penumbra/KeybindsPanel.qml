@@ -31,7 +31,7 @@ OnDemandPanel {
 
     Process {
         id: readBindings
-        command: ["bash", "-c", 'cat "$HOME/.config/mango/config.conf" "$HOME/.config/mango/input.conf" "$HOME/.config/mango/settings.conf" "$HOME/.config/mango/keybinds.conf" "$HOME/.config/mango/user.conf" 2>/dev/null']
+        command: ["bash", "-c", 'dir="${XDG_CONFIG_HOME:-$HOME/.config}/mango"; cat "$dir/config.conf" "$dir/input.conf" "$dir/settings.conf" "$dir/keybinds.conf" "$dir/user.conf" 2>/dev/null']
         stdout: StdioCollector {
             onStreamFinished: {
                 try {

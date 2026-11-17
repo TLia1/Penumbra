@@ -2,7 +2,7 @@
 # Switch Penumbra between rounded and sharp corners: the shell, windows, rofi, Satty
 # and the Fastfetch greeting. The shell and MangoWM read the choice back on their next start.
 set -euo pipefail
-state="$HOME/.local/state/penumbra/corners"
+state="${XDG_STATE_HOME:-$HOME/.local/state}/penumbra/corners"
 config=${XDG_CONFIG_HOME:-$HOME/.config}
 current=$(cat "$state" 2>/dev/null || echo rounded)
 [[ $current = sharp ]] || current=rounded
