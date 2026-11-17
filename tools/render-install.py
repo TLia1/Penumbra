@@ -21,7 +21,8 @@ def helper(name):
 
 
 for name in ('config', 'apps', 'share'):
-    shutil.copytree(root / name, stage / name)
+    if (root / name).is_dir():
+        shutil.copytree(root / name, stage / name)
 
 theme = helper('penumbra-theme')
 theme.SHARE = root / 'share/penumbra'
@@ -54,7 +55,8 @@ if state.exists():
 subprocess.run([root / 'bin/penumbra-corners', 'restore'], env=env, check=True)
 # Lia Files is optional, so render its corners alongside its app configuration.
 app_config = stage / 'apps/lia-files/config'
-subprocess.run([root / 'bin/penumbra-corners', 'restore'], env={**env, 'XDG_CONFIG_HOME': str(app_config)}, check=True)
+if app_config.is_dir():
+    subprocess.run([root / 'bin/penumbra-corners', 'restore'], env={**env, 'XDG_CONFIG_HOME': str(app_config)}, check=True)
 
 # The proposed settings are passed on disk so a preview can render them before saving.
 settings = helper('penumbra-settings')

@@ -34,6 +34,53 @@ findmnt() { printf '%s' "${TEST_SOURCE:-}"; }
 
 
 class ArchInstaller(unittest.TestCase):
+    def test_release_preflight_fetches_pins_ahead_of_partitioning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = {**os.environ, 'HOME': directory, 'GIT_CONFIG_NOSYSTEM': '1'}
+
+            def repo(name, files):
+                path = root / name
+                path.mkdir()
+                for rel in files:
+                    dest = path / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(ROOT / rel, dest)
+
+                def git(*args):
+                    return subprocess.check_output(['git', '-C', path, '-c', 'user.name=Test',
+                                                    '-c', 'user.email=test@example.org', *args],
+                                                   env=env, text=True).strip()
+
+                git('init', '-q')
+                return path, git
+
+            desktop, git = repo('desktop', ('VERSION', 'tools/build-arch-packages.sh',
+                'packaging/arch/PKGBUILD.in', 'install.sh', 'config/mango/config.conf',
+                'config/systemd/user/penumbra-idle.service'))
+            git('add', '.')
+            git('commit', '-qm', 'desktop release')
+            pinned = git('rev-parse', 'HEAD')
+            git('tag', 'v' + (desktop / 'VERSION').read_text().strip())
+            git('commit', '--allow-empty', '-qm', 'development')
+            lia, git = repo('lia', ())
+            recipe = lia / 'build-aux/PKGBUILD'
+            recipe.parent.mkdir()
+            recipe.write_text('pkgname=lia-files\n')
+            git('add', '.')
+            git('commit', '-qm', 'companion release')
+            companion = git('rev-parse', 'HEAD')
+            git('commit', '--allow-empty', '-qm', 'development')
+
+            env.update(EXPECTED=pinned, LIA_REF=companion, DESKTOP=desktop.as_uri(), COMPANION=lia.as_uri())
+            check = bash("""
+                trap '[[ -z $WORK ]] || rm -rf -- "$WORK"' EXIT
+                PENUMBRA_REF=$RELEASE_TAG PENUMBRA_URL=$DESKTOP LIA_URL=$COMPANION
+                fetch_sources
+                [[ $PENUMBRA_COMMIT == "$EXPECTED" && $LIA_COMMIT == "$LIA_REF" ]]
+            """, env=env)
+            self.assertEqual(check.returncode, 0, check.stderr)
+
     def test_graphics_detects_hybrid_gpus_but_ignores_nvidia_audio(self):
         with tempfile.TemporaryDirectory() as directory:
             devices = Path(directory)

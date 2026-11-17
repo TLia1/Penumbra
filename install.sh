@@ -50,6 +50,7 @@ The shell's Settings pages (Super+,) change all but the login shell, at once.
 
 Other options:
   -y, --yes            Don't ask about the settings; use the saved or detected ones.
+  --version            Print the release supplied by this package or checkout.
   --plan               Preview managed file changes and installation phases without applying them.
   --skip-packages      Don't install packages (or PENUMBRA_SKIP_PACKAGES=1).
   --offline            Configure an unbooted system (e.g. arch-chroot); enable
@@ -207,6 +208,15 @@ render_settings() {
         echo '# Edit them, then run ./install.sh --user-only (or penumbra-settings apply) to apply.'
         local key
         for key in "${SETTING_KEYS[@]}"; do printf '%s=%s\n' "$key" "${settings[$key]}"; done
+        if [[ -r $SETTINGS_FILE ]]; then
+            local line
+            while IFS= read -r line || [[ -n $line ]]; do
+                key=${line%%=*}
+                if [[ $line == *=* && $key =~ ^[a-z_]+$ && ! -v SETTING_LABELS[$key] ]]; then
+                    printf '%s\n' "$line"
+                fi
+            done < "$SETTINGS_FILE"
+        fi
     } > "$WORK_DIR/settings.conf"
 }
 
@@ -388,6 +398,7 @@ create_user_files() {
         [$CONFIG_HOME/nvim/lua/user.lua]='-- Your own Neovim settings, run after Penumbra'"'"'s init.lua. ./install.sh never replaces this file.
 -- vim.opt.relativenumber = false'
     )
+    [[ -d $ROOT/config/nvim ]] || unset 'starters[$CONFIG_HOME/nvim/lua/user.lua]'
     for path in "${!starters[@]}"; do
         [[ -e $path || -L $path ]] && continue
         printf '%s\n' "${starters[$path]}" > "$WORK_DIR/starter"
@@ -558,6 +569,19 @@ enable_services() {
     systemctl enable sddm
 }
 
+# The unversioned installer used this same preferences layout. Adopt its existing
+# files in place. Record the transition only after this phase completed successfully.
+record_release() {
+    local receipt=$1 previous=unversioned target
+    [[ ! -f $receipt ]] || previous=$(<"$receipt")
+    target=$(<"$ROOT/VERSION")
+    if [[ $previous != "$target" ]]; then
+        printf 'Penumbra release: %s -> %s\n' "$previous" "$target"
+        (( PLAN )) || completed Release "$previous -> $target"
+    fi
+    install_file "$ROOT/VERSION" "$receipt"
+}
+
 run_system_part() {
     [[ $EUID == 0 || $PLAN == 1 ]] || die 'The system part needs root: sudo ./install.sh --system-only'
     local user=${TARGET_USER:-${SUDO_USER:-}}
@@ -568,6 +592,7 @@ run_system_part() {
         [[ -z $user ]] || set_login_shell "$user"
         enable_keyring_unlock
         enable_fingerprint_polkit
+        SYSTEM_FILES=1 record_release /usr/share/penumbra/installed-version
         return
     fi
     [[ -n $user && $user != root ]] || die 'Name the desktop user with --user NAME.'
@@ -588,17 +613,19 @@ run_system_part() {
     enable_services
     completed Finish services
 
-    if [[ ${OFFLINE:-0} != 1 ]]; then
+    if [[ ${OFFLINE:-0} != 1 && -d $ROOT/boot ]]; then
         step 'Boot themes (optional)'
         run_boot_part || warn 'Optional boot theming did not complete; see the messages above.'
     fi
 
+    SYSTEM_FILES=1 record_release /usr/share/penumbra/installed-version
     echo "System backup: $BACKUP"
 }
 
 # Boot assets are deliberately outside system/: deploy only after opt-in. The package comes from
 # the distribution; tools/install-boot.py does the rest.
 run_boot_part() {
+    [[ -d $ROOT/boot ]] || die 'Install penumbra-boot to use --boot-only.'
     if ! command -v plymouth-set-default-theme >/dev/null \
         && ask "Install Plymouth (${PLYMOUTH_PACKAGES[*]}) for the boot splash?"; then
         pkg_install "${PLYMOUTH_PACKAGES[@]}" || warn 'Plymouth was not installed.'
@@ -740,6 +767,7 @@ declare -A APP_COMMANDS=([vscode]='code codium')
 
 install_app_colors() {
     local dir app command found
+    [[ -d ${PREPARED:-$ROOT}/apps ]] || return 0
     for dir in "${PREPARED:-$ROOT}"/apps/*/; do
         dir=${dir%/} app=${dir##*/} found=
         for command in ${APP_COMMANDS[$app]:-$app}; do
@@ -1005,7 +1033,7 @@ run_user_part() {
 
     step 'Installing your configuration'
     prune_tree "$ROOT/config/quickshell/penumbra" "$CONFIG_HOME/quickshell/penumbra"
-    prune_tree "$ROOT/config/nvim/lua/penumbra" "$CONFIG_HOME/nvim/lua/penumbra"
+    [[ ! -d $ROOT/config/nvim ]] || prune_tree "$ROOT/config/nvim/lua/penumbra" "$CONFIG_HOME/nvim/lua/penumbra"
     prune_tree "$ROOT/palette/templates" "$HOME/.local/share/penumbra/palette/templates"
     prune_tree "$ROOT/share/icons/Penumbra" "$HOME/.local/share/penumbra/icons/Penumbra"
     local script from
@@ -1042,6 +1070,7 @@ run_user_part() {
     install_app_colors
     [[ ${OFFLINE:-0} == 1 ]] || retire_legacy_desktop
     if (( PLAN )); then
+        record_release "$HOME/.local/share/penumbra/installed-version"
         set_folder_default
         echo "Session phase: apply desktop defaults, restore the theme and enable user services"
         return
@@ -1066,6 +1095,7 @@ run_user_part() {
         "$HOME/.local/bin/penumbra-session"
     fi
 
+    record_release "$HOME/.local/share/penumbra/installed-version"
     completed Finish session
     printf '\nPenumbra installed. User backup: %s\n' "$BACKUP"
     echo 'Log out when convenient to apply every environment setting.'
@@ -1253,6 +1283,7 @@ while (( $# )); do
         --distro) DISTRO=${2?--distro needs a name}; shift ;;
         --skip-packages) SKIP_PACKAGES=1 ;;
         --offline) OFFLINE=1 ;;
+        --version) cat "$ROOT/VERSION"; exit 0 ;;
         --plan) PLAN=1 ;;
         --wm) [[ ${2:-} == mango ]] || die 'Penumbra uses MangoWM.'; shift ;;
         --remove-legacy) REMOVE_LEGACY=${2?--remove-legacy needs yes, no or ask}; shift ;;

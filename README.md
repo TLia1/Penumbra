@@ -20,13 +20,26 @@ composition without changing your palette, text scale, or reduced-motion prefere
 For a fresh Arch installation from a live ISO, use [the interactive Arch installer](docs/archiso.md),
 which also explains how to include it in an ArchISO image. It erases a whole disk after confirmation.
 
-Copy this whole folder to the target machine, open a terminal in it, and run:
+On an existing Arch desktop, install the selected release packages together,
+then apply them as your desktop user:
+
+```bash
+sudo pacman -U ./penumbra-*.pkg.tar.zst
+penumbra-install
+```
+
+The [release guide](docs/releases.md) covers the core and optional packages,
+upgrades, rollback, and building packages locally.
+
+To install **directly from source**, copy or clone this folder, open a terminal
+in it, and run:
 
 ```bash
 chmod +x install.sh
 ./install.sh
 ```
 
+To upgrade from source, update the checkout to the desired release and rerun `./install.sh`.
 Run as your regular desktop user. The installer reads `/etc/os-release` to pick the distribution's folder in `distro/` (`--distro NAME` overrides it). Sudo prompts normally; no password is stored in the bundle. The installer uses the current pacman databases, official Arch packages, timestamped backups, and user-scoped configuration; pacman asks about conflicts and replacements as usual. It does not install anything from the AUR. On a substantially older Arch installation, perform a normal full system upgrade yourself first. Never use `pacman -Sy` alone. This installer does not update repositories. Optional GRUB, Limine, rEFInd and Plymouth theming asks separately before changing boot configuration; see Boot themes below.
 
 Run `./install.sh --plan` to preview managed file changes and the system and session phases. Add `--user-only` to preview just your account. Each backup contains `completed.txt`, which records finished operations if an install stops partway through.

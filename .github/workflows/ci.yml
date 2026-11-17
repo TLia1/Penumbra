@@ -10,7 +10,7 @@ jobs:
     container: archlinux:base
     steps:
       - name: Install tools
-        run: pacman -Syu --noconfirm --needed git python python-pillow diffutils nodejs qt6-shadertools qt6-declarative ffmpeg shellcheck
+        run: pacman -Syu --noconfirm --needed git python python-pillow diffutils nodejs qt6-shadertools qt6-declarative ffmpeg shellcheck base-devel
       - uses: actions/checkout@v4
       # Unit tests (with the shell's JavaScript under Node), and generated colour files, compiled
       # shaders matching their sources.
@@ -20,3 +20,52 @@ jobs:
         run: |
           grep -d skip -lE '^#!.*\b(ba)?sh$' install.sh bin/* tools/*.sh distro/*/*.sh |
             xargs shellcheck --severity=error --external-sources
+      - name: Build Arch packages
+        shell: bash
+        run: |
+          useradd -m builder
+          out="$RUNNER_TEMP/penumbra-packages"
+          install -d -o builder -g builder "$out"
+          runuser -u builder -- tools/build-arch-packages.sh "$out"
+          echo "PENUMBRA_TEST_PACKAGES=$out" >> "$GITHUB_ENV"
+      - name: Check packaged and source install compatibility
+        run: python -m unittest discover -s tests -p test_install_plan.py -v
+      - name: Verify release pins and checksums
+        shell: bash
+        run: |
+          version=$(cat VERSION)
+          source tools/install-arch.sh
+          [[ $RELEASE_TAG == "v$version" ]]
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then [[ $GITHUB_REF_NAME == "$RELEASE_TAG" ]]; fi
+          cd "$PENUMBRA_TEST_PACKAGES"
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: penumbra-arch
+          path: ${{ env.PENUMBRA_TEST_PACKAGES }}/
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: penumbra-arch
+          path: packages
+      - name: Publish versioned packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if ! draft=$(gh release view "$TAG" --json isDraft --jq .isDraft); then
+            gh release create "$TAG" --verify-tag --draft --generate-notes
+            draft=true
+          fi
+          if [[ $draft == true ]]; then
+            gh release upload "$TAG" packages/* --clobber
+            gh release edit "$TAG" --draft=false
+          fi

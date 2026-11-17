@@ -4,6 +4,9 @@ set -Eeuo pipefail
 
 PENUMBRA_URL=https://github.com/TLia1/Panumbra.git
 LIA_URL=https://github.com/TLia1/Lia-s-file-linux.git
+# Standalone ArchISO copies carry the release pins with them.
+RELEASE_TAG=v0.1.0
+LIA_RELEASE_COMMIT=03f9dce408753fecc090833ec573255a5093a225
 TARGET=/mnt/penumbra
 WORK=''
 MOUNTED=0
@@ -31,7 +34,7 @@ Interactive x86_64 UEFI installation from ArchISO. Erases a whole disk and creat
 Installs Arch, rEFInd, Plymouth, Lia Files and Penumbra. Prompts for networking,
 disk, locale, timezone, keyboard, hostname, user, passwords and sudo membership.
 Detects Intel/AMD/NVIDIA graphics; asks which NVIDIA driver to use before erasure.
-GitHub default branches are used unless a branch/tag is supplied. Sources are
+Uses the pinned Penumbra release and Lia Files commit by default. Sources are
 downloaded and checked before disk erasure. No unattended or erase-confirmation bypass.
 See docs/archiso.md for ISO building, limitations and recovery instructions.
 EOF
@@ -287,12 +290,18 @@ fetch_sources() {
     PHASE='GitHub source preflight'
     WORK=$(mktemp -d /tmp/penumbra-arch.XXXXXXXX)
     chmod 755 "$WORK"
-    local args=()
-    [[ -z $PENUMBRA_REF ]] || args=(--branch "$PENUMBRA_REF")
-    git clone --depth 1 "${args[@]}" "$PENUMBRA_URL" "$WORK/Penumbra"
-    args=()
-    [[ -z $LIA_REF ]] || args=(--branch "$LIA_REF")
-    git clone --depth 1 "${args[@]}" "$LIA_URL" "$WORK/Lia-s-file-linux"
+    git clone --depth 1 --branch "$PENUMBRA_REF" -- "$PENUMBRA_URL" "$WORK/Penumbra"
+    git init -q "$WORK/Lia-s-file-linux"
+    git -C "$WORK/Lia-s-file-linux" fetch --depth 1 -- "$LIA_URL" "$LIA_REF"
+    git -C "$WORK/Lia-s-file-linux" checkout --detach FETCH_HEAD
+    [[ -x $WORK/Penumbra/tools/build-arch-packages.sh && -f $WORK/Penumbra/packaging/arch/PKGBUILD.in ]] \
+        || die 'The selected Penumbra revision lacks Arch release packaging.'
+    if [[ $PENUMBRA_REF == "$RELEASE_TAG" ]]; then
+        local tag_commit
+        tag_commit=$(git -C "$WORK/Penumbra" rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}") || die 'The release tag is missing.'
+        [[ $tag_commit == "$(git -C "$WORK/Penumbra" rev-parse HEAD)" && v$(cat "$WORK/Penumbra/VERSION") == "$RELEASE_TAG" ]] \
+            || die 'Release tag, checkout and VERSION disagree.'
+    fi
     [[ -f $WORK/Penumbra/install.sh && -f $WORK/Lia-s-file-linux/build-aux/PKGBUILD ]] || die 'GitHub checkout is missing an installer or PKGBUILD.'
     grep -q -- '--offline)' "$WORK/Penumbra/install.sh" \
         || die 'Publish the Penumbra install.sh --offline change to GitHub first, or use --penumbra-ref with a branch containing it. No disk has been erased.'
@@ -479,6 +488,10 @@ configure_target() {
     command -v lia-files >/dev/null || die 'The built package did not install lia-files.'
 
     PHASE='installing Penumbra'
+    local artifacts=$home/.cache/penumbra-packages
+    runuser -u "$DESKTOP_USER" -- "$repo/tools/build-arch-packages.sh" "$artifacts"
+    pacman -U --noconfirm -- "$artifacts"/*.pkg.tar.zst
+    repo=/usr/share/penumbra-desktop
     bash "$repo/install.sh" --system-only --offline --user "$DESKTOP_USER" --distro arch \
         --layout "$LAYOUT" --shell fish --remove-legacy no --yes < /dev/null
     configure_desktop_user "$repo" "$home"
@@ -539,7 +552,7 @@ EOF
 }
 
 main() {
-    PENUMBRA_REF='' LIA_REF=''
+    PENUMBRA_REF=$RELEASE_TAG LIA_REF=$LIA_RELEASE_COMMIT
     while (( $# )); do
         case $1 in
             -h|--help) usage; return ;;

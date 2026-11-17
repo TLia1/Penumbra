@@ -12,7 +12,7 @@ PACKAGES=(
     mangowm wlr-randr quickshell awww sddm swaylock swayidle wlsunset rofi
     xdg-desktop-portal-wlr xdg-desktop-portal-gtk
     # Terminal and editor
-    kitty fish starship fastfetch btop neovim git ripgrep fd unzip nodejs npm tree-sitter-cli gcc
+    kitty fish starship fastfetch btop git ripgrep
     # Applications
     pavucontrol blueman network-manager-applet xdg-utils firefox
     # Themes and fonts
@@ -35,6 +35,10 @@ PACKAGES=(
     # Used by the helper scripts and build tools
     pacman-contrib flatpak libnotify librsvg python-pillow xorg-xcursorgen
 )
+# The source bundle includes the editor. Packaged users select it separately.
+if [[ -d ${ROOT:-.}/config/nvim ]]; then
+    PACKAGES+=(neovim fd unzip nodejs npm tree-sitter-cli gcc)
+fi
 # Previous desktop components, offered for removal after their replacements are installed.
 LEGACY_PACKAGES=(waybar mako swaybg
     xdg-desktop-portal-hyprland hypridle hyprlock hyprsunset hyprpicker hyprland
