@@ -10,6 +10,7 @@ import Quickshell.Widgets
 PanelWindow {
     id: bar
     required property var modelData
+    property bool wallpaperPlayerVisible: false
     screen: modelData
 
     anchors { top: true; left: true; right: true }
@@ -161,7 +162,7 @@ PanelWindow {
             }
         }
 
-        MediaCapsule {}
+        MediaCapsule { shown: !!Media.player && !bar.wallpaperPlayerVisible }
     }
 
     // ── Center ──────────────────────────────────────────────────────

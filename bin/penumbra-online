@@ -2,7 +2,7 @@
 """Bounded, cached JSON requests for the shell. No keys or third-party Python packages.
 
 penumbra-online lyrics TITLE ARTIST ALBUM SECONDS | weather LATITUDE LONGITUDE
-Only called for an expanded lyrics card or explicitly enabled weather.
+Used for opt-in lyrics lookups and weather.
 """
 import hashlib
 import json

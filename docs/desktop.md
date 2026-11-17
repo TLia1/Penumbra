@@ -120,15 +120,28 @@ phase is calculated locally with a low-order astronomical model and is approxima
 
 ## Media and lyrics
 
-The media capsule stays available while paused. Click it to open the mini-player. Click again or use × to dismiss it.
+The **Wallpaper music player** shows the track, artist and album cover. On Night and
+Eclipse it sits to the left of the planet. Dawn mirrors the layout. Click the progress
+bar to seek when the player supports it. [Preview all four wallpapers](../previews/wallpaper-music.webp)
+
+On Moonwake, a sailboat carries the album cover across the lake. Its position marks the
+elapsed time. Click the ripples along its course to seek. The title, lyrics and transport
+controls sit on the near shore. Tracks without cover art fly a linen sail.
+[See the Moonwake player](../previews/moonwake-music.webp)
+
+Each monitor shows its bar capsule when a window covers the widget. Playback can stay
+paused in either location. **Settings → Look → Bar, dock & desktop** lets you turn off the
+wallpaper player or enable **Look up missing lyrics**. Lyrics provided by the player appear
+automatically. The optional LRCLIB lookup runs while the widget is visible. Timed lyrics
+follow playback and seeking. Plain lyrics show their opening lines.
+
+Click the bar capsule to open the mini-player. Click again or use × to dismiss it.
 Middle-click the capsule to toggle playback, or scroll to skip. Its spectrum takes
 an accent from the cover artwork. Mini-player lyrics remain opt-in through the **Lyrics**
-button, using the same cached LRCLIB helper as the Control Center.
+button and use the same cached LRCLIB lookup.
 
-In the Control Center, **Lyrics** expands a three-line synced view and Cava waveform.
-Track title, artist, album and duration are sent to [LRCLIB](https://lrclib.net/docs) only while
-lyrics are expanded. Unsynced lyrics remain scrollable, instrumental tracks are labeled,
-and seeking updates the highlighted line. Results are cached for 30 days, missing tracks
+Online lookups send the title, artist, album and duration to [LRCLIB](https://lrclib.net/docs). The mini-player shows three lines of timed lyrics, follows seeks, and offers scrolling for
+plain lyrics. Instrumental tracks are labeled. Results are cached for 30 days, missing tracks
 for one day, under `$XDG_CACHE_HOME/penumbra/lyrics` (normally `~/.cache/penumbra/lyrics`).
 Offline and rate-limited requests offer a retry; service cooldowns are respected.
 

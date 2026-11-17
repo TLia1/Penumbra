@@ -236,7 +236,6 @@ Singleton {
                 layoutInfo,
                 activeTags,
                 keymode: m.keymode || "default",
-                hideClients: m.hide_clients ?? 0,
                 lastIpcObject: { transform: 0 },
                 activeWorkspace: null
             };
@@ -297,6 +296,19 @@ Singleton {
         if (!screen)
             return null;
         return monitors.find(m => m.name === screen.name) ?? null;
+    }
+
+    // Mango reports visible clients and their rectangles in global logical coordinates.
+    function desktopAreaCovered(monitor, x, y, width, height) {
+        const left = monitor.x + x, top = monitor.y + y;
+        return clients.some(client => {
+            if (!client.visible || client.isMinimized) return false;
+            const { at, size } = client.lastIpcObject;
+            if (client.isFullscreen || size[0] <= 0 || size[1] <= 0)
+                return client.monitorName === monitor.name;
+            return at[0] < left + width && at[0] + size[0] > left
+                && at[1] < top + height && at[1] + size[1] > top;
+        });
     }
 
     function workspacesFor(screenName) {

@@ -1,57 +1,26 @@
 import QtQuick
 import QtQuick.Layouts
-import Quickshell.Io
-import "lyrics.js" as Lrc
 
 ColumnLayout {
     id: root
-    property var player: null
-    property bool active: false
-    property var result: ({})
-    readonly property string signature: JSON.stringify([player?.trackTitle ?? "", player?.trackArtist ?? "", player?.trackAlbum ?? "", Math.round(player?.length ?? 0)])
-    readonly property var lines: Lrc.parse(result.synced ?? "")
-    readonly property int current: Lrc.current(lines, player?.position ?? 0)
-    property string loaded: ""
+    property alias player: lyrics.player
+    property alias active: lyrics.active
+    readonly property alias result: lyrics.result
+    readonly property alias lines: lyrics.lines
+    readonly property alias current: lyrics.current
+    TrackLyrics { id: lyrics }
     readonly property int maximumContentHeight: Math.max(heading.implicitHeight, retry.implicitHeight)
         + spacing + Math.max(synced.implicitHeight, unsynced.implicitHeight, statusLabel.implicitHeight)
     spacing: 5
-    onSignatureChanged: { result = {}; loaded = ""; settle.restart(); }
-    onActiveChanged: if (active) settle.restart()
-    function fetch() {
-        if (!active || !player || request.running || loaded === signature) return;
-        if (!player.trackTitle || !player.trackArtist || Media.isLive(player)) {
-            result = { status: "missing" }; return;
-        }
-        request.signature = signature;
-        request.command = [Ui.bin + "penumbra-online", "lyrics"].concat(JSON.parse(signature).map(String));
-        result = { status: "loading" };
-        request.running = true;
-    }
-    Timer { id: settle; interval: 400; onTriggered: root.fetch() }
-    Process {
-        id: request
-        property string signature
-        stdout: StdioCollector {
-            onStreamFinished: {
-                if (request.signature !== root.signature) return;
-                try { root.result = JSON.parse(text); } catch (e) { root.result = { status: "offline" }; }
-                root.loaded = request.signature;
-            }
-        }
-        onExited: {
-            if (request.signature !== root.signature) settle.restart();
-            else if (root.result.status === "loading") root.result = { status: "offline" };
-        }
-    }
     RowLayout {
         id: heading
         Layout.fillWidth: true
-        Label { Layout.fillWidth: true; text: "Lyrics · LRCLIB"; color: Theme.textSoft; font.pixelSize: Theme.textTiny }
+        Label { Layout.fillWidth: true; text: lyrics.embedded ? "Lyrics" : "Lyrics · LRCLIB"; color: Theme.textSoft; font.pixelSize: Theme.textTiny }
         PillButton {
             id: retry
             visible: root.result.status === "offline"
             text: "Retry"
-            onClicked: { root.loaded = ""; settle.restart(); }
+            onClicked: lyrics.retry()
         }
     }
     Item {

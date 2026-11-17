@@ -42,6 +42,8 @@ class Motion(unittest.TestCase):
             stage = Path(folder)
             for name in ['DesktopDepth', 'StaggerReveal', 'FrameSurface']:
                 shutil.copy2(ROOT / 'config/quickshell/penumbra' / f'{name}.qml', stage)
+            for name in ['MusicVoyage.qml', 'skiff.svg']:
+                shutil.copy2(ROOT / 'config/quickshell/penumbra/moonwake' / name, stage)
             shutil.copy2(ROOT / 'tests/qml/tst_motion.qml', stage)
             (stage / 'qmldir').write_text(''.join(f'singleton {name} 1.0 {name}.qml\n' for name in STUBS))
             for name, body in STUBS.items():

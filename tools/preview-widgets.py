@@ -76,8 +76,8 @@ ShellRoot {
                             property string trackAlbum: "Preview session"
                             property real length: 180
                             property real position: 12
+                            property var metadata: ({"xesam:asText": "[00:00]The evening folds around us\\n[00:10]We leave a little light between the stars\\n[00:20]And carry it into tomorrow"})
                         }
-                        Component.onCompleted: result = { status: "ok", synced: "[00:00]The evening folds around us\\n[00:10]We leave a little light between the stars\\n[00:20]And carry it into tomorrow" }
                     }
                     Item { Layout.fillHeight: true }
                     Row {
@@ -132,7 +132,7 @@ ShellRoot {
 
 def stage(folder):
     for name in ['Theme.qml', 'palette.js', 'Label.qml', 'Glyph.qml', 'GlassEdge.qml', 'PillButton.qml',
-                 'LyricsView.qml', 'lyrics.js', 'WeatherCard.qml', 'MoonPhase.qml', 'AppIcon.qml', 'sun.js', 'DockSurface.qml']:
+                 'LyricsView.qml', 'TrackLyrics.qml', 'lyrics.js', 'WeatherCard.qml', 'MoonPhase.qml', 'AppIcon.qml', 'sun.js', 'DockSurface.qml']:
         shutil.copy2(SHELL / name, folder / name)
     shutil.copytree(SHELL / 'shaders', folder / 'shaders')
     for name, body in STUBS.items():

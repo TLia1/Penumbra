@@ -18,7 +18,8 @@ Scope {
     property string chosen: ""
     // Depth widgets still need the layered scene when wallpaper motion is disabled.
     readonly property bool depthScene: Ui.wallpaperKind(chosen) === "scene"
-        && (Settings.desktopClock || Settings.desktopAura)
+        && (Settings.desktopClock || Settings.desktopAura
+            || (chosen === "wallpaper-moonwake" && Settings.desktopMusic && !!Media.player))
     readonly property bool customDepth: chosen.startsWith("/") && Ui.wallpaperKind(chosen) === "still" && Settings.desktopClock
     property string depthMask: ""
     property string sceneMask: ""
@@ -96,15 +97,43 @@ Scope {
     }
     Component.onCompleted: follow.restart()
 
+    function musicVisibleOn(screen) {
+        return outputs.instances.some(output => output.modelData === screen && output.musicVisible);
+    }
+    readonly property bool musicVisible: outputs.instances.some(output => output.musicVisible)
+    TrackLyrics {
+        id: lyrics
+        player: Settings.desktopMusic ? Media.player : null
+        active: root.musicVisible && Settings.desktopLyricsOnline
+    }
+    readonly property string lyric: {
+        if (!lyrics.embedded && !Settings.desktopLyricsOnline) return "";
+        if (lyrics.lines.length) return lyrics.lines[lyrics.current]?.text ?? "";
+        return (lyrics.result.plain ?? "").trim().split(/\r?\n/, 2).join("\n");
+    }
+    Timer {
+        interval: 500
+        repeat: true
+        running: root.musicVisible && !!Media.player?.isPlaying && !!Media.player?.positionSupported
+        onTriggered: Media.player?.positionChanged()
+    }
+
     Variants {
+        id: outputs
         model: Quickshell.screens
 
         delegate: Scope {
             id: output
             required property var modelData
 
+            readonly property bool wantsMusic: Settings.desktopMusic && !!Media.player && !!Ui.wallpaperScenes[root.chosen]
+                && !root.waiting && !root.paused && !Ui.shotOpen
+                && !(Ui.screen === modelData && (Ui.overviewOpen || Ui.sessionOpen || Ui.launcherOpen || Ui.openPanel !== ""))
+            readonly property bool musicVisible: surface.item?.musicVisible ?? false
+
             LazyLoader {
-                active: root.fade > 0
+                id: surface
+                active: root.fade > 0 || output.wantsMusic
 
                 PanelWindow {
                     id: window
@@ -112,13 +141,26 @@ Scope {
                     anchors { top: true; bottom: true; left: true; right: true }
                     exclusionMode: ExclusionMode.Ignore
                     color: "transparent"
-                    mask: Region {}
+                    readonly property var monitor: Wm.monitorFor(screen)
+                    readonly property Item voyage: musicWidget.lake && root.chosen === root.scene ? scene.item?.voyage ?? null : null
+                    readonly property bool musicVisible: output.wantsMusic && width > 0 && height >= musicWidget.y + musicWidget.height
+                        && monitor !== null && !Wm.desktopAreaCovered(monitor, musicWidget.x, musicWidget.y, musicWidget.width, musicWidget.height)
+                        && (!musicWidget.lake || (voyage !== null && scene.item.backgroundReady
+                            && voyage.y >= 0 && voyage.y + voyage.height <= height
+                            && !Wm.desktopAreaCovered(monitor, voyage.x, voyage.y, voyage.width, voyage.height)))
+                    mask: Region {
+                        item: window.musicVisible ? musicWidget.transportArea : null
+                        Region {
+                            item: window.musicVisible && musicWidget.timed && musicWidget.player?.canSeek
+                                ? window.voyage?.seekArea ?? musicWidget.seekArea : null
+                        }
+                    }
                     WlrLayershell.layer: WlrLayer.Bottom
                     // Not penumbra-*: the glass layer rule would blur it.
                     WlrLayershell.namespace: "animated-wallpaper"
 
                     // Nothing to see under a fullscreen or tiled window; stop drawing.
-                    readonly property var workspace: Wm.monitorFor(screen)?.activeWorkspace ?? null
+                    readonly property var workspace: monitor?.activeWorkspace ?? null
                     readonly property bool running: Settings.animatedWallpapers && !Settings.reducedMotion && !root.paused && !root.saving
                         && !(workspace?.hasFullscreen ?? false) && !root.covered(workspace)
 
@@ -130,6 +172,7 @@ Scope {
                         opacity: root.fade
                         // Nothing for a still or no scene: a video player with no video would
                         // still load FFmpeg and wake the GPUs' video decoders.
+                        active: root.fade > 0
                         sourceComponent: ({ "moonwake": moonwake, "dawn": dawn, "eclipse": eclipse })[Ui.wallpaperScenes[root.scene]?.scene]
                             ?? ({ "gif": gif, "video": video })[Ui.wallpaperKind(root.scene)] ?? (root.customDepth ? depth : null)
 
@@ -160,6 +203,8 @@ Scope {
                             id: moonwake
                             MoonwakeScene {
                                 desktop: true
+                                music: output.wantsMusic && musicWidget.lake ? musicWidget : null
+                                viewport: Qt.size(window.width, window.height)
                                 running: window.running
                                 pixelScale: Math.max(window.width / width, window.height / height) * window.devicePixelRatio
                             }
@@ -214,6 +259,15 @@ Scope {
                                 }
                             }
                         }
+                    }
+                    WallpaperMusic {
+                        id: musicWidget
+                        // Keep the measured bounds stable while a client overlaps the widget.
+                        opacity: window.musicVisible ? 1 : 0
+                        enabled: window.musicVisible
+                        scene: Ui.wallpaperScenes[root.chosen]
+                        player: output.wantsMusic ? Media.player : null
+                        lyric: root.lyric
                     }
                 }
             }

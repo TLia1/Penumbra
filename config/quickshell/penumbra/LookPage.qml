@@ -785,6 +785,21 @@ ColumnLayout {
         LookCard {
             innerMargin: 4
             SwitchRow {
+                title: "Wallpaper music player"
+                subtitle: "Move playback from the bar onto the scenery when its spot is clear"
+                glyph: "󰎆"
+                checked: Settings.desktopMusic
+                onToggled: Settings.desktopMusic = !Settings.desktopMusic
+            }
+            SwitchRow {
+                visible: Settings.desktopMusic
+                title: "Look up missing lyrics"
+                subtitle: "Send track details to LRCLIB while the wallpaper player is visible"
+                glyph: "󰍴"
+                checked: Settings.desktopLyricsOnline
+                onToggled: Settings.desktopLyricsOnline = !Settings.desktopLyricsOnline
+            }
+            SwitchRow {
                 title: "Depth clock"
                 subtitle: "Set the time into the scenery or behind a custom mask"
                 glyph: "󰥔"

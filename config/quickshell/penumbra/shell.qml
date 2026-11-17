@@ -50,7 +50,10 @@ ShellRoot {
                 active: Settings.screenFrame || Settings.barStyle === "framed"
                 ScreenFrame { modelData: output.modelData }
             }
-            Bar { modelData: output.modelData }
+            Bar {
+                modelData: output.modelData
+                wallpaperPlayerVisible: wallpaper.musicVisibleOn(output.modelData)
+            }
             LazyLoader {
                 active: Settings.dockMode !== "off"
                 Dock { modelData: output.modelData; locked: lockScreen.locked }

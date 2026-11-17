@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import QtTest
 
 Item {
+    id: fixture
     width: 1000
     height: 800
     ColumnLayout {
@@ -36,9 +37,38 @@ Item {
             anchors.fill: parent
         }
     }
+    Component {
+        id: course
+        MusicVoyage {
+            waterline: 480
+            time: 0
+            stacked: false
+            timed: true
+            player: QtObject {
+                property bool canSeek: true
+                property real position: 0
+                property real length: 200
+                property string trackArtUrl: ""
+            }
+            fraction: player.position / player.length
+        }
+    }
     TestCase {
         name: "Phase2Motion"
         when: windowShown
+        function test_lake_seeking() {
+            const route = createTemporaryObject(course, fixture);
+            verify(route);
+            const start = route.boatX;
+            mouseClick(route.seekArea, route.seekArea.width / 2, 10);
+            fuzzyCompare(route.player.position, 100, 1);
+            fuzzyCompare(route.boatX, start + route.distance / 2, 1);
+            route.player.canSeek = false;
+            verify(!route.seekArea.enabled);
+            route.timed = false;
+            route.player.position = 0;
+            fuzzyCompare(route.boatX, route.width / 2, 1);
+        }
         function test_frame() {
             wait(50);
             let image = grabImage(frameFixture);

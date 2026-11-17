@@ -11,6 +11,8 @@ Singleton {
     property alias stillWhenCovered: adapter.stillWhenCovered
     property alias stillOnBattery: adapter.stillOnBattery
     // Optional desktop depth and a frame joined to the bar.
+    property alias desktopMusic: adapter.desktopMusic
+    property alias desktopLyricsOnline: adapter.desktopLyricsOnline
     property alias desktopClock: adapter.desktopClock
     property alias desktopAura: adapter.desktopAura
     property alias compactMonitor: adapter.compactMonitor
@@ -111,6 +113,7 @@ Singleton {
         workspaceStyle = "pills";
         osdPosition = "bottom";
         screenFrame = false;
+        desktopMusic = true;
         desktopClock = false;
         desktopAura = false;
         weatherInBar = false;
@@ -144,6 +147,8 @@ Singleton {
             property bool animatedWallpapers: true
             property bool stillWhenCovered: true
             property bool stillOnBattery: true
+            property bool desktopMusic: true
+            property bool desktopLyricsOnline: false
             property bool desktopClock: false
             property bool desktopAura: false
             property bool compactMonitor: false

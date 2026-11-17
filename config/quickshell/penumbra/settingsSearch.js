@@ -2,7 +2,7 @@
 
 var entries = [
         { page: "look", tab: "theme", glyph: "󰏘", title: "Look", words: "theme dark light auto colours colors accent hue vividness corners rounded sharp harmonize glass frost" },
-        { page: "look", tab: "desktop", glyph: "󰍹", title: "Bar, dock & desktop", words: "bar compact monitor cpu ram memory island capsules framed workspaces dock depth clock audio aura screen frame bezel signature layout osd" },
+        { page: "look", tab: "desktop", glyph: "󰍹", title: "Bar, dock & desktop", words: "bar compact monitor cpu ram memory island capsules framed workspaces dock depth clock audio aura wallpaper music player lyrics lrclib screen frame bezel signature layout osd" },
         { page: "wallpapers", glyph: "󰸉", title: "Wallpaper", words: "background picture image video gif" },
         { page: "displays", glyph: "󰍹", title: "Displays", words: "monitors screens resolution refresh rate scale rotation arrangement" },
         { page: "mixer", glyph: "󰕾", title: "Sound", words: "audio volume boost output input microphone speakers apps" },
