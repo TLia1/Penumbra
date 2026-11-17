@@ -19,9 +19,16 @@ PanelWindow {
     WlrLayershell.namespace: "penumbra-overview"
     WlrLayershell.keyboardFocus: Ui.overviewOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
+    property bool savedOpen: false
+    function openSaved() {
+        savedOpen = true;
+        if (saved.item) saved.item.refresh();
+        else saved.active = true;
+    }
     Connections {
         target: Ui
         function onOverviewOpenChanged() {
+            root.savedOpen = false;
             if (!Ui.overviewOpen)
                 return;
             search.text = "";
@@ -106,6 +113,12 @@ PanelWindow {
             width: 0
             height: 0
             opacity: 0
+            Keys.onPressed: event => {
+                if (Wm.isMango && event.key === Qt.Key_S && (event.modifiers & Qt.ControlModifier)) {
+                    root.openSaved();
+                    event.accepted = true;
+                }
+            }
             function pick() {
                 if (root.chosen && (root.picking || root.query !== ""))
                     root.focusWindow(root.chosen);
@@ -127,6 +140,7 @@ PanelWindow {
         }
 
         ColumnLayout {
+            visible: !root.savedOpen
             anchors.centerIn: parent
             spacing: 28
             scale: Ui.overviewOpen ? 1 : 0.94
@@ -164,6 +178,11 @@ PanelWindow {
                     visible: Wm.isMango
                     text: `Layout: ${Wm.activeLayout?.title ?? "Dwindle"} (${Wm.activeLayoutSymbol})`
                     onClicked: Wm.nextLayout()
+                }
+                PillButton {
+                    visible: Wm.isMango
+                    text: "Saved workspaces"
+                    onClicked: root.openSaved()
                 }
                 PillButton {
                     visible: Wm.isMango
@@ -374,6 +393,20 @@ PanelWindow {
                 text: "Click a tag to view · Right-click a tag to view multiple tags · Drag a window to move (Ctrl+drag to share across tags) · Esc to close"
                 font.pixelSize: Theme.textSmall
                 color: Theme.muted
+            }
+        }
+
+        Loader {
+            id: saved
+            active: false
+            anchors.centerIn: parent
+            width: Math.min(580, parent.width - 32)
+            height: Math.min(item?.implicitHeight ?? 0, parent.height - 40)
+            visible: Ui.overviewOpen && root.savedOpen
+            onLoaded: item.refresh()
+            sourceComponent: SavedWorkspaces {
+                onBack: { root.savedOpen = false; search.forceActiveFocus(); }
+                onRestored: Ui.overviewOpen = false
             }
         }
 

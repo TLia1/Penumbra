@@ -68,6 +68,12 @@ Click the status capsule or move the pointer to the top-right hot corner for the
 
 **Overview** (Super+\`, the key left of 1, or four fingers up on a touchpad): every workspace at a glance with live previews of its windows. Click a workspace to go there or a window to focus it, drag a window onto another workspace to move it, or type to find a window by its title or app (Tab steps through the matches, Enter goes to one).
 
+**Saved workspaces.** Arrange the apps for a task, open Overview, and select **Saved workspaces → New workspace**. You can also press **Ctrl+S** inside Overview. Give the task a name such as *Development*, choose the tags to include on each display, and select **Save workspace**. The visible tags are selected initially. You can include tags that are currently out of view.
+
+Choose **Open** to return to a task. Penumbra reuses matching windows, launches missing apps through their desktop entries, restores the selected tags’ tiling layouts, and returns to their saved views. If a display is disconnected, its tags move to the built-in display or, on a desktop, the focused display. Penumbra shows any remapped tags and apps it could not reopen. **Update…** captures the current arrangement again. **Delete** removes the saved workspace and leaves its apps running.
+
+Saved workspaces remember application identities and tag assignments. Reopened apps handle their own documents, browser tabs and terminal contents. Pinned, scratchpad, overlay and minimized windows are excluded from capture. Workspaces are stored locally in `$XDG_CONFIG_HOME/penumbra/workspaces.json` (normally `~/.config/penumbra/workspaces.json`).
+
 **Tray**: nm-applet and Blueman keep running in the background for password and pairing prompts, but their tray icons are hidden since the control center covers them.
 
 ## Launcher and clipboard

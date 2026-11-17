@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+"""Save and reopen named sets of Mango tags, layouts and applications."""
+import argparse
+import fcntl
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import time
+
+
+STORE = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / 'penumbra/workspaces.json'
+
+
+def mango(*args):
+    result = subprocess.run(['mmsg', *args], capture_output=True, text=True, timeout=5)
+    if result.returncode:
+        raise ValueError(result.stderr.strip() or result.stdout.strip() or 'Mango did not respond.')
+    return result.stdout
+
+
+def query(name):
+    return json.loads(mango('get', 'all-' + name))[name]
+
+
+def enabled_monitors():
+    # Mango still reports tags on disabled outputs. Its "active" flag means keyboard focus.
+    result = subprocess.run(['wlr-randr', '--json'], capture_output=True, text=True, timeout=5)
+    if result.returncode:
+        raise ValueError(result.stderr.strip() or 'Could not read enabled displays.')
+    enabled = {output['name'] for output in json.loads(result.stdout) if output['enabled']}
+    return [monitor for monitor in query('monitors') if monitor['name'] in enabled]
+
+
+def regular(client):
+    return client.get('appid') and not any(client.get(key) for key in
+        ('is_scratchpad', 'is_namedscratchpad', 'is_global', 'is_overlay', 'is_swallowedby'))
+
+
+def capture(selection, entries):
+    monitors = enabled_monitors()
+    layouts = {item['symbol']: item['name'] for item in json.loads(mango('get', 'layouts'))['layouts']}
+    places = []
+    for mon in monitors:
+        for tag in mon['tags']:
+            key = (mon['name'], tag['index'])
+            include = tag['is_active'] if selection is None else key in selection
+            if include:
+                places.append(dict(output=mon['name'], tag=tag['index'], layout=layouts[tag['layout']],
+                                   active=tag['is_active']))
+    selected = {(p['output'], p['tag']) for p in places}
+    if not places or selection is not None and selected != selection:
+        raise ValueError('Choose available tags on a connected display.')
+    windows = []
+    for c in query('clients'):
+        tags = [n for n in c['tags'] if (c['monitor'], n) in selected]
+        if tags and regular(c) and not c.get('is_minimized'):
+            app = c['appid']
+            windows.append(dict(app=app, desktop=entries.get(app) or app, id=c['id'], pid=c.get('pid'),
+                                output=c['monitor'], tags=tags))
+    focused = next((m['name'] for m in monitors if m['active']), places[0]['output'])
+    return dict(session=os.environ.get('MANGO_INSTANCE_SIGNATURE'), focused=focused, places=places, windows=windows)
+
+
+def destinations(profile, monitors):
+    """Give disconnected outputs free tags on the built-in display before merging any tags."""
+    if not monitors:
+        raise ValueError('No connected displays.')
+    focused = next((m for m in monitors if m['active']), monitors[0])
+    fallback = next((m for m in monitors if m['name'].startswith(('eDP', 'LVDS', 'DSI'))), focused)['name']
+    tags = {m['name']: [t['index'] for t in m['tags']] for m in monitors}
+    reserved = set()
+    mapping = {}
+    # Preserve every available original destination first, even if a disconnected output came first.
+    for place in profile['places']:
+        key = place['output'], place['tag']
+        if key[1] in tags.get(key[0], ()):
+            mapping[key] = key
+            reserved.add(key)
+    for place in profile['places']:
+        key = place['output'], place['tag']
+        if key in mapping:
+            continue
+        output = key[0] if key[0] in tags else fallback
+        # Ignore live occupancy: windows from the first restore must keep the same tags on retry.
+        choices = sorted(tags[output], key=lambda tag: ((output, tag) in reserved, tag != key[1], tag))
+        if not choices:
+            raise ValueError(f'{output} has no available tags.')
+        mapping[key] = output, choices[0]
+        reserved.add(mapping[key])
+    return mapping
+
+
+def window_matches(windows, clients, same_session):
+    """Reserve exact matches for every slot before assigning interchangeable windows."""
+    remaining = [c for c in clients if regular(c)]
+    matches = {}
+    for priority in ('identity', 'placement', 'application'):
+        for i, window in enumerate(windows):
+            if i in matches:
+                continue
+            for j, client in enumerate(remaining):
+                if client['appid'] != window['app']:
+                    continue
+                if priority == 'identity' and not (same_session and window['id'] == client['id']
+                                                   and window['pid'] == client.get('pid')):
+                    continue
+                if priority == 'placement' and (window['output'] != client['monitor']
+                                                or set(window['tags']) != set(client['tags'])):
+                    continue
+                matches[i] = remaining.pop(j)
+                break
+    return matches
+
+
+def open_missing_window(window, reserved):
+    # One browser launch can restore several windows. Claim those before launching again.
+    clients = query('clients')
+    unclaimed = [c for c in clients if c['id'] not in reserved]
+    match = window_matches([window], unclaimed, False).get(0)
+    if match:
+        return match
+    desktop = window['desktop']
+    if not desktop or '/' in desktop or desktop.startswith('-'):
+        raise ValueError('No launchable desktop entry')
+    before = {c['id'] for c in clients}
+    process = subprocess.Popen(['systemd-run', '--user', '--scope', '--slice=app.slice', '--collect',
+                                '--quiet', '--', 'env', '-u', 'MALLOC_CONF', 'gtk-launch', '--', desktop],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        for client in query('clients'):
+            if client['id'] not in before and regular(client) and client['appid'] == window['app']:
+                return client
+        if process.poll() not in (None, 0):
+            raise ValueError('Desktop entry could not be launched')
+        time.sleep(.2)
+    raise ValueError('No new matching window appeared')
+
+
+def mask(tags):
+    return '|'.join(str(tag) for tag in tags)
+
+
+def place_windows(profile, mapping):
+    windows = []
+    for window in profile['windows']:
+        targets = [mapping[window['output'], tag] for tag in window['tags']]
+        windows.append(dict(window, output=targets[0][0], tags=list(dict.fromkeys(tag for _, tag in targets))))
+    session = os.environ.get('MANGO_INSTANCE_SIGNATURE')
+    matches = window_matches(windows, query('clients'), bool(session and session == profile['session']))
+    reserved = {client['id'] for client in matches.values()}
+    placed = {}
+    problems = []
+    failed_launches = {}
+    for i, window in enumerate(windows):
+        app = window['app']
+        try:
+            client = matches.get(i)
+            if client is None:
+                if app in failed_launches:
+                    raise ValueError(failed_launches[app])
+                try:
+                    client = open_missing_window(window, reserved)
+                    reserved.add(client['id'])
+                except (OSError, ValueError) as exc:
+                    failed_launches[app] = str(exc)
+                    raise
+            target = 'client,' + str(client['id'])
+            if client.get('is_minimized'):
+                mango('dispatch', 'restore_minimized', target)
+            tags = mask(window['tags'])
+            if client['monitor'] != window['output']:
+                mango('dispatch', f"tagcrossmon,{tags},{window['output']}", target)
+            elif set(client['tags']) != set(window['tags']):
+                mango('dispatch', 'tagsilent,' + tags, target)
+            placed[client['id']] = window
+        except (OSError, ValueError) as exc:
+            problems.append(f'{app}: {exc}')
+
+    # A client or output can disappear between the initial query and dispatch.
+    live = {c['id']: c for c in query('clients')}
+    restored = 0
+    for client_id, window in placed.items():
+        client = live.get(client_id)
+        if (client and client['appid'] == window['app'] and client['monitor'] == window['output']
+                and set(client['tags']) == set(window['tags']) and not client.get('is_minimized')):
+            restored += 1
+        else:
+            problems.append(f"{window['app']}: could not place window on {window['output']} tag {mask(window['tags'])}")
+    return restored, problems
+
+
+def restore(profile):
+    monitors = enabled_monitors()
+    mapping = destinations(profile, monitors)
+    # Connected destinations keep their layouts when the display has too few tags to avoid a merge.
+    layouts, views = {}, {}
+    for p in sorted(profile['places'], key=lambda p: mapping[p['output'], p['tag']] != (p['output'], p['tag'])):
+        output, tag = mapping[p['output'], p['tag']]
+        layouts.setdefault((output, tag), p['layout'])
+        active = views.setdefault(output, [])
+        if p['active'] and tag not in active:
+            active.append(tag)
+    for output, active in views.items():
+        if not active:
+            active.append(next(tag for mon, tag in layouts if mon == output))
+    focus = next((dest[0] for key, dest in mapping.items() if key[0] == profile['focused']), next(iter(views)))
+    try:
+        restored, problems = place_windows(profile, mapping)
+        available = {item['name']: item['symbol'] for item in json.loads(mango('get', 'layouts'))['layouts']}
+        current = {(m['name'], t['index']): t['layout'] for m in monitors for t in m['tags']}
+        for (output, tag), layout in layouts.items():
+            if layout not in available:
+                problems.append(f'Layout unavailable: {layout}')
+            elif current.get((output, tag)) != available[layout]:
+                mango('dispatch', f'focusmon,{output}')
+                mango('dispatch', f'view,{tag},0')
+                mango('dispatch', 'setlayout,' + layout)
+    finally:
+        for output, tags in views.items():
+            mango('dispatch', f'viewcrossmon,{mask(tags)},{output}')
+        mango('dispatch', 'focusmon,' + focus)
+    message = f"Restored {restored} of {len(profile['windows'])} windows."
+    moves = [f'{mon} {tag} → {dest} {new}' for (mon, tag), (dest, new) in mapping.items() if (mon, tag) != (dest, new)]
+    if moves:
+        message += ' Remapped tags: ' + ', '.join(moves) + '.'
+    if problems:
+        message += ' ' + '; '.join(dict.fromkeys(problems))
+    return dict(message=message, complete=not problems, remapped=bool(moves))
+
+
+def load():
+    try:
+        data = json.loads(STORE.read_text())
+    except FileNotFoundError:
+        return {}
+    if not isinstance(data, dict) or data.get('version') != 1 or not isinstance(data.get('profiles'), dict):
+        raise ValueError('Unrecognized saved workspace file.')
+    return data['profiles']
+
+
+def write(profiles):
+    with tempfile.NamedTemporaryFile('w', dir=STORE.parent, delete=False) as tmp:
+        path = Path(tmp.name)
+        try:
+            json.dump(dict(version=1, profiles=profiles), tmp, ensure_ascii=False)
+            tmp.write('\n')
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            os.replace(path, STORE)
+        finally:
+            path.unlink(missing_ok=True)
+
+
+def manage(action, name, selection, entries):
+    if action == 'list':
+        return summaries(load())
+    if not name or len(name) > 80 or not all(c.isprintable() for c in name):
+        raise ValueError('Use a workspace name of 1–80 printable characters.')
+    STORE.parent.mkdir(parents=True, exist_ok=True)
+    with STORE.with_suffix('.lock').open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError('Another saved workspace operation is running. Try again.') from None
+        profiles = load()
+        if action == 'save':
+            if name in profiles:
+                raise ValueError('That name already exists. Choose another or replace it explicitly.')
+        elif name not in profiles:
+            raise ValueError('Saved workspace no longer exists.')
+        if action == 'restore':
+            return {**summaries(profiles), **restore(profiles[name])}
+        if action == 'delete':
+            del profiles[name]
+        else:
+            profiles[name] = capture(selection, entries)
+        write(profiles)
+        return summaries(profiles)
+
+
+def summaries(profiles):
+    return dict(profiles=[dict(name=name, windows=len(p['windows']),
+                               places=[[place['output'], place['tag']] for place in p['places']])
+                          for name, p in sorted(profiles.items(), key=lambda item: item[0].casefold())])
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest='action', required=True)
+    commands.add_parser('list')
+    for action in ('save', 'replace', 'restore', 'delete'):
+        command = commands.add_parser(action)
+        command.add_argument('name')
+        if action in ('save', 'replace'):
+            command.add_argument('--selection', help='JSON pairs of output name and tag (defaults to active tags)')
+            command.add_argument('--entries', default='{}', help='JSON map of application IDs to desktop entry IDs')
+    args = parser.parse_args()
+    selection = getattr(args, 'selection', None)
+    if selection is not None:
+        selection = {(output, tag) for output, tag in json.loads(selection)}
+    result = manage(args.action, getattr(args, 'name', '').strip(), selection, json.loads(getattr(args, 'entries', '{}')))
+    print(json.dumps(result, ensure_ascii=False))
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.TimeoutExpired) as exc:
+        sys.exit(f'Saved workspaces: {exc}')

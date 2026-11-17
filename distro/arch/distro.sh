@@ -14,7 +14,7 @@ PACKAGES=(
     # Terminal and editor
     kitty fish starship fastfetch btop git ripgrep
     # Applications
-    pavucontrol blueman network-manager-applet xdg-utils firefox
+    pavucontrol blueman network-manager-applet xdg-utils firefox gtk3 # gtk-launch reopens saved workspace apps
     # Themes and fonts
     breeze breeze-cursors breeze-icons breeze-gtk papirus-icon-theme
     qt6ct ttf-jetbrains-mono-nerd inter-font
