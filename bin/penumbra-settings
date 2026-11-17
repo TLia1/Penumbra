@@ -118,6 +118,12 @@ def save(values):
     lines = ['# Penumbra settings, written by install.sh and the shell\'s Settings pages.',
              '# Edit them, then run ./install.sh --user-only (or penumbra-settings apply) to apply.']
     lines += [f'{key}={values[key]}' for key in DEFAULTS]
+    # Keep preferences from a newer compatible release when editing after a downgrade.
+    if SETTINGS.exists():
+        for line in SETTINGS.read_text().splitlines():
+            key, sep, _ = line.partition('=')
+            if sep and re.fullmatch(r'[a-z_]+', key) and key not in DEFAULTS:
+                lines.append(line)
     replace_private(SETTINGS, '\n'.join(lines) + '\n')
 
 

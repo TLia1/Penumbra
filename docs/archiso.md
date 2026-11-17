@@ -72,11 +72,12 @@ References: [NVIDIA's supported GPUs](https://github.com/NVIDIA/open-gpu-kernel-
 
 ## Choose the desktop revision
 
-The ISO installer clones **<https://github.com/TLia1/Panumbra>** and runs that
-checkout’s `install.sh`. Publish the MangoWM-only changes to the branch or tag
-you intend to install. Before partitioning, the installer checks for offline
-installation support, the MangoWM configuration and the idle service.
-To select a published branch or tag:
+The standalone installer pins Penumbra to `v0.1.0` and Lia Files to a specific
+commit. It fetches both sources and checks the Penumbra packaging recipe before
+partitioning. The target builds the same four Arch packages as an existing
+desktop install, installs them together with pacman, then applies the packaged
+system, user and boot files. The default tag must be published before using
+a standalone ISO. To test a packaging branch before tagging, select it explicitly:
 
 ```bash
 install-arch --penumbra-ref YOUR_BRANCH_OR_TAG
@@ -92,10 +93,11 @@ The checksum checks archive integrity; it is not an independent authenticity
 signature. GitHub is the source of trust for both projects. You can review the
 recipe and installer before confirming disk erasure.
 
-Use `--lia-ref YOUR_BRANCH_OR_TAG` to select another published Lia Files revision.
+Use `--lia-ref REF` to select another published Lia Files branch, tag or commit.
 Source commits are recorded in `/root/penumbra-install/sources.txt` on the target.
-The Penumbra checkout remains at `~/Penumbra`; Lia's build files remain at
-`~/.cache/lia-files-build`.
+The Penumbra checkout remains at `~/Penumbra` for source upgrades. The initial
+Arch packages are in `~/.cache/penumbra-packages` and Lia's build files are in
+`~/.cache/lia-files-build`. See the [release guide](releases.md) for later upgrades and rollback.
 
 ## Put the script in your Arch ISO
 

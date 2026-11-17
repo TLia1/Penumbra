@@ -1,0 +1,56 @@
+pkgbase=penumbra-desktop
+pkgname=(penumbra-desktop penumbra-apps penumbra-editor penumbra-boot)
+pkgver=@VERSION@
+pkgrel=1
+arch=(any)
+url='https://github.com/TLia1/Panumbra'
+options=(!strip !debug)
+source=("penumbra-$pkgver.tar.gz")
+sha256sums=('@SHA256@')
+
+# Keep the same layout as a checkout so packaged and source installs render identically.
+_apps=(apps palette/templates/apps share/{gtksourceview-5,kio,lia-files} palette/templates/share/gtksourceview-5)
+_editor=(config/nvim palette/templates/config/nvim tools/install-neovim.sh)
+_boot=(boot tools/install-boot.py)
+
+_copy() {
+    local path dest="$pkgdir/usr/share/penumbra-desktop"
+    cd "$srcdir/penumbra-$pkgver"
+    mkdir -p "$dest"
+    for path in "$@"; do cp -R --preserve=mode,timestamps --parents "$path" "$dest"; done
+}
+
+package_penumbra-desktop() {
+    pkgdesc='Penumbra MangoWM desktop, Quickshell shell, helpers and stock artwork'
+    depends=(bash python mangowm quickshell)
+    optdepends=('penumbra-apps: application themes and file manager actions'
+                'penumbra-editor: Neovim configuration' 'penumbra-boot: boot themes')
+    _copy VERSION install.sh bin config system distro assets share palette tools/render-install.py
+    local path
+    for path in "${_apps[@]}" "${_editor[@]}"; do
+        rm -rf -- "$pkgdir/usr/share/penumbra-desktop/$path"
+    done
+    install -Dm644 licenses/Papirus-GPL-3.0.txt "$pkgdir/usr/share/licenses/$pkgname/Papirus-GPL-3.0.txt"
+    install -Dm755 /dev/stdin "$pkgdir/usr/bin/penumbra-install" <<'SH'
+#!/bin/sh
+exec /usr/share/penumbra-desktop/install.sh "$@"
+SH
+}
+
+package_penumbra-apps() {
+    pkgdesc='Penumbra application themes and file manager actions'
+    depends=("penumbra-desktop=$pkgver-$pkgrel")
+    _copy "${_apps[@]}"
+}
+
+package_penumbra-editor() {
+    pkgdesc='Penumbra Neovim configuration and palette'
+    depends=("penumbra-desktop=$pkgver-$pkgrel" neovim)
+    _copy "${_editor[@]}"
+}
+
+package_penumbra-boot() {
+    pkgdesc='Optional Penumbra boot loader artwork and Plymouth theme'
+    depends=("penumbra-desktop=$pkgver-$pkgrel")
+    _copy "${_boot[@]}"
+}

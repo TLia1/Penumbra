@@ -110,6 +110,43 @@ class InstallPlan(unittest.TestCase):
         self.run_in_home(ROOT / 'install.sh', '--user-only', '--uninstall', '--yes')
         self.assertEqual(settings.read_text(), 'terminal=foot\n')
 
+    @unittest.skipUnless(os.environ.get('PENUMBRA_TEST_PACKAGES'), 'requires built Arch packages')
+    def test_source_and_packaged_installs_share_a_customized_account(self):
+        artifacts = Path(os.environ['PENUMBRA_TEST_PACKAGES'])
+        stage = self.home / 'stage'
+        stage.mkdir()
+        bundles = sorted(artifacts.glob('penumbra-*.pkg.tar.zst'))
+        self.assertEqual(len(bundles), 4)
+        core = next(p for p in bundles if p.name.startswith('penumbra-desktop-'))
+        subprocess.run(['bsdtar', '-xf', core, '-C', stage], check=True)
+        bundle = stage / 'usr/share/penumbra-desktop'
+        self.prepare_entry('io.github.lia.Files')
+        args = ('--user-only', '--offline', '--distro', 'arch', '--yes')
+        self.run_in_home(bundle / 'install.sh', *args)
+        config = self.home / '.config'
+        self.assertFalse((config / 'nvim').exists())
+        self.assertFalse((bundle / 'apps').exists())
+        self.assertFalse((bundle / 'boot').exists())
+        self.run_in_home('bash', '-c', """
+            echo gap_outer_horizontal=11 >> "$HOME/.config/mango/user.conf"
+            echo future_choice=custom >> "$HOME/.config/penumbra/settings.conf"
+        """)
+        user = config / 'mango/user.conf'
+        original = user.read_bytes()
+        self.run_in_home(self.home / '.local/bin/penumbra-settings', 'set', 'terminal=foot')
+        self.run_in_home(ROOT / 'install.sh', *args)
+        for path in bundles:
+            if path != core:
+                subprocess.run(['bsdtar', '-xf', path, '-C', stage], check=True)
+        self.run_in_home(bundle / 'install.sh', *args)
+        settings = (config / 'penumbra/settings.conf').read_text()
+        self.assertIn('terminal=foot\n', settings)
+        self.assertIn('future_choice=custom\n', settings)
+        self.assertEqual(user.read_bytes(), original)
+        self.assertTrue((config / 'nvim/init.lua').is_file())
+        self.assertEqual((self.home / '.local/share/penumbra/installed-version').read_bytes(),
+                         (ROOT / 'VERSION').read_bytes())
+
     def test_archiso_user_phase_opens_lia_files(self):
         self.prepare_entry('io.github.lia.Files')
         self.run_in_home('bash', '-c', 'source "$1/tools/install-arch.sh"; DESKTOP_USER=desktop; LAYOUT=us; '
