@@ -18,6 +18,10 @@ def mango(*args):
     result = subprocess.run(['mmsg', *args], capture_output=True, text=True, timeout=5)
     if result.returncode:
         raise ValueError(result.stderr.strip() or result.stdout.strip() or 'Mango did not respond.')
+    if args[0] == 'dispatch' and result.stdout.strip():
+        error = json.loads(result.stdout).get('error')
+        if error:
+            raise ValueError(error)
     return result.stdout
 
 
@@ -39,6 +43,10 @@ def regular(client):
         ('is_scratchpad', 'is_namedscratchpad', 'is_global', 'is_overlay', 'is_swallowedby'))
 
 
+def box(item):
+    return tuple(item[k] for k in ('x', 'y', 'width', 'height'))
+
+
 def capture(selection, entries):
     monitors = enabled_monitors()
     layouts = {item['symbol']: item['name'] for item in json.loads(mango('get', 'layouts'))['layouts']}
@@ -54,12 +62,21 @@ def capture(selection, entries):
     if not places or selection is not None and selected != selection:
         raise ValueError('Choose available tags on a connected display.')
     windows = []
+    outputs = {m['name']: m for m in monitors}
     for c in query('clients'):
         tags = [n for n in c['tags'] if (c['monitor'], n) in selected]
         if tags and regular(c) and not c.get('is_minimized'):
             app = c['appid']
-            windows.append(dict(app=app, desktop=entries.get(app) or app, id=c['id'], pid=c.get('pid'),
-                                output=c['monitor'], tags=tags))
+            window = dict(app=app, desktop=entries.get(app) or app, id=c['id'], pid=c.get('pid'),
+                          output=c['monitor'], tags=tags)
+            monitor = outputs[c['monitor']]
+            if c.get('width', 0) > 0 and c.get('height', 0) > 0 and monitor.get('width') and monitor.get('height'):
+                x, y, w, h = box(c)
+                mx, my, mw, mh = box(monitor)
+                window.update(rect=[(x - mx) / mw, (y - my) / mh, w / mw, h / mh],
+                              floating=bool(c.get('is_floating')), fullscreen=bool(c.get('is_fullscreen')),
+                              maximized=bool(c.get('is_maximized')))
+            windows.append(window)
     focused = next((m['name'] for m in monitors if m['active']), places[0]['output'])
     return dict(session=os.environ.get('MANGO_INSTANCE_SIGNATURE'), focused=focused, places=places, windows=windows)
 
@@ -93,7 +110,18 @@ def destinations(profile, monitors):
     return mapping
 
 
-def window_matches(windows, clients, same_session):
+# Desktop IDs and CLI names differ between the distribution and upstream builds.
+EDITORS = {'code': ['code'], 'code-oss': ['code-oss'], 'code-insiders': ['code-insiders'],
+           'codium': ['codium'], 'vscodium': ['codium'],
+           'com.visualstudio.code': ['flatpak', 'run', 'com.visualstudio.code'],
+           'com.vscodium.codium': ['flatpak', 'run', 'com.vscodium.codium']}
+
+
+def entry_id(desktop):
+    return desktop.removesuffix('.desktop').lower()
+
+
+def window_matches(windows, clients, same_session, project=None):
     """Reserve exact matches for every slot before assigning interchangeable windows."""
     remaining = [c for c in clients if regular(c)]
     matches = {}
@@ -104,8 +132,14 @@ def window_matches(windows, clients, same_session):
             for j, client in enumerate(remaining):
                 if client['appid'] != window['app']:
                     continue
-                if priority == 'identity' and not (same_session and window['id'] == client['id']
-                                                   and window['pid'] == client.get('pid')):
+                if priority == 'identity':
+                    original = same_session and (window['id'], window['pid']) == (client['id'], client.get('pid'))
+                    reopened = window.get('opened') == [os.environ.get('MANGO_INSTANCE_SIGNATURE'),
+                                                        client['id'], client.get('pid')]
+                    if not (original or reopened):
+                        continue
+                elif project and entry_id(window['desktop']) in EDITORS:
+                    # Another editor on this tag may have a different folder open.
                     continue
                 if priority == 'placement' and (window['output'] != client['monitor']
                                                 or set(window['tags']) != set(client['tags'])):
@@ -119,13 +153,15 @@ def launch_command(desktop, project):
     command = ['gtk-launch', '--', desktop]
     if not project:
         return command
-    entry = desktop.removesuffix('.desktop').lower()
+    entry = entry_id(desktop)
     terminals = {
         'kitty': ['kitty', '--directory'], 'foot': ['foot', '--working-directory'],
         'alacritty': ['alacritty', '--working-directory'], 'org.kde.konsole': ['konsole', '--workdir'],
         'org.wezfurlong.wezterm': ['wezterm', 'start', '--cwd'],
     }
-    if entry in terminals:
+    if entry in EDITORS:
+        command = [*EDITORS[entry], '--new-window', project]
+    elif entry in terminals:
         command = [*terminals[entry], project]
     elif entry in ('io.github.lia.files', 'org.kde.dolphin'):
         command.append(Path(project).as_uri())
@@ -140,7 +176,7 @@ def open_missing_window(window, reserved, project=None):
     # One browser launch can restore several windows. Claim those before launching again.
     clients = query('clients')
     unclaimed = [c for c in clients if c['id'] not in reserved]
-    match = window_matches([window], unclaimed, False).get(0)
+    match = window_matches([window], unclaimed, False, project).get(0)
     if match:
         return match
     desktop = window['desktop']
@@ -151,13 +187,25 @@ def open_missing_window(window, reserved, project=None):
                                 '--quiet', '--', 'env', '-u', 'MALLOC_CONF', *launch_command(desktop, project)],
                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline = time.monotonic() + 10
+    editor = project and entry_id(desktop) in EDITORS
+    activated = None
     while time.monotonic() < deadline:
-        for client in query('clients'):
-            if client['id'] not in before and regular(client) and client['appid'] == window['app']:
+        clients = [c for c in query('clients') if regular(c) and c['appid'] == window['app']]
+        for client in clients:
+            if client['id'] not in before:
                 return client
-        if process.poll() not in (None, 0):
+        status = process.poll()
+        if status not in (None, 0):
             raise ValueError('Desktop entry could not be launched')
+        if editor and status == 0:
+            # Code can activate an existing window for the exact folder even with
+            # --new-window. Give a newly mapping window priority over title hints.
+            folder = Path(project).name
+            activated = next((c for c in clients if c['id'] not in reserved and c.get('is_focused')
+                              and f' - {folder} - ' in (' - ' + c.get('title', '').replace(' — ', ' - ') + ' - ')), None)
         time.sleep(.2)
+    if activated:
+        return activated
     raise ValueError('No new matching window appeared')
 
 
@@ -171,7 +219,8 @@ def place_windows(profile, mapping):
         targets = [mapping[window['output'], tag] for tag in window['tags']]
         windows.append(dict(window, output=targets[0][0], tags=list(dict.fromkeys(tag for _, tag in targets))))
     session = os.environ.get('MANGO_INSTANCE_SIGNATURE')
-    matches = window_matches(windows, query('clients'), bool(session and session == profile['session']))
+    matches = window_matches(windows, query('clients'), bool(session and session == profile['session']),
+                             profile.get('project'))
     reserved = {client['id'] for client in matches.values()}
     placed = {}
     problems = []
@@ -186,15 +235,19 @@ def place_windows(profile, mapping):
                 try:
                     client = open_missing_window(window, reserved, profile.get('project'))
                     reserved.add(client['id'])
+                    if session and profile.get('project') and entry_id(window['desktop']) in EDITORS:
+                        profile['windows'][i]['opened'] = [session, client['id'], client.get('pid')]
                 except (OSError, ValueError) as exc:
                     failed_launches[app] = str(exc)
                     raise
             target = 'client,' + str(client['id'])
             if client.get('is_minimized'):
                 mango('dispatch', 'restore_minimized', target)
+                client = current_client(client['id'])
             tags = mask(window['tags'])
             if client['monitor'] != window['output']:
-                mango('dispatch', f"tagcrossmon,{tags},{window['output']}", target)
+                mango('dispatch', f"tagmon,{window['output']}", target)
+                mango('dispatch', 'tagsilent,' + tags, target)
             elif set(client['tags']) != set(window['tags']):
                 mango('dispatch', 'tagsilent,' + tags, target)
             placed[client['id']] = window
@@ -203,15 +256,201 @@ def place_windows(profile, mapping):
 
     # A client or output can disappear between the initial query and dispatch.
     live = {c['id']: c for c in query('clients')}
-    restored = 0
+    located = {}
     for client_id, window in placed.items():
         client = live.get(client_id)
         if (client and client['appid'] == window['app'] and client['monitor'] == window['output']
                 and set(client['tags']) == set(window['tags']) and not client.get('is_minimized')):
-            restored += 1
+            located[client_id] = window
         else:
             problems.append(f"{window['app']}: could not place window on {window['output']} tag {mask(window['tags'])}")
-    return restored, problems
+    return located, problems
+
+
+def client_command(client_id, command):
+    mango('dispatch', command, f'client,{client_id}')
+
+
+def current_client(client_id):
+    client = json.loads(mango('get', 'client', str(client_id)))
+    if 'error' in client:
+        raise ValueError(client['error'])
+    return client
+
+
+def close_box(a, b):
+    # Mango rounds split ratios and output scaling to logical pixels.
+    return all(abs(x - y) <= 2 for x, y in zip(a, b))
+
+
+def dwindle_splits(rects):
+    """Recover a sequence of binary splits from non-overlapping saved tile rectangles."""
+    if len(rects) == 1:
+        return next(iter(rects)), []
+    for axis in (0, 1):
+        ordered = sorted(rects, key=lambda i: rects[i][axis])
+        end = rects[ordered[0]][axis] + rects[ordered[0]][axis + 2]
+        for index, key in enumerate(ordered[1:], 1):
+            if end <= rects[key][axis]:
+                left = {i: rects[i] for i in ordered[:index]}
+                right = {i: rects[i] for i in ordered[index:]}
+                first, left_splits = dwindle_splits(left)
+                second, right_splits = dwindle_splits(right)
+                size = end - rects[ordered[0]][axis]
+                return first, [(first, second, axis, size), *left_splits, *right_splits]
+            end = max(end, rects[key][axis] + rects[key][axis + 2])
+    raise ValueError('Saved rectangles do not form a dwindle layout')
+
+
+def replay_dwindle(rects, current_monitor):
+    first, splits = dwindle_splits(rects)
+    parked = set()
+    try:
+        for key in rects:
+            if key != first:
+                client_command(key, 'togglefloating')
+                parked.add(key)
+        for anchor, child, axis, size in splits:
+            client_command(anchor, 'focusid')
+            client_command(child, 'togglefloating')
+            parked.remove(child)
+            a, b = box(current_client(anchor)), box(current_client(child))
+            if a[axis] == b[axis]:
+                client_command(child, 'dwindle_toggle_current_split')
+                a, b = box(current_client(anchor)), box(current_client(child))
+            if a[axis] > b[axis]:
+                # A direction-based exchange can select an overlapping floating
+                # window. Only swap when Mango's stack identifies the sibling.
+                order = [c['id'] for c in query('clients') if c['is_visible'] and
+                         c['monitor'] == current_monitor and not c.get('is_unglobal')]
+                j = order.index(anchor)
+                if order[(j + 1) % len(order)] == child:
+                    client_command(anchor, 'exchange_stack_client,next')
+                elif order[j - 1] == child:
+                    client_command(anchor, 'exchange_stack_client,prev')
+                else:
+                    raise ValueError('Could not swap the two tiled siblings')
+                a = box(current_client(anchor))
+            # Mango coalesces tile resizes within one output frame. Read back
+            # the split before proceeding to another split on the same client.
+            deadline = time.monotonic() + 0.3
+            while abs(delta := size - a[axis + 2]) > 1 and time.monotonic() < deadline:
+                dx, dy = (delta, 0) if axis == 0 else (0, delta)
+                client_command(anchor, f'resizewin,{dx:+},{dy:+}')
+                a = box(current_client(anchor))
+                if abs(size - a[axis + 2]) > 1:
+                    time.sleep(.02)
+    finally:
+        for key in parked:
+            try:
+                if current_client(key)['is_floating']:
+                    client_command(key, 'togglefloating')
+            except (OSError, ValueError):
+                continue  # A closed client must not strand the remaining tiles.
+
+
+def restore_tiles(rects, output, tags, layout):
+    visible = [c for c in query('clients') if c['monitor'] == output
+               and c.get('is_visible') and not c.get('is_unglobal')]
+    tiles = [c for c in visible if not any(c.get(k) for k in
+             ('is_floating', 'is_fullscreen', 'is_maximized', 'is_minimized'))]
+    if all(close_box(box(c), rects[c['id']]) for c in tiles if c['id'] in rects):
+        return
+
+    # Mango exposes the stack in the same order as exchange_stack_client,next.
+    # Move saved clients into their nearest available slots. Floating or unrelated
+    # windows delimit runs so an exchange never targets a bystander.
+    run = []
+    for c in [*visible, None]:
+        if c and c['id'] in rects:
+            run.append(c)
+            continue
+        order = [item['id'] for item in run]
+        slots = [box(item) for item in run]
+        for index, target in enumerate(slots):
+            best = min(range(index, len(order)),
+                       key=lambda j: sum((a - b) ** 2 for a, b in zip(rects[order[j]], target)))
+            for j in range(best, index, -1):
+                client_command(order[j - 1], 'exchange_stack_client,next')
+                order[j - 1], order[j] = order[j], order[j - 1]
+        run.clear()
+
+    if (layout == 'dwindle' and len(rects) > 1 and {c['id'] for c in tiles} == rects.keys()
+            and len(tags) == 1 and all(c['tags'][0] == tags[0] for c in tiles)
+            and not any(c.get('is_fullscreen') or c.get('is_maximized') for c in visible)
+            and any(not close_box(box(current_client(i)), r) for i, r in rects.items())):
+        replay_dwindle(rects, output)
+
+
+def apply_window_state(key, w, rect):
+    c = current_client(key)
+    for flag, action in [('fullscreen', 'togglefullscreen'), ('maximized', 'togglemaximizescreen')]:
+        if c['is_' + flag] and not w[flag]:
+            client_command(key, action)
+            c = current_client(key)
+    if c['is_floating'] != w['floating']:
+        client_command(key, 'togglefloating')
+        c = current_client(key)
+    if w['fullscreen'] or w['maximized']:
+        flag = 'fullscreen' if w['fullscreen'] else 'maximized'
+        if not c['is_' + flag]:
+            client_command(key, 'togglefullscreen' if w['fullscreen'] else 'togglemaximizescreen')
+    elif w['floating']:
+        x, y, width, height = rect
+        if box(c)[2:] != rect[2:]:
+            client_command(key, f'resizewin,{width},{height}')
+            c = current_client(key)
+        if box(c)[:2] != rect[:2]:
+            # Signed absolute coordinates are relative moves in Mango.
+            client_command(key, f"movewin,{x - c['x']:+},{y - c['y']:+}")
+
+
+def restore_positions(placed, monitors, layouts, views):
+    outputs = {m['name']: m for m in monitors}
+    rects, failures = {}, {}
+    for key, w in placed.items():
+        if 'rect' not in w:
+            continue  # Profiles saved before geometry capture.
+        mx, my, mw, mh = box(outputs[w['output']])
+        x, y, width, height = w['rect']
+        rects[key] = (mx + round(x * mw), my + round(y * mh),
+                      max(1, round(width * mw)), max(1, round(height * mh)))
+
+    for output, active in views.items():
+        # Restore hidden tags separately, then the captured combined view last.
+        groups = [[tag] for mon, tag in layouts if mon == output and tag not in active] + [active]
+        for tags in groups:
+            members = {}
+            for i, rect in rects.items():
+                w = placed[i]
+                view = active if set(w['tags']).intersection(active) else [w['tags'][0]]
+                if w['output'] == output and view == tags:
+                    members[i] = rect
+            if not members:
+                continue
+            mango('dispatch', f'viewcrossmon,{mask(tags)},{output}')
+            tiles = {}
+            for key in sorted(members, key=lambda i: placed[i]['fullscreen'] or placed[i]['maximized']):
+                rect = members[key]
+                w = placed[key]
+                try:
+                    apply_window_state(key, w, rect)
+                    if not (w['floating'] or w['fullscreen'] or w['maximized']):
+                        tiles[key] = rect
+                except (OSError, KeyError, ValueError) as exc:
+                    failures[key] = f"{w['app']}: {exc}"
+            if tiles:
+                try:
+                    restore_tiles(tiles, output, tags, layouts[output, min(tags)])
+                except (OSError, KeyError, ValueError) as exc:
+                    failures.update({i: f"{placed[i]['app']}: {exc}" for i in tiles})
+            live = {c['id']: c for c in query('clients')}
+            for i, rect in members.items():
+                c, w = live.get(i), placed[i]
+                if (not c or any(c['is_' + flag] != w[flag] for flag in ('floating', 'fullscreen', 'maximized'))
+                        or not (w['fullscreen'] or w['maximized'] or close_box(box(c), rect))):
+                    failures[i] = f"{w['app']}: could not restore the saved position on {output} tag {mask(tags)}"
+    return failures
 
 
 def restore(profile):
@@ -230,16 +469,18 @@ def restore(profile):
             active.append(next(tag for mon, tag in layouts if mon == output))
     focus = next((dest[0] for key, dest in mapping.items() if key[0] == profile['focused']), next(iter(views)))
     try:
-        restored, problems = place_windows(profile, mapping)
+        placed, problems = place_windows(profile, mapping)
         available = {item['name']: item['symbol'] for item in json.loads(mango('get', 'layouts'))['layouts']}
         current = {(m['name'], t['index']): t['layout'] for m in monitors for t in m['tags']}
         for (output, tag), layout in layouts.items():
             if layout not in available:
                 problems.append(f'Layout unavailable: {layout}')
             elif current.get((output, tag)) != available[layout]:
-                mango('dispatch', f'focusmon,{output}')
-                mango('dispatch', f'view,{tag},0')
+                mango('dispatch', f'viewcrossmon,{tag},{output}')
                 mango('dispatch', 'setlayout,' + layout)
+        failures = restore_positions(placed, monitors, layouts, views)
+        problems.extend(failures.values())
+        restored = len(placed) - len(failures)
     finally:
         for output, tags in views.items():
             mango('dispatch', f'viewcrossmon,{mask(tags)},{output}')
@@ -294,7 +535,14 @@ def manage(action, name, selection, entries, project=None):
         elif name not in profiles:
             raise ValueError('Saved workspace no longer exists.')
         if action == 'restore':
-            return {**summaries(profiles), **restore(profiles[name])}
+            profile = profiles[name]
+            before = [w.get('opened') for w in profile['windows']]
+            try:
+                result = restore(profile)
+            finally:
+                if before != [w.get('opened') for w in profile['windows']]:
+                    write(profiles)
+            return {**summaries(profiles), **result}
         if action == 'delete':
             del profiles[name]
         else:
@@ -330,7 +578,7 @@ def main():
         command = commands.add_parser(action)
         command.add_argument('name')
         if action in ('save', 'replace'):
-            command.add_argument('--project', help='Optional project folder for newly opened terminals and file managers')
+            command.add_argument('--project', help='Optional project folder for newly opened editors, terminals and file managers')
             command.add_argument('--selection', help='JSON pairs of output name and tag (defaults to active tags)')
             command.add_argument('--entries', default='{}', help='JSON map of application IDs to desktop entry IDs')
     args = parser.parse_args()

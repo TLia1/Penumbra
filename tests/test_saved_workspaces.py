@@ -32,14 +32,29 @@ class SavedWorkspaces(unittest.TestCase):
         def mango(*args):
             if args == ('get', 'layouts'):
                 return json.dumps({'layouts': [dict(symbol='DW', name='dwindle'), dict(symbol='T', name='tile')]})
+            if args[:2] == ('get', 'client'):
+                return json.dumps(next(c for c in self.clients if c['id'] == int(args[2])))
             self.calls.append(args)
             if len(args) == 3:
                 c = next(c for c in self.clients if args[2] == 'client,' + str(c['id']))
                 action, *params = args[1].split(',')
-                if action in ('tagcrossmon', 'tagsilent'):
+                if action == 'tagsilent':
                     c['tags'] = list(map(int, params[0].split('|')))
-                if action == 'tagcrossmon':
-                    c['monitor'] = params[1]
+                if action == 'tagmon':
+                    c['monitor'] = params[0]
+                if action == 'togglefloating':
+                    c['is_floating'] = not c['is_floating']
+                if action == 'resizewin':
+                    c['width'], c['height'] = map(int, params)
+                if action == 'movewin':
+                    c['x'] += int(params[0])
+                    c['y'] += int(params[1])
+                if action == 'exchange_stack_client':
+                    j = self.clients.index(c)
+                    other = self.clients[j+1]
+                    self.clients[j], self.clients[j+1] = other, c
+                    for key in ('x', 'y', 'width', 'height'):
+                        other[key], c[key] = c[key], other[key]
         self.enterContext(patch.object(ws, 'mango', side_effect=mango))
         self.enterContext(patch.object(ws, 'query', side_effect=lambda k: self.monitors if k == 'monitors' else self.clients))
         self.disabled = set()
@@ -88,6 +103,68 @@ class SavedWorkspaces(unittest.TestCase):
         ws.manage('replace', 'Work', None, {}, '')
         self.assertNotIn('project', ws.load()['Work'])
 
+    def test_editor_reopens_project_without_claiming_an_unrelated_editor(self):
+        folder = self.store.parents[2] / 'Project A'
+        folder.mkdir()
+        self.clients[:] = [client(1, 'code-oss', 'DP-1', [1])]
+        ws.manage('save', 'Editor', None, {}, str(folder))
+        self.clients[:] = [client(2, 'code-oss', 'DP-1', [1])]
+        def start(*args, **kwargs):
+            self.clients.append(client(3, 'code-oss', 'DP-1', [1]))
+        with patch.object(ws.subprocess, 'Popen', side_effect=start) as launch:
+            self.assertTrue(ws.manage('restore', 'Editor', None, {})['complete'])
+            self.assertEqual(launch.call_args.args[0][-3:], ['code-oss', '--new-window', str(folder)])
+            self.assertTrue(ws.manage('restore', 'Editor', None, {})['complete'])
+            launch.assert_called_once()
+        self.assertEqual(ws.launch_command('code.desktop', str(folder)), ['code', '--new-window', str(folder)])
+        self.assertEqual(ws.launch_command('code-oss', ''), ['gtk-launch', '--', 'code-oss'])
+
+    def test_editor_that_activates_an_existing_project_window(self):
+        folder = self.store.parents[2] / 'Project - A'
+        folder.mkdir()
+        self.clients[:] = [client(7, 'code-oss', 'DP-1', [1], is_focused=True,
+                                  title='main.py - Project - A - Code - OSS')]
+        window = dict(id=1, pid=101, app='code-oss', desktop='code-oss', output='DP-1', tags=[1])
+        with (patch.object(ws.subprocess, 'Popen') as launch, patch.object(ws.time, 'sleep'),
+              patch.object(ws.time, 'monotonic', side_effect=[0, 1, 11])):
+            launch.return_value.poll.return_value = 0
+            self.assertEqual(ws.open_missing_window(window, set(), str(folder))['id'], 7)
+
+    def test_floating_geometry_scales_to_remapped_output_with_negative_origin(self):
+        self.monitors[0].update(x=0, y=0, width=2000, height=1000)
+        self.monitors[1].update(x=-1000, y=-100, width=1000, height=500)
+        self.clients[:] = [client(1, 'kitty', 'DP-1', [1], x=200, y=100, width=800, height=600,
+                                  is_floating=True, is_fullscreen=False, is_maximized=False, is_visible=True)]
+        profile = ws.capture(None, {})
+        self.disabled.add('DP-1')
+        self.clients[0].update(x=-300, y=100, width=300, height=200, is_floating=False)
+        self.assertTrue(ws.restore(profile)['complete'])
+        self.assertEqual(ws.box(self.clients[0]), (-900, -50, 400, 300))
+        self.assertTrue(self.clients[0]['is_floating'])
+        self.calls.clear()
+        self.assertTrue(ws.restore(profile)['complete'])
+        self.assertFalse(any(args[1].startswith(('movewin', 'resizewin', 'togglefloating')) for args in self.calls))
+
+    def test_tiled_windows_reopened_in_reverse_order_return_to_their_slots(self):
+        self.monitors[0].update(x=0, y=0, width=900, height=600)
+        common = dict(y=0, width=300, height=600, is_floating=False, is_fullscreen=False,
+                      is_maximized=False, is_visible=True)
+        self.clients[:] = [client(i, app, 'DP-1', [1], x=i*300, **common)
+                           for i, app in enumerate(('code-oss', 'kitty', 'firefox'))]
+        profile = ws.capture(None, {})
+        self.clients[:] = [client(i+10, app, 'DP-1', [1], x=i*300, **common)
+                           for i, app in enumerate(('firefox', 'kitty', 'code-oss'))]
+        self.assertTrue(ws.restore(profile)['complete'])
+        self.assertEqual([(c['appid'], c['x']) for c in self.clients],
+                         [('code-oss', 0), ('kitty', 300), ('firefox', 600)])
+        self.assertFalse(any(c['is_floating'] for c in self.clients))
+
+    def test_dwindle_split_plan_preserves_asymmetric_nested_tiles(self):
+        first, splits = ws.dwindle_splits({3: (710, 410, 280, 180), 1: (10, 10, 690, 580),
+                                           2: (710, 10, 280, 390)})
+        self.assertEqual(first, 1)
+        self.assertEqual(splits, [(1, 2, 0, 690), (2, 3, 1, 390)])
+
     def test_reuse_duplicate_apps_before_and_after_restart(self):
         recipe = ws.capture(None, {})
         windows = recipe['windows']
@@ -112,7 +189,7 @@ class SavedWorkspaces(unittest.TestCase):
         result = ws.restore(profile)
         self.assertTrue(result['complete'])
         self.assertTrue(result['remapped'])
-        self.assertIn(('dispatch', 'tagcrossmon,2|3,eDP-1', 'client,1'), self.calls)
+        self.assertIn(('dispatch', 'tagmon,eDP-1', 'client,1'), self.calls)
         self.assertEqual(self.calls[-1], ('dispatch', 'focusmon,eDP-1'))
 
     def test_partial_restore_can_be_retried_without_relaunching_existing_apps(self):
