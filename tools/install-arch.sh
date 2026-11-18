@@ -5,7 +5,7 @@ set -Eeuo pipefail
 PENUMBRA_URL=https://github.com/TLia1/Panumbra.git
 LIA_URL=https://github.com/TLia1/Lia-s-file-linux.git
 # Standalone ArchISO copies carry the release pins with them.
-RELEASE_TAG=v0.1.0
+RELEASE_TAG=v0.2.0
 LIA_RELEASE_COMMIT=03f9dce408753fecc090833ec573255a5093a225
 TARGET=/mnt/penumbra
 WORK=''

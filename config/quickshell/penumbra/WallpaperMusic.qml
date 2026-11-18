@@ -19,7 +19,7 @@ Item {
         stacked ? parent.width * 0.84 : Math.max(220, parent.width * 0.31))
     readonly property alias seekArea: timeline
     readonly property alias transportArea: controls
-    height: body.implicitHeight + (lyric ? body.spacing + verse.implicitHeight : 0)
+    height: body.implicitHeight + (verse.text ? body.spacing + verse.implicitHeight : 0)
     x: stacked ? (parent.width - width) / 2 : east ? parent.width - inset - width : inset
     y: Math.max(60, Math.min(parent.height - height - 30,
         lake ? parent.height * (stacked ? 0.89 : 0.86) - body.implicitHeight : parent.height * 0.50 - body.implicitHeight / 2))
@@ -89,6 +89,7 @@ Item {
                     color: root.tint
                 }
                 Caption {
+                    id: title
                     text: root.player?.trackTitle || Media.appName(root.player)
                     font.family: root.lake ? "Noto Serif" : Theme.display
                     font.pixelSize: Math.round((root.lake ? 32 : 29) * Theme.textScale)
@@ -203,10 +204,30 @@ Item {
     Caption {
         id: verse
         anchors { top: body.bottom; topMargin: body.spacing }
+        text: root.lake ? "" : root.lyric
         visible: text !== ""
-        text: root.lyric
         maximumLineCount: 2
         wrapMode: Text.Wrap
-        font.italic: root.lake
+    }
+
+    Loader {
+        id: lakeVerse
+        active: root.lake && root.lyric !== "" && root.enabled
+        readonly property real screenWidth: root.parent.width
+        readonly property real screenHeight: root.parent.height
+        readonly property real leftBank: root.stacked ? root.inset : root.x + root.width + 12
+        width: Math.max(0, Math.min(620 * Theme.textScale, screenWidth - leftBank - root.inset,
+            Math.max(Math.min(280 * Theme.textScale, screenWidth * 0.4), screenWidth - 2 * leftBank)))
+        x: Math.max(leftBank, (screenWidth - width) / 2) - root.x
+        // The art uses a centered cover crop. Follow its waterline even on ultrawide outputs.
+        readonly property real waterline: screenHeight / 2 + (985.6 - 800) * Math.max(screenWidth / 2560, screenHeight / 1600)
+        readonly property real nearBank: root.stacked ? root.y : screenHeight
+        y: waterline + (nearBank - waterline) * 0.45 - height / 2 - root.y - 20
+        sourceComponent: MoonwakeLyrics {
+            text: root.lyric
+            family: title.font.family
+            ink: root.ink
+            pixelSize: Math.round(Math.min(30, Math.max(18, lakeVerse.screenWidth * 0.016)) * Theme.textScale)
+        }
     }
 }

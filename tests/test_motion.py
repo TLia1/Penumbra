@@ -55,7 +55,7 @@ class Motion(unittest.TestCase):
     def test_visual_lifecycles(self):
         with tempfile.TemporaryDirectory(prefix='penumbra-motion-') as folder:
             stage = Path(folder)
-            for name in ['DesktopDepth', 'StaggerReveal', 'FrameSurface', 'WallpaperMusic', 'ActionArea', 'Glyph']:
+            for name in ['DesktopDepth', 'StaggerReveal', 'FrameSurface', 'WallpaperMusic', 'MoonwakeLyrics', 'ActionArea', 'Glyph']:
                 shutil.copy2(ROOT / 'config/quickshell/penumbra' / f'{name}.qml', stage)
             shutil.copy2(ROOT / 'config/quickshell/penumbra/moonwake/Spectrum.qml', stage)
             shutil.copy2(ROOT / 'tests/qml/tst_motion.qml', stage)

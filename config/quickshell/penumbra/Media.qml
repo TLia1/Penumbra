@@ -14,7 +14,7 @@ Singleton {
     onPlayingChanged: if (playing) recent = playing
     readonly property var player: playing ?? (Mpris.players.values.includes(recent) ? recent : null)
     readonly property int count: 8
-    readonly property int bandCount: 14
+    readonly property int bandCount: 20
     property var stereoBars: new Array(2 * bandCount).fill(0)
     // Cava places bass at the centre of stereo output. Pair the channels
     // from the centre out for Moonwake’s low-to-high spectrum.
