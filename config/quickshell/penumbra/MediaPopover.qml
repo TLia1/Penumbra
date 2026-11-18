@@ -6,6 +6,7 @@ import Quickshell.Widgets
 PopupWindow {
     id: root
     property var player: Media.player
+    readonly property real duration: Media.duration(player)
     implicitWidth: 340
     // Reserve the lyrics area before mapping the native popup.
     implicitHeight: body.implicitHeight + 32 + body.spacing + lyrics.maximumContentHeight
@@ -37,13 +38,11 @@ PopupWindow {
                     implicitWidth: 64; implicitHeight: 64
                     radius: Theme.radiusSmall
                     color: Theme.raised
-                    Image {
+                    MediaCover {
                         id: art
                         anchors.fill: parent
-                        source: root.player?.trackArtUrl ?? ""
+                        player: root.player
                         sourceSize: Qt.size(128, 128)
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
                     }
                     Glyph { anchors.centerIn: parent; visible: art.status !== Image.Ready; text: "󰎆"; size: 26 }
                 }
@@ -63,10 +62,10 @@ PopupWindow {
             }
             SliderRow {
                 Layout.fillWidth: true
-                visible: Media.hasLength(root.player)
+                visible: root.duration > 0 && !!root.player?.positionSupported
                 enabled: root.player?.canSeek ?? false
                 glyph: "󰎆"
-                to: Math.max(1, root.player?.length ?? 1)
+                to: Math.max(1, root.duration)
                 value: root.player?.position ?? 0
                 label: Media.time(value)
                 labelWidth: 45

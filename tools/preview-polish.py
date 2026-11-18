@@ -94,8 +94,8 @@ ShellRoot {
             Label { x: 48; y: 948; text: "OFFLINE COMPONENT STUDY / SAMPLE DATA · SOFTWARE RENDER · SHADER LIGHTING REQUIRES THE LIVE GPU SHELL"; color: Theme.dim; font.pixelSize: 10; font.letterSpacing: 1.1 }
         }
         Timer { interval: 1200; running: true; onTriggered: {
-            if (Math.abs(previewMedia.artTint.g - 187/255) > 0.05) {
-                console.error("Album palette was not sampled: " + previewMedia.artTint); Qt.exit(1); return;
+            if (!previewMedia.hasArtwork) {
+                console.error("Media capsule did not load the sample cover"); Qt.exit(1); return;
             }
             scene.grabToImage(result => {
             if (!result.saveToFile(Quickshell.env("PENUMBRA_PREVIEW"))) Qt.exit(1); else Qt.quit();
@@ -107,7 +107,8 @@ ShellRoot {
 
 def stage(folder):
     widgets.stage(folder)
-    for name in ['ActionArea', 'Stepper', 'Capsule', 'Tile', 'SliderRow', 'CardLight', 'IslandSurface', 'WorkspaceStrip', 'MediaCapsule', 'MediaPopover', 'LauncherPreview']:
+    shutil.copy2(widgets.SHELL / 'youtube.js', folder)
+    for name in ['ActionArea', 'Stepper', 'Capsule', 'Tile', 'SliderRow', 'CardLight', 'IslandSurface', 'WorkspaceStrip', 'MediaCover', 'MediaCapsule', 'MediaPopover', 'LauncherPreview']:
         shutil.copy2(widgets.SHELL / (name + '.qml'), folder)
     (folder / 'Settings.qml').write_text('''pragma Singleton
 import Quickshell
@@ -135,7 +136,7 @@ Singleton {
     property int count: 8
     property var bars: [.2, .5, .8, .4, .9, .6, .3, .5]
     function isLive(p) { return false; }
-    function hasLength(p) { return true; }
+    function duration(p) { return p.length; }
     function time(v) { return "1:00"; }
     function appName(p) { return "Sample player"; }
 }

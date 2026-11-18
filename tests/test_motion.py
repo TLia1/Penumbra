@@ -41,7 +41,7 @@ STUBS = {
         function alpha(c, a) { return Qt.rgba(c.r, c.g, c.b, a); }''',
     'Settings': 'property bool desktopClock: true; property bool desktopAura: true',
     'Ui': 'property bool hasVisualizer: true',
-    'Media': '''function hasLength(p) { return p.length > 0; }
+    'Media': '''function duration(p) { return p.length; }
         function time(s) { return String(s); }
         function isLive(p) { return false; }
         function appName(p) { return "Music"; }
@@ -55,8 +55,9 @@ class Motion(unittest.TestCase):
     def test_visual_lifecycles(self):
         with tempfile.TemporaryDirectory(prefix='penumbra-motion-') as folder:
             stage = Path(folder)
-            for name in ['DesktopDepth', 'StaggerReveal', 'FrameSurface', 'WallpaperMusic', 'MoonwakeLyrics', 'ActionArea', 'Glyph']:
+            for name in ['DesktopDepth', 'StaggerReveal', 'FrameSurface', 'WallpaperMusic', 'MediaCover', 'MoonwakeLyrics', 'ActionArea', 'Glyph']:
                 shutil.copy2(ROOT / 'config/quickshell/penumbra' / f'{name}.qml', stage)
+            shutil.copy2(ROOT / 'config/quickshell/penumbra/youtube.js', stage)
             shutil.copy2(ROOT / 'config/quickshell/penumbra/moonwake/Spectrum.qml', stage)
             shutil.copy2(ROOT / 'tests/qml/tst_motion.qml', stage)
             (stage / 'qmldir').write_text(''.join(f'singleton {name} 1.0 {name}.qml\n' for name in STUBS))

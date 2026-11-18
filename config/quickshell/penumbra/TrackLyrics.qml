@@ -10,7 +10,7 @@ Scope {
     property var response: ({})
     readonly property string embedded: String(player?.metadata?.["xesam:asText"] ?? "").trim()
     readonly property var result: embedded ? {status: "ok", synced: embedded, plain: embedded} : response
-    readonly property string signature: JSON.stringify([player?.trackTitle ?? "", player?.trackArtist ?? "", player?.trackAlbum ?? "", Math.round(player?.length ?? 0)])
+    readonly property string signature: JSON.stringify([player?.trackTitle ?? "", player?.trackArtist ?? "", player?.trackAlbum ?? "", Math.round(Media.duration(player))])
     readonly property var lines: Lrc.parse(result.synced ?? "")
     readonly property int current: Lrc.current(lines, player?.position ?? 0)
     property string loaded: ""

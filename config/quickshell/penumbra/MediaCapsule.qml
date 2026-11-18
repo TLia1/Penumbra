@@ -5,6 +5,7 @@ import Quickshell.Widgets
 
 Capsule {
     id: root
+    readonly property bool hasArtwork: cover.status === Image.Ready
     shown: !!Media.player
     padding: 12
     spacing: 10
@@ -33,17 +34,15 @@ Capsule {
         implicitHeight: 24
         radius: Theme.corner(6)
         color: Theme.raised
-        Image {
+        MediaCover {
             id: cover
             anchors.fill: parent
-            source: Media.player?.trackArtUrl ?? ""
+            player: Media.player
             sourceSize: Qt.size(48, 48)
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
         }
         Glyph {
             anchors.centerIn: parent
-            visible: cover.status !== Image.Ready
+            visible: !root.hasArtwork
             text: "󰎆"
             size: 15
             color: Theme.accentBright

@@ -3,6 +3,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Services.Mpris
+import "youtube.js" as YouTube
 
 // What's playing, and a small spectrum of it from cava while it plays.
 Singleton {
@@ -35,11 +36,45 @@ Singleton {
         return DesktopEntries.heuristicLookup(p.desktopEntry || p.identity)?.name || p.identity;
     }
     // Live streams have no real length: Firefox reports an endless one (about 292,000 years).
-    function isLive(p) {
+    function endless(p) {
         return !!p && p.lengthSupported && p.length > 100 * 3600;
     }
-    function hasLength(p) {
-        return !!p && p.lengthSupported && p.length > 0 && !isLive(p);
+    function isLive(p) {
+        return endless(p) || (!!p && p === player && videoTiming?.live === true);
+    }
+    function duration(p) {
+        if (!p || isLive(p)) return 0;
+        if (p.lengthSupported && p.length > 0) return p.length;
+        return p === player ? videoTiming?.seconds ?? 0 : 0;
+    }
+
+    readonly property string videoId: YouTube.videoId(player?.metadata?.["xesam:url"])
+    readonly property var videoTiming: timing.instances[0] ?? null
+    // One metadata lookup shared by every screen. Changing video destroys the old request.
+    Variants {
+        id: timing
+        model: root.videoId && !(root.player?.lengthSupported && root.player.length > 0) ? [root.videoId] : []
+        delegate: Process {
+            id: lookup
+            required property string modelData
+            property real seconds: 0
+            property bool live: false
+            command: ["timeout", "20", "yt-dlp", "--ignore-config", "--no-playlist", "--skip-download",
+                "--ignore-no-formats-error", "--socket-timeout", "5", "--retries", "0", "--extractor-retries", "0",
+                "--print", "%(.{duration,live_status})j", "--", "https://www.youtube.com/watch?v=" + modelData]
+            running: true
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    if (!text.trim()) return;
+                    try {
+                        const info = JSON.parse(text);
+                        lookup.live = info.live_status === "is_live";
+                        if (!lookup.live && info.live_status !== "is_upcoming" && Number.isFinite(info.duration) && info.duration > 0)
+                            lookup.seconds = info.duration;
+                    } catch (error) { return; }
+                }
+            }
+        }
     }
     // 4:05, or 1:02:03 past an hour.
     function time(seconds) {

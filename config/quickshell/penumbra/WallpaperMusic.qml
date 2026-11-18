@@ -12,8 +12,9 @@ Item {
     readonly property color ink: paleSky ? "#302541" : lake ? "#faeee8" : "#f3edf9"
     readonly property color tint: lake ? "#edd4c6" : scene?.tint ?? "#c8adf1"
     readonly property real inset: Math.min(100, parent.width * 0.064)
-    readonly property bool timed: Media.hasLength(player) && !!player?.positionSupported
-    readonly property real fraction: timed ? Math.max(0, Math.min(1, player.position / player.length)) : 0
+    readonly property real duration: Media.duration(player)
+    readonly property bool timed: duration > 0 && !!player?.positionSupported
+    readonly property real fraction: timed ? Math.max(0, Math.min(1, player.position / duration)) : 0
     readonly property bool stacked: lake && parent.width < 700 && parent.width < parent.height
     width: Math.min(348 * Theme.textScale, parent.width - inset * 2,
         stacked ? parent.width * 0.84 : Math.max(220, parent.width * 0.31))
@@ -58,16 +59,14 @@ Item {
             width: parent.width
             spacing: 12
             layoutDirection: root.east ? Qt.RightToLeft : Qt.LeftToRight
-            Image {
+            MediaCover {
                 id: cover
                 anchors.verticalCenter: parent.verticalCenter
                 width: Math.round(56 * Theme.textScale)
                 height: width
                 visible: status === Image.Ready
-                source: root.player?.trackArtUrl ?? ""
+                player: root.player
                 sourceSize: Qt.size(192, 192)
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: true
                 Rectangle {
                     anchors.fill: parent
                     visible: root.lake
@@ -146,7 +145,7 @@ Item {
                 cursorShape: Qt.PointingHandCursor
                 onClicked: event => {
                     const fraction = (event.x - track.x) / track.width;
-                    root.player.position = root.player.length * Math.min(1, Math.max(0, fraction));
+                    root.player.position = root.duration * Math.min(1, Math.max(0, fraction));
                 }
             }
         }
@@ -192,7 +191,7 @@ Item {
                 id: stamp
                 anchors.verticalCenter: parent.verticalCenter
                 horizontalAlignment: root.east ? Text.AlignLeft : Text.AlignRight
-                text: root.timed ? Media.time(root.player.position) + "  /  " + Media.time(root.player.length)
+                text: root.timed ? Media.time(root.player.position) + "  /  " + Media.time(root.duration)
                     : Media.isLive(root.player) ? "Live" : ""
                 font.pixelSize: Theme.textTiny
                 font.features: { "tnum": 1 }

@@ -19,7 +19,7 @@ SHELL = ROOT / 'config/quickshell/penumbra'
 STUBS = {
     'Settings': 'property real glassFrost: 0; property real textScale: 1; property bool reducedMotion: true; property bool weatherEnabled: true; property var weatherPlace: null',
     'Ui': 'property string bin: "/nonexistent/"',
-    'Media': 'function isLive(p) { return false; }',
+    'Media': 'function isLive(p) { return false; } function duration(p) { return p?.length ?? 0; }',
     'Clock': 'property date date: new Date("2026-11-03T17:30:00Z")',
     'Weather': '''property var place: ({name: "Paris"})
         property var current: ({temperature_2m: 14, apparent_temperature: 12, wind_speed_10m: 9})
