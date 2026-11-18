@@ -18,7 +18,7 @@ WallpaperScene {
         id: depth
         z: 3
         active: root.desktop && !root.clean
-        running: root.running
+        running: root.auraRunning
         radialAura: false
         center: Qt.point(1280, 628)
         orbitRadius: 0

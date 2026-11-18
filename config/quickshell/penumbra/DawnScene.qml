@@ -33,7 +33,7 @@ WallpaperScene {
     DesktopDepth {
         z: 4
         active: root.desktop && !root.clean
-        running: root.running
+        running: root.auraRunning
         center: root.planet
         orbitRadius: 465
         clockY: 362

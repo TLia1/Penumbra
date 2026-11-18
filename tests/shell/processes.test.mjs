@@ -16,7 +16,10 @@ function top(rows) {
             'top - second', header, ...body].join('\n');
 }
 function cgroups(map) {
-    return '\n## cgroups\n' + Object.entries(map).map(([pid, cg]) => `/proc/${pid}/cgroup:0::${cg}`).join('\n');
+    return Object.entries(map).map(([pid, cg]) => `/proc/${pid}/cgroup:0::${cg}`).join('\n');
+}
+function pss(map) {
+    return '\n' + Object.entries(map).map(([pid, kib]) => `/proc/${pid}/smaps_rollup:Pss:   ${kib} kB`).join('\n');
 }
 function byKey(groups) {
     return Object.fromEntries(groups.map(g => [g.key, g]));
@@ -26,11 +29,12 @@ test('an app scope is one app, with every process in it', () => {
     const g = byKey(P.group(top([
         [100, 'lia', 1000, 2.0, '/usr/lib/firefox/firefox'],
         [101, 'lia', 500, 1.0, '/usr/lib/firefox/firefox -contentproc'],
-    ]), cgroups({ 100: `${user}/app.slice/app-firefox-100.scope`, 101: `${user}/app.slice/app-firefox-100.scope` })));
+    ]), cgroups({ 100: `${user}/app.slice/app-firefox-100.scope`, 101: `${user}/app.slice/app-firefox-100.scope` }) + pss({ 100: 800, 101: 300 })));
     const app = g['app-firefox-100.scope'];
     assert.deepEqual([...app.pids], ['100', '101']);
     assert.equal(app.cpu, 3);
-    assert.equal(app.mem, 1500);
+    assert.equal(app.mem, 1100);
+    assert.equal(app.partial, false);
     assert.equal(app.appId, 'firefox');
     assert.deepEqual([...app.units], ['app-firefox-100.scope']);
     assert.equal(app.guarded, false);
@@ -84,8 +88,12 @@ test('scopes an app makes for its helpers join it; those the shell makes stay ap
         410: `${user}/app.slice/run-p400-i7.scope`,
         500: `${user}/app.slice/penumbra-shell.service`,
         510: `${user}/app.slice/run-p500-i9.scope`,
-    })));
+    }) + pss({ 400: 800, 410: 150, 500: 0 })));
     const claude = g['app-com.anthropic.Claude-400.scope'];
+    assert.equal(claude.mem, 950);
+    assert.equal(claude.partial, false);
+    assert.equal(g['penumbra-shell.service'].partial, false, 'a readable zero is a complete reading');
+    assert.equal(g['run-p500-i9.scope'].partial, true);
     assert.deepEqual([...claude.pids], ['400', '410']);
     assert.deepEqual([...claude.units], ['app-com.anthropic.Claude-400.scope', 'run-p400-i7.scope']);
     assert.equal(g['run-p400-i7.scope'], undefined);
@@ -104,10 +112,13 @@ test('kernel threads are one row, and the sampling itself is left out', () => {
     assert.equal(g.kernel.cpu, 1);
 });
 
-test('top shortens wide memory figures', () => {
-    assert.equal(P.kib('2048'), 2048);
-    assert.equal(P.kib('1.5m'), 1536);
-    assert.equal(P.kib('2.0g'), 2097152);
+test('an unreadable helper leaves the app with a lower bound', () => {
+    const [app] = P.group(top([
+        [100, 'lia', 1000, 1, 'chatgpt'],
+        [101, 'lia', '2.0g', 1, 'renderer'],
+    ]), cgroups({ 100: `${user}/app-chatgpt-100.scope`, 101: `${user}/run-p100-i1.scope` }) + pss({ 100: 800 }));
+    assert.equal(app.mem, 800);
+    assert.equal(app.partial, true);
 });
 
 test('desktop file IDs come out of XDG unit names', () => {

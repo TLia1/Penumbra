@@ -7,6 +7,8 @@ Item {
     required property string folder
     required property var layers
     property bool running: true
+    // The audio aura can keep responding on battery while ambient motion rests.
+    property bool auraRunning: running
     property color sceneTint: "#c4a6ff"
     // The lock screen leaves out the wordmark.
     property bool clean: false

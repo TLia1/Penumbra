@@ -65,7 +65,7 @@ WallpaperScene {
         radialAura: false
         z: 7
         active: root.desktop && !root.clean
-        running: root.running
+        running: root.auraRunning
         center: root.eclipse
         orbitRadius: 295
         clockY: 190
@@ -183,7 +183,7 @@ WallpaperScene {
         property color sceneTint: root.sceneTint
         property real time: desktopDepth.live ? 0 : root.t
         property real audioActive: desktopDepth.live ? 1 : 0
-        // DesktopDepth disconnects Cava while paused, locked, disabled or in reduced motion.
+        // DesktopDepth disconnects Cava while hidden, disabled or in reduced motion.
         property real bass: ((desktopDepth.samples[0] ?? 0) + (desktopDepth.samples[1] ?? 0)
             + (desktopDepth.samples[2] ?? 0)) / 3
         property real mids: ((desktopDepth.samples[3] ?? 0) + (desktopDepth.samples[4] ?? 0)

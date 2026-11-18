@@ -23,16 +23,19 @@ function guarded(unit, exe) {
     return unit.startsWith("penumbra-") || ["mango", "quickshell", "systemd", "swayidle"].includes(exe);
 }
 
-// cgroups(text) → { pid: path } from `grep -H '' /proc/[0-9]*/cgroup`, which prints
-// "/proc/PID/cgroup:0::/user.slice/…/app-firefox@1.scope" (cgroup v2's line is the "0::" one).
-function cgroups(text) {
+// The unit path and proportional resident memory (KiB) for each PID we can read.
+function procInfo(text) {
     const paths = {};
+    const pss = {};
     for (const line of text.split("\n")) {
         const m = line.match(/^\/proc\/(\d+)\/cgroup:0::(.*)$/);
         if (m)
             paths[m[1]] = m[2];
+        const size = line.match(/^\/proc\/(\d+)\/smaps_rollup:Pss:\s+(\d+) kB$/);
+        if (size)
+            pss[size[1]] = Number(size[2]);
     }
-    return paths;
+    return { paths, pss };
 }
 
 // The unit at the end of a cgroup path, and whether it is one of the user's own (so
@@ -68,17 +71,11 @@ function program(command) {
     return { exe, name: script && exe !== "env" ? script.split("/").pop() : exe };
 }
 
-// RES is in KiB, but top shortens values too wide for the column (e.g. 10.2g).
-function kib(value) {
-    const scale = { m: 1024, g: 1048576, t: 1073741824 }[value.slice(-1)];
-    return scale ? parseFloat(value) * scale : Number(value);
-}
-
-// group(top, cgroupText) → [{ key, units, exe, name, appId, cpu, mem, pids, user, guarded }]:
+// group(top, procText) → [{ key, units, exe, name, appId, cpu, mem, partial, pids, user, guarded }]:
 // one per app. `top` is `top -b -n 2 -c` output (only the last sample counts), the sampling itself
 // left out. `units` lists the user units to signal when every process came from one, else is empty
 // and the PIDs are signalled.
-function group(top, cgroupText) {
+function group(top, procText) {
     const lines = top.split("\n");
     let start = lines.length;
     for (let i = lines.length - 1; i >= 0; i--) {
@@ -87,7 +84,7 @@ function group(top, cgroupText) {
             break;
         }
     }
-    const paths = cgroups(cgroupText);
+    const { paths, pss } = procInfo(procText);
     const found = {};
     const keyOf = {}; // pid → key
     const made = {}; // key → the PID that made its scope
@@ -118,11 +115,14 @@ function group(top, cgroupText) {
             }
         }
         if (!found[key])
-            found[key] = { key, units: [], loose: false, exe: "", name: "", appId: appId(unit), cpu: 0, mem: 0, pids: [], user: m[2], guarded: false, lowest: Infinity };
+            found[key] = { key, units: [], loose: false, exe: "", name: "", appId: appId(unit), cpu: 0, mem: 0, partial: false, pids: [], user: m[2], guarded: false, lowest: Infinity };
         const g = found[key];
         keyOf[pid] = key;
         g.cpu += Number(m[4]);
-        g.mem += kib(m[3]);
+        if (pss[pid] !== undefined)
+            g.mem += pss[pid];
+        else if (m[3] !== "0")
+            g.partial = true;
         g.pids.push(pid);
         if (g.user !== m[2])
             g.user = "";
@@ -148,6 +148,7 @@ function group(top, cgroupText) {
             continue;
         into.cpu += from.cpu;
         into.mem += from.mem;
+        into.partial = into.partial || from.partial;
         into.pids = into.pids.concat(from.pids);
         into.units = into.units.concat(from.units.filter(u => !into.units.includes(u)));
         into.loose = into.loose || from.loose;

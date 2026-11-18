@@ -38,15 +38,14 @@ Panel {
     onOpenChanged: if (!open) expanded = ""
     onSortByChanged: refreshList()
 
-    // Two batch iterations: the second measures CPU over the one-second delay. Then each
-    // process's cgroup, which tells apps apart (processes.js). The C locale keeps decimal points
-    // out of the user's locale.
+    // The second top sample measures CPU over one second. Read the cgroup and PSS
+    // alongside it so shared resident pages are apportioned across their processes.
     Process {
         id: top
-        command: ["bash", "-c", "LC_ALL=C top -b -n 2 -d 1 -w 512 -c -e k; echo '## cgroups'; grep -sH '' /proc/[0-9]*/cgroup"]
+        command: ["bash", "-c", "LC_ALL=C top -b -n 2 -d 1 -w 512 -c -e k; echo '## proc'; grep -sH -e '^0::' -e '^Pss:' /proc/[0-9]*/{cgroup,smaps_rollup}"]
         stdout: StdioCollector {
             onStreamFinished: {
-                const at = text.indexOf("\n## cgroups\n");
+                const at = text.indexOf("\n## proc\n");
                 root.groups = Processes.group(at < 0 ? text : text.slice(0, at), at < 0 ? "" : text.slice(at));
                 if (root.listing) root.refreshList();
             }
@@ -89,6 +88,7 @@ Panel {
                 icon: entry?.icon ? Quickshell.iconPath(entry.icon, true) : "",
                 cpu: g.cpu / Usage.cores,
                 mem: g.mem,
+                partial: g.partial,
                 pids: g.pids.join(" "),
                 count: g.pids.length,
                 user: g.user,
@@ -106,8 +106,14 @@ Panel {
     function percent(value) {
         return value < 0.05 ? "0%" : value < 10 ? value.toFixed(1) + "%" : Math.round(value) + "%";
     }
-    function size(kib) {
-        return kib < 512 ? "—" : kib >= 1048576 ? (kib / 1048576).toFixed(1) + " GiB" : Math.round(kib / 1024) + " MiB";
+    function size(kib, partial) {
+        if (kib === 0 && partial) return "—";
+        if (partial && kib < 1024) return "≥" + kib + " KiB";
+        if (kib >= 1048576) {
+            const gib = kib / 1048576;
+            return partial ? "≥" + (Math.floor(gib * 10) / 10).toFixed(1) + " GiB" : gib.toFixed(1) + " GiB";
+        }
+        return partial ? "≥" + Math.floor(kib / 1024) + " MiB" : kib < 512 ? "—" : Math.round(kib / 1024) + " MiB";
     }
     function gib(kib) {
         return (kib / 1048576).toFixed(1) + " GiB";
@@ -624,6 +630,7 @@ Panel {
                             required property string icon
                             required property real cpu
                             required property real mem
+                            required property bool partial
                             required property string pids
                             required property int count
                             required property string user
@@ -695,7 +702,7 @@ Panel {
                                     Label {
                                         Layout.preferredWidth: 76
                                         horizontalAlignment: Text.AlignRight
-                                        text: root.size(row.mem)
+                                        text: root.size(row.mem, row.partial)
                                         font.pixelSize: Theme.textBody
                                         color: root.sortBy === "memory" ? Theme.text : Theme.muted
                                     }

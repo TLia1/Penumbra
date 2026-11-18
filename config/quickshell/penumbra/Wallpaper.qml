@@ -154,6 +154,10 @@ Scope {
                     readonly property var workspace: monitor?.activeWorkspace ?? null
                     readonly property bool running: Settings.animatedWallpapers && !Settings.reducedMotion && !root.paused && !root.saving
                         && !(workspace?.hasFullscreen ?? false) && !root.covered(workspace)
+                    // Battery and power-saver pauses stop ambient animation but leave the
+                    // user-enabled audio aura responsive. Keep the usual hidden/locked pauses.
+                    readonly property bool auraRunning: Settings.animatedWallpapers && !Settings.reducedMotion && !root.paused
+                        && !(workspace?.hasFullscreen ?? false) && !root.covered(workspace)
 
                     // Cover the screen like `awww img --resize crop`.
                     Loader {
@@ -174,7 +178,7 @@ Scope {
                                 DesktopDepth {
                                     anchors.fill: parent
                                     active: foreground.status === Image.Ready
-                                    running: window.running
+                                    running: window.auraRunning
                                     center: Qt.point(parent.width / 2, parent.height / 2)
                                     orbitRadius: parent.height * 0.22
                                     clockY: parent.height * 0.15
@@ -195,6 +199,7 @@ Scope {
                             MoonwakeScene {
                                 desktop: true
                                 running: window.running
+                                auraRunning: window.auraRunning
                                 pixelScale: Math.max(window.width / width, window.height / height) * window.devicePixelRatio
                             }
                         }
@@ -205,6 +210,7 @@ Scope {
                                 sceneTint: Ui.wallpaperScenes[root.scene]?.tint ?? "#c4a6ff"
                                 desktop: true
                                 running: window.running
+                                auraRunning: window.auraRunning
                                 pixelScale: Math.max(window.width / width, window.height / height) * window.devicePixelRatio
                             }
                         }
@@ -215,6 +221,7 @@ Scope {
                                 sceneTint: Ui.wallpaperScenes[root.scene]?.tint ?? "#c4a6ff"
                                 desktop: true
                                 running: window.running
+                                auraRunning: window.auraRunning
                                 pixelScale: Math.max(window.width / width, window.height / height) * window.devicePixelRatio
                             }
                         }

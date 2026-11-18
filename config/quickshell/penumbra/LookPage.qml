@@ -817,7 +817,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 Layout.leftMargin: 10
                 Layout.rightMargin: 10
-                text: "Choose Moonwake, Dawn or Eclipse in Wallpaper. The aura rests when wallpaper motion is paused."
+                text: "Choose Moonwake, Dawn or Eclipse in Wallpaper. The aura remains active on battery; it rests when hidden or reduced motion is on."
                 wrapMode: Text.Wrap
                 font.pixelSize: Theme.textSmall
                 color: Theme.dim
