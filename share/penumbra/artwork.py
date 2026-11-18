@@ -8,7 +8,6 @@ import re
 import palette
 
 SOURCES = {
-    'penumbra': 'wallpaper-moonwake',
     'solar-corona': 'wallpaper-dawn',
     'aurora-borealis': 'wallpaper-eclipse',
     'event-horizon': 'wallpaper-eclipse',

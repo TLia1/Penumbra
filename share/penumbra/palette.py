@@ -226,6 +226,13 @@ def guard(colors):
 PRESETS = {
     'penumbra': dict(title='Penumbra', mode='dark', hue=297, vividness=1,
                      wallpaper='wallpaper-moonwake', base='#0d0a12', surface='#100d18', accent='#b69af7'),
+    'moonwake': dict(title='Moonwake', mode='dark', hue=297, vividness=1,
+                     wallpaper='wallpaper-moonwake', base='#30283f', surface='#40344c', accent='#b69af7',
+                     tones=dict(shade='#211c30', viewAlt='#45394f', surfaceAlt='#493c54', raised='#514359',
+                                button='#514359', buttonAlt='#5a4963', glassRaised='#62516d', hover='#64516e',
+                                border='#705d79', light='#88738c', mid='#79657a', textSelection='#624b74',
+                                white='#fff1ec', text='#f4e5e5', textSoft='#dfcdd8', subtle='#d1bdcc',
+                                muted='#c4afc1', dim='#bba5b8', accentSoft='#cfb5ea')),
     'solar-corona': dict(title='Solar Corona', mode='dark', hue=65, vividness=.9,
                          wallpaper='wallpaper-solar-corona', base='#16100c', surface='#211811', accent='#f4b976'),
     'aurora-borealis': dict(title='Aurora Borealis', mode='dark', hue=185, vividness=.85,
@@ -252,6 +259,7 @@ def preset_palette(palettes, mode, name):
             L, C, H = hex_to_oklch(colors[key])
             colors[key] = oklch_to_hex(max(0, min(1, L + delta)), C, H)
         colors.update({key: preset[key] for key in ('base', 'surface', 'accent')})
+        colors.update(preset.get('tones', {}))
     for ink, (fill, least) in INKS.items():
         colors[ink] = choose_ink(palettes[mode], colors, ink, fill, least,
                                 preset['hue'] - BASE_HUE, preset['vividness'])

@@ -23,13 +23,13 @@ import Quickshell
 ShellRoot {
     FloatingWindow {
         visible: true
-        implicitWidth: 1440; implicitHeight: 1000
+        implicitWidth: 1440; implicitHeight: presetGrid.y + presetGrid.implicitHeight + 84
         Rectangle {
             id: scene
             anchors.fill: parent
             color: Theme.base
             Label { x: 48; y: 30; text: "P E N U M B R A"; font.pixelSize: 28; font.weight: Font.Bold }
-            Label { x: 48; y: 78; text: "Six atmospheres. One desktop."; color: Theme.muted; font.pixelSize: 18 }
+            Label { x: 48; y: 78; text: "Curated palettes"; color: Theme.muted; font.pixelSize: 18 }
             Rectangle {
                 x: 48; y: 124; width: 1344; height: 400
                 radius: Theme.radiusLarge
@@ -72,14 +72,16 @@ ShellRoot {
                 result: ({kind: "app", entry: {name: "Sample app", comment: "An offline preview", icon: ""}})
             }
             Grid {
-                x: 48; y: 552; columns: 3; spacing: 18
+                id: presetGrid
+                x: 48; y: 552; width: scene.width - 2 * x; columns: 4; spacing: 18
                 Repeater {
                     model: PRESETS
                     delegate: Rectangle {
                         required property var modelData
-                        width: 436; height: 174; radius: 16
+                        width: (presetGrid.width - (presetGrid.columns - 1) * presetGrid.spacing) / presetGrid.columns
+                        height: 174; radius: 16
                         color: modelData.base; border.color: modelData.accent
-                        Rectangle { x: 18; y: 18; width: 400; height: 78; radius: 12; color: modelData.surface
+                        Rectangle { x: 18; y: 18; width: parent.width - 2 * x; height: 78; radius: 12; color: modelData.surface
                             Image { anchors.fill: parent; source: modelData.artwork; fillMode: Image.PreserveAspectCrop }
                             Row { x: 18; y: 22; spacing: 12
                                 Rectangle { width: 34; height: 34; radius: 17; color: modelData.accent }
@@ -91,7 +93,7 @@ ShellRoot {
                     }
                 }
             }
-            Label { x: 48; y: 948; text: "OFFLINE COMPONENT STUDY / SAMPLE DATA · SOFTWARE RENDER · SHADER LIGHTING REQUIRES THE LIVE GPU SHELL"; color: Theme.dim; font.pixelSize: 10; font.letterSpacing: 1.1 }
+            Label { x: 48; y: presetGrid.y + presetGrid.height + 32; text: "OFFLINE COMPONENT STUDY / SAMPLE DATA · SOFTWARE RENDER · SHADER LIGHTING REQUIRES THE LIVE GPU SHELL"; color: Theme.dim; font.pixelSize: 10; font.letterSpacing: 1.1 }
         }
         Timer { interval: 1200; running: true; onTriggered: {
             if (!previewMedia.hasArtwork) {

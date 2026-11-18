@@ -33,9 +33,9 @@ class Artwork(unittest.TestCase):
         for key, preset in palette.PRESETS.items():
             with self.subTest(preset=key):
                 name = preset['wallpaper']
-                source = artwork.SOURCES[key]
                 svg = (ROOT / 'assets' / (name + '.svg')).read_text()
-                if key != 'penumbra':
+                if key in artwork.SOURCES:
+                    source = artwork.SOURCES[key]
                     self.assertEqual(svg, artwork.preset_scene((ROOT / 'assets' / (source + '.svg')).read_text(), preset))
                 clean = (ROOT / 'assets' / (name + '-clean.svg')).read_text()
                 self.assertNotIn('<text', clean)

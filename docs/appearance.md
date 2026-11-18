@@ -3,12 +3,13 @@
 ## Curated palettes
 
 **Settings → Look → Curated palettes** applies a complete palette and a paired built-in
-wallpaper scene. The six presets tune background and surface lightness as well as the accent;
+wallpaper scene. The presets tune background and surface lightness as well as the accent;
 the palette engine checks text contrast in both modes. Custom colour edits leave the preset.
 
 | Preset | CLI ID | Paired scene |
 |---|---|---|
 | Penumbra | `penumbra` | Moonwake |
+| Moonwake | `moonwake` | Moonwake |
 | Solar Corona | `solar-corona` | Amber Dawn |
 | Aurora Borealis | `aurora-borealis` | Polar curtain |
 | Event Horizon | `event-horizon` | Rose-red Eclipse |
@@ -16,10 +17,12 @@ the palette engine checks text contrast in both modes. Custom colour edits leave
 | Starlight | `starlight` | Pearl Dawn |
 
 ```bash
-penumbra-theme set preset=solar-corona
+penumbra-theme set preset=moonwake
 penumbra-theme set colors=default mode=dark
 ```
 
+The Moonwake preset pairs the lake’s dusk-indigo background with muted plum panels, pearl text
+and Penumbra’s lavender accent. [Preview the Moonwake palette and aura](../previews/moonwake-palette.webp).
 The second command restores the default palette while keeping the selected wallpaper.
 Aurora Borealis adds a folded mint curtain across the sky, visible in the [tiled workspace capture](../previews/aurora-workspace.png).
 Each preset now pairs its palette with coordinated artwork. `tools/build-wallpapers.py`
@@ -50,7 +53,7 @@ corners still apply.
 
 ## Wallpapers
 
-**Moonwake** is the default Penumbra scene. A full moon lights a violet alpine lake. Thin clouds drift over the peaks and the reflection ripples between the banks. Enable **Depth clock** in Settings → Bar, dock & desktop to place the date and time in the mountain saddle. **Audio aura** places fourteen separate bars of light along the far shore, from bass on the left to treble on the right. Each bar rises with its own frequency band and casts a short reflection on the lake. [Animated preview](../previews/moonwake.webp)
+**Moonwake** is the default Penumbra scene. A full moon lights a violet alpine lake. Thin clouds drift over the peaks and the reflection ripples between the banks. Enable **Depth clock** in Settings → Bar, dock & desktop to place the date and time in the mountain saddle. **Audio aura** places fourteen separate bars of light along the far shore, from bright yellow bass bands on the left to violet treble bands on the right. Each bar rises with its own frequency band and casts a short reflection on the lake. [Animated preview](../previews/moonwake.webp)
 
 **Wallpaper picker** (Super+Shift+W, or the wallpaper button in the control center): Penumbra's built-in wallpapers, then the images, GIFs and videos in `~/Pictures/Wallpapers` (Open folder creates and opens it); click one to switch, or move with the arrow keys (Tab, Home and End too) and press Enter.
 

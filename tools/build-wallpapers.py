@@ -23,11 +23,9 @@ scenes = {'wallpaper-moonwake': dict(title='Moonwake', scene='moonwake', folder=
           'wallpaper': dict(title='Night', scene='', folder=''),
           'wallpaper-dawn': dict(title='Dawn', scene='dawn', folder='dawn', tint='#f3b4d6'),
           'wallpaper-eclipse': dict(title='Eclipse', scene='eclipse', folder='eclipse', tint='#c4a6ff')}
-for key, preset in palette.PRESETS.items():
-    if key == 'penumbra':
-        continue
+for key, source in artwork.SOURCES.items():
+    preset = palette.PRESETS[key]
     name = preset['wallpaper']
-    source = artwork.SOURCES[key]
     (assets / (name + '.svg')).write_text(artwork.preset_scene((assets / (source + '.svg')).read_text(), preset))
     scene = scenes[source]['scene']
     scenes[name] = dict(title=preset['title'], scene=scene, folder=key if scene else '', tint=preset['accent'])
