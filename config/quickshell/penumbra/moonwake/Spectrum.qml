@@ -25,7 +25,7 @@ Item {
                 id: column
                 anchors.bottom: parent.top
                 width: parent.width
-                height: 156 * Math.pow(band.level, 0.8)
+                height: 192 * Math.pow(band.level, 0.8)
                 radius: Math.min(3, height / 2)
                 gradient: Gradient {
                     GradientStop { position: 0; color: Qt.lighter(band.tint, 1.18) }

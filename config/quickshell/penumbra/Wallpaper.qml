@@ -96,9 +96,6 @@ Scope {
     }
     Component.onCompleted: follow.restart()
 
-    function musicVisibleOn(screen) {
-        return outputs.instances.some(output => output.modelData === screen && output.musicVisible);
-    }
     readonly property bool musicVisible: outputs.instances.some(output => output.musicVisible)
     TrackLyrics {
         id: lyrics
@@ -126,8 +123,7 @@ Scope {
             required property var modelData
 
             readonly property bool wantsMusic: Settings.desktopMusic && !!Media.player && !!Ui.wallpaperScenes[root.chosen]
-                && !root.waiting && !root.paused && !Ui.shotOpen
-                && !(Ui.screen === modelData && (Ui.overviewOpen || Ui.sessionOpen || Ui.launcherOpen || Ui.openPanel !== ""))
+                && !root.waiting && !root.paused
             readonly property bool musicVisible: surface.item?.musicVisible ?? false
 
             LazyLoader {
@@ -142,7 +138,7 @@ Scope {
                     color: "transparent"
                     readonly property var monitor: Wm.monitorFor(screen)
                     readonly property bool musicVisible: output.wantsMusic && width > 0 && height >= musicWidget.y + musicWidget.height
-                        && monitor !== null && !Wm.desktopAreaCovered(monitor, musicWidget.x, musicWidget.y, musicWidget.width, musicWidget.height)
+                        && !Wm.screenCovered(monitor, width, height)
                     mask: Region {
                         item: window.musicVisible ? musicWidget.transportArea : null
                         Region {
@@ -255,7 +251,7 @@ Scope {
                     }
                     WallpaperMusic {
                         id: musicWidget
-                        // Keep the measured bounds stable while a client overlaps the widget.
+                        // Keep layout measurements stable while the widget is hidden.
                         opacity: window.musicVisible ? 1 : 0
                         enabled: window.musicVisible
                         scene: Ui.wallpaperScenes[root.chosen]

@@ -129,8 +129,10 @@ marks the elapsed time on a moonlit seek line. Click anywhere along the line to 
 Lyrics appear in the middle of the lake in italic serif type, with a rippled reflection beneath them.
 [See the Moonwake player](../previews/moonwake-music.webp)
 
-Each monitor shows its bar capsule when a window covers the widget. Playback can stay
-paused in either location. **Settings → Look → Bar, dock & desktop** lets you turn off the
+Each monitor keeps its bar capsule while a media player is available, including when playback
+is paused. The wallpaper player stays on the desktop behind menus and floating windows. It hides
+when a window is maximized, fullscreen, or covers that entire monitor.
+**Settings → Look → Bar, dock & desktop** lets you turn off the
 wallpaper player or enable **Look up missing lyrics**. Lyrics provided by the player appear
 automatically. The optional LRCLIB lookup runs while the widget is visible. Timed lyrics
 follow playback and seeking. Plain lyrics show their opening lines.

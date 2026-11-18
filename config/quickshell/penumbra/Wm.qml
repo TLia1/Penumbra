@@ -299,15 +299,17 @@ Singleton {
     }
 
     // Mango reports visible clients and their rectangles in global logical coordinates.
-    function desktopAreaCovered(monitor, x, y, width, height) {
-        const left = monitor.x + x, top = monitor.y + y;
+    function screenCovered(monitor, width, height) {
+        if (!monitor) return false;
         return clients.some(client => {
             if (!client.visible || client.isMinimized) return false;
+            if (client.monitorName === monitor.name &&
+                    ((client.isFullscreen && !client.isFakeFullscreen) || client.isMaximized))
+                return true;
             const { at, size } = client.lastIpcObject;
-            if (client.isFullscreen || size[0] <= 0 || size[1] <= 0)
-                return client.monitorName === monitor.name;
-            return at[0] < left + width && at[0] + size[0] > left
-                && at[1] < top + height && at[1] + size[1] > top;
+            return at[0] <= monitor.x && at[1] <= monitor.y
+                && at[0] + size[0] >= monitor.x + width
+                && at[1] + size[1] >= monitor.y + height;
         });
     }
 

@@ -786,7 +786,7 @@ ColumnLayout {
             innerMargin: 4
             SwitchRow {
                 title: "Wallpaper music player"
-                subtitle: "Move playback from the bar onto the scenery when its spot is clear"
+                subtitle: "Show playback controls on the wallpaper as well as in the bar"
                 glyph: "󰎆"
                 checked: Settings.desktopMusic
                 onToggled: Settings.desktopMusic = !Settings.desktopMusic
