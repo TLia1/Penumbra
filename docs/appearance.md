@@ -50,7 +50,7 @@ corners still apply.
 
 ## Wallpapers
 
-**Moonwake** is the default Penumbra scene. A full moon lights a violet alpine lake. Thin clouds drift over the peaks and the reflection ripples between the banks. Enable **Depth clock** in Settings → Bar, dock & desktop to place the date and time in the mountain saddle. **Audio aura** lights up small groups of fireflies along the wooded slopes. Lower notes bring out larger, slowly drifting lights. Higher notes pick out smaller, quicker ones. [Animated preview](../previews/moonwake.webp)
+**Moonwake** is the default Penumbra scene. A full moon lights a violet alpine lake. Thin clouds drift over the peaks and the reflection ripples between the banks. Enable **Depth clock** in Settings → Bar, dock & desktop to place the date and time in the mountain saddle. **Audio aura** places fourteen separate bars of light along the far shore, from bass on the left to treble on the right. Each bar rises with its own frequency band and casts a short reflection on the lake. [Animated preview](../previews/moonwake.webp)
 
 **Wallpaper picker** (Super+Shift+W, or the wallpaper button in the control center): Penumbra's built-in wallpapers, then the images, GIFs and videos in `~/Pictures/Wallpapers` (Open folder creates and opens it); click one to switch, or move with the arrow keys (Tab, Home and End too) and press Enter.
 

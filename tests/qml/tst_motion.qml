@@ -38,36 +38,64 @@ Item {
         }
     }
     Component {
-        id: course
-        MusicVoyage {
-            waterline: 480
-            time: 0
-            stacked: false
-            timed: true
+        id: playerWidget
+        WallpaperMusic {
+            scene: ({scene: "moonwake"})
+            lyric: ""
             player: QtObject {
                 property bool canSeek: true
+                property bool positionSupported: true
                 property real position: 0
                 property real length: 200
-                property string trackArtUrl: ""
+                property string trackTitle: "Still Water"
             }
-            fraction: player.position / player.length
+        }
+    }
+    Component {
+        id: lakeSpectrum
+        Rectangle {
+            width: bars.implicitWidth
+            height: 230
+            color: "#191322"
+            property alias samples: bars.samples
+            Spectrum { id: bars; y: 160; samples: [] }
         }
     }
     TestCase {
         name: "Phase2Motion"
         when: windowShown
+        function test_lake_frequency_bars() {
+            const lake = createTemporaryObject(lakeSpectrum, fixture);
+            verify(lake);
+            for (let active = 0; active < 14; active++) {
+                lake.samples = Array.from({length: 14}, (_, i) => i === active ? 1 : 0);
+                wait(120);
+                const image = grabImage(lake);
+                for (let i = 0; i < 14; i++) {
+                    const x = Math.floor((i + 0.5) * lake.width / 14);
+                    compare(image.pixel(x, 60) !== lake.color, i === active);
+                }
+            }
+            lake.samples = Array(14).fill(1);
+            wait(120);
+            const loud = grabImage(lake);
+            for (let i = 1; i < 14; i++)
+                compare(loud.pixel(Math.round(i * lake.width / 14), 60), lake.color);
+        }
         function test_lake_seeking() {
-            const route = createTemporaryObject(course, fixture);
-            verify(route);
-            const start = route.boatX;
-            mouseClick(route.seekArea, route.seekArea.width / 2, 10);
-            fuzzyCompare(route.player.position, 100, 1);
-            fuzzyCompare(route.boatX, start + route.distance / 2, 1);
-            route.player.canSeek = false;
-            verify(!route.seekArea.enabled);
-            route.timed = false;
-            route.player.position = 0;
-            fuzzyCompare(route.boatX, route.width / 2, 1);
+            const widget = createTemporaryObject(playerWidget, fixture);
+            verify(widget);
+            const seek = widget.seekArea;
+            verify(seek.visible);
+            mouseClick(seek, seek.width / 2, 10);
+            fuzzyCompare(widget.player.position, 100, 1);
+            mouseClick(seek, seek.width - 1, 10);
+            compare(widget.player.position, 200);
+            widget.player.canSeek = false;
+            mouseClick(seek, 1, 10);
+            compare(widget.player.position, 200);
+            widget.player.positionSupported = false;
+            verify(!seek.visible);
         }
         function test_frame() {
             wait(50);

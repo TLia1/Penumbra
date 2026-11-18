@@ -18,8 +18,7 @@ Scope {
     property string chosen: ""
     // Depth widgets still need the layered scene when wallpaper motion is disabled.
     readonly property bool depthScene: Ui.wallpaperKind(chosen) === "scene"
-        && (Settings.desktopClock || Settings.desktopAura
-            || (chosen === "wallpaper-moonwake" && Settings.desktopMusic && !!Media.player))
+        && (Settings.desktopClock || Settings.desktopAura)
     readonly property bool customDepth: chosen.startsWith("/") && Ui.wallpaperKind(chosen) === "still" && Settings.desktopClock
     property string depthMask: ""
     property string sceneMask: ""
@@ -142,17 +141,13 @@ Scope {
                     exclusionMode: ExclusionMode.Ignore
                     color: "transparent"
                     readonly property var monitor: Wm.monitorFor(screen)
-                    readonly property Item voyage: musicWidget.lake && root.chosen === root.scene ? scene.item?.voyage ?? null : null
                     readonly property bool musicVisible: output.wantsMusic && width > 0 && height >= musicWidget.y + musicWidget.height
                         && monitor !== null && !Wm.desktopAreaCovered(monitor, musicWidget.x, musicWidget.y, musicWidget.width, musicWidget.height)
-                        && (!musicWidget.lake || (voyage !== null && scene.item.backgroundReady
-                            && voyage.y >= 0 && voyage.y + voyage.height <= height
-                            && !Wm.desktopAreaCovered(monitor, voyage.x, voyage.y, voyage.width, voyage.height)))
                     mask: Region {
                         item: window.musicVisible ? musicWidget.transportArea : null
                         Region {
                             item: window.musicVisible && musicWidget.timed && musicWidget.player?.canSeek
-                                ? window.voyage?.seekArea ?? musicWidget.seekArea : null
+                                ? musicWidget.seekArea : null
                         }
                     }
                     WlrLayershell.layer: WlrLayer.Bottom
@@ -203,8 +198,6 @@ Scope {
                             id: moonwake
                             MoonwakeScene {
                                 desktop: true
-                                music: output.wantsMusic && musicWidget.lake ? musicWidget : null
-                                viewport: Qt.size(window.width, window.height)
                                 running: window.running
                                 pixelScale: Math.max(window.width / width, window.height / height) * window.devicePixelRatio
                             }

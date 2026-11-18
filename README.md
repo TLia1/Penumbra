@@ -40,7 +40,7 @@ Log out, choose **Mango** on the login screen, and sign in. **Super** is usually
 | Super+L / Super+M | Lock the screen / open the session menu |
 | Super+F1 | Search all active keyboard shortcuts |
 
-Moonwake, the default wallpaper, places the depth clock between mountain peaks. Music lights up fireflies along the wooded slopes. [See it in motion](previews/moonwake.webp)
+Moonwake, the default wallpaper, places the depth clock between mountain peaks. Fourteen bars of light rise from the far shore, each following a different frequency band. [See it in motion](previews/moonwake.webp)
 
 To change the colours and wallpaper together, open **Settings → Look → Curated palettes**. **Apply signature layout** restores the floating capsules and numbered workspaces shown above while keeping your palette and text size.
 

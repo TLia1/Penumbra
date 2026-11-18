@@ -808,7 +808,7 @@ ColumnLayout {
             }
             SwitchRow {
                 title: "Audio aura"
-                subtitle: "Fireflies in Moonwake, a ring in Dawn and an aurora in Eclipse"
+                subtitle: "Lakeside spectrum bars in Moonwake, a ring in Dawn and an aurora in Eclipse"
                 glyph: "󰝚"
                 checked: Settings.desktopAura
                 onToggled: Settings.desktopAura = !Settings.desktopAura

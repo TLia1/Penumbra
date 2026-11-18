@@ -15,13 +15,14 @@ Item {
     readonly property bool timed: Media.hasLength(player) && !!player?.positionSupported
     readonly property real fraction: timed ? Math.max(0, Math.min(1, player.position / player.length)) : 0
     readonly property bool stacked: lake && parent.width < 700 && parent.width < parent.height
-    width: Math.min(348 * Theme.textScale, parent.width - inset * 2, Math.max(220, parent.width * 0.31))
+    width: Math.min(348 * Theme.textScale, parent.width - inset * 2,
+        stacked ? parent.width * 0.84 : Math.max(220, parent.width * 0.31))
     readonly property alias seekArea: timeline
     readonly property alias transportArea: controls
     height: body.implicitHeight + (lyric ? body.spacing + verse.implicitHeight : 0)
     x: stacked ? (parent.width - width) / 2 : east ? parent.width - inset - width : inset
     y: Math.max(60, Math.min(parent.height - height - 30,
-        stacked ? parent.height * 0.92 - body.implicitHeight : lake ? parent.height * 0.85 - body.implicitHeight : parent.height * 0.50 - body.implicitHeight / 2))
+        lake ? parent.height * (stacked ? 0.89 : 0.86) - body.implicitHeight : parent.height * 0.50 - body.implicitHeight / 2))
 
     component Caption: Text {
         width: parent.width
@@ -35,10 +36,24 @@ Item {
         styleColor: "#55322645"
     }
 
+    // Portrait crops bring the bright middle of the lake directly behind the lettering.
+    Rectangle {
+        visible: root.stacked
+        x: -root.x
+        y: -50
+        width: root.parent.width
+        height: root.parent.height - root.y - y
+        gradient: Gradient {
+            GradientStop { position: 0; color: "#001b1527" }
+            GradientStop { position: 0.34; color: "#941b1527" }
+            GradientStop { position: 1; color: "#bd171320" }
+        }
+    }
+
     Column {
         id: body
         width: root.width
-        spacing: 3
+        spacing: root.lake ? 5 : 3
         Row {
             width: parent.width
             spacing: 12
@@ -49,10 +64,16 @@ Item {
                 width: Math.round(56 * Theme.textScale)
                 height: width
                 visible: status === Image.Ready
-                source: root.lake ? "" : root.player?.trackArtUrl ?? ""
+                source: root.player?.trackArtUrl ?? ""
                 sourceSize: Qt.size(192, 192)
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
+                Rectangle {
+                    anchors.fill: parent
+                    visible: root.lake
+                    color: "transparent"
+                    border.color: Theme.alpha(root.tint, 0.4)
+                }
             }
             Column {
                 anchors.verticalCenter: parent.verticalCenter
@@ -64,11 +85,12 @@ Item {
                     font.pixelSize: Theme.textSmall
                     font.weight: Font.DemiBold
                     font.letterSpacing: 1.2
+                    font.capitalization: root.lake ? Font.AllUppercase : Font.MixedCase
                     color: root.tint
                 }
                 Caption {
                     text: root.player?.trackTitle || Media.appName(root.player)
-                    font.family: root.lake ? "serif" : Theme.display
+                    font.family: root.lake ? "Noto Serif" : Theme.display
                     font.pixelSize: Math.round((root.lake ? 32 : 29) * Theme.textScale)
                     font.weight: root.lake ? Font.Normal : Font.Medium
                 }
@@ -77,33 +99,54 @@ Item {
         Item {
             id: timeline
             width: parent.width
-            height: 18
-            visible: root.timed && !root.lake
+            height: root.lake ? 22 : 18
+            visible: root.timed
             Rectangle {
+                id: track
                 anchors.verticalCenter: parent.verticalCenter
-                width: parent.width
-                height: 2
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: parent.width - (root.lake ? 8 : 0)
+                height: root.lake ? 1 : 2
                 color: Theme.alpha(root.tint, 0.33)
                 Rectangle {
                     id: elapsed
                     width: parent.width * root.fraction
-                    height: parent.height
+                    anchors.verticalCenter: parent.verticalCenter
+                    height: root.lake ? 2 : parent.height
                     color: root.tint
+                    gradient: root.lake ? moonlight : null
+                    Gradient {
+                        id: moonlight
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0; color: "#bba1c9" }
+                        GradientStop { position: 1; color: "#ffe3c8" }
+                    }
                 }
                 Rectangle {
                     anchors.horizontalCenter: elapsed.right
                     anchors.verticalCenter: parent.verticalCenter
-                    width: 5
+                    width: root.lake ? 7 : 5
                     height: width
-                    radius: width / 2
+                    radius: root.lake ? 1 : width / 2
+                    rotation: root.lake ? 45 : 0
                     color: root.ink
+                    Rectangle {
+                        anchors.centerIn: parent
+                        visible: root.lake
+                        width: 12; height: width
+                        color: "transparent"
+                        border.color: Theme.alpha(root.tint, 0.48)
+                    }
                 }
             }
             MouseArea {
                 anchors.fill: parent
                 enabled: !!root.player?.canSeek
                 cursorShape: Qt.PointingHandCursor
-                onClicked: event => root.player.position = root.player.length * Math.min(1, Math.max(0, event.x / width))
+                onClicked: event => {
+                    const fraction = (event.x - track.x) / track.width;
+                    root.player.position = root.player.length * Math.min(1, Math.max(0, fraction));
+                }
             }
         }
         Item {

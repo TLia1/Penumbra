@@ -20,6 +20,17 @@ STUBS = {
         property int normal: 260 * motion
         property int barHeight: 40
         property string sans: "sans-serif"
+        property string mono: "monospace"
+        property real textScale: 1
+        property int textSmall: 12
+        property int textBody: 14
+        property int textTiny: 11
+        property int textLarge: 17
+        property int textHeading: 24
+        property int radiusSmall: 4
+        property bool fading: false
+        property int fast: 80
+        property color textSoft: white
         property string display: "sans-serif"
         property color accentBright: "#d4bfff"
         property color white: "#eee8f6"
@@ -30,7 +41,11 @@ STUBS = {
         function alpha(c, a) { return Qt.rgba(c.r, c.g, c.b, a); }''',
     'Settings': 'property bool desktopClock: true; property bool desktopAura: true',
     'Ui': 'property bool hasVisualizer: true',
-    'Media': 'property bool playing: true; property var bars: [0.2, 0.4, 0.8, 1, 0.7, 0.5, 0.3, 0.15]',
+    'Media': '''function hasLength(p) { return p.length > 0; }
+        function time(s) { return String(s); }
+        function isLive(p) { return false; }
+        function appName(p) { return "Music"; }
+        property bool playing: true; property var bars: [0.2, 0.4, 0.8, 1, 0.7, 0.5, 0.3, 0.15]''',
     'Clock': 'property date date: new Date(2026, 10, 3, 10, 24)',
 }
 
@@ -40,10 +55,9 @@ class Motion(unittest.TestCase):
     def test_visual_lifecycles(self):
         with tempfile.TemporaryDirectory(prefix='penumbra-motion-') as folder:
             stage = Path(folder)
-            for name in ['DesktopDepth', 'StaggerReveal', 'FrameSurface']:
+            for name in ['DesktopDepth', 'StaggerReveal', 'FrameSurface', 'WallpaperMusic', 'ActionArea', 'Glyph']:
                 shutil.copy2(ROOT / 'config/quickshell/penumbra' / f'{name}.qml', stage)
-            for name in ['MusicVoyage.qml', 'skiff.svg']:
-                shutil.copy2(ROOT / 'config/quickshell/penumbra/moonwake' / name, stage)
+            shutil.copy2(ROOT / 'config/quickshell/penumbra/moonwake/Spectrum.qml', stage)
             shutil.copy2(ROOT / 'tests/qml/tst_motion.qml', stage)
             (stage / 'qmldir').write_text(''.join(f'singleton {name} 1.0 {name}.qml\n' for name in STUBS))
             for name, body in STUBS.items():

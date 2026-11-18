@@ -124,9 +124,8 @@ The **Wallpaper music player** shows the track, artist and album cover. On Night
 Eclipse it sits to the left of the planet. Dawn mirrors the layout. Click the progress
 bar to seek when the player supports it. [Preview all four wallpapers](../previews/wallpaper-music.webp)
 
-On Moonwake, a sailboat carries the album cover across the lake. Its position marks the
-elapsed time. Click the ripples along its course to seek. The title, lyrics and transport
-controls sit on the near shore. Tracks without cover art fly a linen sail.
+On Moonwake, the cover and track title sit together on the near shore. A small diamond
+marks the elapsed time on a moonlit seek line. Click anywhere along the line to seek.
 [See the Moonwake player](../previews/moonwake-music.webp)
 
 Each monitor shows its bar capsule when a window covers the widget. Playback can stay

@@ -14,7 +14,19 @@ Singleton {
     onPlayingChanged: if (playing) recent = playing
     readonly property var player: playing ?? (Mpris.players.values.includes(recent) ? recent : null)
     readonly property int count: 8
-    property var bars: new Array(count).fill(0)
+    readonly property int bandCount: 14
+    property var stereoBars: new Array(2 * bandCount).fill(0)
+    // Cava places bass at the centre of stereo output. Pair the channels
+    // from the centre out for Moonwake’s low-to-high spectrum.
+    readonly property var spectrum: Array.from({ length: bandCount }, (_, i) =>
+        (stereoBars[bandCount - 1 - i] + stereoBars[bandCount + i]) / 2)
+
+    // The capsule and the other depth scenes use a compact eight-band spectrum.
+    readonly property var bars: Array.from({ length: count }, (_, i) => {
+        const first = Math.floor(i * stereoBars.length / count);
+        const end = Math.floor((i + 1) * stereoBars.length / count);
+        return Math.max(0, ...stereoBars.slice(first, end));
+    })
 
     // The app's own name ("Firefox"), not its MPRIS identity ("Mozilla firefox").
     function appName(p) {
@@ -37,9 +49,9 @@ Singleton {
     }
 
     readonly property string config: [
-        "[general]", `bars = ${count}`, "framerate = 30", "sleep_timer = 2",
+        "[general]", `bars = ${2 * bandCount}`, "framerate = 30", "sleep_timer = 2",
         "[input]", "method = pipewire",
-        "[output]", "method = raw", "raw_target = /dev/stdout", "data_format = ascii",
+        "[output]", "channels = stereo", "method = raw", "raw_target = /dev/stdout", "data_format = ascii",
         "ascii_max_range = 100", "bar_delimiter = 59", "frame_delimiter = 10",
         "[smoothing]", "noise_reduction = 60", ""
     ].join("\n")
@@ -49,8 +61,12 @@ Singleton {
         running: Ui.hasVisualizer && !!root.playing
         command: ["bash", "-c", 'f="${XDG_RUNTIME_DIR:-/tmp}/penumbra/cava.conf"; mkdir -p "${f%/*}"; printf "%s" "$1" > "$f"; exec cava -p "$f"', "_", root.config]
         stdout: SplitParser {
-            onRead: data => root.bars = data.split(";").filter(v => v !== "").map(v => Math.min(1, parseInt(v) / 100))
+            onRead: data => {
+                const frame = data.trim().split(";").filter(v => v !== "").map(v => Number(v) / 100);
+                if (frame.length === 2 * root.bandCount && frame.every(Number.isFinite))
+                    root.stereoBars = frame.map(v => Math.max(0, Math.min(1, v)));
+            }
         }
-        onRunningChanged: if (!running) root.bars = new Array(root.count).fill(0)
+        onRunningChanged: if (!running) root.stereoBars = new Array(2 * root.bandCount).fill(0)
     }
 }
