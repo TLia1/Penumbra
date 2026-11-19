@@ -22,7 +22,7 @@ WallpaperScene {
         radialAura: false
         center: Qt.point(1280, 628)
         orbitRadius: 0
-        clockY: 520
+        clockY: 275
         clockSize: 168
         clockInk: "#f9e9e8"
         dateInk: "#f1dce6"
@@ -47,6 +47,12 @@ WallpaperScene {
         z: 9
         active: depth.live
         sourceComponent: Lake.Spectrum { samples: Media.spectrum }
+    }
+    Loader {
+        anchors.fill: parent
+        z: 10
+        active: depth.live
+        sourceComponent: Lake.Fireflies { time: root.t; samples: depth.samples }
     }
     SceneLayer { scene: root; name: "shores"; z: 10 }
     SceneLayer { scene: root; name: "headland"; z: 11 }
